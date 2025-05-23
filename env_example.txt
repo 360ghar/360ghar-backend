@@ -1,0 +1,55 @@
+# Django Settings
+SECRET_KEY=your-secret-key-here
+DEBUG=True
+ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database Configuration
+DB_NAME=ghar360_db
+DB_USER=postgres
+DB_PASSWORD=password
+DB_HOST=localhost
+DB_PORT=5432
+
+# Redis Configuration
+REDIS_URL=redis://localhost:6379/0
+
+# Elasticsearch Configuration
+ELASTICSEARCH_HOST=localhost:9200
+
+# AWS S3 Configuration
+AWS_ACCESS_KEY_ID=your-aws-access-key
+AWS_SECRET_ACCESS_KEY=your-aws-secret-key
+AWS_STORAGE_BUCKET_NAME=ghar360-media
+AWS_S3_REGION_NAME=us-east-1
+
+# Email Configuration
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=your-email@gmail.com
+EMAIL_HOST_PASSWORD=your-app-password
+EMAIL_USE_TLS=True
+
+# External APIs
+GOOGLE_MAPS_API_KEY=your-google-maps-api-key
+OPENAI_API_KEY=your-openai-api-key
+
+# JWT Configuration
+JWT_SECRET_KEY=your-jwt-secret-key
+JWT_ALGORITHM=HS256
+JWT_ACCESS_TOKEN_LIFETIME=30
+JWT_REFRESH_TOKEN_LIFETIME=1440
+
+# OAuth2 Configuration
+GOOGLE_OAUTH2_CLIENT_ID=your-google-client-id
+GOOGLE_OAUTH2_CLIENT_SECRET=your-google-client-secret
+
+# Celery Configuration
+CELERY_BROKER_URL=redis://localhost:6379/1
+CELERY_RESULT_BACKEND=redis://localhost:6379/2
+
+# Sentry Configuration (Production)
+SENTRY_DSN=your-sentry-dsn
+
+# Rate Limiting
+RATE_LIMIT_ENABLE=True
+RATE_LIMIT_REQUESTS_PER_MINUTE=60 
