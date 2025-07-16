@@ -6,13 +6,13 @@ from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.schemas.property import (
     PropertyCreate, PropertyUpdate, Property, PropertyCard, PropertyFilter,
-    PropertyInterest
+    PropertyInterest, UnifiedPropertyFilter, UnifiedPropertyResponse
 )
 from app.schemas.common import PaginationParams, PaginatedResponse, MessageResponse
 from app.services.property import (
     create_property, get_property, get_properties, update_property,
     delete_property, get_properties_for_discovery, get_properties_nearby,
-    record_property_interest, get_property_recommendations
+    record_property_interest, get_property_recommendations, get_unified_properties
 )
 
 router = APIRouter()
@@ -24,36 +24,14 @@ def create_new_property(
 ):
     return create_property(db, property_data)
 
-@router.get("/discover")
-def discover_properties(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-    limit: int = Query(10, ge=1, le=50)
-):
-    return get_properties_for_discovery(db, current_user.id, limit)
-
-@router.get("/explore")
-def explore_properties(
-    latitude: float = Query(..., description="Latitude for center point"),
-    longitude: float = Query(..., description="Longitude for center point"),
-    radius_km: int = Query(5, ge=1, le=50, description="Search radius in kilometers"),
+@router.post("/search", response_model=UnifiedPropertyResponse)
+def search_properties(
+    filters: UnifiedPropertyFilter,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
     pagination: PaginationParams = Depends()
 ):
-    return get_properties_nearby(
-        db, latitude, longitude, radius_km, 
-        current_user.id, pagination.page, pagination.limit
-    )
-
-@router.post("/filter")
-def filter_properties(
-    filters: PropertyFilter,
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
-    pagination: PaginationParams = Depends()
-):
-    return get_properties(db, filters, current_user.id, pagination.page, pagination.limit)
+    return get_unified_properties(db, filters, current_user.id, pagination.page, pagination.limit)
 
 @router.get("/recommendations")
 def get_recommendations(

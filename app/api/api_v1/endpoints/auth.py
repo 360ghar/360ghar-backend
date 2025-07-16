@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.core.security import verify_supabase_token
 from app.core.supabase_client import get_supabase_client, get_supabase_admin_client
 from app.models.user import User
-from app.schemas.user import UserCreate, Token, User as UserSchema
+from app.schemas.user import UserCreate, Token, User as UserSchema, UserLogin
 from app.services.user import get_user_by_email, get_or_create_user_from_supabase, get_user_by_supabase_id
 
 router = APIRouter()
@@ -95,3 +95,14 @@ def check_session(authorization: str = Header(None)):
         "email": supabase_user_data["email"],
         "email_verified": supabase_user_data["email_verified"]
     }
+
+@router.post("/login")
+def login(user_login: UserLogin, db: Session = Depends(get_db)):
+    supabase = get_supabase_client()
+    try:
+        data = supabase.auth.sign_in_with_password({"email": user_login.email, "password": user_login.password})
+        supabase_user_data = verify_supabase_token(data.session.access_token)
+        db_user = get_or_create_user_from_supabase(db, supabase_user_data)
+        return {"access_token": data.session.access_token, "token_type": "bearer"}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=str(e))

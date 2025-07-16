@@ -1,7 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import logging
+import yaml
 from app.core.config import settings
 from app.api.api_v1.api import api_router
 
@@ -13,7 +14,27 @@ app = FastAPI(
     title="360Ghar Real Estate Platform",
     description="Tinder-like real estate platform backend APIs with Supabase integration",
     version="1.0.0",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=f"{settings.API_V1_STR}/docs",
+    redoc_url=f"{settings.API_V1_STR}/redoc",
+    contact={
+        "name": "360Ghar Development Team",
+        "email": "dev@360ghar.com"
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT"
+    },
+    servers=[
+        {
+            "url": "http://localhost:8000",
+            "description": "Development server"
+        },
+        {
+            "url": "https://api.360ghar.com",
+            "description": "Production server"
+        }
+    ]
 )
 
 app.add_middleware(
@@ -49,8 +70,9 @@ async def health_check():
     try:
         # Test database connection
         from app.core.database import get_db
+        from sqlalchemy import text
         db = next(get_db())
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         
         return {
@@ -80,3 +102,14 @@ async def get_config():
             "Analytics"
         ]
     }
+
+@app.get(f"{settings.API_V1_STR}/openapi.yaml")
+async def get_openapi_yaml():
+    """Download OpenAPI specification as YAML file"""
+    openapi_json = app.openapi()
+    yaml_str = yaml.dump(openapi_json, default_flow_style=False, sort_keys=False)
+    return Response(
+        content=yaml_str,
+        media_type="application/x-yaml",
+        headers={"Content-Disposition": "attachment; filename=360ghar-openapi-spec.yaml"}
+    )

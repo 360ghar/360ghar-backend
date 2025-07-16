@@ -1,26 +1,40 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
-from geoalchemy2 import functions as geo_func
 from app.models.location import Location
 from app.schemas.location import LocationCreate, LocationUpdate
+import math
+
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate the great circle distance between two points on Earth (in kilometers)"""
+    # Convert decimal degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    
+    # Radius of earth in kilometers
+    r = 6371
+    
+    return c * r
 
 def create_location(db: Session, location: LocationCreate):
-    # Convert lat/lng to PostGIS Point
-    point = f'POINT({location.longitude} {location.latitude})'
-    
     db_location = Location(
         name=location.name,
         city=location.city,
         state=location.state,
         country=location.country,
         pincode=location.pincode,
+        latitude=location.latitude,
+        longitude=location.longitude,
         locality=location.locality,
         sub_locality=location.sub_locality,
         landmark=location.landmark,
         full_address=location.full_address,
         area_type=location.area_type,
-        development_status=location.development_status,
-        coordinates=point
+        development_status=location.development_status
     )
     
     db.add(db_location)
@@ -47,17 +61,28 @@ def search_locations(db: Session, query: str, limit: int = 10):
     ).limit(limit).all()
 
 def get_nearby_locations(db: Session, latitude: float, longitude: float, radius_km: int, limit: int = 50):
-    point = f'POINT({longitude} {latitude})'
-    
-    return db.query(Location).filter(
-        func.ST_DWithin(
-            Location.coordinates,
-            func.ST_GeogFromText(point),
-            radius_km * 1000  # Convert km to meters
+    # Get all locations with coordinates
+    locations = db.query(Location).filter(
+        and_(
+            Location.latitude.isnot(None),
+            Location.longitude.isnot(None)
         )
-    ).order_by(
-        func.ST_Distance(Location.coordinates, func.ST_GeogFromText(point))
-    ).limit(limit).all()
+    ).all()
+    
+    # Filter by distance using Haversine formula
+    nearby_locations = []
+    for location in locations:
+        try:
+            distance = haversine_distance(latitude, longitude, float(location.latitude), float(location.longitude))
+            if distance <= radius_km:
+                nearby_locations.append((location, distance))
+        except (TypeError, ValueError):
+            # Skip locations with invalid coordinates
+            continue
+    
+    # Sort by distance and limit results
+    nearby_locations.sort(key=lambda x: x[1])
+    return [location for location, distance in nearby_locations[:limit]]
 
 def get_all_cities(db: Session):
     cities = db.query(Location.city, Location.state).distinct().order_by(Location.city).all()
@@ -92,16 +117,25 @@ def delete_location(db: Session, location_id: int):
         return True
     return False
 
-def get_location_by_coordinates(db: Session, latitude: float, longitude: float, tolerance_meters: int = 100):
-    point = f'POINT({longitude} {latitude})'
-    
-    return db.query(Location).filter(
-        func.ST_DWithin(
-            Location.coordinates,
-            func.ST_GeogFromText(point),
-            tolerance_meters
+def get_location_by_coordinates(db: Session, latitude: float, longitude: float, tolerance_km: float = 0.1):
+    # Get all locations with coordinates
+    locations = db.query(Location).filter(
+        and_(
+            Location.latitude.isnot(None),
+            Location.longitude.isnot(None)
         )
-    ).first()
+    ).all()
+    
+    # Find locations within tolerance
+    for location in locations:
+        try:
+            distance = haversine_distance(latitude, longitude, float(location.latitude), float(location.longitude))
+            if distance <= tolerance_km:
+                return location
+        except (TypeError, ValueError):
+            continue
+    
+    return None
 
 def get_locations_in_city(db: Session, city: str):
     return db.query(Location).filter(Location.city.ilike(f"%{city}%")).all()
