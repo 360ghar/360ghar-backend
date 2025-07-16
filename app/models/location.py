@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text
-from geoalchemy2 import Geometry
+from sqlalchemy import Column, Integer, String, Text, Float
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -12,8 +11,9 @@ class Location(BaseModel):
     country = Column(String, nullable=False, default="India")
     pincode = Column(String, index=True)
     
-    # GIS data using PostGIS
-    coordinates = Column(Geometry('POINT'))  # PostGIS Point geometry
+    # Simple coordinate storage (we can upgrade to PostGIS later)
+    latitude = Column(Float)
+    longitude = Column(Float)
     
     # Address components
     locality = Column(String)  # Sector, Colony, etc.

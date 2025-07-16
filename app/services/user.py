@@ -14,11 +14,16 @@ def get_user_by_supabase_id(db: Session, supabase_user_id: str):
 
 def create_user_from_supabase(db: Session, supabase_user_data: Dict[str, Any]):
     """Create user in our database after Supabase authentication"""
+    # Handle phone number properly - convert empty string to None to avoid unique constraint issues
+    phone = supabase_user_data.get("phone")
+    if phone == "" or phone is None:
+        phone = None
+    
     db_user = User(
         supabase_user_id=supabase_user_data["id"],
         email=supabase_user_data["email"],
         full_name=supabase_user_data.get("user_metadata", {}).get("full_name"),
-        phone=supabase_user_data.get("phone"),
+        phone=phone,
         is_active=True,
         is_verified=supabase_user_data.get("email_verified", False)
     )

@@ -161,3 +161,46 @@ class PropertyInterest(BaseModel):
     interest_type: str  # visit, buy, rent, book
     message: Optional[str] = None
     preferred_contact_method: Optional[str] = None
+
+class UnifiedPropertyFilter(BaseModel):
+    latitude: float
+    longitude: float
+    radius_km: int = 5
+    
+    property_type: Optional[List[PropertyType]] = None
+    purpose: Optional[PropertyPurpose] = None
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    bedrooms_min: Optional[int] = None
+    bedrooms_max: Optional[int] = None
+    bathrooms_min: Optional[int] = None
+    bathrooms_max: Optional[int] = None
+    area_min: Optional[float] = None
+    area_max: Optional[float] = None
+    parking_spaces_min: Optional[int] = None
+    floor_number_min: Optional[int] = None
+    floor_number_max: Optional[int] = None
+    age_max: Optional[int] = None
+    
+    city: Optional[str] = None
+    locality: Optional[str] = None
+    pincode: Optional[str] = None
+    amenities: Optional[List[str]] = None
+    features: Optional[List[str]] = None
+    
+    available_from: Optional[str] = None
+    check_in_date: Optional[str] = None
+    check_out_date: Optional[str] = None
+    guests: Optional[int] = None
+    
+    sort_by: Optional[str] = "distance"  # distance, price_low, price_high, newest, popular
+    include_unavailable: bool = False
+
+class UnifiedPropertyResponse(BaseModel):
+    properties: List[PropertyCard]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    filters_applied: Dict[str, Any]
+    search_center: Dict[str, float]
