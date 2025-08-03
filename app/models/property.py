@@ -30,8 +30,18 @@ class Property(BaseModel):
     purpose = Column(Enum(PropertyPurpose), nullable=False)
     status = Column(Enum(PropertyStatus), default=PropertyStatus.AVAILABLE)
     
-    # Location reference
-    location_id = Column(Integer, ForeignKey("locations.id"), nullable=False)
+    # Location data stored directly in property
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    city = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    country = Column(String, nullable=False, default="India")
+    pincode = Column(String, nullable=True)
+    locality = Column(String, nullable=True)
+    sub_locality = Column(String, nullable=True)
+    landmark = Column(String, nullable=True)
+    full_address = Column(Text, nullable=True)
+    area_type = Column(String, nullable=True)
     
     # Pricing
     base_price = Column(Float, nullable=False)  # Main price
@@ -83,7 +93,6 @@ class Property(BaseModel):
     interest_count = Column(Integer, default=0)
     
     # Relationships
-    location = relationship("Location", back_populates="properties")
     images = relationship("PropertyImage", back_populates="property", cascade="all, delete-orphan")
     swipes = relationship("UserSwipe", back_populates="property")
     favorites = relationship("UserFavorite", back_populates="property")

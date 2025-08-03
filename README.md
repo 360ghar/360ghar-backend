@@ -123,6 +123,13 @@ A comprehensive real estate platform backend built with FastAPI, featuring Tinde
 7. **Start the application**
    ```bash
    uvicorn app.main:app --reload
+
+   opentelemetry-instrument \
+    --traces_exporter otlp \
+    --metrics_exporter none \
+    --service_name my-fastapi-app \
+    uvicorn app.main:app --host 0.0.0.0 --port 8000
+
    ```
 
 ### Docker Development

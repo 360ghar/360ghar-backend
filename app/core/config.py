@@ -18,6 +18,34 @@ class Settings(BaseSettings):
     # Additional Supabase settings
     SUPABASE_STORAGE_BUCKET: str = "property-images"
     
+    # CORS settings
+    CORS_ORIGINS: list = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://localhost:8080",
+        "http://localhost:55179",
+        "http://localhost:54848",
+        "http://localhost:4173",
+        "http://localhost:4000",
+        "http://localhost:5000",
+        "http://localhost:6000",
+        "http://localhost:7000",
+        "http://localhost:9000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:55179",
+        "http://127.0.0.1:54848",
+        "http://127.0.0.1:4173",
+        "http://127.0.0.1:4000",
+        "http://127.0.0.1:5000",
+        "http://127.0.0.1:6000",
+        "http://127.0.0.1:7000",
+        "http://127.0.0.1:9000",
+        "https://360ghar.com",
+        "https://www.360ghar.com",
+    ]
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

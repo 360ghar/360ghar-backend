@@ -3,14 +3,6 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
 
-class LocationBase(BaseModel):
-    name: str
-    city: str
-    state: str
-    pincode: Optional[str] = None
-    locality: Optional[str] = None
-    full_address: Optional[str] = None
-
 class PropertyImageBase(BaseModel):
     image_url: str
     caption: Optional[str] = None
@@ -33,6 +25,20 @@ class PropertyBase(BaseModel):
     property_type: PropertyType
     purpose: PropertyPurpose
     base_price: float
+    
+    # Location fields
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: str = "India"
+    pincode: Optional[str] = None
+    locality: Optional[str] = None
+    sub_locality: Optional[str] = None
+    landmark: Optional[str] = None
+    full_address: Optional[str] = None
+    area_type: Optional[str] = None
+    
     area_sqft: Optional[float] = None
     bedrooms: Optional[int] = None
     bathrooms: Optional[int] = None
@@ -40,7 +46,6 @@ class PropertyBase(BaseModel):
     parking_spaces: Optional[int] = None
 
 class PropertyCreate(PropertyBase):
-    location_id: int
     price_per_sqft: Optional[float] = None
     monthly_rent: Optional[float] = None
     daily_rate: Optional[float] = None
@@ -74,7 +79,6 @@ class PropertyUpdate(BaseModel):
 
 class PropertyInDB(PropertyBase):
     id: int
-    location_id: int
     status: PropertyStatus
     price_per_sqft: Optional[float] = None
     monthly_rent: Optional[float] = None
@@ -107,7 +111,6 @@ class PropertyInDB(PropertyBase):
         from_attributes = True
 
 class Property(PropertyInDB):
-    location: Optional[LocationBase] = None
     images: Optional[List[PropertyImage]] = None
     distance_km: Optional[float] = None  # For location-based searches
 
@@ -122,7 +125,14 @@ class PropertyCard(BaseModel):
     bathrooms: Optional[int] = None
     main_image_url: Optional[str] = None
     virtual_tour_url: Optional[str] = None
-    location: LocationBase
+    
+    # Location fields
+    city: Optional[str] = None
+    state: Optional[str] = None
+    locality: Optional[str] = None
+    pincode: Optional[str] = None
+    full_address: Optional[str] = None
+    
     distance_km: Optional[float] = None
     like_count: int
     
@@ -139,7 +149,7 @@ class PropertyFilter(BaseModel):
     area_min: Optional[float] = None
     area_max: Optional[float] = None
     city: Optional[str] = None
-    location_name: Optional[str] = None
+    locality: Optional[str] = None
     amenities: Optional[List[str]] = None
     max_distance_km: Optional[int] = 5
     available_from: Optional[str] = None

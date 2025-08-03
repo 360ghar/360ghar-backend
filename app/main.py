@@ -39,10 +39,24 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=["*"] if settings.ENVIRONMENT == "development" else settings.CORS_ORIGINS,
+    allow_credentials=False if settings.ENVIRONMENT == "development" else True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "X-CSRF-Token",
+        "X-API-Key",
+        "Cache-Control",
+        "Pragma",
+        "Expires",
+    ],
+    expose_headers=["Content-Length", "Content-Range"],
+    max_age=86400,  # Cache preflight requests for 24 hours
 )
 
 @app.exception_handler(Exception)
@@ -71,9 +85,8 @@ async def health_check():
         # Test database connection
         from app.core.database import get_db
         from sqlalchemy import text
-        db = next(get_db())
-        db.execute(text("SELECT 1"))
-        db.close()
+        async with get_db() as db:
+            await db.execute(text("SELECT 1"))
         
         return {
             "status": "healthy",

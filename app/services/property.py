@@ -2,10 +2,10 @@ from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, text
 from typing import List, Optional
 from app.models.property import Property, PropertyImage
-from app.models.location import Location
 from app.models.user_interaction import UserSwipe, UserFavorite
 from app.models.user import User
 from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyFilter, PropertyInterest, UnifiedPropertyFilter
+from app.utils.distance import haversine_distance, are_coordinates_within_radius, get_bounding_box
 
 def create_property(db: Session, property_data: PropertyCreate):
     db_property = Property(**property_data.dict())
@@ -16,12 +16,11 @@ def create_property(db: Session, property_data: PropertyCreate):
 
 def get_property(db: Session, property_id: int):
     return db.query(Property).options(
-        joinedload(Property.location),
         joinedload(Property.images)
     ).filter(Property.id == property_id).first()
 
 def get_properties(db: Session, filters: PropertyFilter, user_id: int, page: int = 1, limit: int = 20):
-    query = db.query(Property).options(joinedload(Property.location))
+    query = db.query(Property)
     
     # Apply filters
     if filters.property_type:
@@ -49,10 +48,10 @@ def get_properties(db: Session, filters: PropertyFilter, user_id: int, page: int
         query = query.filter(Property.area_sqft <= filters.area_max)
     
     if filters.city:
-        query = query.join(Location).filter(Location.city.ilike(f"%{filters.city}%"))
+        query = query.filter(Property.city.ilike(f"%{filters.city}%"))
     
-    if filters.location_name:
-        query = query.join(Location).filter(Location.name.ilike(f"%{filters.location_name}%"))
+    if filters.locality:
+        query = query.filter(Property.locality.ilike(f"%{filters.locality}%"))
     
     if filters.amenities:
         for amenity in filters.amenities:
@@ -80,7 +79,6 @@ def get_properties_for_discovery(db: Session, user_id: int, limit: int = 10):
     user = db.query(User).filter(User.id == user_id).first()
     
     query = db.query(Property).options(
-        joinedload(Property.location),
         joinedload(Property.images)
     )
     
@@ -109,37 +107,41 @@ def get_properties_for_discovery(db: Session, user_id: int, limit: int = 10):
     return query.limit(limit).all()
 
 def get_properties_nearby(db: Session, latitude: float, longitude: float, radius_km: int, user_id: int, page: int = 1, limit: int = 20):
-    # Using PostGIS for location-based queries
-    query = db.query(Property).join(Location).filter(
-        func.ST_DWithin(
-            Location.coordinates,
-            func.ST_GeogFromText(f'POINT({longitude} {latitude})'),
-            radius_km * 1000  # Convert km to meters
+    # Use bounding box for efficient database pre-filtering
+    min_lat, max_lat, min_lon, max_lon = get_bounding_box(latitude, longitude, radius_km)
+    
+    # Query with bounding box filter for efficiency
+    query = db.query(Property).filter(
+        and_(
+            Property.latitude.between(min_lat, max_lat),
+            Property.longitude.between(min_lon, max_lon),
+            Property.latitude.isnot(None),
+            Property.longitude.isnot(None)
         )
-    ).options(joinedload(Property.location))
+    )
     
     # Exclude already swiped properties
     swiped_property_ids = db.query(UserSwipe.property_id).filter(UserSwipe.user_id == user_id).subquery()
     query = query.filter(~Property.id.in_(swiped_property_ids))
     
-    # Add distance calculation
-    query = query.add_columns(
-        func.ST_Distance(
-            Location.coordinates,
-            func.ST_GeogFromText(f'POINT({longitude} {latitude})')
-        ).label('distance')
-    ).order_by('distance')
+    # Get results and calculate exact distances
+    all_properties = query.all()
+    
+    # Filter by exact distance and calculate distance for each property
+    nearby_properties = []
+    for prop in all_properties:
+        distance = haversine_distance(latitude, longitude, float(prop.latitude), float(prop.longitude))
+        if distance <= radius_km:
+            prop.distance_km = distance
+            nearby_properties.append(prop)
+    
+    # Sort by distance
+    nearby_properties.sort(key=lambda x: x.distance_km)
     
     # Pagination
+    total = len(nearby_properties)
     offset = (page - 1) * limit
-    results = query.offset(offset).limit(limit).all()
-    
-    properties = []
-    for prop, distance in results:
-        prop.distance_km = distance / 1000  # Convert to km
-        properties.append(prop)
-    
-    total = query.count()
+    properties = nearby_properties[offset:offset + limit]
     
     return {
         "properties": properties,
@@ -175,7 +177,7 @@ def get_property_recommendations(db: Session, user_id: int, limit: int = 10):
     else:
         min_price = max_price = None
     
-    query = db.query(Property).options(joinedload(Property.location))
+    query = db.query(Property)
     
     # Apply learned preferences
     if common_types:
@@ -219,15 +221,20 @@ def delete_property(db: Session, property_id: int):
 def get_user_liked_properties(db: Session, user_id: int):
     return db.query(Property).join(UserSwipe).filter(
         and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == True)
-    ).options(joinedload(Property.location)).all()
+    ).all()
 
 def get_user_disliked_properties(db: Session, user_id: int):
     return db.query(Property).join(UserSwipe).filter(
         and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == False)
-    ).options(joinedload(Property.location)).all()
+    ).all()
 
-def get_properties_by_location(db: Session, location_id: int):
-    return db.query(Property).filter(Property.location_id == location_id).options(
+def get_properties_by_city(db: Session, city: str):
+    return db.query(Property).filter(Property.city.ilike(f"%{city}%")).options(
+        joinedload(Property.images)
+    ).all()
+
+def get_properties_by_locality(db: Session, locality: str):
+    return db.query(Property).filter(Property.locality.ilike(f"%{locality}%")).options(
         joinedload(Property.images)
     ).all()
 
@@ -250,19 +257,21 @@ def increment_property_view_count(db: Session, property_id: int):
     return property_obj
 
 def get_unified_properties(db: Session, filters: UnifiedPropertyFilter, user_id: int, page: int = 1, limit: int = 20):
-    query = db.query(Property).join(Location).options(joinedload(Property.location))
+    query = db.query(Property)
     
-    # Location-based filtering using simple distance calculation
+    # Location-based filtering using bounding box for efficiency
     if filters.latitude and filters.longitude:
-        # Calculate distance using Haversine formula approximation
-        lat_diff = func.abs(Location.latitude - filters.latitude)
-        lng_diff = func.abs(Location.longitude - filters.longitude)
-        distance_approx = func.sqrt(lat_diff * lat_diff + lng_diff * lng_diff) * 111.32  # Convert to km
+        # Use bounding box for efficient database pre-filtering
+        min_lat, max_lat, min_lon, max_lon = get_bounding_box(filters.latitude, filters.longitude, filters.radius_km)
         
-        query = query.filter(distance_approx <= filters.radius_km)
-        
-        # Add distance calculation to results
-        query = query.add_columns(distance_approx.label('distance_km'))
+        query = query.filter(
+            and_(
+                Property.latitude.between(min_lat, max_lat),
+                Property.longitude.between(min_lon, max_lon),
+                Property.latitude.isnot(None),
+                Property.longitude.isnot(None)
+            )
+        )
     
     # Property type filters
     if filters.property_type:
@@ -305,11 +314,11 @@ def get_unified_properties(db: Session, filters: UnifiedPropertyFilter, user_id:
     
     # Location filters
     if filters.city:
-        query = query.filter(Location.city.ilike(f"%{filters.city}%"))
+        query = query.filter(Property.city.ilike(f"%{filters.city}%"))
     if filters.locality:
-        query = query.filter(Location.locality.ilike(f"%{filters.locality}%"))
+        query = query.filter(Property.locality.ilike(f"%{filters.locality}%"))
     if filters.pincode:
-        query = query.filter(Location.pincode == filters.pincode)
+        query = query.filter(Property.pincode == filters.pincode)
     
     # Amenities and features
     if filters.amenities:
@@ -339,37 +348,38 @@ def get_unified_properties(db: Session, filters: UnifiedPropertyFilter, user_id:
     swiped_property_ids = db.query(UserSwipe.property_id).filter(UserSwipe.user_id == user_id).subquery()
     query = query.filter(~Property.id.in_(swiped_property_ids))
     
+    # Get all matching properties first
+    all_properties = query.all()
+    
+    # Apply exact distance filtering and calculate distances if location filtering is enabled
+    if filters.latitude and filters.longitude:
+        filtered_properties = []
+        for prop in all_properties:
+            if prop.latitude and prop.longitude:
+                distance = haversine_distance(filters.latitude, filters.longitude, float(prop.latitude), float(prop.longitude))
+                if distance <= filters.radius_km:
+                    prop.distance_km = distance
+                    filtered_properties.append(prop)
+        all_properties = filtered_properties
+    
     # Sorting
     if filters.sort_by == "distance" and filters.latitude and filters.longitude:
-        query = query.order_by('distance_km')
+        all_properties.sort(key=lambda x: getattr(x, 'distance_km', float('inf')))
     elif filters.sort_by == "price_low":
-        query = query.order_by(Property.base_price.asc())
+        all_properties.sort(key=lambda x: x.base_price)
     elif filters.sort_by == "price_high":
-        query = query.order_by(Property.base_price.desc())
+        all_properties.sort(key=lambda x: x.base_price, reverse=True)
     elif filters.sort_by == "newest":
-        query = query.order_by(Property.created_at.desc())
+        all_properties.sort(key=lambda x: x.created_at, reverse=True)
     elif filters.sort_by == "popular":
-        query = query.order_by(Property.like_count.desc())
+        all_properties.sort(key=lambda x: x.like_count, reverse=True)
     else:
-        query = query.order_by(Property.created_at.desc())
-    
-    # Get total count before pagination
-    total_query = query.statement.alias()
-    total = db.query(func.count()).select_from(total_query).scalar()
+        all_properties.sort(key=lambda x: x.created_at, reverse=True)
     
     # Pagination
+    total = len(all_properties)
     offset = (page - 1) * limit
-    results = query.offset(offset).limit(limit).all()
-    
-    # Process results
-    properties = []
-    for result in results:
-        if isinstance(result, tuple):
-            prop, distance = result
-            prop.distance_km = distance
-            properties.append(prop)
-        else:
-            properties.append(result)
+    properties = all_properties[offset:offset + limit]
     
     # Build filters applied summary
     filters_applied = {}
@@ -377,6 +387,7 @@ def get_unified_properties(db: Session, filters: UnifiedPropertyFilter, user_id:
         if value is not None and value != [] and value != "":
             filters_applied[field] = value
     
+    print(f"filters_applied: {filters_applied}, total: {total}, page: {page}, limit: {limit}, total_pages: {(total + limit - 1) // limit}")
     return {
         "properties": properties,
         "total": total,

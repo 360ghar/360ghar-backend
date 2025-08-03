@@ -14,9 +14,7 @@ class User(BaseModel):
     profile_image_url = Column(String)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
-    
-    # Remove hashed_password as Supabase handles authentication
-    
+        
     # User preferences for property recommendations
     preferences = Column(JSON)  # Store filters like property_type, budget_range, location_preference etc.
     
