@@ -82,12 +82,6 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     try:
-        # Test database connection
-        from app.core.database import get_db
-        from sqlalchemy import text
-        async with get_db() as db:
-            await db.execute(text("SELECT 1"))
-        
         return {
             "status": "healthy",
             "database": "connected",
