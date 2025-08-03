@@ -114,31 +114,6 @@ class Property(PropertyInDB):
     images: Optional[List[PropertyImage]] = None
     distance_km: Optional[float] = None  # For location-based searches
 
-class PropertyCard(BaseModel):
-    id: int
-    title: str
-    property_type: PropertyType
-    purpose: PropertyPurpose
-    base_price: float
-    area_sqft: Optional[float] = None
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[int] = None
-    main_image_url: Optional[str] = None
-    virtual_tour_url: Optional[str] = None
-    
-    # Location fields
-    city: Optional[str] = None
-    state: Optional[str] = None
-    locality: Optional[str] = None
-    pincode: Optional[str] = None
-    full_address: Optional[str] = None
-    
-    distance_km: Optional[float] = None
-    like_count: int
-    
-    class Config:
-        from_attributes = True
-
 class PropertyFilter(BaseModel):
     property_type: Optional[List[PropertyType]] = None
     purpose: Optional[PropertyPurpose] = None
@@ -207,7 +182,7 @@ class UnifiedPropertyFilter(BaseModel):
     include_unavailable: bool = False
 
 class UnifiedPropertyResponse(BaseModel):
-    properties: List[PropertyCard]
+    properties: List[Property]
     total: int
     page: int
     limit: int

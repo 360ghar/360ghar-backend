@@ -257,7 +257,7 @@ def increment_property_view_count(db: Session, property_id: int):
     return property_obj
 
 def get_unified_properties(db: Session, filters: UnifiedPropertyFilter, user_id: int, page: int = 1, limit: int = 20):
-    query = db.query(Property)
+    query = db.query(Property).options(joinedload(Property.images))
     
     # Location-based filtering using bounding box for efficiency
     if filters.latitude and filters.longitude:
