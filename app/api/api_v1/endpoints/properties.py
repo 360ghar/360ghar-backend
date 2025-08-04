@@ -5,7 +5,7 @@ from app.core.database import get_db
 from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.schemas.property import (
-    PropertyCreate, PropertyUpdate, Property, PropertyCard, PropertyFilter,
+    PropertyCreate, PropertyUpdate, Property, PropertyFilter,
     PropertyInterest, UnifiedPropertyFilter, UnifiedPropertyResponse
 )
 from app.schemas.common import PaginationParams, PaginatedResponse, MessageResponse
