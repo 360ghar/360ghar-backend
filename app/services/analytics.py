@@ -1,11 +1,11 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import func, desc, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import func, desc, and_, select
 from datetime import datetime, timedelta
 from app.models.user_interaction import UserSearchHistory, UserSwipe
 from app.models.user import User
 from app.schemas.common import AnalyticsData
 
-def record_user_event(db: Session, event: AnalyticsData):
+async def record_user_event(db: AsyncSession, event: AnalyticsData):
     # For now, we'll store basic events in search history
     # In a production system, you'd have a dedicated events table
     if event.event_type == "search":
@@ -22,34 +22,41 @@ def record_user_event(db: Session, event: AnalyticsData):
             session_id=event.session_id
         )
         db.add(search_history)
-        db.commit()
+        await db.commit()
     
     return True
 
-def record_property_view(db: Session, user_id: int, property_id: int):
+async def record_property_view(db: AsyncSession, user_id: int, property_id: int):
     # You could create a PropertyView model for this
     # For now, we'll just increment the property view count
     from app.services.property import increment_property_view_count
-    increment_property_view_count(db, property_id)
+    await increment_property_view_count(db, property_id)
     return True
 
-def get_user_analytics(db: Session, user_id: int):
+async def get_user_analytics(db: AsyncSession, user_id: int):
     # Get user's activity summary
-    total_searches = db.query(UserSearchHistory).filter(UserSearchHistory.user_id == user_id).count()
-    total_swipes = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).count()
-    total_likes = db.query(UserSwipe).filter(
+    total_searches_result = await db.execute(select(func.count(UserSearchHistory.id)).where(UserSearchHistory.user_id == user_id))
+    total_searches = total_searches_result.scalar()
+    
+    total_swipes_result = await db.execute(select(func.count(UserSwipe.id)).where(UserSwipe.user_id == user_id))
+    total_swipes = total_swipes_result.scalar()
+    
+    total_likes_result = await db.execute(select(func.count(UserSwipe.id)).where(
         and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == True)
-    ).count()
+    ))
+    total_likes = total_likes_result.scalar()
     
     # Recent activity (last 30 days)
     thirty_days_ago = datetime.now() - timedelta(days=30)
-    recent_searches = db.query(UserSearchHistory).filter(
+    recent_searches_result = await db.execute(select(func.count(UserSearchHistory.id)).where(
         and_(UserSearchHistory.user_id == user_id, UserSearchHistory.created_at >= thirty_days_ago)
-    ).count()
+    ))
+    recent_searches = recent_searches_result.scalar()
     
-    recent_swipes = db.query(UserSwipe).filter(
+    recent_swipes_result = await db.execute(select(func.count(UserSwipe.id)).where(
         and_(UserSwipe.user_id == user_id, UserSwipe.swipe_timestamp >= thirty_days_ago)
-    ).count()
+    ))
+    recent_swipes = recent_swipes_result.scalar()
     
     return {
         "total_searches": total_searches,
@@ -60,18 +67,21 @@ def get_user_analytics(db: Session, user_id: int):
         "like_rate": (total_likes / total_swipes * 100) if total_swipes > 0 else 0
     }
 
-def get_user_search_history(db: Session, user_id: int, limit: int = 50):
-    return db.query(UserSearchHistory).filter(
+async def get_user_search_history(db: AsyncSession, user_id: int, limit: int = 50):
+    result = await db.execute(select(UserSearchHistory).where(
         UserSearchHistory.user_id == user_id
-    ).order_by(desc(UserSearchHistory.created_at)).limit(limit).all()
+    ).order_by(desc(UserSearchHistory.created_at)).limit(limit))
+    return result.scalars().all()
 
-def clear_user_search_history(db: Session, user_id: int):
-    db.query(UserSearchHistory).filter(UserSearchHistory.user_id == user_id).delete()
-    db.commit()
+async def clear_user_search_history(db: AsyncSession, user_id: int):
+    from sqlalchemy import delete
+    await db.execute(delete(UserSearchHistory).where(UserSearchHistory.user_id == user_id))
+    await db.commit()
     return True
 
-def get_user_swipe_stats(db: Session, user_id: int):
-    swipes = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).all()
+async def get_user_swipe_stats(db: AsyncSession, user_id: int):
+    result = await db.execute(select(UserSwipe).where(UserSwipe.user_id == user_id))
+    swipes = result.scalars().all()
     
     if not swipes:
         return {
@@ -94,9 +104,10 @@ def get_user_swipe_stats(db: Session, user_id: int):
     if likes:
         # Get property types from liked properties
         from app.models.property import Property
-        liked_properties = db.query(Property).filter(
+        liked_properties_result = await db.execute(select(Property).where(
             Property.id.in_([s.property_id for s in likes])
-        ).all()
+        ))
+        liked_properties = liked_properties_result.scalars().all()
         
         # Most common property type
         property_types = [p.property_type for p in liked_properties if p.property_type]
@@ -118,18 +129,20 @@ def get_user_swipe_stats(db: Session, user_id: int):
         "average_price_range": avg_price
     }
 
-def get_user_property_views(db: Session, user_id: int):
+async def get_user_property_views(db: AsyncSession, user_id: int):
     # This would require a PropertyView model in a real implementation
     # For now, return empty list
     return []
 
-def analyze_user_preferences(db: Session, user_id: int):
-    user = db.query(User).filter(User.id == user_id).first()
+async def analyze_user_preferences(db: AsyncSession, user_id: int):
+    user_result = await db.execute(select(User).where(User.id == user_id))
+    user = user_result.scalar_one_or_none()
     if not user:
         return {}
     
     # Get user's swipe history for analysis
-    swipes = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).all()
+    swipes_result = await db.execute(select(UserSwipe).where(UserSwipe.user_id == user_id))
+    swipes = swipes_result.scalars().all()
     likes = [s for s in swipes if s.is_liked]
     
     if not likes:
@@ -137,9 +150,10 @@ def analyze_user_preferences(db: Session, user_id: int):
     
     # Get liked properties
     from app.models.property import Property
-    liked_properties = db.query(Property).filter(
+    liked_properties_result = await db.execute(select(Property).where(
         Property.id.in_([s.property_id for s in likes])
-    ).all()
+    ))
+    liked_properties = liked_properties_result.scalars().all()
     
     # Analyze patterns
     property_types = [p.property_type for p in liked_properties if p.property_type]

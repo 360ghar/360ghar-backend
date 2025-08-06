@@ -96,7 +96,7 @@ class PropertyPopulator(DataPopulatorBase):
                 
                 # Media
                 main_image_url=MAIN_IMAGE_URL,
-                virtual_tour_url=VIRTUAL_TOUR_URL if random.random() > 0.4 else None,
+                virtual_tour_url=VIRTUAL_TOUR_URL,
                 
                 # Availability
                 is_available=status == PropertyStatus.AVAILABLE,

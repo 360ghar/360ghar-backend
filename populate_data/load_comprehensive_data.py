@@ -341,9 +341,6 @@ class ComprehensiveDataLoader:
             self.clear_existing_data()
             self.populate_users_and_managers()
             self.populate_properties()
-            self.populate_user_interactions()
-            self.populate_visits()
-            self.populate_bookings()
             
             # Generate final report
             self.generate_final_report()

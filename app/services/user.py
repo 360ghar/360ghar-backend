@@ -1,95 +1,46 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Dict, Any
-from app.models.user import User
+from app.repositories.user import UserRepository
 from app.schemas.user import UserCreate, UserUpdate
 
-def get_user_by_email(db: Session, email: str):
-    return db.query(User).filter(User.email == email).first()
+async def get_user_by_email(db: AsyncSession, email: str):
+    repo = UserRepository(db)
+    return await repo.get_by_email(email)
 
-def get_user_by_id(db: Session, user_id: int):
-    return db.query(User).filter(User.id == user_id).first()
+async def get_user_by_id(db: AsyncSession, user_id: int):
+    repo = UserRepository(db)
+    return await repo.get(user_id)
 
-def get_user_by_supabase_id(db: Session, supabase_user_id: str):
-    return db.query(User).filter(User.supabase_user_id == supabase_user_id).first()
+async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str):
+    repo = UserRepository(db)
+    return await repo.get_by_supabase_id(supabase_user_id)
 
-def create_user_from_supabase(db: Session, supabase_user_data: Dict[str, Any]):
+async def create_user_from_supabase(db: AsyncSession, supabase_user_data: Dict[str, Any]):
     """Create user in our database after Supabase authentication"""
-    # Handle phone number properly - convert empty string to None to avoid unique constraint issues
-    phone = supabase_user_data.get("phone")
-    if phone == "" or phone is None:
-        phone = None
-    
-    db_user = User(
-        supabase_user_id=supabase_user_data["id"],
-        email=supabase_user_data["email"],
-        full_name=supabase_user_data.get("user_metadata", {}).get("full_name"),
-        phone=phone,
-        is_active=True,
-        is_verified=supabase_user_data.get("email_verified", False)
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+    repo = UserRepository(db)
+    return await repo.create_from_supabase(supabase_user_data)
 
-def get_or_create_user_from_supabase(db: Session, supabase_user_data: Dict[str, Any]):
+async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data: Dict[str, Any]):
     """Get existing user or create new one from Supabase data"""
-    # First try to find by Supabase ID
-    db_user = get_user_by_supabase_id(db, supabase_user_data["id"])
-    
-    if not db_user:
-        # If not found, try by email
-        db_user = get_user_by_email(db, supabase_user_data["email"])
-        
-        if db_user:
-            # Update existing user with Supabase ID
-            db_user.supabase_user_id = supabase_user_data["id"]
-            db.commit()
-            db.refresh(db_user)
-        else:
-            # Create new user
-            db_user = create_user_from_supabase(db, supabase_user_data)
-    
-    return db_user
+    repo = UserRepository(db)
+    return await repo.get_or_create_from_supabase(supabase_user_data)
 
-def update_user(db: Session, user_id: int, user_update: UserUpdate):
-    db_user = get_user_by_id(db, user_id)
-    if not db_user:
-        return None
-    
-    update_data = user_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_user, field, value)
-    
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+async def update_user(db: AsyncSession, user_id: int, user_update: UserUpdate):
+    repo = UserRepository(db)
+    return await repo.update_user(user_id, user_update)
 
-def update_user_preferences(db: Session, user_id: int, preferences: dict):
-    db_user = get_user_by_id(db, user_id)
-    if db_user:
-        db_user.preferences = preferences
-        db.commit()
-    return db_user
+async def update_user_preferences(db: AsyncSession, user_id: int, preferences: dict):
+    repo = UserRepository(db)
+    return await repo.update_preferences(user_id, preferences)
 
-def update_user_location(db: Session, user_id: int, latitude: str, longitude: str):
-    db_user = get_user_by_id(db, user_id)
-    if db_user:
-        db_user.current_latitude = latitude
-        db_user.current_longitude = longitude
-        db.commit()
-    return db_user
+async def update_user_location(db: AsyncSession, user_id: int, latitude: str, longitude: str):
+    repo = UserRepository(db)
+    return await repo.update_location(user_id, latitude, longitude)
 
-def deactivate_user(db: Session, user_id: int):
-    db_user = get_user_by_id(db, user_id)
-    if db_user:
-        db_user.is_active = False
-        db.commit()
-    return db_user
+async def deactivate_user(db: AsyncSession, user_id: int):
+    repo = UserRepository(db)
+    return await repo.deactivate(user_id)
 
-def verify_user(db: Session, user_id: int):
-    db_user = get_user_by_id(db, user_id)
-    if db_user:
-        db_user.is_verified = True
-        db.commit()
-    return db_user
+async def verify_user(db: AsyncSession, user_id: int):
+    repo = UserRepository(db)
+    return await repo.verify(user_id)

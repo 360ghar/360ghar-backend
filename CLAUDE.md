@@ -76,12 +76,17 @@ curl http://localhost:8000/health
 
 ### Data Management
 ```bash
-# Load new comprehensive sample data
-python load_sample_data_new.py
+# Load comprehensive sample data (recommended)
+python populate_data/load_comprehensive_data.py
 
-# Legacy sample data loaders (if load_sample_data_new.py fails)
-python load_sample_data.py
-python load_sample_data_simple.py
+# Quick data loading for development
+python populate_data/load_comprehensive_data.py --quick
+
+# Clear all existing data before loading
+python populate_data/clear_all_data.py
+
+# Environment-specific loading with custom config
+PYTHONPATH=/Users/sakshammittal/Documents/360ghar/backend python populate_data/load_comprehensive_data.py
 ```
 
 ## Architecture Overview
@@ -108,6 +113,11 @@ python load_sample_data_simple.py
 - **SQLAlchemy models** with async support and PostGIS extensions
 - **Optimized indexes** for swipe queries and location searches
 - **Relationship mappings** for efficient data loading
+
+#### Repository Layer (`app/repositories/`)
+- **Repository Pattern** - Database access abstraction layer
+- **Base repository** with common CRUD operations
+- **Specialized repositories** for complex domain queries
 
 #### API Layer (`app/api/`)
 - **Versioned APIs** under `/api/v1/` for backward compatibility
@@ -252,6 +262,10 @@ raise HTTPException(
 - `run.py` - Development server launcher (recommended way to start the app)
 - `app/api/api_v1/api.py` - Main API router configuration that includes all endpoint modules
 
+### Middleware (`app/middleware/`)
+- `rate_limit.py` - API rate limiting and throttling
+- `security.py` - Security middleware for request validation
+
 ### Data Models (app/models/)
 - `user.py` - User profiles, authentication, and preferences
 - `property.py` - Property listings with geospatial data
@@ -266,6 +280,14 @@ raise HTTPException(
 - `user.py` - User management and preference learning
 - `visit.py` - Visit scheduling and relationship manager assignment
 - `analytics.py` - Usage tracking and analytics
+
+### Data Access Layer (app/repositories/)
+- `base.py` - Common CRUD operations and base repository pattern
+- `property.py` - Complex property queries and geospatial operations
+- `user.py` - User data access and preference management
+- `booking.py` - Booking-related database operations
+- `visit.py` - Visit scheduling and relationship manager queries
+- `user_interaction.py` - Swipe and interaction data operations
 
 ### API Endpoints (app/api/api_v1/endpoints/)
 - `auth.py` - Authentication, user sync with Supabase
@@ -306,6 +328,7 @@ The application follows a strict layered architecture pattern:
 - **API Layer** (`app/api/`): FastAPI endpoints with dependency injection
 - **Schema Layer** (`app/schemas/`): Pydantic validation and serialization  
 - **Service Layer** (`app/services/`): Business logic and algorithms
+- **Repository Layer** (`app/repositories/`): Database access abstraction
 - **Model Layer** (`app/models/`): SQLAlchemy ORM with relationships
 - **Database Layer**: PostgreSQL + PostGIS + Redis
 
@@ -336,7 +359,7 @@ Based on `.rules/userworkflow.md`, the platform supports three core user experie
 2. Generate migration: `alembic revision --autogenerate -m "Description"`
 3. Review generated migration file in `alembic/versions/`
 4. Apply migration: `alembic upgrade head`
-5. Test with sample data: `python load_sample_data_new.py`
+5. Test with sample data: `python populate_data/load_comprehensive_data.py --quick`
 
 ### Working with Geospatial Data
 ```python

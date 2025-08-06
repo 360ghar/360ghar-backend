@@ -1,0 +1,1714 @@
+{
+	"info": {
+		"_postman_id": "360ghar-api-collection",
+		"name": "360Ghar Real Estate Platform API",
+		"description": "Complete API collection for 360Ghar - Tinder-like real estate platform with Supabase integration.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## Features:\n- Automatic token management\n- Response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "360ghar"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global Pre-request Script",
+					"// Set request ID for tracking",
+					"pm.variables.set('request_id', pm.variables.replaceIn('{{$guid}}'));",
+					"",
+					"// Set timestamp",
+					"pm.variables.set('timestamp', new Date().toISOString());",
+					"",
+					"// Check if token exists and is not expired",
+					"const tokenExpiry = pm.environment.get('token_expiry');",
+					"if (tokenExpiry) {",
+					"    const now = new Date().getTime();",
+					"    const expiry = new Date(tokenExpiry).getTime();",
+					"    ",
+					"    if (now >= expiry) {",
+					"        console.log('Token expired, please login again');",
+					"        pm.environment.unset('access_token');",
+					"        pm.environment.unset('token_expiry');",
+					"    }",
+					"}",
+					"",
+					"// Set common headers",
+					"pm.request.headers.add({",
+					"    key: 'X-Request-ID',",
+					"    value: pm.variables.get('request_id')",
+					"});",
+					"",
+					"// Log request details",
+					"console.log(`Making ${pm.request.method} request to ${pm.request.url}`);",
+					"",
+					"// Generate sample data helpers",
+					"pm.variables.set('randomEmail', pm.variables.replaceIn('{{$randomEmail}}'));",
+					"pm.variables.set('randomPhone', '+91' + Math.floor(Math.random() * 9000000000 + 1000000000));",
+					"pm.variables.set('randomName', pm.variables.replaceIn('{{$randomFullName}}'));",
+					"pm.variables.set('randomPrice', Math.floor(Math.random() * 50000000 + 1000000));",
+					"pm.variables.set('randomBedrooms', Math.floor(Math.random() * 4 + 1));",
+					"pm.variables.set('randomArea', Math.floor(Math.random() * 3000 + 500));",
+					"pm.variables.set('futureDate', new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global Test Script",
+					"// Log response time",
+					"console.log(`Response time: ${pm.response.responseTime}ms`);",
+					"",
+					"// Check for performance issues",
+					"if (pm.response.responseTime > 2000) {",
+					"    console.warn(`Slow response detected: ${pm.response.responseTime}ms`);",
+					"}",
+					"",
+					"// Parse response if JSON",
+					"let jsonResponse = null;",
+					"try {",
+					"    jsonResponse = pm.response.json();",
+					"    pm.environment.set('last_response', JSON.stringify(jsonResponse));",
+					"} catch (e) {",
+					"    // Not JSON response",
+					"}",
+					"",
+					"// Common test for all endpoints",
+					"pm.test('Response has correct content type', function() {",
+					"    const contentType = pm.response.headers.get('Content-Type');",
+					"    if (contentType) {",
+					"        pm.expect(contentType).to.include('application/json');",
+					"    }",
+					"});",
+					"",
+					"// Check for common error patterns",
+					"if (pm.response.code >= 400) {",
+					"    pm.test('Error response has proper structure', function() {",
+					"        if (jsonResponse) {",
+					"            pm.expect(jsonResponse).to.have.property('detail');",
+					"        }",
+					"    });",
+					"}"
+				]
+			}
+		}
+	],
+	"item": [
+		{
+			"name": "Health & Config",
+			"item": [
+				{
+					"name": "Root Endpoint",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Health check response structure', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('status');",
+									"    pm.expect(response).to.have.property('database');",
+									"    pm.expect(response).to.have.property('cache');",
+									"    pm.expect(response).to.have.property('timestamp');",
+									"});",
+									"",
+									"pm.test('Services are healthy', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.status).to.be.oneOf(['healthy', 'degraded']);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/health",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Config",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/config",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"config"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has access token', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('access_token');",
+									"    pm.expect(response).to.have.property('token_type');",
+									"    pm.expect(response.token_type).to.equal('bearer');",
+									"});",
+									"",
+									"// Save token for future requests",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('access_token', response.access_token);",
+									"    ",
+									"    // Set token expiry (30 minutes from now)",
+									"    const expiry = new Date(Date.now() + 30 * 60 * 1000);",
+									"    pm.environment.set('token_expiry', expiry.toISOString());",
+									"    ",
+									"    console.log('Token saved successfully');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{test_email}}\",\n    \"password\": \"{{test_password}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/auth/login",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('User profile structure', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('id');",
+									"    pm.expect(response).to.have.property('email');",
+									"    pm.expect(response).to.have.property('supabase_user_id');",
+									"    pm.expect(response).to.have.property('is_active');",
+									"});",
+									"",
+									"// Save user ID for future requests",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('current_user_id', response.id);",
+									"    pm.environment.set('current_user_email', response.email);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/auth/me",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"me"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Session",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/auth/session",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"session"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sync Profile",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/auth/sync",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"sync"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Get Profile",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/profile",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Profile",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"full_name\": \"{{randomName}}\",\n    \"phone\": \"{{randomPhone}}\",\n    \"date_of_birth\": \"1990-01-15\",\n    \"preferences\": {\n        \"property_type\": [\"apartment\", \"house\"],\n        \"purpose\": \"rent\",\n        \"budget_min\": 20000,\n        \"budget_max\": 50000,\n        \"bedrooms_min\": 2,\n        \"bedrooms_max\": 3\n    },\n    \"notification_settings\": {\n        \"email_notifications\": true,\n        \"push_notifications\": true,\n        \"sms_notifications\": false\n    }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/profile",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Preferences",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_type\": [\"apartment\", \"builder_floor\"],\n    \"purpose\": \"rent\",\n    \"budget_min\": 15000,\n    \"budget_max\": 40000,\n    \"bedrooms_min\": 2,\n    \"bedrooms_max\": 3,\n    \"area_min\": 800,\n    \"area_max\": 1500,\n    \"location_preference\": [\"Bangalore\", \"Mumbai\"],\n    \"max_distance_km\": 10\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/preferences",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"preferences"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Location",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"latitude\": \"12.9716\",\n    \"longitude\": \"77.5946\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/location",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"location"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Search History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/search-history",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"search-history"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Clear Search History",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/search-history",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"search-history"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Liked Properties",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/liked-properties",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"liked-properties"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Disliked Properties",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/users/disliked-properties",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"disliked-properties"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Properties",
+			"item": [
+				{
+					"name": "Create Property",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('test_property_id', response.id);",
+									"    console.log('Property created with ID:', response.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Beautiful 2BHK Apartment in Koramangala\",\n    \"description\": \"Spacious 2BHK apartment with modern amenities, located in the heart of Koramangala. Close to tech parks, restaurants, and shopping centers.\",\n    \"property_type\": \"apartment\",\n    \"purpose\": \"rent\",\n    \"base_price\": {{randomPrice}},\n    \"monthly_rent\": 35000,\n    \"security_deposit\": 70000,\n    \"maintenance_charges\": 3000,\n    \"latitude\": 12.9352,\n    \"longitude\": 77.6245,\n    \"city\": \"Bangalore\",\n    \"state\": \"Karnataka\",\n    \"country\": \"India\",\n    \"pincode\": \"560034\",\n    \"locality\": \"Koramangala\",\n    \"sub_locality\": \"4th Block\",\n    \"landmark\": \"Near Forum Mall\",\n    \"full_address\": \"123, 4th Block, Koramangala, Bangalore - 560034\",\n    \"area_sqft\": {{randomArea}},\n    \"bedrooms\": {{randomBedrooms}},\n    \"bathrooms\": 2,\n    \"balconies\": 1,\n    \"parking_spaces\": 1,\n    \"floor_number\": 3,\n    \"total_floors\": 5,\n    \"age_of_property\": 2,\n    \"amenities\": [\"parking\", \"gym\", \"pool\", \"security\", \"elevator\", \"powerbackup\"],\n    \"features\": {\n        \"furnished\": \"semi-furnished\",\n        \"facing\": \"east\",\n        \"flooring\": \"vitrified\",\n        \"water_supply\": \"24x7\"\n    },\n    \"main_image_url\": \"https://example.com/property1.jpg\",\n    \"owner_name\": \"John Doe\",\n    \"owner_contact\": \"+919876543210\",\n    \"available_from\": \"2024-02-01\",\n    \"tags\": [\"pet-friendly\", \"family\", \"gated-community\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has properties array', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('properties');",
+									"    pm.expect(response.properties).to.be.an('array');",
+									"    pm.expect(response).to.have.property('total');",
+									"    pm.expect(response).to.have.property('page');",
+									"    pm.expect(response).to.have.property('limit');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?lat=12.9716&lng=77.5946&radius=10&property_type=apartment&property_type=house&purpose=rent&price_min=10000&price_max=50000&bedrooms_min=2&bedrooms_max=3&city=Bangalore&sort_by=distance&page=1&limit=20",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "lat",
+									"value": "12.9716"
+								},
+								{
+									"key": "lng",
+									"value": "77.5946"
+								},
+								{
+									"key": "radius",
+									"value": "10"
+								},
+								{
+									"key": "property_type",
+									"value": "apartment"
+								},
+								{
+									"key": "property_type",
+									"value": "house"
+								},
+								{
+									"key": "purpose",
+									"value": "rent"
+								},
+								{
+									"key": "price_min",
+									"value": "10000"
+								},
+								{
+									"key": "price_max",
+									"value": "50000"
+								},
+								{
+									"key": "bedrooms_min",
+									"value": "2"
+								},
+								{
+									"key": "bedrooms_max",
+									"value": "3"
+								},
+								{
+									"key": "city",
+									"value": "Bangalore"
+								},
+								{
+									"key": "sort_by",
+									"value": "distance"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Property Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Property",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"title\": \"Updated - Premium 2BHK Apartment\",\n    \"base_price\": 38000,\n    \"is_available\": true,\n    \"amenities\": [\"parking\", \"gym\", \"pool\", \"security\", \"elevator\", \"powerbackup\", \"clubhouse\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Recommendations",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/recommendations?limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"recommendations"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show Interest",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"interest_type\": \"visit\",\n    \"message\": \"I am interested in visiting this property this weekend.\",\n    \"preferred_contact_method\": \"phone\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/interest",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"interest"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Share Data",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}/share",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}",
+								"share"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Availability",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}/availability?check_in_date=2024-02-15&check_out_date=2024-02-20&guests=2",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}",
+								"availability"
+							],
+							"query": [
+								{
+									"key": "check_in_date",
+									"value": "2024-02-15"
+								},
+								{
+									"key": "check_out_date",
+									"value": "2024-02-20"
+								},
+								{
+									"key": "guests",
+									"value": "2"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Properties Batch",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "[1, 2, 3, 4, 5]",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/batch",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"batch"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Property",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Swipes",
+			"item": [
+				{
+					"name": "Swipe Property",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Success message received', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('message');",
+									"    pm.expect(response.message).to.include('successfully');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"is_liked\": true,\n    \"user_location_lat\": \"12.9716\",\n    \"user_location_lng\": \"77.5946\",\n    \"session_id\": \"{{request_id}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Swipe History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/history",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								"history"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Swipe Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/stats",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Undo Last Swipe",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/undo",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								"undo"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Visits",
+			"item": [
+				{
+					"name": "Schedule Visit",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('test_visit_id', response.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"scheduled_date\": \"{{futureDate}}\",\n    \"visitor_name\": \"{{randomName}}\",\n    \"visitor_phone\": \"{{randomPhone}}\",\n    \"visitor_email\": \"{{randomEmail}}\",\n    \"number_of_visitors\": 2,\n    \"preferred_time_slot\": \"morning\",\n    \"special_requirements\": \"Please arrange for parking\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Visits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Upcoming Visits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/upcoming",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"upcoming"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Past Visits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/past",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"past"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Relationship Manager",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/relationship-manager",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"relationship-manager"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Visit Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"{{test_visit_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Visit",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"number_of_visitors\": 3,\n    \"preferred_time_slot\": \"afternoon\",\n    \"special_requirements\": \"Please arrange for parking and wheelchair access\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"{{test_visit_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reschedule Visit",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"new_date\": \"2024-02-25T10:00:00Z\",\n    \"reason\": \"Conflict with another appointment\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/reschedule",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"reschedule"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Visit",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"reason\": \"Found another property\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/cancel",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								"cancel"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Bookings",
+			"item": [
+				{
+					"name": "Create Booking",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('test_booking_id', response.id);",
+									"    pm.environment.set('test_booking_reference', response.booking_reference);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"check_in_date\": \"2024-03-01T14:00:00Z\",\n    \"check_out_date\": \"2024-03-05T11:00:00Z\",\n    \"guests\": 2,\n    \"primary_guest_name\": \"{{randomName}}\",\n    \"primary_guest_phone\": \"{{randomPhone}}\",\n    \"primary_guest_email\": \"{{randomEmail}}\",\n    \"special_requests\": \"Early check-in if possible\",\n    \"guest_details\": {\n        \"adults\": 2,\n        \"children\": 0,\n        \"infants\": 0\n    }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Bookings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Upcoming Bookings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/upcoming",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"upcoming"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Past Bookings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/past",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"past"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Availability",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"check_in_date\": \"2024-03-15T14:00:00Z\",\n    \"check_out_date\": \"2024-03-20T11:00:00Z\",\n    \"guests\": 2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/check-availability",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"check-availability"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Calculate Pricing",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"check_in_date\": \"2024-03-15T14:00:00Z\",\n    \"check_out_date\": \"2024-03-20T11:00:00Z\",\n    \"guests\": 2\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/calculate-pricing",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"calculate-pricing"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Booking Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"{{test_booking_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Booking",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"guests\": 3,\n    \"special_requests\": \"Early check-in at 12 PM if possible. Need extra towels.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"{{test_booking_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Process Payment",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": {{test_booking_id}},\n    \"payment_method\": \"credit_card\",\n    \"transaction_id\": \"TXN{{$timestamp}}\",\n    \"amount\": 50000\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/payment",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"payment"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Review",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": {{test_booking_id}},\n    \"guest_rating\": 5,\n    \"guest_review\": \"Excellent property! Very clean and well-maintained. The host was very responsive and helpful. Would definitely book again.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/review",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"review"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Booking",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"booking_id\": {{test_booking_id}},\n    \"reason\": \"Change in travel plans\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/cancel",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								"cancel"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Analytics",
+			"item": [
+				{
+					"name": "Track Event",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"user_id\": {{current_user_id}},\n    \"event_type\": \"search\",\n    \"event_data\": {\n        \"query\": \"2BHK Bangalore\",\n        \"filters\": {\n            \"property_type\": \"apartment\",\n            \"budget_min\": 20000,\n            \"budget_max\": 40000\n        },\n        \"location\": \"Bangalore\",\n        \"radius\": 10,\n        \"results_count\": 25,\n        \"user_lat\": \"12.9716\",\n        \"user_lng\": \"77.5946\",\n        \"search_type\": \"general\"\n    },\n    \"session_id\": \"{{request_id}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/event",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"event"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Dashboard",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/dashboard",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"dashboard"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Search History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/search-history",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"search-history"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Swipe Stats",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/swipe-stats",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"swipe-stats"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Property Views",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/property-views",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"property-views"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Preferences Insights",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/analytics/preferences-insights",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"analytics",
+								"preferences-insights"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "test_email",
+			"value": "test@360ghar.com",
+			"type": "string"
+		},
+		{
+			"key": "test_password",
+			"value": "Test@123456",
+			"type": "string"
+		}
+	]
+}

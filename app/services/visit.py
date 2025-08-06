@@ -1,163 +1,57 @@
-from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, desc, asc
+from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime
-from app.models.visit import Visit, RelationshipManager, VisitStatus
+from app.repositories.visit import VisitRepository
 from app.schemas.visit import VisitCreate, VisitUpdate
 from typing import Optional
 
-def create_visit(db: Session, user_id: int, visit: VisitCreate):
-    # Assign a relationship manager (simple round-robin for now)
-    rm = get_available_relationship_manager(db)
-    
-    db_visit = Visit(
-        user_id=user_id,
-        property_id=visit.property_id,
-        relationship_manager_id=rm.id if rm else None,
-        scheduled_date=visit.scheduled_date,
-        visitor_name=visit.visitor_name,
-        visitor_phone=visit.visitor_phone,
-        visitor_email=visit.visitor_email,
-        number_of_visitors=visit.number_of_visitors,
-        preferred_time_slot=visit.preferred_time_slot,
-        special_requirements=visit.special_requirements,
-        status=VisitStatus.SCHEDULED
-    )
-    
-    db.add(db_visit)
-    db.commit()
-    db.refresh(db_visit)
-    
-    # Update RM's visit count
-    if rm:
-        rm.total_visits_handled += 1
-        db.commit()
-    
-    return db_visit
+async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.create_visit(user_id, visit)
 
-def get_visit(db: Session, visit_id: int):
-    return db.query(Visit).options(
-        joinedload(Visit.relationship_manager)
-    ).filter(Visit.id == visit_id).first()
+async def get_visit(db: AsyncSession, visit_id: int):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_with_rm(visit_id)
 
-def get_user_visits(db: Session, user_id: int):
-    visits = db.query(Visit).options(
-        joinedload(Visit.relationship_manager)
-    ).filter(Visit.user_id == user_id).order_by(desc(Visit.scheduled_date)).all()
-    
-    upcoming = [v for v in visits if v.scheduled_date > datetime.now() and v.status in [VisitStatus.SCHEDULED, VisitStatus.CONFIRMED]]
-    completed = [v for v in visits if v.status == VisitStatus.COMPLETED]
-    cancelled = [v for v in visits if v.status == VisitStatus.CANCELLED]
-    
-    return {
-        "visits": visits,
-        "total": len(visits),
-        "upcoming": len(upcoming),
-        "completed": len(completed),
-        "cancelled": len(cancelled)
-    }
+async def get_user_visits(db: AsyncSession, user_id: int):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_user_visits(user_id)
 
-def get_user_upcoming_visits(db: Session, user_id: int):
-    return db.query(Visit).options(
-        joinedload(Visit.relationship_manager)
-    ).filter(
-        and_(
-            Visit.user_id == user_id,
-            Visit.scheduled_date > datetime.now(),
-            Visit.status.in_([VisitStatus.SCHEDULED, VisitStatus.CONFIRMED])
-        )
-    ).order_by(asc(Visit.scheduled_date)).all()
+async def get_user_upcoming_visits(db: AsyncSession, user_id: int):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_user_upcoming_visits(user_id)
 
-def get_user_past_visits(db: Session, user_id: int):
-    return db.query(Visit).options(
-        joinedload(Visit.relationship_manager)
-    ).filter(
-        and_(
-            Visit.user_id == user_id,
-            Visit.status.in_([VisitStatus.COMPLETED, VisitStatus.CANCELLED])
-        )
-    ).order_by(desc(Visit.scheduled_date)).all()
+async def get_user_past_visits(db: AsyncSession, user_id: int):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_user_past_visits(user_id)
 
-def update_visit(db: Session, visit_id: int, visit_update: VisitUpdate):
-    db_visit = get_visit(db, visit_id)
-    if not db_visit:
-        return None
-    
-    update_data = visit_update.dict(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_visit, field, value)
-    
-    db.commit()
-    db.refresh(db_visit)
-    return db_visit
+async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdate):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.update_visit(visit_id, visit_update)
 
-def cancel_visit(db: Session, visit_id: int, reason: str):
-    db_visit = get_visit(db, visit_id)
-    if not db_visit:
-        return False
-    
-    db_visit.status = VisitStatus.CANCELLED
-    db_visit.cancellation_reason = reason
-    
-    db.commit()
-    return True
+async def cancel_visit(db: AsyncSession, visit_id: int, reason: str):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.cancel_visit(visit_id, reason)
 
-def reschedule_visit(db: Session, visit_id: int, new_date: datetime, reason: Optional[str] = None):
-    db_visit = get_visit(db, visit_id)
-    if not db_visit:
-        return False
-    
-    db_visit.rescheduled_from = db_visit.scheduled_date
-    db_visit.scheduled_date = new_date
-    db_visit.status = VisitStatus.RESCHEDULED
-    if reason:
-        db_visit.cancellation_reason = reason  # Using same field for reschedule reason
-    
-    db.commit()
-    return True
+async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, reason: Optional[str] = None):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.reschedule_visit(visit_id, new_date, reason)
 
-def get_user_relationship_manager(db: Session, user_id: int):
-    # Get RM from user's most recent visit
-    recent_visit = db.query(Visit).filter(Visit.user_id == user_id).order_by(
-        desc(Visit.created_at)
-    ).first()
-    
-    if recent_visit and recent_visit.relationship_manager_id:
-        return db.query(RelationshipManager).filter(
-            RelationshipManager.id == recent_visit.relationship_manager_id
-        ).first()
-    
-    # If no recent visit, assign a new RM
-    return get_available_relationship_manager(db)
+async def get_user_relationship_manager(db: AsyncSession, user_id: int):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_user_relationship_manager(user_id)
 
-def get_available_relationship_manager(db: Session):
-    # Simple round-robin assignment based on total visits handled
-    return db.query(RelationshipManager).filter(
-        RelationshipManager.is_active == True
-    ).order_by(asc(RelationshipManager.total_visits_handled)).first()
+async def get_available_relationship_manager(db: AsyncSession):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_available_relationship_manager()
 
-def create_relationship_manager(db: Session, rm_data: dict):
-    db_rm = RelationshipManager(**rm_data)
-    db.add(db_rm)
-    db.commit()
-    db.refresh(db_rm)
-    return db_rm
+async def create_relationship_manager(db: AsyncSession, rm_data: dict):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.create_relationship_manager(rm_data)
 
-def get_all_relationship_managers(db: Session):
-    return db.query(RelationshipManager).filter(
-        RelationshipManager.is_active == True
-    ).all()
+async def get_all_relationship_managers(db: AsyncSession):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.get_all_relationship_managers()
 
-def mark_visit_completed(db: Session, visit_id: int, notes: str = None, feedback: str = None):
-    db_visit = get_visit(db, visit_id)
-    if not db_visit:
-        return False
-    
-    db_visit.status = VisitStatus.COMPLETED
-    db_visit.actual_date = datetime.now()
-    if notes:
-        db_visit.visit_notes = notes
-    if feedback:
-        db_visit.visitor_feedback = feedback
-    
-    db.commit()
-    return True
+async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str = None, feedback: str = None):
+    visit_repo = VisitRepository(db)
+    return await visit_repo.mark_visit_completed(visit_id, notes, feedback)

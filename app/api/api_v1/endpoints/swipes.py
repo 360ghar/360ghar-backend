@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.models.user import User
@@ -10,39 +10,39 @@ from app.services.swipe import record_swipe, get_swipe_history
 router = APIRouter()
 
 @router.post("/", response_model=MessageResponse)
-def swipe_property(
+async def swipe_property(
     swipe: PropertySwipe,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    record_swipe(db, current_user.id, swipe)
+    await record_swipe(db, current_user.id, swipe)
     
     action = "liked" if swipe.is_liked else "passed"
     return MessageResponse(message=f"Property {action} successfully")
 
 @router.get("/history")
-def get_user_swipe_history(
+async def get_user_swipe_history(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     limit: int = 100
 ):
-    return get_swipe_history(db, current_user.id, limit)
+    return await get_swipe_history(db, current_user.id, limit)
 
 @router.get("/stats")
-def get_swipe_stats(
+async def get_swipe_stats(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     from app.services.analytics import get_user_swipe_stats
-    return get_user_swipe_stats(db, current_user.id)
+    return await get_user_swipe_stats(db, current_user.id)
 
 @router.post("/undo", response_model=MessageResponse)
-def undo_last_swipe(
+async def undo_last_swipe(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     from app.services.swipe import undo_last_swipe
-    success = undo_last_swipe(db, current_user.id)
+    success = await undo_last_swipe(db, current_user.id)
     
     if not success:
         raise HTTPException(status_code=400, detail="No recent swipe to undo")

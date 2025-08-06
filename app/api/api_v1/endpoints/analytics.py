@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.models.user import User
@@ -12,48 +12,48 @@ from app.services.analytics import (
 router = APIRouter()
 
 @router.post("/event", response_model=MessageResponse)
-def track_user_event(
+async def track_user_event(
     event: AnalyticsData,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     event.user_id = current_user.id
-    record_user_event(db, event)
+    await record_user_event(db, event)
     return MessageResponse(message="Event tracked successfully")
 
 @router.get("/dashboard")
-def get_user_analytics_dashboard(
+async def get_user_analytics_dashboard(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    return get_user_analytics(db, current_user.id)
+    return await get_user_analytics(db, current_user.id)
 
 @router.get("/search-history")
-def get_search_analytics(
+async def get_search_analytics(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    return get_user_search_history(db, current_user.id)
+    return await get_user_search_history(db, current_user.id)
 
 @router.get("/swipe-stats")
-def get_swipe_analytics(
+async def get_swipe_analytics(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
-    return get_user_swipe_stats(db, current_user.id)
+    return await get_user_swipe_stats(db, current_user.id)
 
 @router.get("/property-views")
-def get_property_view_history(
+async def get_property_view_history(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     from app.services.analytics import get_user_property_views
-    return get_user_property_views(db, current_user.id)
+    return await get_user_property_views(db, current_user.id)
 
 @router.get("/preferences-insights")
-def get_user_preferences_insights(
+async def get_user_preferences_insights(
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     from app.services.analytics import analyze_user_preferences
-    return analyze_user_preferences(db, current_user.id)
+    return await analyze_user_preferences(db, current_user.id)

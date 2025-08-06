@@ -216,7 +216,7 @@ class BookingPopulator(DataPopulatorBase):
     
     def _calculate_booking_pricing(self, property_obj: Property, nights: int) -> Dict[str, float]:
         """Calculate realistic booking pricing"""
-        daily_rate = property_obj.daily_rate or 100
+        daily_rate = (property_obj.daily_rate if property_obj else 100) or 100
         base_amount = daily_rate * nights
         
         # Apply discounts for longer stays

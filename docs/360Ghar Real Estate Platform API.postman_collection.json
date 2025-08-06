@@ -1,0 +1,2453 @@
+{
+	"info": {
+		"_postman_id": "167e1119-6f60-419e-ba03-cc111332c184",
+		"name": "360Ghar Real Estate Platform API",
+		"description": "Comprehensive API collection for 360Ghar - Tinder-like real estate platform with Supabase authentication",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "40543183"
+	},
+	"item": [
+		{
+			"name": "Health & Config",
+			"item": [
+				{
+					"name": "Root Endpoint",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response content type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include(\"application/json\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('message', 'version', 'docs', 'status');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Version is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.version).to.match(/^\\d+\\.\\d+\\.\\d+$/, \"Version format should be x.y.z\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Status must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.status).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Status should not be empty\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('status', 'database', 'supabase_url', 'timestamp');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Status must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.status).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Database must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.database).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Database value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Timestamp is in a valid date format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.timestamp).to.exist;",
+									"    pm.expect(new Date(responseData.timestamp).getTime()).to.not.be.NaN;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Configuration",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('api_version', 'environment', 'supabase_url', 'features');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Features is an array that contains only non-empty strings\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.features).to.be.an('array');",
+									"    responseData.features.forEach(function(feature) {",
+									"        pm.expect(feature).to.be.a('string').and.to.have.lengthOf.above(0);",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Content-Type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get(\"Content-Type\")).to.eql(\"application/json\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"The api_version must follow the expected versioning format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('api_version');",
+									"    pm.expect(responseData.api_version).to.match(/^\\d+\\.\\d+\\.\\d+$/, \"api_version should be in the format X.Y.Z\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/config",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"config"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('access_token', 'token_type');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Access token is a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.access_token).to.exist.and.to.be.a('string').and.to.have.lengthOf.above(0, \"Access token should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Token type must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.token_type).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Token type should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"saksham1991999@gmail.com\",\n    \"password\": \"saksham123\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"auth",
+								"login"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Current User Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys(",
+									"        'email', ",
+									"        'full_name', ",
+									"        'phone', ",
+									"        'date_of_birth', ",
+									"        'id', ",
+									"        'supabase_user_id', ",
+									"        'is_active', ",
+									"        'is_verified', ",
+									"        'profile_image_url', ",
+									"        'preferences', ",
+									"        'current_latitude', ",
+									"        'current_longitude', ",
+									"        'preferred_locations', ",
+									"        'notification_settings', ",
+									"        'privacy_settings', ",
+									"        'created_at', ",
+									"        'updated_at'",
+									"    );",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email should be in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.have.property('email').that.matches(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Notification settings contains the expected fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"",
+									"    pm.expect(responseData.notification_settings).to.be.an('object');",
+									"    const notificationSettings = responseData.notification_settings;",
+									"",
+									"    pm.expect(notificationSettings).to.have.all.keys('email_notifications', 'push_notifications', 'sms_notifications');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Privacy settings have the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.privacy_settings).to.be.an('object');",
+									"    pm.expect(responseData.privacy_settings).to.have.all.keys('profile_visibility', 'location_sharing');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/auth/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"auth",
+								"me"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Sync User Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.eql(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"User object contains required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    const user = responseData.user;",
+									"",
+									"    pm.expect(user).to.be.an('object');",
+									"    pm.expect(user).to.have.all.keys('date_of_birth', 'current_latitude', 'id', 'profile_image_url', 'current_longitude', 'updated_at', 'email', 'preferred_locations', 'is_active', 'notification_settings', 'is_verified', 'preferences', 'privacy_settings', 'phone', 'supabase_user_id', 'full_name', 'created_at');",
+									"",
+									"    pm.expect(user.notification_settings).to.be.an('object').that.has.all.keys('email_notifications', 'push_notifications', 'sms_notifications');",
+									"    pm.expect(user.privacy_settings).to.be.an('object').that.has.all.keys('profile_visibility', 'location_sharing');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email should be in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.user).to.exist.and.to.be.an('object');",
+									"    ",
+									"    const email = responseData.user.email;",
+									"    pm.expect(email).to.exist.and.to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Notification settings contain all expected fields and their values are boolean\", function () {",
+									"    const responseData = pm.response.json();",
+									"    const notificationSettings = responseData.user.notification_settings;",
+									"",
+									"    pm.expect(notificationSettings).to.be.an('object');",
+									"    pm.expect(notificationSettings).to.have.all.keys('email_notifications', 'push_notifications', 'sms_notifications');",
+									"",
+									"    pm.expect(notificationSettings.email_notifications).to.be.a('boolean');",
+									"    pm.expect(notificationSettings.push_notifications).to.be.a('boolean');",
+									"    pm.expect(notificationSettings.sms_notifications).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Privacy settings contain required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('user');",
+									"    pm.expect(responseData.user).to.have.property('privacy_settings');",
+									"    pm.expect(responseData.user.privacy_settings).to.have.all.keys('profile_visibility', 'location_sharing');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/auth/sync",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"auth",
+								"sync"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Session",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('valid', 'user_id', 'email', 'email_verified');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email must be in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.email).to.exist;",
+									"    pm.expect(responseData.email).to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"The user_id must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.user_id).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"User ID should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email verified must be a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('email_verified').that.is.a('boolean');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/auth/session",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"auth",
+								"session"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Get User Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('email', 'full_name', 'phone', 'date_of_birth', 'id', 'supabase_user_id', 'is_active', 'is_verified', 'profile_image_url', 'current_latitude', 'current_longitude', 'created_at', 'updated_at');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.email).to.exist;",
+									"    pm.expect(responseData.email).to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Notification settings contain valid boolean values\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.notification_settings).to.be.an('object');",
+									"    pm.expect(responseData.notification_settings.email_notifications).to.be.a('boolean');",
+									"    pm.expect(responseData.notification_settings.push_notifications).to.be.a('boolean');",
+									"    pm.expect(responseData.notification_settings.sms_notifications).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Privacy settings must have valid values for profile_visibility and location_sharing\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    ",
+									"    if (responseData.privacy_settings) {",
+									"        pm.expect(responseData.privacy_settings).to.have.property('profile_visibility').that.is.a('string');",
+									"        pm.expect(responseData.privacy_settings).to.have.property('location_sharing').that.is.a('boolean');",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/users/profile",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"users",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Profile",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response should contain required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys(",
+									"        'email', ",
+									"        'full_name', ",
+									"        'phone', ",
+									"        'date_of_birth', ",
+									"        'id', ",
+									"        'supabase_user_id', ",
+									"        'is_active', ",
+									"        'is_verified', ",
+									"        'profile_image_url', ",
+									"        'preferences', ",
+									"        'current_latitude', ",
+									"        'current_longitude', ",
+									"        'preferred_locations', ",
+									"        'notification_settings', ",
+									"        'privacy_settings', ",
+									"        'created_at', ",
+									"        'updated_at'",
+									"    );",
+									"});",
+									"",
+									"",
+									"pm.test(\"Email is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.email).to.exist;",
+									"    pm.expect(responseData.email).to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Date of birth is in a valid date format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.date_of_birth).to.match(/^\\d{4}-\\d{2}-\\d{2}$/, \"Date of birth should be in YYYY-MM-DD format\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Notification settings contain expected keys and their values are boolean\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    ",
+									"    const notificationSettings = responseData.notification_settings;",
+									"    pm.expect(notificationSettings).to.have.all.keys('email_notifications', 'push_notifications', 'sms_notifications');",
+									"    ",
+									"    pm.expect(notificationSettings.email_notifications).to.be.a('boolean');",
+									"    pm.expect(notificationSettings.push_notifications).to.be.a('boolean');",
+									"    pm.expect(notificationSettings.sms_notifications).to.be.a('boolean');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"full_name\": \"John Doe\",\n  \"phone\": \"+91-9876543210\",\n  \"date_of_birth\": \"1990-01-15\",\n  \"profile_image_url\": \"https://example.com/profile.jpg\",\n  \"preferred_locations\": [\"Mumbai\", \"Delhi\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/users/profile",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"users",
+								"profile"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Preferences",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('message', 'success');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Success should be a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.success).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"The message must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_type\": [\"apartment\", \"house\"],\n  \"purpose\": \"rent\",\n  \"budget_min\": 20000,\n  \"budget_max\": 50000,\n  \"bedrooms_min\": 2,\n  \"bedrooms_max\": 3,\n  \"location_preference\": [\"Bandra\", \"Andheri\"],\n  \"max_distance_km\": 10\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/users/preferences",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"users",
+								"preferences"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update User Location",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains a success field that is true\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.property('success', true);",
+									"});",
+									"",
+									"",
+									"pm.test(\"The response message must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Content-Type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.eql('application/json');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"latitude\": \"19.0760\",\n  \"longitude\": \"72.8777\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/users/location",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"users",
+								"location"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Liked Properties",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is an array\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('array');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is not null\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.not.be.null;",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response content type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.eql('application/json');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/users/liked-properties",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"users",
+								"liked-properties"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Properties",
+			"item": [
+				{
+					"name": "Get Property Details",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains all required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys(",
+									"        'title', 'description', 'property_type', 'purpose', 'base_price', ",
+									"        'area_sqft', 'bedrooms', 'bathrooms', 'balconies', 'parking_spaces', ",
+									"        'id', 'location_id', 'status', 'price_per_sqft', 'monthly_rent', ",
+									"        'daily_rate', 'security_deposit', 'maintenance_charges', ",
+									"        'floor_number', 'total_floors', 'age_of_property', 'max_occupancy', ",
+									"        'minimum_stay_days', 'amenities', 'features', 'main_image_url', ",
+									"        'virtual_tour_url', 'is_available', 'available_from', ",
+									"        'calendar_data', 'tags', 'owner_name', 'owner_contact', ",
+									"        'builder_name', 'view_count', 'like_count', 'interest_count', ",
+									"        'created_at', 'updated_at', 'location', 'images', 'distance_km'",
+									"    );",
+									"    pm.expect(responseData.location).to.have.all.keys(",
+									"        'name', 'city', 'state', 'pincode', 'locality', 'full_address'",
+									"    );",
+									"});",
+									"",
+									"",
+									"pm.test(\"Title is a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.title).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Title should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Base price, area_sqft, bedrooms, bathrooms, and parking_spaces should be non-negative integers\", function () {",
+									"    const responseData = pm.response.json();",
+									"",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    ",
+									"    [responseData.base_price, responseData.area_sqft, responseData.bedrooms, responseData.bathrooms, responseData.parking_spaces].forEach(function(value) {",
+									"        pm.expect(value).to.be.a('number').that.is.at.least(0);",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Location object contains all required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.location).to.exist;",
+									"    pm.expect(responseData.location).to.include.keys('name', 'city', 'state', 'pincode', 'locality', 'full_address');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/properties/1",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"properties",
+								"1"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Show Interest in Property",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains a success field with a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.property('success').that.is.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"The message field must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Content-Type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include(\"application/json\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_id\": 1,\n  \"interest_type\": \"visit\",\n  \"message\": \"I would like to schedule a visit for this property\",\n  \"preferred_contact_method\": \"phone\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/properties/interest",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"properties",
+								"interest"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Property Availability",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('available', 'message');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Available should be a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.available).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Message is a string and allows empty values\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('message');",
+									"    pm.expect(responseData.message).to.be.a('string');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/properties/1/availability?check_in_date=2024-01-15&check_out_date=2024-01-20&guests=2",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"properties",
+								"1",
+								"availability"
+							],
+							"query": [
+								{
+									"key": "check_in_date",
+									"value": "2024-01-15"
+								},
+								{
+									"key": "check_out_date",
+									"value": "2024-01-20"
+								},
+								{
+									"key": "guests",
+									"value": "2"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Locations",
+			"item": [
+				{
+					"name": "Search Locations",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is an array\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('array');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is not null\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.not.be.null;",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains a Content-Type of application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include(\"application/json\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/locations/search?query=Mumbai&limit=10",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"locations",
+								"search"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "Mumbai"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Nearby Locations",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the correct Content-Type header\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.equal('application/json');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response body is an array\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('array');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response does not contain any null or undefined values\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array');",
+									"    responseData.forEach(function(item) {",
+									"        pm.expect(item).to.not.be.null;",
+									"        pm.expect(item).to.not.be.undefined;",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/locations/nearby?latitude=19.0760&longitude=72.8777&radius_km=5&limit=50",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"locations",
+								"nearby"
+							],
+							"query": [
+								{
+									"key": "latitude",
+									"value": "19.0760"
+								},
+								{
+									"key": "longitude",
+									"value": "72.8777"
+								},
+								{
+									"key": "radius_km",
+									"value": "5"
+								},
+								{
+									"key": "limit",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get All Cities",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.eql(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields: city and state\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.not.empty;",
+									"    ",
+									"    responseData.forEach(function(item) {",
+									"        pm.expect(item).to.have.property('city').that.is.a('string').and.to.have.lengthOf.at.least(1);",
+									"        pm.expect(item).to.have.property('state').that.is.a('string').and.to.have.lengthOf.at.least(1);",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"City is a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.not.empty;",
+									"    responseData.forEach(function(cityObject) {",
+									"        pm.expect(cityObject.city).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"City should not be empty\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"State must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.not.empty;",
+									"    responseData.forEach(function(city) {",
+									"        pm.expect(city.state).to.be.a('string').and.to.have.lengthOf.at.least(1, \"State value should not be empty\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/locations/cities",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"locations",
+								"cities"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Popular Locations",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.not.empty;",
+									"",
+									"    responseData.forEach(location => {",
+									"        pm.expect(location).to.have.all.keys('city', 'name', 'state', 'pincode', 'longitude', 'full_address', 'country', 'latitude', 'locality', 'id', 'created_at');",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Longitude and Latitude must be valid numbers\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    responseData.forEach(location => {",
+									"        pm.expect(location.longitude).to.be.a('number').and.to.satisfy(num => !isNaN(num) && num !== Infinity && num !== -Infinity, \"Longitude should be a valid number\");",
+									"        pm.expect(location.latitude).to.be.a('number').and.to.satisfy(num => !isNaN(num) && num !== Infinity && num !== -Infinity, \"Latitude should be a valid number\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Pincode is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.not.empty;",
+									"    responseData.forEach(function(location) {",
+									"        pm.expect(location.pincode).to.exist;",
+									"        pm.expect(location.pincode).to.match(/^\\d{6}$/, \"Pincode must be a 6-digit number\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/locations/popular?limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"locations",
+								"popular"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Visits",
+			"item": [
+				{
+					"name": "Schedule Visit",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('property_id', 'scheduled_date', 'visitor_name', 'visitor_email');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Visitor phone is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.visitor_phone).to.exist.and.to.match(/^\\+?\\d{10,15}$/, \"Visitor phone should be a valid phone number format\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Number of visitors must be a non-negative integer\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.number_of_visitors).to.be.a('number').and.to.be.at.least(0);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Follow Up Required Field Should Be Boolean\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.follow_up_required).to.be.a('boolean');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_id\": 1,\n  \"scheduled_date\": \"2024-01-15T10:00:00\",\n  \"visitor_name\": \"John Doe\",\n  \"visitor_phone\": \"+91-9876543210\",\n  \"visitor_email\": \"john@example.com\",\n  \"number_of_visitors\": 2,\n  \"preferred_time_slot\": \"morning\",\n  \"special_requirements\": \"Need parking space\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/visits/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"visits",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Visits",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('visits', 'total', 'upcoming', 'completed', 'cancelled');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Each visit object contains the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.visits).to.be.an('array');",
+									"",
+									"    responseData.visits.forEach(function(visit) {",
+									"        pm.expect(visit).to.have.all.keys('property_id', 'scheduled_date', 'visitor_name', 'visitor_phone', 'visitor_email', 'number_of_visitors', 'preferred_time_slot', 'status');",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Visitor phone is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('visits').that.is.an('array').and.is.not.empty;",
+									"    responseData.visits.forEach(function(visit) {",
+									"        pm.expect(visit.visitor_phone).to.match(/^\\+?[1-9]\\d{1,14}$/); // Valid phone number format",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Follow up required is a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.visits).to.be.an('array').that.is.not.empty;",
+									"    responseData.visits.forEach(function(visit) {",
+									"        pm.expect(visit.follow_up_required).to.be.a('boolean');",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/visits/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"visits",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Upcoming Visits",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.eql(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has the correct Content-Type header\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.eql('application/json');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is an array\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('array');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response is empty array for no upcoming visits\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('array').that.is.empty;",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/visits/upcoming",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"visits",
+								"upcoming"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reschedule Visit",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('message', 'success');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Success field is a boolean\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.success).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"The message must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"visit_id\": 1,\n  \"new_date\": \"2024-01-16T14:00:00\",\n  \"reason\": \"Schedule conflict\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/visits/reschedule",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"visits",
+								"reschedule"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Bookings",
+			"item": [
+				{
+					"name": "Create Booking",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.eql(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Validate the presence of required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys(",
+									"        'property_id', ",
+									"        'check_in_date', ",
+									"        'check_out_date', ",
+									"        'guests', ",
+									"        'primary_guest_name', ",
+									"        'primary_guest_phone', ",
+									"        'primary_guest_email'",
+									"    );",
+									"",
+									"    pm.expect(responseData.property_id).to.exist;",
+									"    pm.expect(responseData.check_in_date).to.exist.and.to.have.lengthOf.at.least(1, \"Check-in date should not be empty\");",
+									"    pm.expect(responseData.check_out_date).to.exist.and.to.have.lengthOf.at.least(1, \"Check-out date should not be empty\");",
+									"    pm.expect(responseData.guests).to.exist.and.to.be.a('number').and.to.be.at.least(1, \"Number of guests should be at least 1\");",
+									"    pm.expect(responseData.primary_guest_name).to.exist.and.to.have.lengthOf.at.least(1, \"Primary guest name should not be empty\");",
+									"    pm.expect(responseData.primary_guest_phone).to.exist.and.to.have.lengthOf.at.least(1, \"Primary guest phone should not be empty\");",
+									"    pm.expect(responseData.primary_guest_email).to.exist.and.to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Primary guest email should be in a valid format\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Guests must be a non-negative integer\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('guests').that.is.a('number').and.is.at.least(0, \"Guests should be a non-negative integer\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Validate that primary_guest_phone is in a valid phone number format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.primary_guest_phone).to.exist;",
+									"    pm.expect(responseData.primary_guest_phone).to.match(/^\\+?[1-9]\\d{1,14}$/); // Valid phone number format",
+									"});",
+									"",
+									"",
+									"pm.test(\"The booking_reference must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.booking_reference).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_id\": 1,\n  \"check_in_date\": \"2024-02-01T15:00:00\",\n  \"check_out_date\": \"2024-02-05T11:00:00\",\n  \"guests\": 2,\n  \"primary_guest_name\": \"John Doe\",\n  \"primary_guest_phone\": \"+91-9876543210\",\n  \"primary_guest_email\": \"john@example.com\",\n  \"special_requests\": \"Late check-in\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/bookings/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"bookings",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get My Bookings",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Validate the bookings array structure\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.bookings).to.be.an('array');",
+									"",
+									"    responseData.bookings.forEach(function(booking) {",
+									"        pm.expect(booking).to.be.an('object');",
+									"        pm.expect(booking).to.have.all.keys(",
+									"            'property_id', 'check_in_date', 'check_out_date', 'guests', ",
+									"            'primary_guest_name', 'primary_guest_phone', 'primary_guest_email', ",
+									"            'special_requests', 'id', 'user_id', 'booking_reference', ",
+									"            'nights', 'base_amount', 'taxes_amount', 'service_charges', ",
+									"            'discount_amount', 'total_amount', 'booking_status', ",
+									"            'payment_status', 'guest_details', 'internal_notes', ",
+									"            'actual_check_in', 'actual_check_out', 'early_check_in', ",
+									"            'late_check_out', 'cancellation_date', 'cancellation_reason', ",
+									"            'refund_amount', 'payment_method', 'transaction_id', ",
+									"            'payment_date', 'guest_rating', 'guest_review', ",
+									"            'host_rating', 'host_review', 'created_at', 'updated_at'",
+									"        );",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Primary guest email is in a valid format\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    ",
+									"    if (responseData.bookings && responseData.bookings.length > 0) {",
+									"        responseData.bookings.forEach(booking => {",
+									"            pm.expect(booking.primary_guest_email).to.match(/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/, \"Email format is invalid\");",
+									"        });",
+									"    }",
+									"});",
+									"",
+									"",
+									"pm.test(\"Total amount must be a non-negative number\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.total_amount).to.be.a('number').and.to.be.at.least(0, \"Total amount should be non-negative\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Booking status and payment status must be non-empty strings\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    ",
+									"    responseData.bookings.forEach(booking => {",
+									"        pm.expect(booking.booking_status).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Booking status should not be empty\");",
+									"        pm.expect(booking.payment_status).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Payment status should not be empty\");",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/bookings/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"bookings",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Availability",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.eql(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response should contain required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('available', 'message');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Available should be a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.available).to.be.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"The message should be a string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.be.a('string');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_id\": 1,\n  \"check_in_date\": \"2024-02-01T15:00:00\",\n  \"check_out_date\": \"2024-02-05T11:00:00\",\n  \"guests\": 2\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/bookings/check-availability",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"bookings",
+								"check-availability"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Swipes",
+			"item": [
+				{
+					"name": "Swipe Property",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains a success field with a boolean value\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.property('success').that.is.a('boolean');",
+									"});",
+									"",
+									"",
+									"pm.test(\"The message must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.message).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"Value should not be empty\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Content-Type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.eql('application/json');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"property_id\": 1,\n  \"is_liked\": true,\n  \"user_location_lat\": \"19.0760\",\n  \"user_location_lng\": \"72.8777\",\n  \"session_id\": \"session_123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/swipes/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"swipes",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Swipe History",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('swipes', 'total_likes', 'total_passes', 'total_swipes');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Swipes array contains objects with expected properties\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.swipes).to.be.an('array').that.is.not.empty;",
+									"",
+									"    responseData.swipes.forEach(function(swipe) {",
+									"        pm.expect(swipe).to.be.an('object');",
+									"        pm.expect(swipe).to.have.all.keys('user_id', 'user_location_lat', 'user_location_lng', 'id', 'created_at', 'property_id', 'is_liked', 'swipe_timestamp', 'session_id', 'updated_at');",
+									"        ",
+									"        pm.expect(swipe.user_id).to.be.a('number');",
+									"        pm.expect(swipe.user_location_lat).to.be.a('string');",
+									"        pm.expect(swipe.user_location_lng).to.be.a('string');",
+									"        pm.expect(swipe.id).to.be.a('number');",
+									"        pm.expect(swipe.created_at).to.be.a('string');",
+									"        pm.expect(swipe.property_id).to.be.a('number');",
+									"        pm.expect(swipe.is_liked).to.be.a('boolean');",
+									"        pm.expect(swipe.swipe_timestamp).to.be.a('string');",
+									"        pm.expect(swipe.session_id).to.be.a('string');",
+									"        pm.expect(swipe.updated_at).to.satisfy(function(updatedAt) {",
+									"            return updatedAt === null || typeof updatedAt === 'string';",
+									"        });",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Validate that user_location_lat and user_location_lng are valid latitude and longitude values\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.swipes).to.be.an('array');",
+									"",
+									"    responseData.swipes.forEach(function(swipe) {",
+									"        // Validate user_location_lat",
+									"        pm.expect(swipe.user_location_lat).to.satisfy(function(lat) {",
+									"            return !isNaN(lat) && lat >= -90 && lat <= 90;",
+									"        }, \"user_location_lat should be a valid latitude value\");",
+									"        ",
+									"        // Validate user_location_lng",
+									"        pm.expect(swipe.user_location_lng).to.satisfy(function(lng) {",
+									"            return !isNaN(lng) && lng >= -180 && lng <= 180;",
+									"        }, \"user_location_lng should be a valid longitude value\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Total likes, passes, and swipes should be non-negative integers\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.total_likes).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.total_passes).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.total_swipes).to.be.a('number').and.to.be.at.least(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/swipes/history?limit=100",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"swipes",
+								"history"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "100"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Swipe Stats",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('total_swipes', 'total_likes', 'total_passes', 'like_rate_percentage', 'most_liked_property_type', 'average_price_range');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Total swipes, likes, and passes must be non-negative integers\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    [responseData.total_swipes, responseData.total_likes, responseData.total_passes].forEach(function(value) {",
+									"        pm.expect(value).to.be.a('number').and.to.be.at.least(0, \"Value should be non-negative\");",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"Like rate percentage is between 0 and 100\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('like_rate_percentage').that.is.a('number').and.to.be.at.least(0).and.to.be.at.most(100);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Most liked property type must be a non-empty string\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.have.property('most_liked_property_type').that.is.a('string').and.is.not.empty;",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/swipes/stats",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"swipes",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Analytics",
+			"item": [
+				{
+					"name": "Track Event",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 422\", function () {",
+									"    pm.expect(pm.response.code).to.eql(422);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response has a valid content type of application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include(\"application/json\");",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains the detail field\", function () {",
+									"    const responseData = pm.response.json();",
+									"    pm.expect(responseData).to.have.property('detail');",
+									"});",
+									"",
+									"",
+									"pm.test(\"Each object in the detail array has the required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.detail).to.be.an('array').that.is.not.empty;",
+									"    ",
+									"    responseData.detail.forEach(function(detailItem) {",
+									"        pm.expect(detailItem).to.have.all.keys('type', 'loc', 'msg', 'input', 'url');",
+									"    });",
+									"});",
+									"",
+									"",
+									"pm.test(\"The event_type and session_id must be non-empty strings\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData.detail).to.be.an('array').that.is.not.empty;",
+									"",
+									"    responseData.detail.forEach(detail => {",
+									"        pm.expect(detail.event_type).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"event_type should not be empty\");",
+									"        pm.expect(detail.session_id).to.exist.and.to.be.a('string').and.to.have.lengthOf.at.least(1, \"session_id should not be empty\");",
+									"    });",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"event_type\": \"property_view\",\n  \"event_data\": {\n    \"property_id\": 1,\n    \"view_duration\": 30,\n    \"source\": \"discover_feed\"\n  },\n  \"session_id\": \"session_123\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/analytics/event",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"analytics",
+								"event"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Analytics Dashboard",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Response status code is 200\", function () {",
+									"    pm.expect(pm.response.code).to.equal(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response contains all required fields\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData).to.be.an('object');",
+									"    pm.expect(responseData).to.have.all.keys('total_searches', 'total_swipes', 'total_likes', 'recent_searches', 'recent_swipes', 'like_rate');",
+									"});",
+									"",
+									"",
+									"pm.test(\"All numeric fields are non-negative integers\", function () {",
+									"    const responseData = pm.response.json();",
+									"    ",
+									"    pm.expect(responseData.total_searches).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.total_swipes).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.total_likes).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.recent_searches).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.recent_swipes).to.be.a('number').and.to.be.at.least(0);",
+									"    pm.expect(responseData.like_rate).to.be.a('number').and.to.be.at.least(0);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Response time is less than 200ms\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(200);",
+									"});",
+									"",
+									"",
+									"pm.test(\"Content-Type is application/json\", function () {",
+									"    pm.expect(pm.response.headers.get('Content-Type')).to.include(\"application/json\");",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{supabase_jwt_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/{{api_version}}/analytics/dashboard",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"{{api_version}}",
+								"analytics",
+								"dashboard"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{supabase_jwt_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "api_version",
+			"value": "/api/v1",
+			"type": "string"
+		},
+		{
+			"key": "supabase_jwt_token",
+			"value": "your_supabase_jwt_token_here",
+			"type": "string"
+		}
+	]
+}

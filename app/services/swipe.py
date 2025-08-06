@@ -1,97 +1,51 @@
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, desc
-from app.models.user_interaction import UserSwipe
-from app.models.property import Property
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.repositories.user_interaction import UserInteractionRepository
+from app.repositories.property import PropertyRepository
 from app.schemas.property import PropertySwipe
 
-def record_swipe(db: Session, user_id: int, swipe: PropertySwipe):
-    # Check if user already swiped on this property
-    existing_swipe = db.query(UserSwipe).filter(
-        and_(UserSwipe.user_id == user_id, UserSwipe.property_id == swipe.property_id)
-    ).first()
+async def record_swipe(db: AsyncSession, user_id: int, swipe: PropertySwipe):
+    interaction_repo = UserInteractionRepository(db)
+    property_repo = PropertyRepository(db)
     
-    if existing_swipe:
-        # Update existing swipe
-        existing_swipe.is_liked = swipe.is_liked
-        existing_swipe.user_location_lat = swipe.user_location_lat
-        existing_swipe.user_location_lng = swipe.user_location_lng
-        existing_swipe.session_id = swipe.session_id
-    else:
-        # Create new swipe record
-        db_swipe = UserSwipe(
-            user_id=user_id,
-            property_id=swipe.property_id,
-            is_liked=swipe.is_liked,
-            user_location_lat=swipe.user_location_lat,
-            user_location_lng=swipe.user_location_lng,
-            session_id=swipe.session_id
-        )
-        db.add(db_swipe)
+    # Record the swipe
+    await interaction_repo.record_swipe(user_id, swipe)
     
-    # Update property like count
+    # Update property like count if liked
     if swipe.is_liked:
-        property_obj = db.query(Property).filter(Property.id == swipe.property_id).first()
-        if property_obj:
-            property_obj.like_count += 1
+        await property_repo.increment_like_count(swipe.property_id)
     
-    db.commit()
     return True
 
-def get_swipe_history(db: Session, user_id: int, limit: int = 100):
-    swipes = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).order_by(
-        desc(UserSwipe.swipe_timestamp)
-    ).limit(limit).all()
-    
-    return {
-        "swipes": swipes,
-        "total_likes": sum(1 for s in swipes if s.is_liked),
-        "total_passes": sum(1 for s in swipes if not s.is_liked),
-        "total_swipes": len(swipes)
-    }
+async def get_swipe_history(db: AsyncSession, user_id: int, limit: int = 100):
+    interaction_repo = UserInteractionRepository(db)
+    return await interaction_repo.get_swipe_history(user_id, limit)
 
-def undo_last_swipe(db: Session, user_id: int):
-    # Get the most recent swipe
-    last_swipe = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).order_by(
-        desc(UserSwipe.swipe_timestamp)
-    ).first()
+async def undo_last_swipe(db: AsyncSession, user_id: int):
+    interaction_repo = UserInteractionRepository(db)
+    property_repo = PropertyRepository(db)
     
-    if not last_swipe:
+    # Get the most recent swipe to check if it was a like
+    history = await interaction_repo.get_swipe_history(user_id, limit=1)
+    if not history["swipes"]:
         return False
     
-    # Update property like count if it was a like
+    last_swipe = history["swipes"][0]
+    
+    # If it was a like, decrement the property like count
     if last_swipe.is_liked:
-        property_obj = db.query(Property).filter(Property.id == last_swipe.property_id).first()
+        # We need to manually decrement since this is an undo operation
+        property_obj = await property_repo.get(last_swipe.property_id)
         if property_obj and property_obj.like_count > 0:
             property_obj.like_count -= 1
+            await property_repo.session.flush()
     
-    # Delete the swipe record
-    db.delete(last_swipe)
-    db.commit()
-    
-    return True
+    # Remove the swipe record
+    return await interaction_repo.undo_last_swipe(user_id)
 
-def get_user_swipe_stats(db: Session, user_id: int):
-    swipes = db.query(UserSwipe).filter(UserSwipe.user_id == user_id).all()
-    
-    total_swipes = len(swipes)
-    likes = sum(1 for s in swipes if s.is_liked)
-    passes = total_swipes - likes
-    
-    like_rate = (likes / total_swipes * 100) if total_swipes > 0 else 0
-    
-    return {
-        "total_swipes": total_swipes,
-        "total_likes": likes,
-        "total_passes": passes,
-        "like_rate_percentage": round(like_rate, 2)
-    }
+async def get_user_swipe_stats(db: AsyncSession, user_id: int):
+    interaction_repo = UserInteractionRepository(db)
+    return await interaction_repo.get_user_swipe_stats(user_id)
 
-def check_mutual_interest(db: Session, user_id: int, property_id: int):
-    # Check if user liked the property
-    user_swipe = db.query(UserSwipe).filter(
-        and_(UserSwipe.user_id == user_id, UserSwipe.property_id == property_id, UserSwipe.is_liked == True)
-    ).first()
-    
-    # This is where you could implement property owner/agent interest logic
-    # For now, we'll just return the user's interest
-    return user_swipe is not None
+async def check_mutual_interest(db: AsyncSession, user_id: int, property_id: int):
+    interaction_repo = UserInteractionRepository(db)
+    return await interaction_repo.check_mutual_interest(user_id, property_id)

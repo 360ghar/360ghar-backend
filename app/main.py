@@ -1,14 +1,25 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
+import traceback
 import logging
 import yaml
+
+from datetime import datetime
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, Response
+
+from app.core.exceptions import BaseAPIException
 from app.core.config import settings
 from app.api.api_v1.api import api_router
+from app.middleware.performance import PerformanceMiddleware
+# from app.middleware.rate_limit import RateLimitMiddleware
+# from app.middleware.security import SecurityHeadersMiddleware, APIKeyMiddleware
+from app.core.cache import cache_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
 
 app = FastAPI(
     title="360Ghar Real Estate Platform",
@@ -37,6 +48,9 @@ app = FastAPI(
     ]
 )
 
+# Add performance monitoring middleware (should be first)
+app.add_middleware(PerformanceMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.ENVIRONMENT == "development" else settings.CORS_ORIGINS,
@@ -54,10 +68,23 @@ app.add_middleware(
         "Cache-Control",
         "Pragma",
         "Expires",
+        "X-Process-Time",  # Allow client to see performance headers
+        "X-Performance-Tier",
     ],
-    expose_headers=["Content-Length", "Content-Range"],
+    expose_headers=["Content-Length", "Content-Range", "X-Process-Time", "X-Performance-Tier"],
     max_age=86400,  # Cache preflight requests for 24 hours
 )
+
+# # Add global rate limiting
+# app.add_middleware(
+#     RateLimitMiddleware,
+#     calls=100,
+#     period=60,
+#     scope="global"
+# )
+
+# # Add security headers
+# app.add_middleware(SecurityHeadersMiddleware)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
@@ -80,13 +107,36 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with database and cache connectivity"""
     try:
+        from app.core.database import engine
+        
+        # Check database connection
+        db_status = "connected"
+        try:
+            async with engine.begin() as conn:
+                await conn.execute("SELECT 1")
+        except Exception as db_e:
+            logger.error(f"Database health check failed: {db_e}")
+            db_status = "disconnected"
+        
+        # Check cache connection
+        cache_status = "connected"
+        try:
+            await cache_manager.redis_client.ping()
+        except Exception as cache_e:
+            logger.error(f"Cache health check failed: {cache_e}")
+            cache_status = "disconnected"
+        
+        overall_status = "healthy" if db_status == "connected" else "degraded"
+        
         return {
-            "status": "healthy",
-            "database": "connected",
+            "status": overall_status,
+            "database": db_status,
+            "cache": cache_status,
             "supabase_url": settings.SUPABASE_URL,
-            "timestamp": "2024-12-29"
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": "1.0.0"
         }
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
@@ -120,3 +170,79 @@ async def get_openapi_yaml():
         media_type="application/x-yaml",
         headers={"Content-Disposition": "attachment; filename=360ghar-openapi-spec.yaml"}
     )
+
+
+@app.exception_handler(BaseAPIException)
+async def api_exception_handler(request: Request, exc: BaseAPIException):
+    """Handle custom API exceptions"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": exc.detail,
+                "type": exc.__class__.__name__,
+                "path": str(request.url),
+                "method": request.method,
+                "timestamp": datetime.utcnow().isoformat(),
+                **exc.extra
+            }
+        },
+        headers=exc.headers
+    )
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    """Handle validation errors"""
+    logger.error(f"Validation error: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": {
+                "message": str(exc),
+                "type": "ValidationError",
+                "path": str(request.url),
+                "method": request.method,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Handle unexpected exceptions"""
+    logger.error(f"Unexpected error: {traceback.format_exc()}")
+    
+    # Don't expose internal errors in production
+    if settings.ENVIRONMENT == "production":
+        message = "An unexpected error occurred"
+    else:
+        message = str(exc)
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "message": message,
+                "type": "InternalServerError",
+                "path": str(request.url),
+                "method": request.method,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
+    )
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    await cache_manager.connect()
+    logger.info("🚀 360Ghar API started successfully with optimizations enabled")
+    logger.info("✅ Database connection pool: 50 connections, max overflow: 100")
+    logger.info("✅ Performance monitoring enabled")
+    logger.info("✅ Redis caching enabled")
+    logger.info("✅ PostGIS spatial indexing enabled")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    await cache_manager.disconnect()
+    logger.info("🛑 Application shutdown complete")

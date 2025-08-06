@@ -9,11 +9,28 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str
     SUPABASE_URL: str
+    
     SUPABASE_KEY: str
     SUPABASE_SECRET_KEY: str
     
+    @property
+    def ASYNC_DATABASE_URL(self) -> str:
+        """Convert DATABASE_URL to async format for asyncpg"""
+        url = self.DATABASE_URL
+        if url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        
+        # Use direct connection instead of pgbouncer for better SQLAlchemy compatibility
+        if ":6543/" in url:
+            url = url.replace(":6543/", ":5432/")
+        
+        return url
+    
     REDIS_URL: str = "redis://localhost:6379"
     ENVIRONMENT: str = "development"
+    DEBUG: bool = False
     
     # Additional Supabase settings
     SUPABASE_STORAGE_BUCKET: str = "property-images"

@@ -2,6 +2,7 @@ from pydantic import BaseModel, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
+from app.utils.validators import ValidationUtils
 
 class PropertyImageBase(BaseModel):
     image_url: str
@@ -66,6 +67,44 @@ class PropertyCreate(PropertyBase):
     owner_name: Optional[str] = None
     owner_contact: Optional[str] = None
     builder_name: Optional[str] = None
+
+    @validator('title')
+    def validate_title(cls, v):
+        return ValidationUtils.sanitize_string(v, max_length=200)
+    
+    @validator('description')
+    def validate_description(cls, v):
+        if v:
+            return ValidationUtils.sanitize_html(v)
+        return v
+    
+    @validator('base_price')
+    def validate_base_price(cls, v):
+        return ValidationUtils.validate_price(v, min_price=0, max_price=1e8)
+    
+    @validator('longitude')
+    def validate_coordinates(cls, v, values):
+        if v is not None and 'latitude' in values and values['latitude'] is not None:
+            ValidationUtils.validate_coordinates(values['latitude'], v)
+        return v
+    
+    @validator('pincode')
+    def validate_pincode(cls, v):
+        if v:
+            return ValidationUtils.validate_pincode(v)
+        return v
+    
+    @validator('amenities')
+    def validate_amenities(cls, v):
+        if v:
+            allowed_amenities = [
+                'parking', 'gym', 'pool', 'security', 'elevator',
+                'garden', 'powerbackup', 'clubhouse', 'playground'
+            ]
+            return ValidationUtils.validate_list_input(
+                v, max_items=20, allowed_values=allowed_amenities
+            )
+        return v
 
 class PropertyUpdate(BaseModel):
     title: Optional[str] = None
@@ -148,9 +187,12 @@ class PropertyInterest(BaseModel):
     preferred_contact_method: Optional[str] = None
 
 class UnifiedPropertyFilter(BaseModel):
-    latitude: float
-    longitude: float
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     radius_km: int = 5
+    
+    # Text search field
+    search_query: Optional[str] = None
     
     property_type: Optional[List[PropertyType]] = None
     purpose: Optional[PropertyPurpose] = None
@@ -178,7 +220,7 @@ class UnifiedPropertyFilter(BaseModel):
     check_out_date: Optional[str] = None
     guests: Optional[int] = None
     
-    sort_by: Optional[str] = "distance"  # distance, price_low, price_high, newest, popular
+    sort_by: Optional[str] = "distance"  # distance, price_low, price_high, newest, popular, relevance
     include_unavailable: bool = False
 
 class UnifiedPropertyResponse(BaseModel):
@@ -188,4 +230,4 @@ class UnifiedPropertyResponse(BaseModel):
     limit: int
     total_pages: int
     filters_applied: Dict[str, Any]
-    search_center: Dict[str, float]
+    search_center: Optional[Dict[str, float]] = None
