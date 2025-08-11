@@ -10,6 +10,9 @@ from app.models.user import User
 from app.models.property import Property, PropertyPurpose
 from app.models.booking import Booking, BookingStatus, PaymentStatus
 from .base import DataPopulatorBase, DataConfig
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BookingPopulator(DataPopulatorBase):
@@ -21,16 +24,16 @@ class BookingPopulator(DataPopulatorBase):
     
     def create_bookings(self, users: List[User], properties: List[Property]) -> List[Booking]:
         """Create bookings for short-stay properties"""
-        print("Creating short-stay bookings...")
+        logger.info("Creating short-stay bookings")
         
         # Filter short-stay properties
         short_stay_properties = [p for p in properties if p.purpose == PropertyPurpose.SHORT_STAY]
         
         if not short_stay_properties:
-            print("⚠️  No short-stay properties found for bookings")
+            logger.warning("No short-stay properties found for bookings")
             return []
         
-        print(f"Found {len(short_stay_properties)} short-stay properties")
+        logger.info("Short-stay properties found", extra={"count": len(short_stay_properties)})
         
         bookings = []
         
@@ -67,7 +70,7 @@ class BookingPopulator(DataPopulatorBase):
                 self.db.refresh(booking)
             
             self.created_bookings = bookings
-            print(f"✅ Created {len(bookings)} bookings")
+            logger.info("Created bookings", extra={"total": len(bookings)})
             return bookings
         else:
             raise Exception("Failed to create bookings")
@@ -431,5 +434,5 @@ class BookingPopulator(DataPopulatorBase):
     
     def clear_existing_data(self):
         """Clear existing booking data"""
-        print("Clearing existing booking data...")
+        logger.info("Clearing booking data")
         self.clear_table_data(Booking)

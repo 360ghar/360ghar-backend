@@ -10,6 +10,9 @@ from faker import Faker
 from app.models.user import User
 from app.models.visit import RelationshipManager
 from .base import DataPopulatorBase, DataConfig, LOCATIONS
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class UserPopulator(DataPopulatorBase):
@@ -22,7 +25,7 @@ class UserPopulator(DataPopulatorBase):
     
     def create_main_user(self) -> User:
         """Create the main user with specific Supabase ID as requested"""
-        print("Creating main user (saksham1991999@gmail.com)...")
+        logger.info("Creating main user")
         
         main_user = User(
             supabase_user_id="3961aff5-00c8-4f34-9213-25649ecb55e3",
@@ -52,7 +55,7 @@ class UserPopulator(DataPopulatorBase):
         if self.commit_with_rollback():
             self.db.refresh(main_user)
             self.created_users.append(main_user)
-            print(f"✅ Created main user: {main_user.email} (ID: {main_user.id})")
+            logger.info("Created main user", extra={"email": main_user.email, "id": main_user.id})
             return main_user
         else:
             raise Exception("Failed to create main user")
@@ -62,7 +65,7 @@ class UserPopulator(DataPopulatorBase):
         if count is None:
             count = self.config.users_count
         
-        print(f"Creating {count} diverse users...")
+        logger.info("Creating diverse users", extra={"count": count})
         
         users = []
         location_keys = list(LOCATIONS.keys())
@@ -122,9 +125,9 @@ class UserPopulator(DataPopulatorBase):
             # Commit in batches for better performance
             if (i + 1) % 20 == 0:
                 if self.commit_with_rollback():
-                    print(f"  ✅ Created batch of users (total: {i + 1})")
+                    logger.info("Created users batch", extra={"total": i + 1})
                 else:
-                    print(f"  ⚠️  Failed to create batch ending at user {i + 1}")
+                    logger.warning("Failed to create users batch", extra={"end_at": i + 1})
         
         # Final commit for remaining users
         if self.commit_with_rollback():
@@ -133,7 +136,7 @@ class UserPopulator(DataPopulatorBase):
                 self.db.refresh(user)
             
             self.created_users.extend(users)
-            print(f"✅ Created {len(users)} diverse users across all locations")
+            logger.info("Created diverse users", extra={"total": len(users)})
             return users
         else:
             raise Exception("Failed to create users")
@@ -143,7 +146,7 @@ class UserPopulator(DataPopulatorBase):
         if count is None:
             count = self.config.relationship_managers_count
         
-        print(f"Creating {count} relationship managers...")
+        logger.info("Creating relationship managers", extra={"count": count})
         
         rms = []
         departments = ["Customer Relations", "Sales", "Property Management", "Client Services"]
@@ -190,7 +193,7 @@ class UserPopulator(DataPopulatorBase):
                 self.db.refresh(rm)
             
             self.created_rms.extend(rms)
-            print(f"✅ Created {len(rms)} relationship managers")
+            logger.info("Created relationship managers", extra={"total": len(rms)})
             return rms
         else:
             raise Exception("Failed to create relationship managers")
@@ -255,6 +258,6 @@ class UserPopulator(DataPopulatorBase):
     
     def clear_existing_data(self):
         """Clear existing user and RM data"""
-        print("Clearing existing user and relationship manager data...")
+        logger.info("Clearing user and relationship manager data")
         self.clear_table_data(User)
         self.clear_table_data(RelationshipManager)

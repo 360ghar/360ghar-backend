@@ -13,6 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
+import logging
 from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
 from app.models.booking import BookingStatus, PaymentStatus
 from app.models.visit import VisitStatus
@@ -285,7 +286,7 @@ class DataPopulatorBase:
             self.db.commit()
             return True
         except Exception as e:
-            print(f"Error committing to database: {e}")
+            logging.getLogger(__name__).error(f"Commit error: {e}")
             self.db.rollback()
             return False
     
@@ -294,9 +295,13 @@ class DataPopulatorBase:
         try:
             deleted_count = self.db.query(model_class).delete()
             self.db.commit()
-            print(f"✅ Cleared {deleted_count} records from {model_class.__tablename__}")
+            logging.getLogger(__name__).info(
+                f"Cleared records", extra={"table": model_class.__tablename__, "count": deleted_count}
+            )
         except Exception as e:
-            print(f"⚠️  Error clearing {model_class.__tablename__}: {e}")
+            logging.getLogger(__name__).warning(
+                f"Error clearing table {model_class.__tablename__}: {e}"
+            )
             self.db.rollback()
 
 def create_database_session() -> Session:

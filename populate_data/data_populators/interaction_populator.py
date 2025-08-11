@@ -10,6 +10,9 @@ from app.models.user import User
 from app.models.property import Property, PropertyType, PropertyPurpose
 from app.models.user_interaction import UserSwipe, UserFavorite, UserSearchHistory
 from .base import DataPopulatorBase, DataConfig, LOCATIONS
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class InteractionPopulator(DataPopulatorBase):
@@ -23,7 +26,7 @@ class InteractionPopulator(DataPopulatorBase):
     
     def create_user_swipes(self, users: List[User], properties: List[Property]) -> List[UserSwipe]:
         """Create realistic swipe patterns for users"""
-        print(f"Creating swipes for {len(users)} users on {len(properties)} properties...")
+        logger.info("Creating swipes", extra={"users": len(users), "properties": len(properties)})
         
         swipes = []
         
@@ -77,21 +80,21 @@ class InteractionPopulator(DataPopulatorBase):
             # Commit user's swipes in batch
             if len(swipes) % 100 == 0:
                 if self.commit_with_rollback():
-                    print(f"  ✅ Created {len(swipes)} swipes so far...")
+                    logger.info("Created swipes batch", extra={"count": len(swipes)})
                 else:
-                    print(f"  ⚠️  Failed to create swipes batch")
+                    logger.warning("Failed to create swipes batch")
         
         # Final commit
         if self.commit_with_rollback():
             self.created_swipes = swipes
-            print(f"✅ Created {len(swipes)} total swipes")
+            logger.info("Created swipes", extra={"total": len(swipes)})
             return swipes
         else:
             raise Exception("Failed to create user swipes")
     
     def create_user_favorites(self, users: List[User], properties: List[Property]) -> List[UserFavorite]:
         """Create favorites based on liked swipes"""
-        print("Creating user favorites from liked swipes...")
+        logger.info("Creating user favorites from liked swipes")
         
         favorites = []
         
@@ -124,14 +127,14 @@ class InteractionPopulator(DataPopulatorBase):
         
         if self.commit_with_rollback():
             self.created_favorites = favorites
-            print(f"✅ Created {len(favorites)} user favorites")
+            logger.info("Created favorites", extra={"total": len(favorites)})
             return favorites
         else:
             raise Exception("Failed to create user favorites")
     
     def create_search_history(self, users: List[User]) -> List[UserSearchHistory]:
         """Create realistic search history for users"""
-        print(f"Creating search history for {len(users)} users...")
+        logger.info("Creating search history", extra={"users": len(users)})
         
         searches = []
         
@@ -175,7 +178,7 @@ class InteractionPopulator(DataPopulatorBase):
         
         if self.commit_with_rollback():
             self.created_searches = searches
-            print(f"✅ Created {len(searches)} search history records")
+            logger.info("Created search history", extra={"total": len(searches)})
             return searches
         else:
             raise Exception("Failed to create search history")
@@ -339,7 +342,7 @@ class InteractionPopulator(DataPopulatorBase):
     
     def clear_existing_data(self):
         """Clear existing interaction data"""
-        print("Clearing existing user interaction data...")
+        logger.info("Clearing user interaction data")
         self.clear_table_data(UserSearchHistory)
         self.clear_table_data(UserFavorite)
         self.clear_table_data(UserSwipe)

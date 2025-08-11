@@ -4,6 +4,9 @@ import time
 import statistics
 import json
 from typing import List
+import logging
+from app.core.logging import setup_logging
+logger = logging.getLogger(__name__)
 
 async def test_endpoint(session, url, params):
     """Test a single endpoint call"""
@@ -55,16 +58,15 @@ async def load_test():
         }
     ]
     
-    print("🚀 Starting Property Endpoint Load Test")
-    print("=" * 50)
+    logger.info("Starting Property Endpoint Load Test")
     
     # Test each scenario
     for i, params in enumerate(test_scenarios, 1):
-        print(f"\n📊 Testing Scenario {i}: {params}")
+        logger.info("Testing scenario", extra={"index": i, "params": params})
         await test_scenario(base_url, params, concurrent_requests=20, total_requests=100)
     
     # Comprehensive load test
-    print(f"\n🔥 Comprehensive Load Test")
+    logger.info("Comprehensive Load Test")
     await comprehensive_load_test(base_url, test_scenarios)
 
 async def test_scenario(base_url: str, params: dict, concurrent_requests: int = 10, total_requests: int = 50):
@@ -104,12 +106,20 @@ async def test_scenario(base_url: str, params: dict, concurrent_requests: int = 
         p99_time = statistics.quantiles(times, n=100)[98] if len(times) >= 100 else max(times)
         success_rate = (success_count / len(times)) * 100
         
-        print(f"   ✅ Success Rate: {success_rate:.1f}% ({success_count}/{len(times)})")
-        print(f"   ⏱️  Average: {avg_time:.3f}s")
-        print(f"   📊 Median: {median_time:.3f}s")
-        print(f"   🚨 95th percentile: {p95_time:.3f}s")
-        print(f"   🔥 99th percentile: {p99_time:.3f}s")
-        print(f"   🏃 Min: {min(times):.3f}s, Max: {max(times):.3f}s")
+        logger.info(
+            "Scenario results",
+            extra={
+                "success_rate": round(success_rate, 1),
+                "success_count": success_count,
+                "total": len(times),
+                "avg": round(avg_time, 3),
+                "median": round(median_time, 3),
+                "p95": round(p95_time, 3),
+                "p99": round(p99_time, 3),
+                "min": round(min(times), 3),
+                "max": round(max(times), 3),
+            },
+        )
         
         # Performance assessment
         if avg_time < 0.1:
@@ -121,9 +131,9 @@ async def test_scenario(base_url: str, params: dict, concurrent_requests: int = 
         else:
             perf_rating = "🔴 Slow"
         
-        print(f"   🎯 Performance: {perf_rating}")
+        logger.info("Performance", extra={"rating": perf_rating})
     else:
-        print("   ❌ No successful requests")
+        logger.warning("No successful requests")
 
 async def comprehensive_load_test(base_url: str, scenarios: list):
     """Run comprehensive load test with mixed scenarios"""
@@ -161,32 +171,40 @@ async def comprehensive_load_test(base_url: str, scenarios: list):
                 # Progress indicator
                 completed = i + 1
                 progress = (completed / total_requests) * 100
-                print(f"   Progress: {progress:.1f}% ({completed}/{total_requests})")
+                logger.info("Progress", extra={"progress_pct": round(progress, 1), "completed": completed, "total": total_requests})
     
     total_time = time.time() - start_time
     
-    print(f"\n📈 Comprehensive Test Results:")
-    print(f"   📊 Total Requests: {total_requests}")
-    print(f"   ✅ Success Rate: {(success_count / len(times)) * 100:.1f}%")
-    print(f"   ⏱️  Total Time: {total_time:.2f}s")
-    print(f"   🚀 Throughput: {total_requests / total_time:.1f} req/s")
+    logger.info(
+        "Comprehensive results",
+        extra={
+            "total_requests": total_requests,
+            "success_rate": round((success_count / len(times)) * 100, 1) if times else 0,
+            "total_time": round(total_time, 2),
+            "throughput_rps": round(total_requests / total_time, 1) if total_time else 0,
+        },
+    )
     
     if times:
-        print(f"   📊 Average Response Time: {statistics.mean(times):.3f}s")
-        print(f"   🔥 95th percentile: {statistics.quantiles(times, n=20)[18]:.3f}s")
+        logger.info(
+            "Response time stats",
+            extra={
+                "avg": round(statistics.mean(times), 3),
+                "p95": round(statistics.quantiles(times, n=20)[18], 3),
+            },
+        )
 
 async def stress_test():
     """Stress test with high concurrency"""
     base_url = "http://localhost:8000/api/v1/properties"
     params = {"lat": 28.6139, "lng": 77.2090, "radius": 5, "limit": 10}
     
-    print("\n🔥 Stress Test - High Concurrency")
-    print("=" * 40)
+    logger.info("Stress Test - High Concurrency")
     
     concurrent_levels = [10, 25, 50, 100, 200]
     
     for concurrency in concurrent_levels:
-        print(f"\n🚨 Testing with {concurrency} concurrent requests")
+        logger.info("Testing concurrency", extra={"concurrency": concurrency})
         
         times = []
         success_count = 0
@@ -218,34 +236,39 @@ async def stress_test():
             avg_time = statistics.mean(times)
             throughput = concurrency / batch_time
             
-            print(f"   Success Rate: {success_rate:.1f}%")
-            print(f"   Average Time: {avg_time:.3f}s")
-            print(f"   Batch Time: {batch_time:.3f}s")
-            print(f"   Throughput: {throughput:.1f} req/s")
+            logger.info(
+                "Batch results",
+                extra={
+                    "success_rate": round(success_rate, 1),
+                    "avg_time": round(avg_time, 3),
+                    "batch_time": round(batch_time, 3),
+                    "throughput": round(throughput, 1),
+                },
+            )
             
             if success_rate < 95:
-                print(f"   ⚠️  High failure rate detected!")
+                logger.warning("High failure rate detected")
             if avg_time > 2.0:
-                print(f"   ⚠️  High response time detected!")
+                logger.warning("High response time detected")
 
 if __name__ == "__main__":
-    print("🧪 360Ghar Property API Load Testing Suite")
-    print("=" * 50)
-    print("Make sure your server is running on http://localhost:8000")
-    print("=" * 50)
-    
+    setup_logging()
+    logger.info("360Ghar Property API Load Testing Suite")
+    logger.info("Ensure server is running at http://localhost:8000")
     try:
         asyncio.run(load_test())
         asyncio.run(stress_test())
-        
-        print("\n🎉 Load testing completed!")
-        print("\nExpected Performance Benchmarks:")
-        print("- Average response time: < 500ms")
-        print("- 95th percentile: < 1000ms")
-        print("- Success rate: > 99%")
-        print("- Throughput: > 100 req/s")
-        
+        logger.info("Load testing completed")
+        logger.info(
+            "Expected Performance Benchmarks",
+            extra={
+                "avg_ms": "<500",
+                "p95_ms": "<1000",
+                "success_rate_pct": ">99",
+                "throughput_rps": ">100",
+            },
+        )
     except KeyboardInterrupt:
-        print("\n❌ Testing interrupted by user")
+        logger.warning("Testing interrupted by user")
     except Exception as e:
-        print(f"\n💥 Testing failed: {e}")
+        logging.getLogger(__name__).exception(f"Testing failed: {e}")

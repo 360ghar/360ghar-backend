@@ -45,6 +45,8 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             yield session
             await session.commit()
         except Exception:
+            # Log unexpected session errors without leaking sensitive data
+            logger.exception("DB session error; rolling back")
             await session.rollback()
             raise
         finally:
@@ -58,6 +60,7 @@ async def get_db_context():
             yield session
             await session.commit()
         except Exception:
+            logger.exception("DB context error; rolling back")
             await session.rollback()
             raise
         finally:

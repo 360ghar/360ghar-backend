@@ -8,6 +8,9 @@ from typing import List, Dict, Any, Optional
 
 from app.models.property import Property, PropertyImage, PropertyType, PropertyPurpose, PropertyStatus
 from .base import DataPopulatorBase, DataConfig, LOCATIONS, VIRTUAL_TOUR_URL, MAIN_IMAGE_URL, OTHER_IMAGE_URL
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PropertyPopulator(DataPopulatorBase):
@@ -22,17 +25,17 @@ class PropertyPopulator(DataPopulatorBase):
         if properties_per_location is None:
             properties_per_location = self.config.properties_per_location
         
-        print(f"Creating {properties_per_location} properties per location...")
+        logger.info("Creating properties per location", extra={"per_location": properties_per_location})
         
         all_properties = []
         
         for location_key, location_data in self.locations.items():
-            print(f"  Creating properties in {location_data.name}...")
+            logger.info("Creating properties in location", extra={"location": location_data.name})
             properties = self._create_properties_for_location(location_key, properties_per_location)
             all_properties.extend(properties)
         
         self.created_properties = all_properties
-        print(f"✅ Created {len(all_properties)} properties across all locations")
+        logger.info("Created properties across locations", extra={"total": len(all_properties)})
         return all_properties
     
     def _create_properties_for_location(self, location_key: str, count: int) -> List[Property]:
@@ -124,9 +127,9 @@ class PropertyPopulator(DataPopulatorBase):
             # Commit in batches for better performance
             if (i + 1) % 50 == 0:
                 if self.commit_with_rollback():
-                    print(f"    ✅ Created batch of properties in {location.name} (total: {i + 1})")
+                    logger.info("Created property batch", extra={"location": location.name, "total": i + 1})
                 else:
-                    print(f"    ⚠️  Failed to create batch ending at property {i + 1}")
+                    logger.warning("Failed to create property batch", extra={"end_at": i + 1})
         
         # Final commit for remaining properties
         if self.commit_with_rollback():
@@ -136,15 +139,14 @@ class PropertyPopulator(DataPopulatorBase):
             
             # Create property images
             self._create_property_images(properties)
-            
-            print(f"  ✅ Created {len(properties)} properties in {location.name}")
+            logger.info("Created properties in location", extra={"location": location.name, "count": len(properties)})
             return properties
         else:
             raise Exception(f"Failed to create properties for {location.name}")
     
     def _create_property_images(self, properties: List[Property]):
         """Create multiple images for each property"""
-        print(f"    Adding images for {len(properties)} properties...")
+        logger.info("Adding images for properties", extra={"count": len(properties)})
         
         image_categories = [
             "exterior", "living-room", "bedroom", "kitchen", "bathroom", 
@@ -180,9 +182,9 @@ class PropertyPopulator(DataPopulatorBase):
                 self.db.add(image)
         
         if self.commit_with_rollback():
-            print(f"    ✅ Added images for properties")
+            logger.info("Added images for properties")
         else:
-            print(f"    ⚠️  Failed to add images for properties")
+            logger.warning("Failed to add images for properties")
     
     def _generate_property_details(self, property_type: PropertyType, location_key: str) -> Dict[str, Any]:
         """Generate property-specific details based on type"""
@@ -419,6 +421,6 @@ class PropertyPopulator(DataPopulatorBase):
     
     def clear_existing_data(self):
         """Clear existing property data"""
-        print("Clearing existing property and property image data...")
+        logger.info("Clearing property and property image data")
         self.clear_table_data(PropertyImage)
         self.clear_table_data(Property)

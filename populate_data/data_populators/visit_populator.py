@@ -11,6 +11,9 @@ from app.models.property import Property
 from app.models.visit import Visit, RelationshipManager, VisitStatus
 from app.models.user_interaction import UserFavorite
 from .base import DataPopulatorBase, DataConfig
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class VisitPopulator(DataPopulatorBase):
@@ -24,7 +27,7 @@ class VisitPopulator(DataPopulatorBase):
                              relationship_managers: List[RelationshipManager],
                              user_favorites: List[UserFavorite]) -> List[Visit]:
         """Create property visits based on user favorites and activity"""
-        print(f"Creating property visits for users...")
+        logger.info("Creating property visits")
         
         visits = []
         
@@ -72,7 +75,7 @@ class VisitPopulator(DataPopulatorBase):
                 self.db.refresh(visit)
             
             self.created_visits = visits
-            print(f"✅ Created {len(visits)} property visits")
+            logger.info("Created property visits", extra={"total": len(visits)})
             return visits
         else:
             raise Exception("Failed to create property visits")
@@ -289,5 +292,5 @@ class VisitPopulator(DataPopulatorBase):
     
     def clear_existing_data(self):
         """Clear existing visit data"""
-        print("Clearing existing visit data...")
+        logger.info("Clearing visit data")
         self.clear_table_data(Visit)

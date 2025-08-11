@@ -15,11 +15,11 @@ from app.middleware.performance import PerformanceMiddleware
 # from app.middleware.rate_limit import RateLimitMiddleware
 # from app.middleware.security import SecurityHeadersMiddleware, APIKeyMiddleware
 from app.core.cache import cache_manager
+from app.core.logging import setup_logging, get_logger
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logger = logging.getLogger(__name__)
+setup_logging()
+logger = get_logger(__name__)
 
 
 app = FastAPI(
@@ -231,14 +231,14 @@ async def general_exception_handler(request: Request, exc: Exception):
 async def startup_event():
     """Initialize services on startup"""
     await cache_manager.connect()
-    logger.info("🚀 360Ghar API started successfully with optimizations enabled")
-    logger.info("✅ Database connection pool: 50 connections, max overflow: 100")
-    logger.info("✅ Performance monitoring enabled")
-    logger.info("✅ Redis caching enabled")
-    logger.info("✅ PostGIS spatial indexing enabled")
+    logger.info("API started", extra={
+        "event": "startup",
+        "env": settings.ENVIRONMENT,
+        "version": "1.0.0",
+    })
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown"""
     await cache_manager.disconnect()
-    logger.info("🛑 Application shutdown complete")
+    logger.info("API shutdown", extra={"event": "shutdown"})
