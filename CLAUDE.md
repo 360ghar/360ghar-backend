@@ -445,3 +445,9 @@ def validate_coordinates(latitude: float, longitude: float) -> bool:
 - Validate page parameters (min: 1)
 - Constrain limit parameters (max: 100 items per page)  
 - Always include pagination metadata in responses
+
+# important-instruction-reminders
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.

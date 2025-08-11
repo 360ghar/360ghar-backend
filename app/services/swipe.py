@@ -16,20 +16,20 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe: PropertySwipe):
     
     return True
 
-async def get_swipe_history(db: AsyncSession, user_id: int, limit: int = 100):
+async def get_swipe_history(db: AsyncSession, user_id: int, page: int = 1, limit: int = 20, is_liked: bool = None):
     interaction_repo = UserInteractionRepository(db)
-    return await interaction_repo.get_swipe_history(user_id, limit)
+    return await interaction_repo.get_swipe_history(user_id, page=page, limit=limit, is_liked=is_liked)
 
 async def undo_last_swipe(db: AsyncSession, user_id: int):
     interaction_repo = UserInteractionRepository(db)
     property_repo = PropertyRepository(db)
     
     # Get the most recent swipe to check if it was a like
-    history = await interaction_repo.get_swipe_history(user_id, limit=1)
-    if not history["swipes"]:
+    history = await interaction_repo.get_swipe_history(user_id, page=1, limit=1)
+    if not history.items:
         return False
     
-    last_swipe = history["swipes"][0]
+    last_swipe = history.items[0]
     
     # If it was a like, decrement the property like count
     if last_swipe.is_liked:

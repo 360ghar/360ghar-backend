@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional
 from app.core.database import get_db
 from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.models.user import User
 from app.schemas.property import PropertySwipe
-from app.schemas.common import MessageResponse
+from app.schemas.common import MessageResponse, PaginatedResponse
 from app.services.swipe import record_swipe, get_swipe_history
 
 router = APIRouter()
@@ -20,13 +21,15 @@ async def swipe_property(
     action = "liked" if swipe.is_liked else "passed"
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("/history")
+@router.get("/history", response_model=PaginatedResponse)
 async def get_user_swipe_history(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-    limit: int = 100
+    page: int = Query(1, ge=1, description="Page number"),
+    limit: int = Query(20, ge=1, le=100, description="Number of items per page"),
+    is_liked: Optional[bool] = Query(None, description="Filter by liked (true) or passed (false)")
 ):
-    return await get_swipe_history(db, current_user.id, limit)
+    return await get_swipe_history(db, current_user.id, page=page, limit=limit, is_liked=is_liked)
 
 @router.get("/stats")
 async def get_swipe_stats(

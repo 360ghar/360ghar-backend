@@ -6,6 +6,8 @@ from app.repositories.base import BaseRepository
 from app.models.user_interaction import UserSwipe, UserFavorite, UserSearchHistory
 from app.models.property import Property
 from app.schemas.property import PropertySwipe
+from app.schemas.common import PaginatedResponse
+import math
 
 class UserInteractionRepository(BaseRepository[UserSwipe]):
     """Repository for user interaction data (swipes, favorites, search history)"""
@@ -45,22 +47,45 @@ class UserInteractionRepository(BaseRepository[UserSwipe]):
         await self.session.flush()
         return True
     
-    async def get_swipe_history(self, user_id: int, limit: int = 100) -> Dict[str, Any]:
-        """Get user's swipe history with statistics"""
-        swipes_result = await self.session.execute(
-            select(UserSwipe)
-            .where(UserSwipe.user_id == user_id)
-            .order_by(desc(UserSwipe.swipe_timestamp))
-            .limit(limit)
-        )
+    async def get_swipe_history(self, user_id: int, page: int = 1, limit: int = 20, is_liked: Optional[bool] = None) -> PaginatedResponse:
+        """Get user's swipe history with pagination and filtering"""
+        # Build base query
+        query = select(UserSwipe).where(UserSwipe.user_id == user_id)
+        
+        # Add filter for is_liked if specified
+        if is_liked is not None:
+            query = query.where(UserSwipe.is_liked == is_liked)
+        
+        # Order by most recent first
+        query = query.order_by(desc(UserSwipe.swipe_timestamp))
+        
+        # Get total count for pagination
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar()
+        
+        # Apply pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query
+        swipes_result = await self.session.execute(query)
         swipes = swipes_result.scalars().all()
         
-        return {
-            "swipes": swipes,
-            "total_likes": sum(1 for s in swipes if s.is_liked),
-            "total_passes": sum(1 for s in swipes if not s.is_liked),
-            "total_swipes": len(swipes)
-        }
+        # Calculate pagination metadata
+        total_pages = math.ceil(total / limit) if total > 0 else 1
+        has_next = page < total_pages
+        has_prev = page > 1
+        
+        return PaginatedResponse(
+            items=swipes,
+            total=total,
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=has_prev
+        )
     
     async def undo_last_swipe(self, user_id: int) -> bool:
         """Remove the most recent swipe for a user"""
