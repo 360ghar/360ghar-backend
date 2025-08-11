@@ -1,0 +1,18 @@
+---
+alwaysApply: true
+description: Redis caching patterns, cache keys, and performance middleware
+---
+
+## Caching & Performance
+
+- Redis cache manager: [app/core/cache.py](mdc:app/core/cache.py) → `cache_manager`
+- Property cache helpers: `PropertyCacheManager`
+- Decorator for ad-hoc caching: `cache_key_wrapper(prefix, ttl=300, key_params=[...])`
+
+### Property List Caching
+- Use `PropertyCacheManager.get_cached_properties()` and `.cache_properties()` for unified property search responses.
+
+### Middleware
+- Performance timing: [app/middleware/performance.py](mdc:app/middleware/performance.py)
+- Enable in [app/main.py](mdc:app/main.py) via `app.add_middleware(PerformanceMiddleware)`
+

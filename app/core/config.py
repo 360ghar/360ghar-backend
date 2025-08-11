@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     
     SUPABASE_KEY: str
     SUPABASE_SECRET_KEY: str
+    # API Keys for middleware (comma-separated)
+    VALID_API_KEYS: str = ""
     
     @property
     def ASYNC_DATABASE_URL(self) -> str:

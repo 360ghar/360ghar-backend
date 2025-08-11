@@ -1,0 +1,29 @@
+---
+alwaysApply: true
+description: High-level project structure and navigation guide for 360Ghar backend
+---
+
+## 360Ghar Backend — Project Overview
+
+- Entrypoint FastAPI app: [app/main.py](mdc:app/main.py)
+- API router aggregation: [app/api/api_v1/api.py](mdc:app/api/api_v1/api.py)
+- Async DB session dependency: [app/core/database.py](mdc:app/core/database.py) → `get_db()` yields `AsyncSession` with auto commit/rollback.
+- Authentication helpers: [app/api/api_v1/endpoints/auth.py](mdc:app/api/api_v1/endpoints/auth.py) → `get_current_active_user`, `get_current_user_optional`.
+- Supabase token verification: [app/core/security.py](mdc:app/core/security.py) → `verify_supabase_token()` (non-blocking via anyio thread pool).
+- Caching layer and helpers: [app/core/cache.py](mdc:app/core/cache.py) → `cache_manager`, `PropertyCacheManager`.
+
+### Layered Architecture
+- API layer (FastAPI endpoints): [app/api/](mdc:app/api/)
+- Schemas (Pydantic models): [app/schemas/](mdc:app/schemas/)
+- Services (business logic): [app/services/](mdc:app/services/)
+- Repositories (DB access): [app/repositories/](mdc:app/repositories/)
+- Models (SQLAlchemy ORM): [app/models/](mdc:app/models/)
+
+### Common Navigation
+- Properties endpoints and filters: [app/api/api_v1/endpoints/properties.py](mdc:app/api/api_v1/endpoints/properties.py)
+- Swipe endpoints and service: [app/api/api_v1/endpoints/swipes.py](mdc:app/api/api_v1/endpoints/swipes.py), [app/services/swipe.py](mdc:app/services/swipe.py)
+- Visits & Bookings: [app/api/api_v1/endpoints/visits.py](mdc:app/api/api_v1/endpoints/visits.py), [app/api/api_v1/endpoints/bookings.py](mdc:app/api/api_v1/endpoints/bookings.py)
+
+### Running the app
+- Dev server: `python run.py` or `uvicorn app.main:app --reload`
+

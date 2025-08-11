@@ -2087,113 +2087,95 @@
 					},
 					"response": []
 				},
-				{
-					"name": "Get Swipe History",
-					"event": [
-						{
-							"listen": "test",
-							"script": {
-								"exec": [
-									"pm.test(\"Response status code is 200\", function () {",
-									"    pm.expect(pm.response.code).to.equal(200);",
-									"});",
-									"",
-									"",
-									"pm.test(\"Response has required fields\", function () {",
-									"    const responseData = pm.response.json();",
-									"    ",
-									"    pm.expect(responseData).to.be.an('object');",
-									"    pm.expect(responseData).to.have.all.keys('swipes', 'total_likes', 'total_passes', 'total_swipes');",
-									"});",
-									"",
-									"",
-									"pm.test(\"Swipes array contains objects with expected properties\", function () {",
-									"    const responseData = pm.response.json();",
-									"    ",
-									"    pm.expect(responseData).to.be.an('object');",
-									"    pm.expect(responseData.swipes).to.be.an('array').that.is.not.empty;",
-									"",
-									"    responseData.swipes.forEach(function(swipe) {",
-									"        pm.expect(swipe).to.be.an('object');",
-									"        pm.expect(swipe).to.have.all.keys('user_id', 'user_location_lat', 'user_location_lng', 'id', 'created_at', 'property_id', 'is_liked', 'swipe_timestamp', 'session_id', 'updated_at');",
-									"        ",
-									"        pm.expect(swipe.user_id).to.be.a('number');",
-									"        pm.expect(swipe.user_location_lat).to.be.a('string');",
-									"        pm.expect(swipe.user_location_lng).to.be.a('string');",
-									"        pm.expect(swipe.id).to.be.a('number');",
-									"        pm.expect(swipe.created_at).to.be.a('string');",
-									"        pm.expect(swipe.property_id).to.be.a('number');",
-									"        pm.expect(swipe.is_liked).to.be.a('boolean');",
-									"        pm.expect(swipe.swipe_timestamp).to.be.a('string');",
-									"        pm.expect(swipe.session_id).to.be.a('string');",
-									"        pm.expect(swipe.updated_at).to.satisfy(function(updatedAt) {",
-									"            return updatedAt === null || typeof updatedAt === 'string';",
-									"        });",
-									"    });",
-									"});",
-									"",
-									"",
-									"pm.test(\"Validate that user_location_lat and user_location_lng are valid latitude and longitude values\", function () {",
-									"    const responseData = pm.response.json();",
-									"    ",
-									"    pm.expect(responseData).to.be.an('object');",
-									"    pm.expect(responseData.swipes).to.be.an('array');",
-									"",
-									"    responseData.swipes.forEach(function(swipe) {",
-									"        // Validate user_location_lat",
-									"        pm.expect(swipe.user_location_lat).to.satisfy(function(lat) {",
-									"            return !isNaN(lat) && lat >= -90 && lat <= 90;",
-									"        }, \"user_location_lat should be a valid latitude value\");",
-									"        ",
-									"        // Validate user_location_lng",
-									"        pm.expect(swipe.user_location_lng).to.satisfy(function(lng) {",
-									"            return !isNaN(lng) && lng >= -180 && lng <= 180;",
-									"        }, \"user_location_lng should be a valid longitude value\");",
-									"    });",
-									"});",
-									"",
-									"",
-									"pm.test(\"Total likes, passes, and swipes should be non-negative integers\", function () {",
-									"    const responseData = pm.response.json();",
-									"    ",
-									"    pm.expect(responseData.total_likes).to.be.a('number').and.to.be.at.least(0);",
-									"    pm.expect(responseData.total_passes).to.be.a('number').and.to.be.at.least(0);",
-									"    pm.expect(responseData.total_swipes).to.be.a('number').and.to.be.at.least(0);",
-									"});"
-								],
-								"type": "text/javascript"
-							}
-						}
-					],
-					"request": {
-						"method": "GET",
-						"header": [
-							{
-								"key": "Authorization",
-								"value": "Bearer {{supabase_jwt_token}}",
-								"type": "text"
-							}
-						],
-						"url": {
-							"raw": "{{base_url}}/{{api_version}}/swipes/history?limit=100",
-							"host": [
-								"{{base_url}}"
-							],
-							"path": [
-								"{{api_version}}",
-								"swipes",
-								"history"
-							],
-							"query": [
-								{
-									"key": "limit",
-									"value": "100"
-								}
-							]
-						}
-					},
-					"response": []
-				},
+                {
+                    "name": "Get Swipe History",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test(\"Status code is 200\", function () {",
+                                    "  pm.expect(pm.response.code).to.equal(200);",
+                                    "});",
+                                    "",
+                                    "pm.test(\"Response has UnifiedPropertyResponse shape\", function () {",
+                                    "  const res = pm.response.json();",
+                                    "  pm.expect(res).to.have.property('properties').that.is.an('array');",
+                                    "  pm.expect(res).to.have.property('total');",
+                                    "  pm.expect(res).to.have.property('page');",
+                                    "  pm.expect(res).to.have.property('limit');",
+                                    "  pm.expect(res).to.have.property('total_pages');",
+                                    "  pm.expect(res).to.have.property('filters_applied');",
+                                    "});",
+                                    "",
+                                    "pm.test(\"Each property has required fields\", function () {",
+                                    "  const res = pm.response.json();",
+                                    "  if (Array.isArray(res.properties)) {",
+                                    "    res.properties.forEach(p => {",
+                                    "      pm.expect(p).to.have.property('id');",
+                                    "      pm.expect(p).to.have.property('title');",
+                                    "      pm.expect(p).to.have.property('base_price');",
+                                    "    });",
+                                    "  }",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Authorization",
+                                "value": "Bearer {{supabase_jwt_token}}",
+                                "type": "text"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{base_url}}/{{api_version}}/swipes/history?lat=19.0760&lng=72.8777&radius=10&q=2BHK&property_type=apartment&purpose=rent&price_min=10000&price_max=50000&bedrooms_min=2&bedrooms_max=3&bathrooms_min=1&bathrooms_max=3&area_min=800&area_max=2000&city=Mumbai&locality=Bandra&pincode=400050&amenities=parking&amenities=gym&parking_spaces_min=1&floor_number_min=1&floor_number_max=10&age_max=10&guests=2&sort_by=distance&page=1&limit=20&is_liked=true",
+                            "host": [
+                                "{{base_url}}"
+                            ],
+                            "path": [
+                                "{{api_version}}",
+                                "swipes",
+                                "history"
+                            ],
+                            "query": [
+                                { "key": "lat", "value": "19.0760" },
+                                { "key": "lng", "value": "72.8777" },
+                                { "key": "radius", "value": "10" },
+                                { "key": "q", "value": "2BHK" },
+                                { "key": "property_type", "value": "apartment" },
+                                { "key": "purpose", "value": "rent" },
+                                { "key": "price_min", "value": "10000" },
+                                { "key": "price_max", "value": "50000" },
+                                { "key": "bedrooms_min", "value": "2" },
+                                { "key": "bedrooms_max", "value": "3" },
+                                { "key": "bathrooms_min", "value": "1" },
+                                { "key": "bathrooms_max", "value": "3" },
+                                { "key": "area_min", "value": "800" },
+                                { "key": "area_max", "value": "2000" },
+                                { "key": "city", "value": "Mumbai" },
+                                { "key": "locality", "value": "Bandra" },
+                                { "key": "pincode", "value": "400050" },
+                                { "key": "amenities", "value": "parking" },
+                                { "key": "amenities", "value": "gym" },
+                                { "key": "parking_spaces_min", "value": "1" },
+                                { "key": "floor_number_min", "value": "1" },
+                                { "key": "floor_number_max", "value": "10" },
+                                { "key": "age_max", "value": "10" },
+                                { "key": "guests", "value": "2" },
+                                { "key": "sort_by", "value": "distance" },
+                                { "key": "page", "value": "1" },
+                                { "key": "limit", "value": "20" },
+                                { "key": "is_liked", "value": "true" }
+                            ]
+                        }
+                    },
+                    "response": []
+                },
 				{
 					"name": "Get Swipe Stats",
 					"event": [

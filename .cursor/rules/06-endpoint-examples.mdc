@@ -1,0 +1,34 @@
+---
+alwaysApply: true
+description: Canonical endpoint examples drawn from the codebase
+---
+
+## Canonical Endpoint Examples
+
+### Properties — Unified List
+[app/api/api_v1/endpoints/properties.py](mdc:app/api/api_v1/endpoints/properties.py)
+
+```python
+@router.get("/", response_model=UnifiedPropertyResponse)
+async def get_properties_list(
+    # filters ...
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    # Build filters and use PropertyCacheManager before querying service
+    ...
+```
+
+### Swipes — Record Swipe
+[app/api/api_v1/endpoints/swipes.py](mdc:app/api/api_v1/endpoints/swipes.py)
+
+```python
+@router.post("/")
+async def swipe_property(
+    swipe: PropertySwipe,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ...
+```
+

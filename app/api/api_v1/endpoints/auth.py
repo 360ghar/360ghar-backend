@@ -5,6 +5,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import verify_supabase_token
 from app.core.supabase_client import get_supabase_client, get_supabase_admin_client
+import anyio
 from app.models.user import User
 from app.schemas.user import UserCreate, Token, User as UserSchema, UserLogin
 from app.services.user import get_user_by_email, get_or_create_user_from_supabase, get_user_by_supabase_id
@@ -34,7 +35,7 @@ async def get_current_user(authorization: str = Header(None), db: AsyncSession =
         )
     
     # Verify token with Supabase
-    supabase_user_data = verify_supabase_token(token)
+    supabase_user_data = await verify_supabase_token(token)
     if not supabase_user_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -60,7 +61,7 @@ async def get_current_user_optional(
     except ValueError:
         return None
     
-    supabase_user_data = verify_supabase_token(token)
+    supabase_user_data = await verify_supabase_token(token)
     if not supabase_user_data:
         return None
     
@@ -104,7 +105,7 @@ async def check_session(authorization: str = Header(None)):
             detail="Invalid session format"
         )
     
-    supabase_user_data = verify_supabase_token(token)
+    supabase_user_data = await verify_supabase_token(token)
     if not supabase_user_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -122,8 +123,10 @@ async def check_session(authorization: str = Header(None)):
 async def login(user_login: UserLogin, db: AsyncSession = Depends(get_db)):
     supabase = get_supabase_client()
     try:
-        data = supabase.auth.sign_in_with_password({"email": user_login.email, "password": user_login.password})
-        supabase_user_data = verify_supabase_token(data.session.access_token)
+        data = await anyio.to_thread.run_sync(
+            lambda: supabase.auth.sign_in_with_password({"email": user_login.email, "password": user_login.password})
+        )
+        supabase_user_data = await verify_supabase_token(data.session.access_token)
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         return {"access_token": data.session.access_token, "token_type": "bearer"}
     except Exception as e:

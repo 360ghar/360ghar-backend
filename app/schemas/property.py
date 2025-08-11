@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
 from app.utils.validators import ValidationUtils
+from enum import Enum
 
 class PropertyImageBase(BaseModel):
     image_url: str
@@ -186,6 +187,14 @@ class PropertyInterest(BaseModel):
     message: Optional[str] = None
     preferred_contact_method: Optional[str] = None
 
+class SortBy(str, Enum):
+    distance = "distance"
+    price_low = "price_low"
+    price_high = "price_high"
+    newest = "newest"
+    popular = "popular"
+    relevance = "relevance"
+
 class UnifiedPropertyFilter(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -220,7 +229,7 @@ class UnifiedPropertyFilter(BaseModel):
     check_out_date: Optional[str] = None
     guests: Optional[int] = None
     
-    sort_by: Optional[str] = "distance"  # distance, price_low, price_high, newest, popular, relevance
+    sort_by: Optional[SortBy] = SortBy.distance
     include_unavailable: bool = False
 
 class UnifiedPropertyResponse(BaseModel):

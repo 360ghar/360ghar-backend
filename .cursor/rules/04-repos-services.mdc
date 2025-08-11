@@ -1,0 +1,28 @@
+---
+alwaysApply: true
+description: Repository and service layer responsibilities and usage
+---
+
+## Repositories & Services
+
+### Responsibilities
+- **Repositories**: Encapsulate SQLAlchemy queries and persistence. Base class: [app/repositories/base.py](mdc:app/repositories/base.py)
+- **Services**: Business logic orchestration, validation, cross-entity workflows.
+
+### Patterns
+- Pass `AsyncSession` into services; do not create sessions in services.
+- Repositories are instantiated with the active `AsyncSession`.
+
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.repositories.property import PropertyRepository
+
+async def get_by_id(db: AsyncSession, property_id: int):
+    repo = PropertyRepository(db)
+    return await repo.get(property_id)
+```
+
+### Transactions
+- The request-scoped session from `get_db()` handles commit/rollback.
+- Use `await session.flush()` after `add()` when you need PKs, then `await session.refresh()` to load defaults.
+

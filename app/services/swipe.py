@@ -16,10 +16,6 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe: PropertySwipe):
     
     return True
 
-async def get_swipe_history(db: AsyncSession, user_id: int, page: int = 1, limit: int = 20, is_liked: bool = None):
-    interaction_repo = UserInteractionRepository(db)
-    return await interaction_repo.get_swipe_history(user_id, page=page, limit=limit, is_liked=is_liked)
-
 async def undo_last_swipe(db: AsyncSession, user_id: int):
     interaction_repo = UserInteractionRepository(db)
     property_repo = PropertyRepository(db)
@@ -35,8 +31,8 @@ async def undo_last_swipe(db: AsyncSession, user_id: int):
     if last_swipe.is_liked:
         # We need to manually decrement since this is an undo operation
         property_obj = await property_repo.get(last_swipe.property_id)
-        if property_obj and property_obj.like_count > 0:
-            property_obj.like_count -= 1
+        if property_obj:
+            property_obj.like_count = max(0, (property_obj.like_count or 0) - 1)
             await property_repo.session.flush()
     
     # Remove the swipe record
@@ -49,3 +45,21 @@ async def get_user_swipe_stats(db: AsyncSession, user_id: int):
 async def check_mutual_interest(db: AsyncSession, user_id: int, property_id: int):
     interaction_repo = UserInteractionRepository(db)
     return await interaction_repo.check_mutual_interest(user_id, property_id)
+
+async def get_swipe_history_properties(
+    db: AsyncSession,
+    user_id: int,
+    filters,
+    page: int,
+    limit: int,
+    is_liked: bool | None,
+):
+    """Return swiped properties with unified filters applied."""
+    property_repo = PropertyRepository(db)
+    return await property_repo.get_user_swiped_properties_optimized(
+        user_id=user_id,
+        filters=filters,
+        page=page,
+        limit=limit,
+        is_liked=is_liked,
+    )

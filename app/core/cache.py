@@ -104,18 +104,21 @@ class CacheManager:
             return False
     
     async def delete_pattern(self, pattern: str) -> int:
-        """Delete all keys matching pattern"""
+        """Delete all keys matching pattern using non-blocking SCAN"""
         if not self.redis_client:
             return 0
-        
+        deleted = 0
         try:
-            keys = await self.redis_client.keys(pattern)
-            if keys:
-                return await self.redis_client.delete(*keys)
-            return 0
+            async for key in self.redis_client.scan_iter(match=pattern):
+                try:
+                    await self.redis_client.delete(key)
+                    deleted += 1
+                except Exception as inner_e:
+                    logger.error(f"Failed deleting key {key}: {inner_e}")
+            return deleted
         except Exception as e:
             logger.error(f"Cache delete pattern error: {e}")
-            return 0
+            return deleted
     
     async def invalidate_user_cache(self, user_id: int):
         """Invalidate all cache entries for a user"""
@@ -133,8 +136,12 @@ class PropertyCacheManager:
     @staticmethod
     def generate_cache_key(filters: dict, user_id: int, page: int, limit: int) -> str:
         """Generate consistent cache key for property queries"""
-        # Sort and serialize filters for consistent hashing
-        filter_str = json.dumps(filters, sort_keys=True)
+        # Sort and serialize filters for consistent hashing; be robust to enums/datetimes
+        filter_str = json.dumps(
+            filters,
+            sort_keys=True,
+            default=lambda o: getattr(o, "value", str(o))
+        )
         filter_hash = hashlib.md5(filter_str.encode()).hexdigest()[:16]
         
         return f"properties:v1:{filter_hash}:u{user_id}:p{page}:l{limit}"
@@ -182,7 +189,11 @@ def cache_key_wrapper(
                 if kwargs:
                     cache_key_parts.append(
                         hashlib.md5(
-                            json.dumps(kwargs, sort_keys=True).encode()
+                            json.dumps(
+                                kwargs,
+                                sort_keys=True,
+                                default=lambda o: getattr(o, "value", str(o))
+                            ).encode()
                         ).hexdigest()[:8]
                     )
             

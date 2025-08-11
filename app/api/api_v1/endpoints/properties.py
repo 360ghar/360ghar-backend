@@ -7,7 +7,7 @@ from app.models.user import User
 from app.models.property import PropertyType, PropertyPurpose
 from app.schemas.property import (
     PropertyCreate, PropertyUpdate, Property, PropertyFilter,
-    PropertyInterest, UnifiedPropertyFilter, UnifiedPropertyResponse
+    PropertyInterest, UnifiedPropertyFilter, UnifiedPropertyResponse, SortBy
 )
 from app.schemas.common import PaginationParams, PaginatedResponse, MessageResponse
 from app.services.property import (
@@ -74,7 +74,7 @@ async def get_properties_list(
     guests: Optional[int] = Query(None, ge=1, le=20),
     
     # Sorting and pagination
-    sort_by: str = Query("distance", description="Sort by: distance, price_low, price_high, newest, popular, relevance"),
+    sort_by: SortBy = Query(SortBy.distance, description="Sort by: distance, price_low, price_high, newest, popular, relevance"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     
