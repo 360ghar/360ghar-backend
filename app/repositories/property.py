@@ -1,13 +1,13 @@
 # repositories/property.py
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy import select, and_, or_, func, desc, update
 from sqlalchemy.orm import selectinload, joinedload
 from app.repositories.base import BaseRepository
 from app.models.property import Property, PropertyImage
 from app.models.user_interaction import UserSwipe, UserFavorite
 from app.models.user import User
-from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyFilter, PropertyInterest, UnifiedPropertyFilter
+from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyFilter, PropertyInterest, UnifiedPropertyFilter, SortBy
 from app.utils.distance import haversine_distance, get_bounding_box
 
 class PropertyRepository(BaseRepository[Property]):
@@ -73,7 +73,7 @@ class PropertyRepository(BaseRepository[Property]):
         # Calculate exact distances and filter
         properties_with_distance = []
         for prop in properties:
-            if prop.latitude and prop.longitude:
+            if prop.latitude is not None and prop.longitude is not None:
                 distance = haversine_distance(
                     latitude, longitude,
                     float(prop.latitude), float(prop.longitude)
@@ -257,22 +257,22 @@ class PropertyRepository(BaseRepository[Property]):
         if filters.purpose:
             query = query.where(Property.purpose == filters.purpose)
         
-        if filters.price_min:
+        if filters.price_min is not None:
             query = query.where(Property.base_price >= filters.price_min)
         
-        if filters.price_max:
+        if filters.price_max is not None:
             query = query.where(Property.base_price <= filters.price_max)
         
-        if filters.bedrooms_min:
+        if filters.bedrooms_min is not None:
             query = query.where(Property.bedrooms >= filters.bedrooms_min)
         
-        if filters.bedrooms_max:
+        if filters.bedrooms_max is not None:
             query = query.where(Property.bedrooms <= filters.bedrooms_max)
         
-        if filters.area_min:
+        if filters.area_min is not None:
             query = query.where(Property.area_sqft >= filters.area_min)
         
-        if filters.area_max:
+        if filters.area_max is not None:
             query = query.where(Property.area_sqft <= filters.area_max)
         
         if filters.city:
@@ -476,7 +476,7 @@ class PropertyRepository(BaseRepository[Property]):
         query = select(Property).options(selectinload(Property.images))
         
         # Location-based filtering using bounding box for efficiency
-        if filters.latitude and filters.longitude:
+        if filters.latitude is not None and filters.longitude is not None:
             min_lat, max_lat, min_lon, max_lon = get_bounding_box(
                 filters.latitude, filters.longitude, filters.radius_km
             )
@@ -498,35 +498,35 @@ class PropertyRepository(BaseRepository[Property]):
             query = query.where(Property.purpose == filters.purpose)
         
         # Price filters
-        if filters.price_min:
+        if filters.price_min is not None:
             query = query.where(Property.base_price >= filters.price_min)
-        if filters.price_max:
+        if filters.price_max is not None:
             query = query.where(Property.base_price <= filters.price_max)
         
         # Room filters
-        if filters.bedrooms_min:
+        if filters.bedrooms_min is not None:
             query = query.where(Property.bedrooms >= filters.bedrooms_min)
-        if filters.bedrooms_max:
+        if filters.bedrooms_max is not None:
             query = query.where(Property.bedrooms <= filters.bedrooms_max)
-        if filters.bathrooms_min:
+        if filters.bathrooms_min is not None:
             query = query.where(Property.bathrooms >= filters.bathrooms_min)
-        if filters.bathrooms_max:
+        if filters.bathrooms_max is not None:
             query = query.where(Property.bathrooms <= filters.bathrooms_max)
         
         # Area filters
-        if filters.area_min:
+        if filters.area_min is not None:
             query = query.where(Property.area_sqft >= filters.area_min)
-        if filters.area_max:
+        if filters.area_max is not None:
             query = query.where(Property.area_sqft <= filters.area_max)
         
         # Other property filters
-        if filters.parking_spaces_min:
+        if filters.parking_spaces_min is not None:
             query = query.where(Property.parking_spaces >= filters.parking_spaces_min)
-        if filters.floor_number_min:
+        if filters.floor_number_min is not None:
             query = query.where(Property.floor_number >= filters.floor_number_min)
-        if filters.floor_number_max:
+        if filters.floor_number_max is not None:
             query = query.where(Property.floor_number <= filters.floor_number_max)
-        if filters.age_max:
+        if filters.age_max is not None:
             query = query.where(Property.age_of_property <= filters.age_max)
         
         # Location filters
@@ -556,7 +556,7 @@ class PropertyRepository(BaseRepository[Property]):
         if filters.check_in_date and filters.check_out_date:
             query = query.where(Property.purpose == "short_stay")
         
-        if filters.guests:
+        if filters.guests is not None:
             query = query.where(Property.max_occupancy >= filters.guests)
         
         # Exclude properties already swiped by user
@@ -568,10 +568,10 @@ class PropertyRepository(BaseRepository[Property]):
         all_properties = result.scalars().all()
         
         # Apply exact distance filtering and calculate distances if location filtering is enabled
-        if filters.latitude and filters.longitude:
+        if filters.latitude is not None and filters.longitude is not None:
             filtered_properties = []
             for prop in all_properties:
-                if prop.latitude and prop.longitude:
+                if prop.latitude is not None and prop.longitude is not None:
                     distance = haversine_distance(
                         filters.latitude, filters.longitude,
                         float(prop.latitude), float(prop.longitude)
@@ -582,15 +582,15 @@ class PropertyRepository(BaseRepository[Property]):
             all_properties = filtered_properties
         
         # Sorting
-        if filters.sort_by == "distance" and filters.latitude and filters.longitude:
+        if filters.sort_by == SortBy.distance and filters.latitude is not None and filters.longitude is not None:
             all_properties.sort(key=lambda x: getattr(x, 'distance_km', float('inf')))
-        elif filters.sort_by == "price_low":
+        elif filters.sort_by == SortBy.price_low:
             all_properties.sort(key=lambda x: x.base_price)
-        elif filters.sort_by == "price_high":
+        elif filters.sort_by == SortBy.price_high:
             all_properties.sort(key=lambda x: x.base_price, reverse=True)
-        elif filters.sort_by == "newest":
+        elif filters.sort_by == SortBy.newest:
             all_properties.sort(key=lambda x: x.created_at, reverse=True)
-        elif filters.sort_by == "popular":
+        elif filters.sort_by == SortBy.popular:
             all_properties.sort(key=lambda x: x.like_count, reverse=True)
         else:
             all_properties.sort(key=lambda x: x.created_at, reverse=True)
@@ -631,7 +631,7 @@ class PropertyRepository(BaseRepository[Property]):
         
         # Base query with eager loading - keep it simple for now
         query = select(Property).options(
-            selectinload(Property.images.and_(PropertyImage.is_main_image == True))
+            selectinload(Property.images)
         )
         
         # Build WHERE clauses efficiently
@@ -642,7 +642,7 @@ class PropertyRepository(BaseRepository[Property]):
             where_clauses.append(Property.is_available == True)
         
         # Location-based filtering using simple lat/lng bounds for now
-        if filters.latitude and filters.longitude:
+        if filters.latitude is not None and filters.longitude is not None:
             # Use simple bounding box first (can optimize with PostGIS later)
             lat_range = filters.radius_km / 111.0  # Approximate km per degree
             lng_range = filters.radius_km / (111.0 * 0.707)  # Rough approximation
@@ -720,7 +720,7 @@ class PropertyRepository(BaseRepository[Property]):
                 where_clauses.append(Property.amenities.contains([amenity]))
         
         # Short stay filters
-        if filters.guests:
+        if filters.guests is not None:
             where_clauses.append(Property.max_occupancy >= filters.guests)
         
         # Apply all WHERE clauses
@@ -737,13 +737,13 @@ class PropertyRepository(BaseRepository[Property]):
             query = query.where(~Property.id.in_(swiped_subquery))
         
         # Apply sorting (simplified)
-        if filters.sort_by == "price_low":
+        if filters.sort_by == SortBy.price_low:
             query = query.order_by(Property.base_price.asc())
-        elif filters.sort_by == "price_high":
+        elif filters.sort_by == SortBy.price_high:
             query = query.order_by(Property.base_price.desc())
-        elif filters.sort_by == "newest":
+        elif filters.sort_by == SortBy.newest:
             query = query.order_by(Property.created_at.desc())
-        elif filters.sort_by == "popular":
+        elif filters.sort_by == SortBy.popular:
             query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
         else:
             # Default sort
@@ -773,9 +773,9 @@ class PropertyRepository(BaseRepository[Property]):
         properties = result.scalars().all()
         
         # Add distance calculation for returned properties if location filtering was used
-        if filters.latitude and filters.longitude:
+        if filters.latitude is not None and filters.longitude is not None:
             for prop in properties:
-                if prop.latitude and prop.longitude:
+                if prop.latitude is not None and prop.longitude is not None:
                     # Simple distance calculation
                     from app.utils.distance import haversine_distance
                     prop.distance_km = haversine_distance(
@@ -797,4 +797,183 @@ class PropertyRepository(BaseRepository[Property]):
                 "longitude": filters.longitude,
                 "radius_km": filters.radius_km
             } if filters.latitude and filters.longitude else None
+        }
+
+    async def get_user_swiped_properties_optimized(
+        self,
+        user_id: int,
+        filters: UnifiedPropertyFilter,
+        page: int = 1,
+        limit: int = 20,
+        is_liked: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Get properties the user has swiped on, with the same unified filters/search/location.
+
+        This mirrors get_unified_properties_optimized but joins through UserSwipe and does not
+        exclude swiped properties (since these are exactly what we want). Optionally filter by is_liked.
+        """
+
+        # Base query with eager loading joined to UserSwipe
+        query = (
+            select(Property)
+            .options(selectinload(Property.images))
+            .join(UserSwipe, UserSwipe.property_id == Property.id)
+            .where(UserSwipe.user_id == user_id)
+        )
+
+        if is_liked is not None:
+            query = query.where(UserSwipe.is_liked == is_liked)
+
+        # Build WHERE clauses using the same logic as get_unified_properties_optimized
+        where_clauses = []
+
+        if not filters.include_unavailable:
+            where_clauses.append(Property.is_available == True)
+
+        # Location bounding box approximation
+        if filters.latitude is not None and filters.longitude is not None:
+            lat_range = filters.radius_km / 111.0
+            lng_range = filters.radius_km / (111.0 * 0.707)
+            where_clauses.append(
+                Property.latitude.between(filters.latitude - lat_range, filters.latitude + lat_range)
+            )
+            where_clauses.append(
+                Property.longitude.between(filters.longitude - lng_range, filters.longitude + lng_range)
+            )
+
+        # Text search
+        if filters.search_query:
+            search_term = f"%{filters.search_query}%"
+            where_clauses.append(
+                or_(
+                    Property.title.ilike(search_term),
+                    Property.description.ilike(search_term),
+                    Property.locality.ilike(search_term),
+                    Property.city.ilike(search_term),
+                )
+            )
+
+        # Property type / purpose
+        if filters.property_type:
+            where_clauses.append(Property.property_type.in_(filters.property_type))
+        if filters.purpose:
+            where_clauses.append(Property.purpose == filters.purpose)
+
+        # Price
+        if filters.price_min is not None:
+            where_clauses.append(Property.base_price >= filters.price_min)
+        if filters.price_max is not None:
+            where_clauses.append(Property.base_price <= filters.price_max)
+
+        # Rooms
+        if filters.bedrooms_min is not None:
+            where_clauses.append(Property.bedrooms >= filters.bedrooms_min)
+        if filters.bedrooms_max is not None:
+            where_clauses.append(Property.bedrooms <= filters.bedrooms_max)
+        if filters.bathrooms_min is not None:
+            where_clauses.append(Property.bathrooms >= filters.bathrooms_min)
+        if filters.bathrooms_max is not None:
+            where_clauses.append(Property.bathrooms <= filters.bathrooms_max)
+
+        # Area
+        if filters.area_min is not None:
+            where_clauses.append(Property.area_sqft >= filters.area_min)
+        if filters.area_max is not None:
+            where_clauses.append(Property.area_sqft <= filters.area_max)
+
+        # Other property filters
+        if filters.parking_spaces_min is not None:
+            where_clauses.append(Property.parking_spaces >= filters.parking_spaces_min)
+        if filters.floor_number_min is not None:
+            where_clauses.append(Property.floor_number >= filters.floor_number_min)
+        if filters.floor_number_max is not None:
+            where_clauses.append(Property.floor_number <= filters.floor_number_max)
+        if filters.age_max is not None:
+            where_clauses.append(Property.age_of_property <= filters.age_max)
+
+        # Location text filters
+        if filters.city:
+            where_clauses.append(Property.city.ilike(f"%{filters.city}%"))
+        if filters.locality:
+            where_clauses.append(Property.locality.ilike(f"%{filters.locality}%"))
+        if filters.pincode:
+            where_clauses.append(Property.pincode == filters.pincode)
+
+        # Amenities / features
+        if filters.amenities:
+            for amenity in filters.amenities:
+                where_clauses.append(Property.amenities.contains([amenity]))
+        if filters.features:
+            for feature in filters.features:
+                where_clauses.append(Property.features.has_key(feature))
+
+        # Short stay
+        if filters.guests is not None:
+            where_clauses.append(Property.max_occupancy >= filters.guests)
+
+        if where_clauses:
+            query = query.where(and_(*where_clauses))
+
+        # Sorting (do not exclude by swipes; these are all swiped already)
+        if filters.sort_by == SortBy.price_low:
+            query = query.order_by(Property.base_price.asc())
+        elif filters.sort_by == SortBy.price_high:
+            query = query.order_by(Property.base_price.desc())
+        elif filters.sort_by == SortBy.newest:
+            query = query.order_by(Property.created_at.desc())
+        elif filters.sort_by == SortBy.popular:
+            query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
+        else:
+            # Default to swipe recency to reflect history order
+            query = query.order_by(UserSwipe.swipe_timestamp.desc())
+
+        # Count total results
+        count_query = (
+            select(func.count(Property.id))
+            .join(UserSwipe, UserSwipe.property_id == Property.id)
+            .where(UserSwipe.user_id == user_id)
+        )
+        if is_liked is not None:
+            count_query = count_query.where(UserSwipe.is_liked == is_liked)
+        if where_clauses:
+            count_query = count_query.where(and_(*where_clauses))
+
+        total_result = await self.session.execute(count_query)
+        total = total_result.scalar()
+
+        # Pagination
+        offset = (page - 1) * limit
+        query = query.offset(offset).limit(limit)
+
+        result = await self.session.execute(query)
+        properties = result.scalars().all()
+
+        # Add distance if applicable
+        if filters.latitude is not None and filters.longitude is not None:
+            from app.utils.distance import haversine_distance
+            for prop in properties:
+                if prop.latitude is not None and prop.longitude is not None:
+                    prop.distance_km = haversine_distance(
+                        filters.latitude,
+                        filters.longitude,
+                        float(prop.latitude),
+                        float(prop.longitude),
+                    )
+                else:
+                    prop.distance_km = None
+
+        return {
+            "properties": properties,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": (total + limit - 1) // limit,
+            "filters_applied": filters.model_dump(exclude_none=True),
+            "search_center": {
+                "latitude": filters.latitude,
+                "longitude": filters.longitude,
+                "radius_km": filters.radius_km,
+            }
+            if filters.latitude and filters.longitude
+            else None,
         }

@@ -1,6 +1,7 @@
 import traceback
 import logging
 import yaml
+from sqlalchemy import text
 
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request, status
@@ -86,14 +87,6 @@ app.add_middleware(
 # # Add security headers
 # app.add_middleware(SecurityHeadersMiddleware)
 
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Global exception: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={"message": "Internal server error", "detail": str(exc)}
-    )
-
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 @app.get("/")
@@ -115,7 +108,7 @@ async def health_check():
         db_status = "connected"
         try:
             async with engine.begin() as conn:
-                await conn.execute("SELECT 1")
+                await conn.execute(text("SELECT 1"))
         except Exception as db_e:
             logger.error(f"Database health check failed: {db_e}")
             db_status = "disconnected"
@@ -123,7 +116,10 @@ async def health_check():
         # Check cache connection
         cache_status = "connected"
         try:
-            await cache_manager.redis_client.ping()
+            if cache_manager.redis_client:
+                await cache_manager.redis_client.ping()
+            else:
+                cache_status = "disconnected"
         except Exception as cache_e:
             logger.error(f"Cache health check failed: {cache_e}")
             cache_status = "disconnected"

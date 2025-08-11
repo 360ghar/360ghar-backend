@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from pydantic import Field
 
 class PaginationParams(BaseModel):
     page: int = 1
@@ -39,7 +40,7 @@ class AnalyticsData(BaseModel):
     user_id: int
     event_type: str
     event_data: Dict[str, Any]
-    timestamp: datetime = datetime.utcnow()
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
     session_id: Optional[str] = None
     user_agent: Optional[str] = None
     ip_address: Optional[str] = None

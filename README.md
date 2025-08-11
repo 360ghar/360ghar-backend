@@ -38,7 +38,8 @@ A comprehensive real estate platform backend built with FastAPI, featuring Tinde
 
 ### Swipes
 - `POST /api/v1/swipes/` - Record property swipe (like/pass)
-- `GET /api/v1/swipes/history` - Get swipe history
+- `GET /api/v1/swipes/history` - Get swiped properties with the same filters as property listing
+  - Supports: location (lat,lng,radius), text search (`q`), type/purpose, price, bedrooms/bathrooms, area, city/locality/pincode, amenities, parking/floor/age, short-stay (check_in/check_out/guests), sorting, pagination, and `is_liked`
 - `POST /api/v1/swipes/undo` - Undo last swipe
 
 ### Visits

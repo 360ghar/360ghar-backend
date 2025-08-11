@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import uuid
 from app.repositories.base import BaseRepository
 from app.models.booking import Booking, BookingStatus, PaymentStatus
+from app.core.exceptions import ValidationException
 from app.models.property import Property
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingPayment, BookingReview
 
@@ -23,6 +24,8 @@ class BookingRepository(BaseRepository[Booking]):
         """Create a new booking with pricing calculations"""
         # Calculate nights
         nights = (booking.check_out_date - booking.check_in_date).days
+        if nights <= 0:
+            raise ValidationException("Check-out date must be after check-in date")
         
         # Get property for pricing
         property_result = await self.session.execute(
@@ -138,13 +141,14 @@ class BookingRepository(BaseRepository[Booking]):
                 select(Property).where(Property.id == booking.property_id)
             )
             property_obj = property_result.scalar_one_or_none()
-            
+
             if property_obj and property_obj.daily_rate:
+                if nights <= 0:
+                    raise ValidationException("Check-out date must be after check-in date")
                 base_amount = property_obj.daily_rate * nights
                 taxes_amount = base_amount * 0.12
                 service_charges = base_amount * 0.05
                 total_amount = base_amount + taxes_amount + service_charges
-                
                 booking.nights = nights
                 booking.base_amount = base_amount
                 booking.taxes_amount = taxes_amount
@@ -264,6 +268,8 @@ class BookingRepository(BaseRepository[Booking]):
             return None
         
         nights = (check_out_date - check_in_date).days
+        if nights <= 0:
+            raise ValidationException("Check-out date must be after check-in date")
         base_amount = property_obj.daily_rate * nights if property_obj.daily_rate else 0
         taxes_amount = base_amount * 0.12  # 12% GST
         service_charges = base_amount * 0.05  # 5% service charge

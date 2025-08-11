@@ -959,26 +959,54 @@
 					},
 					"response": []
 				},
-				{
-					"name": "Get Swipe History",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/swipes/history",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"swipes",
-								"history"
-							]
-						}
-					},
-					"response": []
-				},
+                {
+                    "name": "Get Swipe History",
+                    "event": [
+                        {
+                            "listen": "test",
+                            "script": {
+                                "exec": [
+                                    "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+                                    "const res = pm.response.json();",
+                                    "pm.test('UnifiedPropertyResponse shape', function() {",
+                                    "  pm.expect(res).to.have.property('properties');",
+                                    "  pm.expect(res).to.have.property('total');",
+                                    "  pm.expect(res).to.have.property('page');",
+                                    "  pm.expect(res).to.have.property('limit');",
+                                    "  pm.expect(res).to.have.property('total_pages');",
+                                    "});"
+                                ],
+                                "type": "text/javascript"
+                            }
+                        }
+                    ],
+                    "request": {
+                        "method": "GET",
+                        "header": [],
+                        "url": {
+                            "raw": "{{BASE_URL}}/api/v1/swipes/history?lat=12.9716&lng=77.5946&radius=10&is_liked=true&sort_by=distance&page=1&limit=20",
+                            "host": [
+                                "{{BASE_URL}}"
+                            ],
+                            "path": [
+                                "api",
+                                "v1",
+                                "swipes",
+                                "history"
+                            ],
+                            "query": [
+                                {"key": "lat", "value": "12.9716"},
+                                {"key": "lng", "value": "77.5946"},
+                                {"key": "radius", "value": "10"},
+                                {"key": "is_liked", "value": "true"},
+                                {"key": "sort_by", "value": "distance"},
+                                {"key": "page", "value": "1"},
+                                {"key": "limit", "value": "20"}
+                            ]
+                        }
+                    },
+                    "response": []
+                },
 				{
 					"name": "Get Swipe Stats",
 					"request": {
