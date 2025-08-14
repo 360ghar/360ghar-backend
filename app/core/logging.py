@@ -136,8 +136,10 @@ def setup_logging() -> None:
                 "uvicorn.access": {"level": "WARNING"},
                 "httpx": {"level": "WARNING"},
                 "asyncio": {"level": "WARNING"},
-                # SQLAlchemy engine debug can be very noisy; keep at INFO unless DEBUG
-                "sqlalchemy.engine": {"level": "DEBUG" if settings.DEBUG else "INFO"},
+                # SQLAlchemy engine logs are noisy; raise level to WARNING to suppress SQL statements
+                "sqlalchemy.engine": {"level": "WARNING"},
+                # Be explicit for the concrete Engine logger as well
+                "sqlalchemy.engine.Engine": {"level": "WARNING"},
             },
         }
     )

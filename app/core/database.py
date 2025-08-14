@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Create async engine with transaction pooler compatibility
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,  # postgresql+asyncpg://...
-    echo=settings.DEBUG,
+    echo=False,
     pool_size=20,  # Good for transaction pooler
     max_overflow=10,  # Reasonable overflow
     pool_pre_ping=True,  # Verify connections before using
@@ -21,7 +21,11 @@ engine = create_async_engine(
             "jit": "off"  # Disable JIT for consistent performance
         },
         "command_timeout": 60,  # Standard timeout
-        "statement_cache_size": 0,  # Disable prepared statements for transaction pooler
+        # Disable prepared statements when behind PgBouncer (transaction/statement pooler)
+        # asyncpg uses 'prepared_statement_cache_size' (SQLAlchemy wrapper) and 'statement_cache_size' (asyncpg)
+        # Setting both ensures compatibility across versions
+        "prepared_statement_cache_size": 0,
+        "statement_cache_size": 0,
     }
 )
 
