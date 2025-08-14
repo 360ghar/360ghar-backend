@@ -8,20 +8,20 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Create async engine with optimized connection pooling
+# Create async engine with transaction pooler compatibility
 engine = create_async_engine(
     settings.ASYNC_DATABASE_URL,  # postgresql+asyncpg://...
     echo=settings.DEBUG,
-    pool_size=50,
-    max_overflow=100,
+    pool_size=20,  # Good for transaction pooler
+    max_overflow=10,  # Reasonable overflow
     pool_pre_ping=True,  # Verify connections before using
-    pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_recycle=1800,  # Recycle connections after 30 minutes
     connect_args={
         "server_settings": {
             "jit": "off"  # Disable JIT for consistent performance
         },
-        "command_timeout": 60,
-        "statement_cache_size": 0,  # Disable prepared statements for pgbouncer compatibility
+        "command_timeout": 60,  # Standard timeout
+        "statement_cache_size": 0,  # Disable prepared statements for transaction pooler
     }
 )
 

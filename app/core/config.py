@@ -24,10 +24,6 @@ class Settings(BaseSettings):
         elif url.startswith("postgres://"):
             url = url.replace("postgres://", "postgresql+asyncpg://", 1)
         
-        # Use direct connection instead of pgbouncer for better SQLAlchemy compatibility
-        if ":6543/" in url:
-            url = url.replace(":6543/", ":5432/")
-        
         return url
     
     REDIS_URL: str = "redis://localhost:6379"
