@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "360ghar-api-collection",
 		"name": "360Ghar Real Estate Platform API",
-		"description": "Complete API collection for 360Ghar - Tinder-like real estate platform with Supabase integration.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## Features:\n- Automatic token management\n- Response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling",
+		"description": "Complete API collection for 360Ghar - Tinder-like real estate platform with Supabase integration and AI-powered agents.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## API Modules:\n- **Authentication**: User signup, login, and token management\n- **Users**: Profile management and preferences\n- **Properties**: Property search, discovery, and details\n- **Swipes**: Tinder-like property swiping functionality\n- **Visits**: Property visit scheduling with agents\n- **Bookings**: Short-stay property bookings\n- **Agents**: 360Ghar employee agent management and assignment\n\n## Agent System:\nThe platform features 360Ghar employee agents who serve as relationship managers:\n- **Auto-assignment**: New users automatically get assigned agents\n- **Specializations**: Agents specialize in different property types and services\n- **Performance tracking**: Real-time monitoring of agent effectiveness\n- **Load balancing**: Intelligent distribution of users across agents\n\n## Features:\n- Automatic token management\n- Response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling\n- Environment variable management",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "360ghar"
 	},
@@ -144,7 +144,6 @@
 									"    const response = pm.response.json();",
 									"    pm.expect(response).to.have.property('status');",
 									"    pm.expect(response).to.have.property('database');",
-									"    pm.expect(response).to.have.property('cache');",
 									"    pm.expect(response).to.have.property('timestamp');",
 									"});",
 									"",
@@ -194,6 +193,28 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Get OpenAPI YAML",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/openapi.yaml",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"openapi.yaml"
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		},
@@ -216,12 +237,15 @@
 									"    pm.expect(response).to.have.property('access_token');",
 									"    pm.expect(response).to.have.property('token_type');",
 									"    pm.expect(response.token_type).to.equal('bearer');",
+									"    pm.expect(response).to.have.property('user');",
 									"});",
 									"",
 									"// Save token for future requests",
 									"if (pm.response.code === 200) {",
 									"    const response = pm.response.json();",
 									"    pm.environment.set('access_token', response.access_token);",
+									"    pm.environment.set('current_user_id', response.user.id);",
+									"    pm.environment.set('current_user_email', response.user.email);",
 									"    ",
 									"    // Set token expiry (30 minutes from now)",
 									"    const expiry = new Date(Date.now() + 30 * 60 * 1000);",
@@ -265,7 +289,7 @@
 					"response": []
 				},
 				{
-					"name": "Get Current User",
+					"name": "Register",
 					"event": [
 						{
 							"listen": "test",
@@ -275,19 +299,15 @@
 									"    pm.response.to.have.status(200);",
 									"});",
 									"",
-									"pm.test('User profile structure', function() {",
-									"    const response = pm.response.json();",
-									"    pm.expect(response).to.have.property('id');",
-									"    pm.expect(response).to.have.property('email');",
-									"    pm.expect(response).to.have.property('supabase_user_id');",
-									"    pm.expect(response).to.have.property('is_active');",
-									"});",
-									"",
-									"// Save user ID for future requests",
 									"if (pm.response.code === 200) {",
 									"    const response = pm.response.json();",
-									"    pm.environment.set('current_user_id', response.id);",
-									"    pm.environment.set('current_user_email', response.email);",
+									"    if (response.access_token) {",
+									"        pm.environment.set('access_token', response.access_token);",
+									"    }",
+									"    if (response.user) {",
+									"        pm.environment.set('new_user_id', response.user.id);",
+									"    }",
+									"    console.log('User registered successfully');",
 									"}"
 								],
 								"type": "text/javascript"
@@ -295,50 +315,22 @@
 						}
 					],
 					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/auth/me",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"auth",
-								"me"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Check Session",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/auth/session",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"auth",
-								"session"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Sync Profile",
-					"request": {
+						"auth": {
+							"type": "noauth"
+						},
 						"method": "POST",
 						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"{{randomEmail}}\",\n    \"password\": \"Test@123456\",\n    \"full_name\": \"{{randomName}}\",\n    \"phone\": \"{{randomPhone}}\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/auth/sync",
+							"raw": "{{BASE_URL}}/api/v1/auth/register",
 							"host": [
 								"{{BASE_URL}}"
 							],
@@ -346,7 +338,32 @@
 								"api",
 								"v1",
 								"auth",
-								"sync"
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Refresh Token",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/auth/refresh",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"refresh"
 							]
 						}
 					},
@@ -459,86 +476,6 @@
 								"v1",
 								"users",
 								"location"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Search History",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/users/search-history",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"users",
-								"search-history"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Clear Search History",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/users/search-history",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"users",
-								"search-history"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Liked Properties",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/users/liked-properties",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"users",
-								"liked-properties"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Disliked Properties",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/users/disliked-properties",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"users",
-								"disliked-properties"
 							]
 						}
 					},
@@ -747,6 +684,26 @@
 					"response": []
 				},
 				{
+					"name": "Delete Property",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								"{{test_property_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
 					"name": "Get Recommendations",
 					"request": {
 						"method": "GET",
@@ -767,140 +724,6 @@
 									"key": "limit",
 									"value": "10"
 								}
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Show Interest",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"interest_type\": \"visit\",\n    \"message\": \"I am interested in visiting this property this weekend.\",\n    \"preferred_contact_method\": \"phone\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/interest",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"properties",
-								"interest"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Share Data",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}/share",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"properties",
-								"{{test_property_id}}",
-								"share"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Check Availability",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}/availability?check_in_date=2024-02-15&check_out_date=2024-02-20&guests=2",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"properties",
-								"{{test_property_id}}",
-								"availability"
-							],
-							"query": [
-								{
-									"key": "check_in_date",
-									"value": "2024-02-15"
-								},
-								{
-									"key": "check_out_date",
-									"value": "2024-02-20"
-								},
-								{
-									"key": "guests",
-									"value": "2"
-								}
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Properties Batch",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "[1, 2, 3, 4, 5]",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/batch",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"properties",
-								"batch"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Delete Property",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/{{test_property_id}}",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"properties",
-								"{{test_property_id}}"
 							]
 						}
 					},
@@ -959,54 +782,55 @@
 					},
 					"response": []
 				},
-                {
-                    "name": "Get Swipe History",
-                    "event": [
-                        {
-                            "listen": "test",
-                            "script": {
-                                "exec": [
-                                    "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                                    "const res = pm.response.json();",
-                                    "pm.test('UnifiedPropertyResponse shape', function() {",
-                                    "  pm.expect(res).to.have.property('properties');",
-                                    "  pm.expect(res).to.have.property('total');",
-                                    "  pm.expect(res).to.have.property('page');",
-                                    "  pm.expect(res).to.have.property('limit');",
-                                    "  pm.expect(res).to.have.property('total_pages');",
-                                    "});"
-                                ],
-                                "type": "text/javascript"
-                            }
-                        }
-                    ],
-                    "request": {
-                        "method": "GET",
-                        "header": [],
-                        "url": {
-                            "raw": "{{BASE_URL}}/api/v1/swipes/history?lat=12.9716&lng=77.5946&radius=10&is_liked=true&sort_by=distance&page=1&limit=20",
-                            "host": [
-                                "{{BASE_URL}}"
-                            ],
-                            "path": [
-                                "api",
-                                "v1",
-                                "swipes",
-                                "history"
-                            ],
-                            "query": [
-                                {"key": "lat", "value": "12.9716"},
-                                {"key": "lng", "value": "77.5946"},
-                                {"key": "radius", "value": "10"},
-                                {"key": "is_liked", "value": "true"},
-                                {"key": "sort_by", "value": "distance"},
-                                {"key": "page", "value": "1"},
-                                {"key": "limit", "value": "20"}
-                            ]
-                        }
-                    },
-                    "response": []
-                },
+				{
+					"name": "Get Swipe History",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+									"const res = pm.response.json();",
+									"pm.test('Response should be an array or object', function() {",
+									"  pm.expect(res).to.be.oneOf([Object, Array]);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/?is_liked=true&page=1&limit=20",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								""
+							],
+							"query": [
+								{
+									"key": "is_liked",
+									"value": "true"
+								},
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						}
+					},
+					"response": []
+				},
 				{
 					"name": "Get Swipe Stats",
 					"request": {
@@ -1030,7 +854,7 @@
 				{
 					"name": "Undo Last Swipe",
 					"request": {
-						"method": "POST",
+						"method": "DELETE",
 						"header": [],
 						"url": {
 							"raw": "{{BASE_URL}}/api/v1/swipes/undo",
@@ -1046,12 +870,53 @@
 						}
 					},
 					"response": []
+				},
+				{
+					"name": "Toggle Swipe Like",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/swipes/1/toggle",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"swipes",
+								"1",
+								"toggle"
+							]
+						}
+					},
+					"response": []
 				}
 			]
 		},
 		{
 			"name": "Visits",
 			"item": [
+				{
+					"name": "Get My Visits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/visits/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"visits",
+								""
+							]
+						}
+					},
+					"response": []
+				},
 				{
 					"name": "Schedule Visit",
 					"event": [
@@ -1096,109 +961,9 @@
 					"response": []
 				},
 				{
-					"name": "Get My Visits",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								""
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Upcoming Visits",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/upcoming",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"upcoming"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Past Visits",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/past",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"past"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Relationship Manager",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/relationship-manager",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"relationship-manager"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get Visit Details",
-					"request": {
-						"method": "GET",
-						"header": [],
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"{{test_visit_id}}"
-							]
-						}
-					},
-					"response": []
-				},
-				{
 					"name": "Update Visit",
 					"request": {
-						"method": "PUT",
+						"method": "PATCH",
 						"header": [],
 						"body": {
 							"mode": "raw",
@@ -1223,70 +988,32 @@
 						}
 					},
 					"response": []
-				},
-				{
-					"name": "Reschedule Visit",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"new_date\": \"2024-02-25T10:00:00Z\",\n    \"reason\": \"Conflict with another appointment\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/reschedule",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"reschedule"
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Cancel Visit",
-					"request": {
-						"method": "POST",
-						"header": [],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"reason\": \"Found another property\"\n}",
-							"options": {
-								"raw": {
-									"language": "json"
-								}
-							}
-						},
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/visits/cancel",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"visits",
-								"cancel"
-							]
-						}
-					},
-					"response": []
 				}
 			]
 		},
 		{
 			"name": "Bookings",
 			"item": [
+				{
+					"name": "Get My Bookings",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/bookings/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"bookings",
+								""
+							]
+						}
+					},
+					"response": []
+				},
 				{
 					"name": "Create Booking",
 					"event": [
@@ -1316,26 +1043,6 @@
 								}
 							}
 						},
-						"url": {
-							"raw": "{{BASE_URL}}/api/v1/bookings/",
-							"host": [
-								"{{BASE_URL}}"
-							],
-							"path": [
-								"api",
-								"v1",
-								"bookings",
-								""
-							]
-						}
-					},
-					"response": []
-				},
-				{
-					"name": "Get My Bookings",
-					"request": {
-						"method": "GET",
-						"header": [],
 						"url": {
 							"raw": "{{BASE_URL}}/api/v1/bookings/",
 							"host": [
@@ -1470,13 +1177,13 @@
 					"response": []
 				},
 				{
-					"name": "Update Booking",
+					"name": "Update Booking Status",
 					"request": {
 						"method": "PUT",
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"guests\": 3,\n    \"special_requests\": \"Early check-in at 12 PM if possible. Need extra towels.\"\n}",
+							"raw": "{\n    \"status\": \"confirmed\",\n    \"notes\": \"Booking confirmed by property manager\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1484,7 +1191,7 @@
 							}
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}",
+							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}/status",
 							"host": [
 								"{{BASE_URL}}"
 							],
@@ -1492,20 +1199,21 @@
 								"api",
 								"v1",
 								"bookings",
-								"{{test_booking_id}}"
+								"{{test_booking_id}}",
+								"status"
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Process Payment",
+					"name": "Update Payment Status",
 					"request": {
-						"method": "POST",
+						"method": "PUT",
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"booking_id\": {{test_booking_id}},\n    \"payment_method\": \"credit_card\",\n    \"transaction_id\": \"TXN{{$timestamp}}\",\n    \"amount\": 50000\n}",
+							"raw": "{\n    \"payment_status\": \"paid\",\n    \"payment_method\": \"credit_card\",\n    \"transaction_id\": \"TXN{{$timestamp}}\",\n    \"amount_paid\": 50000\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1513,7 +1221,7 @@
 							}
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/bookings/payment",
+							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}/payment",
 							"host": [
 								"{{BASE_URL}}"
 							],
@@ -1521,6 +1229,7 @@
 								"api",
 								"v1",
 								"bookings",
+								"{{test_booking_id}}",
 								"payment"
 							]
 						}
@@ -1534,7 +1243,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"booking_id\": {{test_booking_id}},\n    \"guest_rating\": 5,\n    \"guest_review\": \"Excellent property! Very clean and well-maintained. The host was very responsive and helpful. Would definitely book again.\"\n}",
+							"raw": "{\n    \"guest_rating\": 5,\n    \"guest_review\": \"Excellent property! Very clean and well-maintained. The host was very responsive and helpful. Would definitely book again.\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1542,7 +1251,7 @@
 							}
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/bookings/review",
+							"raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}/review",
 							"host": [
 								"{{BASE_URL}}"
 							],
@@ -1550,6 +1259,7 @@
 								"api",
 								"v1",
 								"bookings",
+								"{{test_booking_id}}",
 								"review"
 							]
 						}
@@ -1588,16 +1298,281 @@
 			]
 		},
 		{
-			"name": "Analytics",
+			"name": "Agents",
 			"item": [
 				{
-					"name": "Track Event",
+					"name": "Get Assigned Agent",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('my_agent_id', response.id);",
+									"    pm.environment.set('my_agent_code', response.agent_code);",
+									"    console.log('My Agent:', response.name, response.agent_code);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/assigned",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"assigned"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Agent (Auto)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('assigned_agent_id', response.agent.id);",
+									"    console.log('Assigned Agent:', response.agent.name);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/assign",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"assign"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Available Agents",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/available",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"available"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agents by Type",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/types/general",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"types",
+								"general"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agents by Specialization",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/specializations/property_search",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"specializations",
+								"property_search"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agent Details",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"{{my_agent_id}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agent by Code",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/code/AGENT_001",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"code",
+								"AGENT_001"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agent Statistics",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/stats",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"{{my_agent_id}}",
+								"stats"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Agent Visits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/visits",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents",
+								"{{my_agent_id}}",
+								"visits"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Agents (Admin)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/agents?include_inactive=false",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"agents"
+							],
+							"query": [
+								{
+									"key": "include_inactive",
+									"value": "false"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Agent (Admin)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"if (pm.response.code === 200) {",
+									"    const response = pm.response.json();",
+									"    pm.environment.set('new_agent_id', response.id);",
+									"    console.log('Created Agent:', response.name, response.agent_code);",
+									"}"
+								]
+							}
+						}
+					],
 					"request": {
 						"method": "POST",
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"user_id\": {{current_user_id}},\n    \"event_type\": \"search\",\n    \"event_data\": {\n        \"query\": \"2BHK Bangalore\",\n        \"filters\": {\n            \"property_type\": \"apartment\",\n            \"budget_min\": 20000,\n            \"budget_max\": 40000\n        },\n        \"location\": \"Bangalore\",\n        \"radius\": 10,\n        \"results_count\": 25,\n        \"user_lat\": \"12.9716\",\n        \"user_lng\": \"77.5946\",\n        \"search_type\": \"general\"\n    },\n    \"session_id\": \"{{request_id}}\"\n}",
+							"raw": "{\n    \"name\": \"Emma Thompson\",\n    \"agent_code\": \"AGENT_004\",\n    \"description\": \"Luxury property specialist with expertise in high-end residential and commercial properties\",\n    \"personality_traits\": {\n        \"sophisticated\": true,\n        \"knowledgeable\": true,\n        \"professional\": true,\n        \"exclusive\": true\n    },\n    \"specializations\": [\"luxury_properties\", \"high_end_residential\", \"commercial_investments\"],\n    \"languages\": [\"english\", \"hindi\"],\n    \"agent_type\": \"specialist\",\n    \"experience_level\": \"expert\",\n    \"max_concurrent_users\": 25,\n    \"ai_model\": \"gpt-4\",\n    \"system_prompt\": \"You are Emma, a sophisticated luxury property specialist. You provide exclusive, high-end property recommendations with attention to premium features, location prestige, and investment potential. Always maintain an elegant and professional tone.\",\n    \"response_style\": \"formal\",\n    \"working_hours\": {\n        \"start\": \"10:00\",\n        \"end\": \"19:00\",\n        \"timezone\": \"Asia/Kolkata\"\n    }\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1605,115 +1580,132 @@
 							}
 						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/event",
+							"raw": "{{BASE_URL}}/api/v1/agents",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"event"
+								"agents"
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Dashboard",
+					"name": "Update Agent (Admin)",
 					"request": {
-						"method": "GET",
+						"method": "PUT",
 						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"description\": \"Updated description for the agent\",\n    \"is_available\": true,\n    \"max_concurrent_users\": 75,\n    \"personality_traits\": {\n        \"helpful\": true,\n        \"knowledgeable\": true,\n        \"responsive\": true\n    }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/dashboard",
+							"raw": "{{BASE_URL}}/api/v1/agents/{{new_agent_id}}",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"dashboard"
+								"agents",
+								"{{new_agent_id}}"
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Search History",
+					"name": "Update Agent Availability (Admin)",
 					"request": {
-						"method": "GET",
+						"method": "PATCH",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/search-history",
+							"raw": "{{BASE_URL}}/api/v1/agents/{{new_agent_id}}/availability?is_available=false",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"search-history"
+								"agents",
+								"{{new_agent_id}}",
+								"availability"
+							],
+							"query": [
+								{
+									"key": "is_available",
+									"value": "false"
+								}
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Swipe Stats",
+					"name": "Deactivate Agent (Admin)",
 					"request": {
-						"method": "GET",
+						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/swipe-stats",
+							"raw": "{{BASE_URL}}/api/v1/agents/{{new_agent_id}}",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"swipe-stats"
+								"agents",
+								"{{new_agent_id}}"
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Property Views",
+					"name": "Get System Workload (Admin)",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/property-views",
+							"raw": "{{BASE_URL}}/api/v1/agents/system/workload",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"property-views"
+								"agents",
+								"system",
+								"workload"
 							]
 						}
 					},
 					"response": []
 				},
 				{
-					"name": "Get Preferences Insights",
+					"name": "Get System Statistics (Admin)",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/analytics/preferences-insights",
+							"raw": "{{BASE_URL}}/api/v1/agents/system/stats",
 							"host": [
 								"{{BASE_URL}}"
 							],
 							"path": [
 								"api",
 								"v1",
-								"analytics",
-								"preferences-insights"
+								"agents",
+								"system",
+								"stats"
 							]
 						}
 					},

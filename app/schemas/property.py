@@ -1,7 +1,7 @@
 from pydantic import BaseModel, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
+from app.db.types import PropertyType, PropertyPurpose, PropertyStatus
 from app.utils.validators import ValidationUtils
 from enum import Enum
 
@@ -177,8 +177,8 @@ class PropertyFilter(BaseModel):
 class PropertySwipe(BaseModel):
     property_id: int
     is_liked: bool
-    user_location_lat: Optional[str] = None
-    user_location_lng: Optional[str] = None
+    user_location_lat: Optional[float] = None
+    user_location_lng: Optional[float] = None
     session_id: Optional[str] = None
 
 class PropertyInterest(BaseModel):

@@ -5,11 +5,10 @@ from datetime import timedelta
 import redis.asyncio as redis
 from functools import wraps
 import hashlib
-import logging
-
 from app.core.config import settings
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class CacheManager:
     """Redis cache manager for application caching"""

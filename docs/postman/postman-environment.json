@@ -97,9 +97,39 @@
 			"value": "",
 			"enabled": true,
 			"type": "default"
+		},
+		{
+			"key": "my_agent_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "my_agent_code",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "assigned_agent_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "new_agent_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "new_user_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
 		}
 	],
 	"_postman_variable_scope": "environment",
-	"_postman_exported_at": "2024-01-01T00:00:00.000Z",
+	"_postman_exported_at": "2025-01-16T00:00:00.000Z",
 	"_postman_exported_using": "Postman/10.0.0"
 }

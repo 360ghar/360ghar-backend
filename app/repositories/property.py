@@ -1,979 +1,421 @@
-# repositories/property.py
 from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func, desc, update
-from sqlalchemy.orm import selectinload, joinedload
-from app.repositories.base import BaseRepository
-from app.models.property import Property, PropertyImage
-from app.models.user_interaction import UserSwipe, UserFavorite
-from app.models.user import User
+import math
+from datetime import datetime
+from supabase import Client
+from app.db.base import BaseRepository
+from app.db.types import PropertyDB, PropertyImageDB, PaginatedResponse
 from app.schemas.property import PropertyCreate, PropertyUpdate, PropertyFilter, PropertyInterest, UnifiedPropertyFilter, SortBy
-from app.utils.distance import haversine_distance, get_bounding_box
+from app.core.supabase_client import execute_rpc, build_filters, build_pagination, build_sorting
+from app.core.logging import get_logger
+import anyio
 
-class PropertyRepository(BaseRepository[Property]):
-    """Repository for property-related database operations"""
+logger = get_logger(__name__)
+
+class PropertyRepository(BaseRepository):
+    """Repository for property-related database operations using Supabase"""
     
-    def __init__(self, session: AsyncSession):
-        super().__init__(Property, session)
+    def __init__(self, client: Client):
+        super().__init__(client, "properties")
     
-    async def get_with_images(self, property_id: int) -> Optional[Property]:
+    async def get_with_images(self, property_id: int) -> Optional[PropertyDB]:
         """Get property with all images loaded"""
-        return await self.get(
-            property_id,
-            load_options=[selectinload(Property.images)]
-        )
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: self.table.select("*, property_images(*)").eq("id", property_id).limit(1).execute()
+            )
+            if not result.data:
+                return None
+            item = dict(result.data[0])
+            # Normalize relation key to match schema
+            if "property_images" in item and "images" not in item:
+                item["images"] = item.pop("property_images")
+            # Apply enum normalization
+            return self._normalize_enum_response(item)
+        except Exception as e:
+            logger.error(f"Failed to get property {property_id} with images: {str(e)}")
+            raise
     
     async def get_nearby_properties(
         self,
         latitude: float,
         longitude: float,
         radius_km: float,
-        user_id: int,
-        skip: int = 0,
+        user_id: Optional[int] = None,
+        page: int = 1,
         limit: int = 20,
-        filters: Dict[str, Any] = None
+        filters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Get properties within a radius with distance calculation"""
-        
-        # Get bounding box for efficient filtering
-        min_lat, max_lat, min_lon, max_lon = get_bounding_box(
-            latitude, longitude, radius_km
-        )
-        
-        # Build query with bounding box
-        query = select(Property).where(
-            and_(
-                Property.latitude.between(min_lat, max_lat),
-                Property.longitude.between(min_lon, max_lon),
-                Property.latitude.isnot(None),
-                Property.longitude.isnot(None),
-                Property.is_available == True
-            )
-        )
-        
-        # Apply additional filters
-        if filters:
-            for key, value in filters.items():
-                if hasattr(Property, key) and value is not None:
-                    if isinstance(value, list):
-                        query = query.where(getattr(Property, key).in_(value))
-                    else:
-                        query = query.where(getattr(Property, key) == value)
-        
-        # Exclude swiped properties
-        swiped_subquery = select(UserSwipe.property_id).where(
-            UserSwipe.user_id == user_id
-        ).subquery()
-        query = query.where(~Property.id.in_(swiped_subquery))
-        
-        # Execute query
-        result = await self.session.execute(query)
-        properties = result.scalars().all()
-        
-        # Calculate exact distances and filter
-        properties_with_distance = []
-        for prop in properties:
-            if prop.latitude is not None and prop.longitude is not None:
-                distance = haversine_distance(
-                    latitude, longitude,
-                    float(prop.latitude), float(prop.longitude)
-                )
-                if distance <= radius_km:
-                    prop.distance_km = distance
-                    properties_with_distance.append(prop)
-        
-        # Sort by distance
-        properties_with_distance.sort(key=lambda x: x.distance_km)
-        
-        # Apply pagination
-        total = len(properties_with_distance)
-        paginated = properties_with_distance[skip:skip + limit]
-        
-        return {
-            "items": paginated,
-            "total": total,
-            "skip": skip,
-            "limit": limit
-        }
+        """Get properties within a radius using database function"""
+        try:
+            params = {
+                "p_latitude": latitude,
+                "p_longitude": longitude,
+                "p_radius_km": radius_km,
+                "p_user_id": user_id,
+                "p_limit": limit,
+                "p_offset": (page - 1) * limit
+            }
+            
+            result = await execute_rpc(self.client, "get_nearby_properties", params)
+
+            # Count total for pagination
+            count_params = {
+                "p_latitude": latitude,
+                "p_longitude": longitude,
+                "p_radius_km": radius_km,
+                "p_user_id": user_id,
+                "p_limit": 10000,  # Large number to get total count
+                "p_offset": 0
+            }
+
+            count_result = await execute_rpc(self.client, "get_nearby_properties", count_params)
+            total = len(count_result) if count_result else 0
+
+            # Apply enum normalization to RPC results
+            normalized_items = [self._normalize_enum_response(item) for item in (result or [])]
+            
+            return {
+                "items": normalized_items,
+                "total": total,
+                "page": page,
+                "limit": limit,
+                "total_pages": (total + limit - 1) // limit
+            }
+        except Exception as e:
+            logger.error(f"Failed to get nearby properties RPC: {str(e)}")
+            # Return empty result with helpful error information
+            logger.warning("get_nearby_properties RPC function may not be deployed to Supabase")
+            return {
+                "items": [],
+                "total": 0,
+                "page": page,
+                "limit": limit,
+                "total_pages": 0,
+                "error": "Location-based search temporarily unavailable"
+            }
     
     async def get_recommendations(
         self,
         user_id: int,
         limit: int = 10
-    ) -> List[Property]:
-        """Get property recommendations based on user preferences"""
-        
-        # Get user's liked properties
-        liked_query = select(Property).join(UserSwipe).where(
-            and_(
-                UserSwipe.user_id == user_id,
-                UserSwipe.is_liked == True
-            )
-        )
-        liked_result = await self.session.execute(liked_query)
-        liked_properties = liked_result.scalars().all()
-        
-        if not liked_properties:
-            # Return popular properties if no likes
-            query = select(Property).where(
-                Property.is_available == True
-            ).order_by(desc(Property.like_count)).limit(limit)
+    ) -> List[PropertyDB]:
+        """Get property recommendations using database function"""
+        try:
+            params = {
+                "p_user_id": user_id,
+                "p_limit": limit
+            }
             
-            result = await self.session.execute(query)
-            return result.scalars().all()
-        
-        # Extract preferences from liked properties
-        property_types = list(set(p.property_type for p in liked_properties))
-        avg_price = sum(p.base_price for p in liked_properties) / len(liked_properties)
-        price_range = (avg_price * 0.7, avg_price * 1.3)
-        
-        # Build recommendation query
-        query = select(Property).where(
-            and_(
-                Property.property_type.in_(property_types),
-                Property.base_price.between(*price_range),
-                Property.is_available == True
-            )
-        )
-        
-        # Exclude swiped properties
-        swiped_subquery = select(UserSwipe.property_id).where(
-            UserSwipe.user_id == user_id
-        ).subquery()
-        query = query.where(~Property.id.in_(swiped_subquery))
-        
-        query = query.order_by(desc(Property.like_count)).limit(limit)
-        
-        result = await self.session.execute(query)
-        return result.scalars().all()
+            result = await execute_rpc(self.client, "get_property_recommendations", params)
+            # Apply enum normalization to RPC results
+            return [self._normalize_enum_response(item) for item in (result or [])]
+        except Exception as e:
+            logger.error(f"Failed to get recommendations for user {user_id}: {str(e)}")
+            logger.warning("get_property_recommendations RPC function may not be deployed to Supabase")
+            return []
+    
+    async def create_property(self, property_data: PropertyCreate) -> PropertyDB:
+        """Create a new property"""
+        data = property_data.dict(exclude_unset=True)
+        return await self.create(data)
+    
+    async def update_property(self, property_id: int, property_update: PropertyUpdate) -> Optional[PropertyDB]:
+        """Update property"""
+        data = property_update.dict(exclude_unset=True)
+        return await self.update(property_id, data)
+    
+    async def delete_property(self, property_id: int) -> bool:
+        """Delete property"""
+        return await self.delete(property_id)
     
     async def increment_view_count(self, property_id: int) -> None:
-        """Increment property view count"""
-        await self.session.execute(
-            update(Property)
-            .where(Property.id == property_id)
-            .values(view_count=Property.view_count + 1)
-        )
-        await self.session.flush()
+        """Increment property view count using database function"""
+        try:
+            # Try RPC first (if available)
+            await execute_rpc(self.client, "increment_property_view_count", {"p_property_id": property_id})
+        except Exception as e:
+            logger.error(f"Failed to increment view count via RPC for property {property_id}: {str(e)}")
+            logger.warning("increment_property_view_count RPC function may not be deployed to Supabase")
+            # View count increment is not critical, so we can continue silently
     
-    async def increment_like_count(self, property_id: int) -> None:
-        """Increment property like count"""
-        await self.session.execute(
-            update(Property)
-            .where(Property.id == property_id)
-            .values(like_count=Property.like_count + 1)
-        )
-        await self.session.flush()
     
     async def search_properties(
         self,
-        query_text: str,
-        filters: Dict[str, Any] = None,
-        skip: int = 0,
-        limit: int = 20
-    ) -> Dict[str, Any]:
-        """Full-text search for properties"""
-        query = select(Property).where(
-            or_(
-                Property.title.ilike(f"%{query_text}%"),
-                Property.description.ilike(f"%{query_text}%"),
-                Property.locality.ilike(f"%{query_text}%"),
-                Property.city.ilike(f"%{query_text}%")
-            )
-        )
-        
-        if filters:
-            for key, value in filters.items():
-                if hasattr(Property, key) and value is not None:
-                    query = query.where(getattr(Property, key) == value)
-        
-        # Count total results
-        count_query = select(func.count()).select_from(Property).where(
-            or_(
-                Property.title.ilike(f"%{query_text}%"),
-                Property.description.ilike(f"%{query_text}%"),
-                Property.locality.ilike(f"%{query_text}%"),
-                Property.city.ilike(f"%{query_text}%")
-            )
-        )
-        total_result = await self.session.execute(count_query)
-        total = total_result.scalar()
-        
-        # Get paginated results
-        query = query.offset(skip).limit(limit)
-        result = await self.session.execute(query)
-        items = result.scalars().all()
-        
-        return {
-            "items": items,
-            "total": total,
-            "skip": skip,
-            "limit": limit
-        }
-    
-    # Additional property methods from service
-    async def create_property(self, property_data: PropertyCreate) -> Property:
-        """Create a new property"""
-        property_obj = Property(**property_data.model_dump())
-        self.session.add(property_obj)
-        await self.session.flush()
-        await self.session.refresh(property_obj)
-        return property_obj
-    
-    async def update_property(self, property_id: int, property_update: PropertyUpdate) -> Optional[Property]:
-        """Update property details"""
-        property_obj = await self.get(property_id)
-        
-        update_data = property_update.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            if hasattr(property_obj, field):
-                setattr(property_obj, field, value)
-        
-        await self.session.flush()
-        await self.session.refresh(property_obj)
-        return property_obj
-    
-    async def delete_property(self, property_id: int) -> bool:
-        """Delete a property"""
-        property_obj = await self.get(property_id)
-        await self.session.delete(property_obj)
-        await self.session.flush()
-        return True
-    
-    async def get_properties(
-        self,
-        filters: PropertyFilter,
-        user_id: int,
+        query: str,
+        filters: Optional[Dict[str, Any]] = None,
         page: int = 1,
         limit: int = 20
     ) -> Dict[str, Any]:
-        """Get properties with filtering and pagination"""
-        query = select(Property)
-        
-        # Apply filters
-        if filters.property_type:
-            query = query.where(Property.property_type.in_(filters.property_type))
-        
-        if filters.purpose:
-            query = query.where(Property.purpose == filters.purpose)
-        
-        if filters.price_min is not None:
-            query = query.where(Property.base_price >= filters.price_min)
-        
-        if filters.price_max is not None:
-            query = query.where(Property.base_price <= filters.price_max)
-        
-        if filters.bedrooms_min is not None:
-            query = query.where(Property.bedrooms >= filters.bedrooms_min)
-        
-        if filters.bedrooms_max is not None:
-            query = query.where(Property.bedrooms <= filters.bedrooms_max)
-        
-        if filters.area_min is not None:
-            query = query.where(Property.area_sqft >= filters.area_min)
-        
-        if filters.area_max is not None:
-            query = query.where(Property.area_sqft <= filters.area_max)
-        
-        if filters.city:
-            query = query.where(Property.city.ilike(f"%{filters.city}%"))
-        
-        if filters.locality:
-            query = query.where(Property.locality.ilike(f"%{filters.locality}%"))
-        
-        if filters.amenities:
-            for amenity in filters.amenities:
-                query = query.where(Property.amenities.contains([amenity]))
-        
-        # Exclude properties already swiped by user
-        swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
-        query = query.where(~Property.id.in_(swiped_subquery))
-        
-        # Get total count
-        count_result = await self.session.execute(select(func.count()).select_from(query.subquery()))
-        total = count_result.scalar()
-        
-        # Pagination
-        offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit)
-        result = await self.session.execute(query)
-        properties = result.scalars().all()
-        
-        return {
-            "properties": properties,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": (total + limit - 1) // limit
-        }
-    
-    async def get_properties_for_discovery(self, user_id: Optional[int], limit: int = 10) -> List[Property]:
-        """Get properties for Tinder-like discovery based on user preferences or popular properties if no user"""
-        
-        query = select(Property).options(selectinload(Property.images))
-        
-        # If user is provided, apply personalization
-        if user_id is not None:
-            # Get user preferences
-            user_result = await self.session.execute(select(User).where(User.id == user_id))
-            user = user_result.scalar_one_or_none()
+        """Search properties with text query and filters"""
+        try:
+            def build_search_query():
+                # Use full-text search
+                search_query = self.table.select("*", count="exact")
+                
+                if query:
+                    # Use PostgreSQL full-text search
+                    search_query = search_query.text_search("search_keywords", query, config="english")
+                
+                # Apply additional filters
+                if filters:
+                    search_query = build_filters(search_query, filters)
+                
+                # Apply pagination
+                search_query = build_pagination(search_query, page, limit)
+                
+                return search_query.execute()
             
-            # Apply user preferences if available
-            if user and user.preferences:
-                prefs = user.preferences
-                if prefs.get('property_type'):
-                    query = query.where(Property.property_type.in_(prefs['property_type']))
-                if prefs.get('purpose'):
-                    query = query.where(Property.purpose == prefs['purpose'])
-                if prefs.get('budget_min'):
-                    query = query.where(Property.base_price >= prefs['budget_min'])
-                if prefs.get('budget_max'):
-                    query = query.where(Property.base_price <= prefs['budget_max'])
+            result = await anyio.to_thread.run_sync(build_search_query)
             
-            # Exclude already swiped properties
-            swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
-            query = query.where(~Property.id.in_(swiped_subquery))
-        
-        # Order by popularity and recency
-        query = query.where(Property.is_available == True).order_by(
-            Property.like_count.desc(),
-            Property.created_at.desc()
-        )
-        
-        query = query.limit(limit)
-        result = await self.session.execute(query)
-        return result.scalars().all()
-    
-    async def get_property_recommendations_enhanced(self, user_id: Optional[int], limit: int = 10) -> List[Property]:
-        """Get enhanced property recommendations based on user's liked properties or popular properties if no user"""
-        
-        # If no user provided, return popular properties
-        if user_id is None:
-            return await self._get_popular_properties(limit)
-        
-        # Get user's liked properties to understand preferences
-        liked_result = await self.session.execute(
-            select(Property).join(UserSwipe).where(
-                and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == True)
-            )
-        )
-        liked_properties = liked_result.scalars().all()
-        
-        if not liked_properties:
-            return await self.get_properties_for_discovery(user_id, limit)
-        
-        # Extract common characteristics from liked properties
-        common_types = set()
-        price_ranges = []
-        
-        for prop in liked_properties:
-            common_types.add(prop.property_type)
-            price_ranges.append(prop.base_price)
-        
-        # Calculate average price range
-        if price_ranges:
-            avg_price = sum(price_ranges) / len(price_ranges)
-            price_tolerance = avg_price * 0.3  # 30% tolerance
-            min_price = avg_price - price_tolerance
-            max_price = avg_price + price_tolerance
-        else:
-            min_price = max_price = None
-        
-        query = select(Property)
-        
-        # Apply learned preferences
-        if common_types:
-            query = query.where(Property.property_type.in_(common_types))
-        
-        if min_price and max_price:
-            query = query.where(and_(
-                Property.base_price >= min_price,
-                Property.base_price <= max_price
-            ))
-        
-        # Exclude already swiped properties
-        swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
-        query = query.where(~Property.id.in_(swiped_subquery))
-        
-        query = query.where(Property.is_available == True).order_by(
-            Property.like_count.desc()
-        ).limit(limit)
-        
-        result = await self.session.execute(query)
-        return result.scalars().all()
-    
-    async def _get_popular_properties(self, limit: int = 10) -> List[Property]:
-        """Get popular properties for unauthenticated users"""
-        query = select(Property).options(selectinload(Property.images)).where(
-            Property.is_available == True
-        ).order_by(
-            Property.like_count.desc(),
-            Property.created_at.desc()
-        ).limit(limit)
-        
-        result = await self.session.execute(query)
-        return result.scalars().all()
-    
-    async def get_user_liked_properties(self, user_id: int) -> List[Property]:
-        """Get properties that user has liked through swipes"""
-        result = await self.session.execute(
-            select(Property).join(UserSwipe).where(
-                and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == True)
-            )
-        )
-        return result.scalars().all()
-    
-    async def get_user_disliked_properties(self, user_id: int) -> List[Property]:
-        """Get properties that user has disliked through swipes"""
-        result = await self.session.execute(
-            select(Property).join(UserSwipe).where(
-                and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == False)
-            )
-        )
-        return result.scalars().all()
-    
-    async def get_properties_by_city(self, city: str) -> List[Property]:
-        """Get all properties in a specific city"""
-        result = await self.session.execute(
-            select(Property).where(Property.city.ilike(f"%{city}%")).options(
-                selectinload(Property.images)
-            )
-        )
-        return result.scalars().all()
-    
-    async def get_properties_by_locality(self, locality: str) -> List[Property]:
-        """Get all properties in a specific locality"""
-        result = await self.session.execute(
-            select(Property).where(Property.locality.ilike(f"%{locality}%")).options(
-                selectinload(Property.images)
-            )
-        )
-        return result.scalars().all()
-    
-    async def record_property_interest(self, user_id: int, interest: PropertyInterest) -> bool:
-        """Record user interest in a property"""
-        property_obj = await self.get(interest.property_id)
-        property_obj.interest_count += 1
-        await self.session.flush()
-        return True
-    
-    async def increment_view_count_direct(self, property_id: int) -> Optional[Property]:
-        """Increment property view count directly"""
-        property_obj = await self.get(property_id)
-        property_obj.view_count += 1
-        await self.session.flush()
-        await self.session.refresh(property_obj)
-        return property_obj
+            # Apply enum normalization
+            normalized_items = [self._normalize_enum_response(item) for item in (result.data or [])]
+            
+            return {
+                "items": normalized_items,
+                "total": result.count or 0,
+                "page": page,
+                "limit": limit,
+                "total_pages": ((result.count or 0) + limit - 1) // limit
+            }
+        except Exception as e:
+            logger.error(f"Failed to search properties: {str(e)}")
+            raise
     
     async def get_unified_properties(
         self,
         filters: UnifiedPropertyFilter,
-        user_id: int,
+        user_id: Optional[int] = None,
         page: int = 1,
         limit: int = 20
     ) -> Dict[str, Any]:
-        """Get properties with comprehensive filtering including location-based search"""
-        query = select(Property).options(selectinload(Property.images))
-        
-        # Location-based filtering using bounding box for efficiency
-        if filters.latitude is not None and filters.longitude is not None:
-            min_lat, max_lat, min_lon, max_lon = get_bounding_box(
-                filters.latitude, filters.longitude, filters.radius_km
-            )
+        """Get properties with unified filtering and sorting"""
+        try:
+            # Start with base query
+            query = self.table.select("*", count="exact").eq("is_available", True)
             
-            query = query.where(
-                and_(
-                    Property.latitude.between(min_lat, max_lat),
-                    Property.longitude.between(min_lon, max_lon),
-                    Property.latitude.isnot(None),
-                    Property.longitude.isnot(None)
+            # Location-based filtering
+            if filters.latitude and filters.longitude and filters.radius_km:
+                return await self.get_nearby_properties(
+                    filters.latitude,
+                    filters.longitude,
+                    filters.radius_km,
+                    user_id,
+                    page,
+                    limit,
+                    self._build_filter_dict(filters)
                 )
-            )
-        
-        # Property type filters
-        if filters.property_type:
-            query = query.where(Property.property_type.in_(filters.property_type))
-        
-        if filters.purpose:
-            query = query.where(Property.purpose == filters.purpose)
-        
-        # Price filters
-        if filters.price_min is not None:
-            query = query.where(Property.base_price >= filters.price_min)
-        if filters.price_max is not None:
-            query = query.where(Property.base_price <= filters.price_max)
-        
-        # Room filters
-        if filters.bedrooms_min is not None:
-            query = query.where(Property.bedrooms >= filters.bedrooms_min)
-        if filters.bedrooms_max is not None:
-            query = query.where(Property.bedrooms <= filters.bedrooms_max)
-        if filters.bathrooms_min is not None:
-            query = query.where(Property.bathrooms >= filters.bathrooms_min)
-        if filters.bathrooms_max is not None:
-            query = query.where(Property.bathrooms <= filters.bathrooms_max)
-        
-        # Area filters
-        if filters.area_min is not None:
-            query = query.where(Property.area_sqft >= filters.area_min)
-        if filters.area_max is not None:
-            query = query.where(Property.area_sqft <= filters.area_max)
-        
-        # Other property filters
-        if filters.parking_spaces_min is not None:
-            query = query.where(Property.parking_spaces >= filters.parking_spaces_min)
-        if filters.floor_number_min is not None:
-            query = query.where(Property.floor_number >= filters.floor_number_min)
-        if filters.floor_number_max is not None:
-            query = query.where(Property.floor_number <= filters.floor_number_max)
-        if filters.age_max is not None:
-            query = query.where(Property.age_of_property <= filters.age_max)
-        
-        # Location filters
-        if filters.city:
-            query = query.where(Property.city.ilike(f"%{filters.city}%"))
-        if filters.locality:
-            query = query.where(Property.locality.ilike(f"%{filters.locality}%"))
-        if filters.pincode:
-            query = query.where(Property.pincode == filters.pincode)
-        
-        # Amenities and features
-        if filters.amenities:
-            for amenity in filters.amenities:
-                query = query.where(Property.amenities.contains([amenity]))
-        if filters.features:
-            for feature in filters.features:
-                query = query.where(Property.features.has_key(feature))
-        
-        # Availability filters
-        if not filters.include_unavailable:
-            query = query.where(Property.is_available == True)
-        
-        if filters.available_from:
-            query = query.where(Property.available_from <= filters.available_from)
-        
-        # Short stay specific filters
-        if filters.check_in_date and filters.check_out_date:
-            query = query.where(Property.purpose == "short_stay")
-        
-        if filters.guests is not None:
-            query = query.where(Property.max_occupancy >= filters.guests)
-        
-        # Exclude properties already swiped by user
-        swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
-        query = query.where(~Property.id.in_(swiped_subquery))
-        
-        # Get all matching properties first
-        result = await self.session.execute(query)
-        all_properties = result.scalars().all()
-        
-        # Apply exact distance filtering and calculate distances if location filtering is enabled
-        if filters.latitude is not None and filters.longitude is not None:
-            filtered_properties = []
-            for prop in all_properties:
-                if prop.latitude is not None and prop.longitude is not None:
-                    distance = haversine_distance(
-                        filters.latitude, filters.longitude,
-                        float(prop.latitude), float(prop.longitude)
-                    )
-                    if distance <= filters.radius_km:
-                        prop.distance_km = distance
-                        filtered_properties.append(prop)
-            all_properties = filtered_properties
-        
-        # Sorting
-        if filters.sort_by == SortBy.distance and filters.latitude is not None and filters.longitude is not None:
-            all_properties.sort(key=lambda x: getattr(x, 'distance_km', float('inf')))
-        elif filters.sort_by == SortBy.price_low:
-            all_properties.sort(key=lambda x: x.base_price)
-        elif filters.sort_by == SortBy.price_high:
-            all_properties.sort(key=lambda x: x.base_price, reverse=True)
-        elif filters.sort_by == SortBy.newest:
-            all_properties.sort(key=lambda x: x.created_at, reverse=True)
-        elif filters.sort_by == SortBy.popular:
-            all_properties.sort(key=lambda x: x.like_count, reverse=True)
-        else:
-            all_properties.sort(key=lambda x: x.created_at, reverse=True)
-        
-        # Pagination
-        total = len(all_properties)
-        offset = (page - 1) * limit
-        properties = all_properties[offset:offset + limit]
-        
-        # Build filters applied summary
-        filters_applied = {}
-        for field, value in filters.model_dump().items():
-            if value is not None and value != [] and value != "":
-                filters_applied[field] = value
-        
-        return {
-            "properties": properties,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": (total + limit - 1) // limit,
-            "filters_applied": filters_applied,
-            "search_center": {
-                "latitude": filters.latitude,
-                "longitude": filters.longitude,
-                "radius_km": filters.radius_km
-            } if filters.latitude and filters.longitude else None
-        }
-    
-    async def get_unified_properties_optimized(
-        self,
-        filters: UnifiedPropertyFilter,
-        user_id: int,
-        page: int = 1,
-        limit: int = 20
-    ) -> Dict[str, Any]:
-        """Optimized property search with efficient query building"""
-        
-        # Base query with eager loading - keep it simple for now
-        query = select(Property).options(
-            selectinload(Property.images)
-        )
-        
-        # Build WHERE clauses efficiently
-        where_clauses = []
-        
-        # Always filter by availability unless specified
-        if not filters.include_unavailable:
-            where_clauses.append(Property.is_available == True)
-        
-        # Location-based filtering using simple lat/lng bounds for now
-        if filters.latitude is not None and filters.longitude is not None:
-            # Use simple bounding box first (can optimize with PostGIS later)
-            lat_range = filters.radius_km / 111.0  # Approximate km per degree
-            lng_range = filters.radius_km / (111.0 * 0.707)  # Rough approximation
             
-            where_clauses.append(Property.latitude.between(
-                filters.latitude - lat_range, 
-                filters.latitude + lat_range
-            ))
-            where_clauses.append(Property.longitude.between(
-                filters.longitude - lng_range,
-                filters.longitude + lng_range
-            ))
-        
-        # Simple text search if query provided
-        if filters.search_query:
-            search_term = f"%{filters.search_query}%"
-            where_clauses.append(
-                or_(
-                    Property.title.ilike(search_term),
-                    Property.description.ilike(search_term),
-                    Property.locality.ilike(search_term),
-                    Property.city.ilike(search_term)
-                )
-            )
-        
-        # Property type and purpose filters
-        if filters.property_type:
-            where_clauses.append(Property.property_type.in_(filters.property_type))
-        if filters.purpose:
-            where_clauses.append(Property.purpose == filters.purpose)
-        
-        # Price range filter
-        if filters.price_min is not None:
-            where_clauses.append(Property.base_price >= filters.price_min)
-        if filters.price_max is not None:
-            where_clauses.append(Property.base_price <= filters.price_max)
-        
-        # Room filters
-        if filters.bedrooms_min is not None:
-            where_clauses.append(Property.bedrooms >= filters.bedrooms_min)
-        if filters.bedrooms_max is not None:
-            where_clauses.append(Property.bedrooms <= filters.bedrooms_max)
-        if filters.bathrooms_min is not None:
-            where_clauses.append(Property.bathrooms >= filters.bathrooms_min)
-        if filters.bathrooms_max is not None:
-            where_clauses.append(Property.bathrooms <= filters.bathrooms_max)
-        
-        # Area filters
-        if filters.area_min is not None:
-            where_clauses.append(Property.area_sqft >= filters.area_min)
-        if filters.area_max is not None:
-            where_clauses.append(Property.area_sqft <= filters.area_max)
-        
-        # Other property filters
-        if filters.parking_spaces_min is not None:
-            where_clauses.append(Property.parking_spaces >= filters.parking_spaces_min)
-        if filters.floor_number_min is not None:
-            where_clauses.append(Property.floor_number >= filters.floor_number_min)
-        if filters.floor_number_max is not None:
-            where_clauses.append(Property.floor_number <= filters.floor_number_max)
-        if filters.age_max is not None:
-            where_clauses.append(Property.age_of_property <= filters.age_max)
-        
-        # Location filters
-        if filters.city:
-            where_clauses.append(Property.city.ilike(f"%{filters.city}%"))
-        if filters.locality:
-            where_clauses.append(Property.locality.ilike(f"%{filters.locality}%"))
-        if filters.pincode:
-            where_clauses.append(Property.pincode == filters.pincode)
-        
-        # Amenities filters
-        if filters.amenities:
-            for amenity in filters.amenities:
-                where_clauses.append(Property.amenities.contains([amenity]))
-        
-        # Short stay filters
-        if filters.guests is not None:
-            where_clauses.append(Property.max_occupancy >= filters.guests)
-        
-        # Apply all WHERE clauses
-        if where_clauses:
-            query = query.where(and_(*where_clauses))
-        
-        # Exclude swiped properties if user is authenticated
-        if user_id > 0:  # -1 means no user
-            swiped_subquery = (
-                select(UserSwipe.property_id)
-                .where(UserSwipe.user_id == user_id)
-                .subquery()
-            )
-            query = query.where(~Property.id.in_(swiped_subquery))
-        
-        # Apply sorting (simplified)
-        if filters.sort_by == SortBy.price_low:
-            query = query.order_by(Property.base_price.asc())
-        elif filters.sort_by == SortBy.price_high:
-            query = query.order_by(Property.base_price.desc())
-        elif filters.sort_by == SortBy.newest:
-            query = query.order_by(Property.created_at.desc())
-        elif filters.sort_by == SortBy.popular:
-            query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
-        else:
-            # Default sort
-            query = query.order_by(Property.created_at.desc())
-        
-        # Count total results efficiently using a simpler approach
-        count_query = select(func.count(Property.id))
-        if where_clauses:
-            count_query = count_query.where(and_(*where_clauses))
-        if user_id > 0:
-            swiped_subquery = (
-                select(UserSwipe.property_id)
-                .where(UserSwipe.user_id == user_id)
-                .subquery()
-            )
-            count_query = count_query.where(~Property.id.in_(swiped_subquery))
-        
-        total_result = await self.session.execute(count_query)
-        total = total_result.scalar()
-        
-        # Apply pagination
-        offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit)
-        
-        # Execute query and get simple Property objects
-        result = await self.session.execute(query)
-        properties = result.scalars().all()
-        
-        # Add distance calculation for returned properties if location filtering was used
-        if filters.latitude is not None and filters.longitude is not None:
-            for prop in properties:
-                if prop.latitude is not None and prop.longitude is not None:
-                    # Simple distance calculation
-                    from app.utils.distance import haversine_distance
-                    prop.distance_km = haversine_distance(
-                        filters.latitude, filters.longitude,
-                        float(prop.latitude), float(prop.longitude)
-                    )
+            # Text search
+            if filters.search_query:
+                query = query.text_search("search_keywords", filters.search_query, config="english")
+            
+            # Property type filter
+            if filters.property_type:
+                if isinstance(filters.property_type, list):
+                    normalized_types = [getattr(t, "value", t) for t in filters.property_type]
+                    quoted = ",".join([f'"{str(v)}"' for v in normalized_types])
+                    query = query.filter("property_type", "in", f"({quoted})")
                 else:
-                    prop.distance_km = None
-        
-        return {
-            "properties": properties,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": (total + limit - 1) // limit,
-            "filters_applied": filters.model_dump(exclude_none=True),
-            "search_center": {
-                "latitude": filters.latitude,
-                "longitude": filters.longitude,
-                "radius_km": filters.radius_km
-            } if filters.latitude and filters.longitude else None
-        }
-
-    async def get_user_swiped_properties_optimized(
-        self,
-        user_id: int,
-        filters: UnifiedPropertyFilter,
-        page: int = 1,
-        limit: int = 20,
-        is_liked: Optional[bool] = None,
-    ) -> Dict[str, Any]:
-        """Get properties the user has swiped on, with the same unified filters/search/location.
-
-        This mirrors get_unified_properties_optimized but joins through UserSwipe and does not
-        exclude swiped properties (since these are exactly what we want). Optionally filter by is_liked.
-        """
-
-        # Base query with eager loading joined to UserSwipe
-        query = (
-            select(Property)
-            .options(selectinload(Property.images))
-            .join(UserSwipe, UserSwipe.property_id == Property.id)
-            .where(UserSwipe.user_id == user_id)
-        )
-
-        if is_liked is not None:
-            query = query.where(UserSwipe.is_liked == is_liked)
-
-        # Build WHERE clauses using the same logic as get_unified_properties_optimized
-        where_clauses = []
-
-        if not filters.include_unavailable:
-            where_clauses.append(Property.is_available == True)
-
-        # Location bounding box approximation
-        if filters.latitude is not None and filters.longitude is not None:
-            lat_range = filters.radius_km / 111.0
-            lng_range = filters.radius_km / (111.0 * 0.707)
-            where_clauses.append(
-                Property.latitude.between(filters.latitude - lat_range, filters.latitude + lat_range)
-            )
-            where_clauses.append(
-                Property.longitude.between(filters.longitude - lng_range, filters.longitude + lng_range)
-            )
-
-        # Text search
-        if filters.search_query:
-            search_term = f"%{filters.search_query}%"
-            where_clauses.append(
-                or_(
-                    Property.title.ilike(search_term),
-                    Property.description.ilike(search_term),
-                    Property.locality.ilike(search_term),
-                    Property.city.ilike(search_term),
-                )
-            )
-
-        # Property type / purpose
-        if filters.property_type:
-            where_clauses.append(Property.property_type.in_(filters.property_type))
-        if filters.purpose:
-            where_clauses.append(Property.purpose == filters.purpose)
-
-        # Price
-        if filters.price_min is not None:
-            where_clauses.append(Property.base_price >= filters.price_min)
-        if filters.price_max is not None:
-            where_clauses.append(Property.base_price <= filters.price_max)
-
-        # Rooms
-        if filters.bedrooms_min is not None:
-            where_clauses.append(Property.bedrooms >= filters.bedrooms_min)
-        if filters.bedrooms_max is not None:
-            where_clauses.append(Property.bedrooms <= filters.bedrooms_max)
-        if filters.bathrooms_min is not None:
-            where_clauses.append(Property.bathrooms >= filters.bathrooms_min)
-        if filters.bathrooms_max is not None:
-            where_clauses.append(Property.bathrooms <= filters.bathrooms_max)
-
-        # Area
-        if filters.area_min is not None:
-            where_clauses.append(Property.area_sqft >= filters.area_min)
-        if filters.area_max is not None:
-            where_clauses.append(Property.area_sqft <= filters.area_max)
-
-        # Other property filters
-        if filters.parking_spaces_min is not None:
-            where_clauses.append(Property.parking_spaces >= filters.parking_spaces_min)
-        if filters.floor_number_min is not None:
-            where_clauses.append(Property.floor_number >= filters.floor_number_min)
-        if filters.floor_number_max is not None:
-            where_clauses.append(Property.floor_number <= filters.floor_number_max)
-        if filters.age_max is not None:
-            where_clauses.append(Property.age_of_property <= filters.age_max)
-
-        # Location text filters
-        if filters.city:
-            where_clauses.append(Property.city.ilike(f"%{filters.city}%"))
-        if filters.locality:
-            where_clauses.append(Property.locality.ilike(f"%{filters.locality}%"))
-        if filters.pincode:
-            where_clauses.append(Property.pincode == filters.pincode)
-
-        # Amenities / features
-        if filters.amenities:
-            for amenity in filters.amenities:
-                where_clauses.append(Property.amenities.contains([amenity]))
-        if filters.features:
-            for feature in filters.features:
-                where_clauses.append(Property.features.has_key(feature))
-
-        # Short stay
-        if filters.guests is not None:
-            where_clauses.append(Property.max_occupancy >= filters.guests)
-
-        if where_clauses:
-            query = query.where(and_(*where_clauses))
-
-        # Sorting (do not exclude by swipes; these are all swiped already)
-        if filters.sort_by == SortBy.price_low:
-            query = query.order_by(Property.base_price.asc())
-        elif filters.sort_by == SortBy.price_high:
-            query = query.order_by(Property.base_price.desc())
-        elif filters.sort_by == SortBy.newest:
-            query = query.order_by(Property.created_at.desc())
-        elif filters.sort_by == SortBy.popular:
-            query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
-        else:
-            # Default to swipe recency to reflect history order
-            query = query.order_by(UserSwipe.swipe_timestamp.desc())
-
-        # Count total results
-        count_query = (
-            select(func.count(Property.id))
-            .join(UserSwipe, UserSwipe.property_id == Property.id)
-            .where(UserSwipe.user_id == user_id)
-        )
-        if is_liked is not None:
-            count_query = count_query.where(UserSwipe.is_liked == is_liked)
-        if where_clauses:
-            count_query = count_query.where(and_(*where_clauses))
-
-        total_result = await self.session.execute(count_query)
-        total = total_result.scalar()
-
-        # Pagination
-        offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit)
-
-        result = await self.session.execute(query)
-        properties = result.scalars().all()
-
-        # Add distance if applicable
-        if filters.latitude is not None and filters.longitude is not None:
-            from app.utils.distance import haversine_distance
-            for prop in properties:
-                if prop.latitude is not None and prop.longitude is not None:
-                    prop.distance_km = haversine_distance(
-                        filters.latitude,
-                        filters.longitude,
-                        float(prop.latitude),
-                        float(prop.longitude),
-                    )
+                    prop_type_value = getattr(filters.property_type, "value", filters.property_type)
+                    query = query.filter("property_type", "eq", str(prop_type_value))
+            
+            # Purpose filter
+            if filters.purpose:
+                purpose_value = getattr(filters.purpose, "value", filters.purpose)
+                query = query.filter("purpose", "eq", str(purpose_value))
+            
+            # Price filters
+            if filters.price_min:
+                query = query.gte("base_price", filters.price_min)
+            if filters.price_max:
+                query = query.lte("base_price", filters.price_max)
+            
+            # Room filters
+            if filters.bedrooms_min:
+                query = query.gte("bedrooms", filters.bedrooms_min)
+            if filters.bedrooms_max:
+                query = query.lte("bedrooms", filters.bedrooms_max)
+            if filters.bathrooms_min:
+                query = query.gte("bathrooms", filters.bathrooms_min)
+            if filters.bathrooms_max:
+                query = query.lte("bathrooms", filters.bathrooms_max)
+            
+            # Area filters
+            if filters.area_min:
+                query = query.gte("area_sqft", filters.area_min)
+            if filters.area_max:
+                query = query.lte("area_sqft", filters.area_max)
+            
+            # Location filters
+            if filters.city:
+                query = query.eq("city", filters.city)
+            if filters.locality:
+                query = query.eq("locality", filters.locality)
+            if filters.pincode:
+                query = query.eq("pincode", filters.pincode)
+            
+            def build_unified_query():
+                # Use a local variable to avoid Python closure assignment issues
+                q = query
+                # Exclude swiped properties if user is provided
+                if user_id:
+                    swiped_query = self.client.table("user_swipes").select("property_id").eq("user_id", user_id)
+                    swiped_result = swiped_query.execute()
+                    swiped_ids = [item["property_id"] for item in (swiped_result.data or [])]
+                    
+                    if swiped_ids:
+                        q = q.not_.in_("id", swiped_ids)
+                
+                # Apply sorting
+                if filters.sort_by:
+                    if filters.sort_by == SortBy.price_low:
+                        q = q.order("base_price")
+                    elif filters.sort_by == SortBy.price_high:
+                        q = q.order("base_price", desc=True)
+                    elif filters.sort_by == SortBy.newest:
+                        q = q.order("created_at", desc=True)
+                    elif filters.sort_by == SortBy.popular:
+                        q = q.order("like_count", desc=True)
+                    else:  # relevance or distance - default to newest
+                        q = q.order("created_at", desc=True)
                 else:
-                    prop.distance_km = None
-
-        return {
-            "properties": properties,
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "total_pages": (total + limit - 1) // limit,
-            "filters_applied": filters.model_dump(exclude_none=True),
-            "search_center": {
-                "latitude": filters.latitude,
-                "longitude": filters.longitude,
-                "radius_km": filters.radius_km,
+                    q = q.order("created_at", desc=True)
+                
+                # Apply pagination
+                q = build_pagination(q, page, limit)
+                
+                return q.execute()
+            
+            result = await anyio.to_thread.run_sync(build_unified_query)
+            
+            # Apply enum normalization
+            normalized_items = [self._normalize_enum_response(item) for item in (result.data or [])]
+            
+            return {
+                "items": normalized_items,
+                "total": result.count or 0,
+                "page": page,
+                "limit": limit,
+                "total_pages": ((result.count or 0) + limit - 1) // limit
             }
-            if filters.latitude and filters.longitude
-            else None,
-        }
+        except Exception as e:
+            logger.error(f"Failed to get unified properties: {str(e)}")
+            raise
+    
+    async def get_user_liked_properties(self, user_id: int) -> List[PropertyDB]:
+        """Get properties liked by user"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.client
+                    .table("user_swipes")
+                    .select("property_id, properties(*)")
+                    .eq("user_id", user_id)
+                    .eq("is_liked", True)
+                    .execute()
+                )
+            )
+            
+            # Apply enum normalization
+            properties = [item["properties"] for item in (result.data or []) if item.get("properties")]
+            return [self._normalize_enum_response(prop) for prop in properties]
+        except Exception as e:
+            logger.error(f"Failed to get liked properties for user {user_id}: {str(e)}")
+            return []
+    
+    async def get_user_disliked_properties(self, user_id: int) -> List[PropertyDB]:
+        """Get properties disliked by user"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.client
+                    .table("user_swipes")
+                    .select("property_id, properties(*)")
+                    .eq("user_id", user_id)
+                    .eq("is_liked", False)
+                    .execute()
+                )
+            )
+            
+            # Apply enum normalization
+            properties = [item["properties"] for item in (result.data or []) if item.get("properties")]
+            return [self._normalize_enum_response(prop) for prop in properties]
+        except Exception as e:
+            logger.error(f"Failed to get disliked properties for user {user_id}: {str(e)}")
+            return []
+    
+    async def get_properties_by_city(self, city: str) -> List[PropertyDB]:
+        """Get properties by city"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: self.table.select("*").eq("city", city).eq("is_available", True).execute()
+            )
+            # Apply enum normalization
+            return [self._normalize_enum_response(item) for item in (result.data or [])]
+        except Exception as e:
+            logger.error(f"Failed to get properties by city {city}: {str(e)}")
+            return []
+    
+    async def get_properties_by_locality(self, locality: str) -> List[PropertyDB]:
+        """Get properties by locality"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: self.table.select("*").eq("locality", locality).eq("is_available", True).execute()
+            )
+            # Apply enum normalization
+            return [self._normalize_enum_response(item) for item in (result.data or [])]
+        except Exception as e:
+            logger.error(f"Failed to get properties by locality {locality}: {str(e)}")
+            return []
+    
+    def _build_filter_dict(self, filters: UnifiedPropertyFilter) -> Dict[str, Any]:
+        """Convert UnifiedPropertyFilter to dict for database filtering"""
+        filter_dict = {}
+        
+        if filters.property_type:
+            filter_dict["property_type"] = filters.property_type
+        if filters.purpose:
+            filter_dict["purpose"] = filters.purpose
+        if filters.city:
+            filter_dict["city"] = filters.city
+        if filters.locality:
+            filter_dict["locality"] = filters.locality
+        if filters.pincode:
+            filter_dict["pincode"] = filters.pincode
+        
+        # Price range
+        if filters.price_min or filters.price_max:
+            price_range = {}
+            if filters.price_min:
+                price_range["min"] = filters.price_min
+            if filters.price_max:
+                price_range["max"] = filters.price_max
+            filter_dict["base_price"] = price_range
+        
+        # Room range
+        if filters.bedrooms_min or filters.bedrooms_max:
+            bedroom_range = {}
+            if filters.bedrooms_min:
+                bedroom_range["min"] = filters.bedrooms_min
+            if filters.bedrooms_max:
+                bedroom_range["max"] = filters.bedrooms_max
+            filter_dict["bedrooms"] = bedroom_range
+        
+        if filters.bathrooms_min or filters.bathrooms_max:
+            bathroom_range = {}
+            if filters.bathrooms_min:
+                bathroom_range["min"] = filters.bathrooms_min
+            if filters.bathrooms_max:
+                bathroom_range["max"] = filters.bathrooms_max
+            filter_dict["bathrooms"] = bathroom_range
+        
+        # Area range
+        if filters.area_min or filters.area_max:
+            area_range = {}
+            if filters.area_min:
+                area_range["min"] = filters.area_min
+            if filters.area_max:
+                area_range["max"] = filters.area_max
+            filter_dict["area_sqft"] = area_range
+        
+        return filter_dict

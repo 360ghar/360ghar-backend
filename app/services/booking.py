@@ -1,49 +1,61 @@
-from sqlalchemy.ext.asyncio import AsyncSession
+from supabase import Client
 from datetime import datetime, timedelta
 from app.repositories.booking import BookingRepository
-from app.schemas.booking import BookingCreate, BookingUpdate, BookingPayment, BookingReview
+from app.schemas.booking import BookingCreate, BookingUpdate
+from typing import Dict, Any, List, Optional
 
+async def create_booking(supabase: Client, booking_data: BookingCreate):
+    """Create a new booking"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.create_booking(booking_data)
 
-async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.create_booking(user_id, booking)
+async def get_booking(supabase: Client, booking_id: int):
+    """Get booking by ID"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.get_by_id(booking_id)
 
-async def get_booking(db: AsyncSession, booking_id: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.get(booking_id)
+async def get_booking_by_reference(supabase: Client, reference: str):
+    """Get booking by reference number"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.get_booking_by_reference(reference)
 
-async def get_user_bookings(db: AsyncSession, user_id: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.get_user_bookings(user_id)
+async def get_user_bookings(supabase: Client, user_id: int, page: int = 1, limit: int = 20):
+    """Get user's bookings"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.get_user_bookings(user_id, page, limit)
 
-async def get_user_upcoming_bookings(db: AsyncSession, user_id: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.get_user_upcoming_bookings(user_id)
+async def get_property_bookings(supabase: Client, property_id: int, page: int = 1, limit: int = 20):
+    """Get property's bookings"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.get_property_bookings(property_id, page, limit)
 
-async def get_user_past_bookings(db: AsyncSession, user_id: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.get_user_past_bookings(user_id)
+async def check_availability(supabase: Client, property_id: int, check_in: str, check_out: str) -> bool:
+    """Check if property is available for given dates"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.check_availability(property_id, check_in, check_out)
 
-async def update_booking(db: AsyncSession, booking_id: int, booking_update: BookingUpdate):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.update_booking(booking_id, booking_update)
+async def update_booking_status(supabase: Client, booking_id: int, status: str):
+    """Update booking status"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.update_booking_status(booking_id, status)
 
-async def cancel_booking(db: AsyncSession, booking_id: int, reason: str):
-    booking_repo = BookingRepository(db)
+async def update_payment_status(supabase: Client, booking_id: int, status: str):
+    """Update payment status"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.update_payment_status(booking_id, status)
+
+async def cancel_booking(supabase: Client, booking_id: int, reason: str):
+    """Cancel a booking"""
+    booking_repo = BookingRepository(supabase)
     return await booking_repo.cancel_booking(booking_id, reason)
 
-async def process_payment(db: AsyncSession, payment_data: BookingPayment):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.process_payment(payment_data)
-
-async def add_review(db: AsyncSession, review_data: BookingReview):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.add_review(review_data)
-
-async def check_availability(db: AsyncSession, property_id: int, check_in_date: str, check_out_date: str, guests: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.check_availability(property_id, check_in_date, check_out_date, guests)
-
-async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: datetime, check_out_date: datetime, guests: int):
-    booking_repo = BookingRepository(db)
-    return await booking_repo.calculate_pricing(property_id, check_in_date, check_out_date, guests)
+async def calculate_booking_pricing(
+    supabase: Client, 
+    property_id: int, 
+    check_in: str, 
+    check_out: str, 
+    guests: int = 1
+) -> Dict[str, Any]:
+    """Calculate booking pricing using database function"""
+    booking_repo = BookingRepository(supabase)
+    return await booking_repo.calculate_pricing(property_id, check_in, check_out, guests)

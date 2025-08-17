@@ -131,9 +131,9 @@ def setup_logging() -> None:
             "root": {"handlers": ["console"], "level": level},
             "loggers": {
                 # Quiet noisy libraries
-                "uvicorn": {"level": "WARNING"},
-                "uvicorn.error": {"level": "WARNING"},
-                "uvicorn.access": {"level": "WARNING"},
+                "uvicorn": {"level": "INFO"},
+                "uvicorn.error": {"level": "INFO"},
+                "uvicorn.access": {"level": "INFO"},
                 "httpx": {"level": "WARNING"},
                 "asyncio": {"level": "WARNING"},
                 # SQLAlchemy engine logs are noisy; raise level to WARNING to suppress SQL statements

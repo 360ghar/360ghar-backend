@@ -8,9 +8,9 @@ import secrets
 from datetime import datetime, timedelta
 from app.core.config import settings
 from app.core.cache import cache_manager
-import logging
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses"""

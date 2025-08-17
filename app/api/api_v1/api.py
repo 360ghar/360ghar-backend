@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.api_v1.endpoints import auth, users, properties, visits, bookings, swipes, analytics
+from app.api.api_v1.endpoints import auth, users, properties, visits, bookings, swipes, agents
 
 api_router = APIRouter()
 
@@ -9,4 +9,4 @@ api_router.include_router(properties.router, prefix="/properties", tags=["proper
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(swipes.router, prefix="/swipes", tags=["swipes"])
-api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+api_router.include_router(agents.router, prefix="/agents", tags=["agents"])

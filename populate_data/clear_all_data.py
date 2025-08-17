@@ -1,76 +1,38 @@
 #!/usr/bin/env python3
 """
-Script to completely clear all data from the database
+Clear all test data from the database
+
+Usage:
+    python populate_data/clear_all_data.py
 """
 
-from sqlalchemy import text
-import logging
-from data_populators.base import create_database_session
-from app.core.logging import setup_logging
-from app.models.booking import Booking
-from app.models.visit import Visit
-from app.models.user_interaction import UserSearchHistory, UserFavorite, UserSwipe
-from app.models.property import PropertyImage, Property
-from app.models.visit import RelationshipManager
-from app.models.user import User
+import asyncio
+import sys
+import os
 
-logger = logging.getLogger(__name__)
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from app.core.logging import setup_logging, get_logger
+from populate_data.load_comprehensive_data import DataLoader
 
-def clear_all_data():
-    logger.info("Clearing ALL data from database")
+# Configure logging
+setup_logging()
+logger = get_logger(__name__)
+
+async def main():
+    """Clear all test data"""
+    logger.info("Starting data cleanup...")
     
-    session = create_database_session()
+    loader = DataLoader()
     
     try:
-        # Clear in proper order (reverse dependency)
-        logger.info("Clearing bookings")
-        session.query(Booking).delete()
-        session.commit()
-        
-        logger.info("Clearing visits")
-        session.query(Visit).delete()
-        session.commit()
-        
-        logger.info("Clearing user interactions")
-        session.query(UserSearchHistory).delete()
-        session.query(UserFavorite).delete()
-        session.query(UserSwipe).delete()
-        session.commit()
-        
-        logger.info("Clearing property images")
-        session.query(PropertyImage).delete()
-        session.commit()
-        
-        logger.info("Clearing properties")
-        session.query(Property).delete()
-        session.commit()
-        
-        logger.info("Clearing relationship managers")
-        session.query(RelationshipManager).delete()
-        session.commit()
-        
-        logger.info("Clearing users")
-        session.query(User).delete()
-        session.commit()
-        
-        # Reset sequences (for PostgreSQL)
-        logger.info("Resetting ID sequences")
-        tables = ['users', 'properties', 'property_images', 'user_swipes', 'user_favorites', 
-                 'user_search_history', 'visits', 'relationship_managers', 'bookings']
-        
-        for table in tables:
-            session.execute(text(f"ALTER SEQUENCE {table}_id_seq RESTART WITH 1"))
-        
-        session.commit()
-        logger.info("All data cleared successfully")
+        await loader.clear_all_data()
+        logger.info("All test data cleared successfully!")
         
     except Exception as e:
-        logging.getLogger(__name__).exception(f"Error clearing data: {e}")
-        session.rollback()
-    finally:
-        session.close()
+        logger.error(f"Data cleanup failed: {str(e)}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    setup_logging()
-    clear_all_data()
+    asyncio.run(main())

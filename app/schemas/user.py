@@ -1,7 +1,10 @@
 from pydantic import BaseModel, EmailStr, validator
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from datetime import date, datetime
 from app.utils.validators import ValidationUtils
+
+if TYPE_CHECKING:
+    from app.schemas.agent import Agent
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -10,9 +13,7 @@ class UserBase(BaseModel):
     date_of_birth: Optional[date] = None
 
 class UserCreate(UserBase):
-    # Supabase handles password, so we remove it from our schema
-    # The frontend will handle signup via Supabase client directly
-    pass
+    password: str
     
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -20,8 +21,8 @@ class UserUpdate(BaseModel):
     date_of_birth: Optional[date] = None
     profile_image_url: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
-    current_latitude: Optional[str] = None
-    current_longitude: Optional[str] = None
+    current_latitude: Optional[float] = None
+    current_longitude: Optional[float] = None
     preferred_locations: Optional[List[str]] = None
     notification_settings: Optional[Dict[str, bool]] = None
     privacy_settings: Optional[Dict[str, Any]] = None
@@ -65,11 +66,12 @@ class UserInDB(UserBase):
     is_verified: bool
     profile_image_url: Optional[str] = None
     preferences: Optional[Dict[str, Any]] = None
-    current_latitude: Optional[str] = None
-    current_longitude: Optional[str] = None
+    current_latitude: Optional[float] = None
+    current_longitude: Optional[float] = None
     preferred_locations: Optional[List[str]] = None
     notification_settings: Optional[Dict[str, bool]] = None
     privacy_settings: Optional[Dict[str, Any]] = None
+    agent_id: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
@@ -99,5 +101,5 @@ class UserPreferences(BaseModel):
     max_distance_km: Optional[int] = 5
 
 class LocationUpdate(BaseModel):
-    latitude: str
-    longitude: str
+    latitude: float
+    longitude: float

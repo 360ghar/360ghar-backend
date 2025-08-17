@@ -1,27 +1,19 @@
 """
-Base utilities and common functionality for data population
+Base classes and utilities for data population
 """
-
-import random
-import json
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+import asyncio
+from abc import ABC, abstractmethod
+from typing import List, Optional
 from dataclasses import dataclass
-from faker import Faker
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import sys
+import os
 
-from app.core.config import settings
-import logging
-from app.models.property import PropertyType, PropertyPurpose, PropertyStatus
-from app.models.booking import BookingStatus, PaymentStatus
-from app.models.visit import VisitStatus
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-# User-provided constants
-VIRTUAL_TOUR_URL = "https://kuula.co/share/collection/71284?logo=-1&card=1&info=0&fs=1&vr=1&thumbs=3&alpha=0.71"
-MAIN_IMAGE_URL = "https://www.nobroker.in/blog/wp-content/uploads/2023/11/Victory-Valley.jpg"
-OTHER_IMAGE_URL = "https://preview.redd.it/tallest-building-in-gurgaon-v0-z90z4alcfn0b1.jpg"
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 
 @dataclass
 class LocationData:
@@ -30,11 +22,16 @@ class LocationData:
     latitude: float
     longitude: float
     localities: List[str]
-    price_per_sqft_range: Tuple[int, int]  # (min, max) in local currency
+    price_per_sqft_range: tuple[int, int]  # (min, max) in local currency
     currency: str
     popular_amenities: List[str]
     builder_names: List[str]
     landmarks: List[str]
+
+# User-provided constants
+VIRTUAL_TOUR_URL = "https://kuula.co/share/collection/71284?logo=-1&card=1&info=0&fs=1&vr=1&thumbs=3&alpha=0.71"
+MAIN_IMAGE_URL = "https://www.nobroker.in/blog/wp-content/uploads/2023/11/Victory-Valley.jpg"
+OTHER_IMAGE_URL = "https://preview.redd.it/tallest-building-in-gurgaon-v0-z90z4alcfn0b1.jpg"
 
 # Location configurations
 LOCATIONS = {
@@ -113,203 +110,27 @@ LOCATIONS = {
     )
 }
 
-@dataclass 
-class DataConfig:
-    """Configuration for data generation volumes and distributions"""
-    users_count: int = 100
-    properties_per_location: int = 700  # ~2100 total
-    relationship_managers_count: int = 15
-    swipes_per_user_range: Tuple[int, int] = (20, 80)
-    favorites_percentage: float = 0.15  # 15% of liked swipes become favorites
-    searches_per_user_range: Tuple[int, int] = (5, 25)
-    visits_percentage: float = 0.3  # 30% of users schedule visits
-    bookings_percentage: float = 0.2  # 20% of users make bookings
-
-class DataPopulatorBase:
-    """Base class for all data populators with common utilities"""
+class BasePopulator(ABC):
+    """Base class for all data populators"""
     
-    def __init__(self, db_session: Session, config: DataConfig):
-        self.db = db_session
-        self.config = config
-        self.fake = Faker()
-        self.locations = LOCATIONS
-        
-        # Set up locale-specific fakers
-        self.fake_us = Faker('en_US')
-        self.fake_in = Faker('en_IN')
-        
-    def get_random_location_data(self, location_key: str) -> LocationData:
-        """Get location data for a specific location"""
-        return self.locations[location_key]
+    def __init__(self):
+        self.logger = get_logger(self.__class__.__name__)
     
-    def generate_coordinates_near(self, base_lat: float, base_lng: float, radius_km: float = 10) -> Tuple[float, float]:
-        """Generate random coordinates within radius of base coordinates"""
-        # Convert km to degrees (approximate)
-        radius_deg = radius_km / 111.0  # 1 degree ≈ 111 km
+    @abstractmethod
+    async def populate(self, count: Optional[int] = None) -> int:
+        """
+        Populate data for this entity type
         
-        lat_offset = random.uniform(-radius_deg, radius_deg)
-        lng_offset = random.uniform(-radius_deg, radius_deg)
-        
-        return (base_lat + lat_offset, base_lng + lng_offset)
+        Args:
+            count: Number of records to create (if applicable)
+            
+        Returns:
+            Number of records created
+        """
+        pass
     
-    def generate_realistic_price(self, area_sqft: int, location: LocationData, property_type: PropertyType, 
-                               purpose: PropertyPurpose) -> Dict[str, float]:
-        """Generate realistic pricing based on location and property characteristics"""
-        base_price_per_sqft = random.randint(*location.price_per_sqft_range)
-        
-        # Adjust based on property type
-        type_multipliers = {
-            PropertyType.ROOM: 0.7,
-            PropertyType.APARTMENT: 1.0,
-            PropertyType.BUILDER_FLOOR: 1.2,
-            PropertyType.HOUSE: 1.5
-        }
-        
-        adjusted_price_per_sqft = base_price_per_sqft * type_multipliers.get(property_type, 1.0)
-        base_price = area_sqft * adjusted_price_per_sqft
-        
-        if purpose == PropertyPurpose.BUY:
-            return {
-                "base_price": base_price,
-                "price_per_sqft": adjusted_price_per_sqft,
-                "monthly_rent": None,
-                "daily_rate": None,
-                "security_deposit": None
-            }
-        elif purpose == PropertyPurpose.RENT:
-            monthly_rent = base_price * random.uniform(0.003, 0.006)  # 0.3-0.6% of property value
-            return {
-                "base_price": monthly_rent,
-                "price_per_sqft": None,
-                "monthly_rent": monthly_rent,
-                "daily_rate": None,
-                "security_deposit": monthly_rent * random.randint(2, 6)
-            }
-        else:  # SHORT_STAY
-            daily_rate = monthly_rent / 30 * random.uniform(1.5, 2.5) if 'monthly_rent' in locals() else base_price * 0.001
-            return {
-                "base_price": daily_rate,
-                "price_per_sqft": None,
-                "monthly_rent": None,
-                "daily_rate": daily_rate,
-                "security_deposit": daily_rate * random.randint(3, 10)
-            }
-    
-    def generate_property_features(self, property_type: PropertyType, location: LocationData) -> Dict[str, Any]:
-        """Generate realistic property features based on type and location"""
-        features = {}
-        
-        # Basic features
-        features["furnished"] = random.choice(["fully", "semi", "unfurnished"])
-        features["facing"] = random.choice(["north", "south", "east", "west", "north-east", "north-west"])
-        features["flooring"] = random.choice(["marble", "vitrified", "wooden", "granite", "ceramic"])
-        features["corner_property"] = random.choice([True, False])
-        features["gated_community"] = random.choice([True, False])
-        features["pet_friendly"] = random.choice([True, False])
-        
-        # Location-specific features
-        if location.name == "San Francisco":
-            features["earthquake_resistant"] = random.choice([True, False])
-            features["view_type"] = random.choice(["city", "bay", "park", "street"])
-        elif location.name in ["Mumbai", "Gurgaon"]:
-            features["vastu_compliant"] = random.choice([True, False])
-            features["rainwater_harvesting"] = random.choice([True, False])
-        
-        return features
-    
-    def generate_realistic_amenities(self, property_type: PropertyType, location: LocationData, 
-                                   num_amenities: Optional[int] = None) -> List[str]:
-        """Generate realistic amenities based on property type and location"""
-        if num_amenities is None:
-            num_amenities = random.randint(5, 12)
-        
-        # Base amenities for all properties
-        base_amenities = ["Security", "Power Backup", "Water Supply"]
-        
-        # Type-specific amenities
-        if property_type in [PropertyType.APARTMENT, PropertyType.BUILDER_FLOOR]:
-            base_amenities.extend(["Lift", "CCTV", "Intercom"])
-        
-        # Add location-specific popular amenities
-        available_amenities = list(set(location.popular_amenities) - set(base_amenities))
-        additional_count = max(0, min(num_amenities - len(base_amenities), len(available_amenities)))
-        additional_amenities = random.sample(available_amenities, additional_count) if additional_count > 0 else []
-        
-        return base_amenities + additional_amenities
-    
-    def generate_user_preferences(self, location_key: str) -> Dict[str, Any]:
-        """Generate realistic user preferences based on location"""
-        location = self.locations[location_key]
-        
-        property_types = random.sample(list(PropertyType), random.randint(1, 2))
-        purpose = random.choice(list(PropertyPurpose))
-        
-        # Location-specific budget ranges
-        if location.currency == "USD":
-            budget_min = random.randint(500000, 2000000)  # $500K - $2M
-            budget_max = budget_min + random.randint(500000, 1500000)
-        else:  # INR
-            budget_min = random.randint(2000000, 10000000)  # 20L - 1Cr
-            budget_max = budget_min + random.randint(2000000, 15000000)
-        
-        return {
-            "property_type": [pt.value for pt in property_types],
-            "purpose": purpose.value,
-            "budget_min": budget_min,
-            "budget_max": budget_max,
-            "bedrooms_min": random.randint(1, 3),
-            "bedrooms_max": random.randint(3, 6),
-            "preferred_localities": random.sample(location.localities, random.randint(2, min(5, len(location.localities))))
-        }
-    
-    def generate_booking_reference(self) -> str:
-        """Generate unique booking reference"""
-        return f"BK{datetime.now().strftime('%Y%m%d')}{random.randint(10000, 99999)}"
-    
-    def generate_future_date(self, min_days: int = 1, max_days: int = 60) -> datetime:
-        """Generate a future date within specified range"""
-        days_ahead = random.randint(min_days, max_days)
-        return datetime.now() + timedelta(days=days_ahead)
-    
-    def generate_past_date(self, max_days_ago: int = 30) -> datetime:
-        """Generate a past date within specified range"""
-        days_ago = random.randint(1, max_days_ago)
-        return datetime.now() - timedelta(days=days_ago)
-    
-    def weighted_choice(self, choices: List[Any], weights: List[float]) -> Any:
-        """Make a weighted random choice"""
-        return random.choices(choices, weights=weights)[0]
-    
-    def commit_with_rollback(self) -> bool:
-        """Commit changes with rollback on error"""
-        try:
-            self.db.commit()
-            return True
-        except Exception as e:
-            logging.getLogger(__name__).error(f"Commit error: {e}")
-            self.db.rollback()
-            return False
-    
-    def clear_table_data(self, model_class):
-        """Clear all data from a specific table"""
-        try:
-            deleted_count = self.db.query(model_class).delete()
-            self.db.commit()
-            logging.getLogger(__name__).info(
-                f"Cleared records", extra={"table": model_class.__tablename__, "count": deleted_count}
-            )
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                f"Error clearing table {model_class.__tablename__}: {e}"
-            )
-            self.db.rollback()
-
-def create_database_session() -> Session:
-    """Create and return a database session"""
-    engine = create_engine(settings.DATABASE_URL)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return SessionLocal()
-
-def get_default_config() -> DataConfig:
-    """Get default data configuration"""
-    return DataConfig()
+    def log_progress(self, current: int, total: int, entity_name: str):
+        """Log progress of data creation"""
+        if current % max(1, total // 10) == 0 or current == total:
+            percentage = (current / total) * 100
+            self.logger.info(f"Created {current}/{total} {entity_name} ({percentage:.1f}%)")

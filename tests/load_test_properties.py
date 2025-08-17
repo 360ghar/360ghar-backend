@@ -4,9 +4,8 @@ import time
 import statistics
 import json
 from typing import List
-import logging
-from app.core.logging import setup_logging
-logger = logging.getLogger(__name__)
+from app.core.logging import setup_logging, get_logger
+logger = get_logger(__name__)
 
 async def test_endpoint(session, url, params):
     """Test a single endpoint call"""
@@ -271,4 +270,4 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.warning("Testing interrupted by user")
     except Exception as e:
-        logging.getLogger(__name__).exception(f"Testing failed: {e}")
+        logger.exception(f"Testing failed: {e}")

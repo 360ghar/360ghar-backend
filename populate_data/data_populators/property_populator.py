@@ -1,426 +1,305 @@
 """
-Property and PropertyImage data population across multiple locations
+Property data populator for testing with realistic location-based data
 """
-
 import random
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
+import sys
+import os
 
-from app.models.property import Property, PropertyImage, PropertyType, PropertyPurpose, PropertyStatus
-from .base import DataPopulatorBase, DataConfig, LOCATIONS, VIRTUAL_TOUR_URL, MAIN_IMAGE_URL, OTHER_IMAGE_URL
-import logging
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-logger = logging.getLogger(__name__)
+from app.core.supabase_client import get_supabase_admin_client
+from app.core.logging import get_logger
+from app.db.base import BaseRepository
+from .base import BasePopulator, LOCATIONS, VIRTUAL_TOUR_URL, MAIN_IMAGE_URL, OTHER_IMAGE_URL
 
+logger = get_logger(__name__)
 
-class PropertyPopulator(DataPopulatorBase):
-    """Handles creation of properties and their images across multiple locations"""
+class PropertyPopulator(BasePopulator):
+    """Populates test properties with realistic location-based data"""
     
-    def __init__(self, db_session, config: DataConfig):
-        super().__init__(db_session, config)
-        self.created_properties = []
+    def __init__(self):
+        self.client = get_supabase_admin_client()
+        self.property_repo = BaseRepository(self.client, "properties")
+        self.property_images_repo = BaseRepository(self.client, "property_images")
+        self.logger = get_logger(self.__class__.__name__)
     
-    def create_properties_all_locations(self, properties_per_location: Optional[int] = None) -> List[Property]:
-        """Create properties across all locations"""
-        if properties_per_location is None:
-            properties_per_location = self.config.properties_per_location
+    def _generate_property_data(self, location_key: str, index: int) -> Dict[str, Any]:
+        """Generate realistic property data for a specific location"""
+        location = LOCATIONS[location_key]
         
-        logger.info("Creating properties per location", extra={"per_location": properties_per_location})
+        # Property types and their characteristics
+        property_types = ["apartment", "house", "builder_floor", "room"]
+        purposes = ["buy", "rent", "short_stay"]
         
-        all_properties = []
+        property_type = random.choice(property_types)
+        purpose = random.choice(purposes)
         
-        for location_key, location_data in self.locations.items():
-            logger.info("Creating properties in location", extra={"location": location_data.name})
-            properties = self._create_properties_for_location(location_key, properties_per_location)
-            all_properties.extend(properties)
+        # Generate location within city bounds
+        # Add some random offset to create variety around the city center
+        lat_offset = random.uniform(-0.1, 0.1)  # ~11km radius
+        lng_offset = random.uniform(-0.1, 0.1)
         
-        self.created_properties = all_properties
-        logger.info("Created properties across locations", extra={"total": len(all_properties)})
-        return all_properties
-    
-    def _create_properties_for_location(self, location_key: str, count: int) -> List[Property]:
-        """Create properties for a specific location"""
-        location = self.locations[location_key]
-        properties = []
+        latitude = location.latitude + lat_offset
+        longitude = location.longitude + lng_offset
         
-        # Distribution of property types and purposes
-        type_distribution = self._get_property_type_distribution(location_key)
-        purpose_distribution = self._get_property_purpose_distribution()
-        status_distribution = self._get_property_status_distribution()
-        
-        for i in range(count):
-            # Select property characteristics based on distributions
-            property_type = self._weighted_choice_enum(PropertyType, type_distribution)
-            purpose = self._weighted_choice_enum(PropertyPurpose, purpose_distribution)
-            status = self._weighted_choice_enum(PropertyStatus, status_distribution)
-            
-            # Generate property details
-            property_details = self._generate_property_details(property_type, location_key)
-            pricing = self.generate_realistic_price(
-                property_details["area_sqft"], location, property_type, purpose
-            )
-            
-            # Generate coordinates within location bounds
-            lat, lng = self.generate_coordinates_near(
-                location.latitude, location.longitude, radius_km=15
-            )
-            
-            # Create the property
-            property_obj = Property(
-                title=self._generate_property_title(property_details, location),
-                description=self._generate_property_description(property_details, location),
-                property_type=property_type,
-                purpose=purpose,
-                status=status,
-                
-                # Location data
-                latitude=lat,
-                longitude=lng,
-                city=location.name,
-                state=self._get_state_for_location(location_key),
-                country=self._get_country_for_location(location_key),
-                pincode=self._generate_pincode(location_key),
-                locality=random.choice(location.localities),
-                sub_locality=self.fake.street_name(),
-                landmark=random.choice(location.landmarks),
-                full_address=self._generate_full_address(location, property_details),
-                area_type="residential",
-                
-                # Pricing
-                **pricing,
-                maintenance_charges=self._generate_maintenance_charges(purpose, pricing["base_price"]),
-                
-                # Property details
-                **property_details,
-                
-                # Amenities and features
-                amenities=self.generate_realistic_amenities(property_type, location),
-                features=self.generate_property_features(property_type, location),
-                
-                # Media
-                main_image_url=MAIN_IMAGE_URL,
-                virtual_tour_url=VIRTUAL_TOUR_URL,
-                
-                # Availability
-                is_available=status == PropertyStatus.AVAILABLE,
-                available_from=self._generate_available_from_date(status),
-                calendar_data=self._generate_calendar_data(purpose) if purpose == PropertyPurpose.SHORT_STAY else None,
-                
-                # SEO and search
-                tags=self._generate_property_tags(property_details, location, property_type, purpose),
-                search_keywords=self._generate_search_keywords(property_details, location),
-                
-                # Owner/Builder information
-                owner_name=self.fake.name(),
-                owner_contact=self._generate_phone_for_location(location_key),
-                builder_name=random.choice(location.builder_names) if property_type == PropertyType.APARTMENT else None,
-                
-                # Performance metrics
-                view_count=random.randint(10, 2000),
-                like_count=random.randint(0, 150),
-                interest_count=random.randint(0, 50)
-            )
-            
-            self.db.add(property_obj)
-            properties.append(property_obj)
-            
-            # Commit in batches for better performance
-            if (i + 1) % 50 == 0:
-                if self.commit_with_rollback():
-                    logger.info("Created property batch", extra={"location": location.name, "total": i + 1})
-                else:
-                    logger.warning("Failed to create property batch", extra={"end_at": i + 1})
-        
-        # Final commit for remaining properties
-        if self.commit_with_rollback():
-            # Refresh all properties to get IDs
-            for prop in properties:
-                self.db.refresh(prop)
-            
-            # Create property images
-            self._create_property_images(properties)
-            logger.info("Created properties in location", extra={"location": location.name, "count": len(properties)})
-            return properties
-        else:
-            raise Exception(f"Failed to create properties for {location.name}")
-    
-    def _create_property_images(self, properties: List[Property]):
-        """Create multiple images for each property"""
-        logger.info("Adding images for properties", extra={"count": len(properties)})
-        
-        image_categories = [
-            "exterior", "living-room", "bedroom", "kitchen", "bathroom", 
-            "balcony", "dining-room", "study", "common-area", "parking"
-        ]
-        
-        for property_obj in properties:
-            num_images = random.randint(4, 10)
-            
-            for j in range(num_images):
-                # Use provided URLs for first few images, then generate others
-                if j == 0:
-                    image_url = OTHER_IMAGE_URL
-                    caption = "Main View"
-                    is_main = True
-                elif j == 1:
-                    image_url = MAIN_IMAGE_URL
-                    caption = "Property Exterior"
-                    is_main = False
-                else:
-                    category = random.choice(image_categories)
-                    image_url = f"https://source.unsplash.com/800x600/?{category},apartment,house,interior"
-                    caption = category.replace("-", " ").title()
-                    is_main = False
-                
-                image = PropertyImage(
-                    property_id=property_obj.id,
-                    image_url=image_url,
-                    caption=caption,
-                    display_order=j,
-                    is_main_image=is_main
-                )
-                self.db.add(image)
-        
-        if self.commit_with_rollback():
-            logger.info("Added images for properties")
-        else:
-            logger.warning("Failed to add images for properties")
-    
-    def _generate_property_details(self, property_type: PropertyType, location_key: str) -> Dict[str, Any]:
-        """Generate property-specific details based on type"""
-        details = {}
-        
-        if property_type == PropertyType.ROOM:
-            details.update({
-                "bedrooms": 1,
-                "bathrooms": 1,
-                "area_sqft": random.randint(150, 400),
-                "balconies": 0,
-                "parking_spaces": 0,
-                "floor_number": random.randint(1, 5),
-                "total_floors": random.randint(3, 10)
-            })
-        elif property_type == PropertyType.APARTMENT:
-            bedrooms = random.choices([1, 2, 3, 4], weights=[0.2, 0.4, 0.3, 0.1])[0]
-            details.update({
-                "bedrooms": bedrooms,
-                "bathrooms": random.randint(1, min(3, bedrooms + 1)),
-                "area_sqft": random.randint(500 + bedrooms * 300, 1000 + bedrooms * 400),
-                "balconies": random.randint(0, 2),
-                "parking_spaces": random.randint(0, 2),
-                "floor_number": random.randint(1, 30),
-                "total_floors": random.randint(10, 35)
-            })
-        elif property_type == PropertyType.BUILDER_FLOOR:
-            bedrooms = random.choices([2, 3, 4], weights=[0.3, 0.5, 0.2])[0]
-            details.update({
-                "bedrooms": bedrooms,
-                "bathrooms": random.randint(2, bedrooms + 1),
-                "area_sqft": random.randint(1000 + bedrooms * 200, 1500 + bedrooms * 300),
-                "balconies": random.randint(1, 3),
-                "parking_spaces": random.randint(1, 2),
-                "floor_number": random.randint(0, 4),
-                "total_floors": random.randint(3, 5)
-            })
-        else:  # HOUSE
-            bedrooms = random.choices([3, 4, 5, 6], weights=[0.3, 0.4, 0.2, 0.1])[0]
-            details.update({
-                "bedrooms": bedrooms,
-                "bathrooms": random.randint(2, bedrooms + 1),
-                "area_sqft": random.randint(1500 + bedrooms * 250, 2500 + bedrooms * 500),
-                "balconies": random.randint(1, 4),
-                "parking_spaces": random.randint(1, 3),
-                "floor_number": 0,  # Ground floor for houses
-                "total_floors": random.randint(1, 3)
-            })
-        
-        # Add common details
-        details.update({
-            "age_of_property": random.randint(0, 20),
-            "max_occupancy": details["bedrooms"] * 2 if random.random() > 0.7 else None,
-            "minimum_stay_days": random.choice([1, 2, 3, 7]) if random.random() > 0.8 else 1
-        })
-        
-        return details
-    
-    def _generate_property_title(self, details: Dict, location) -> str:
-        """Generate attractive property title"""
-        templates = [
-            f"{details['bedrooms']}BHK in Prime {random.choice(location.localities)}",
-            f"Spacious {details['bedrooms']} Bedroom Home in {location.name}",
-            f"Modern {details['bedrooms']}BHK with Great Amenities",
-            f"Beautiful {details['bedrooms']} Bed Property in {random.choice(location.localities)}"
-        ]
-        return random.choice(templates)
-    
-    def _generate_property_description(self, details: Dict, location) -> str:
-        """Generate detailed property description"""
-        size_desc = f"{details['area_sqft']} sq.ft"
-        location_desc = f"prime location of {random.choice(location.localities)}, {location.name}"
-        
-        features = []
-        if details.get("parking_spaces", 0) > 0:
-            features.append(f"{details['parking_spaces']} parking space(s)")
-        if details.get("balconies", 0) > 0:
-            features.append(f"{details['balconies']} balcony/balconies")
-        
-        feature_text = ", ".join(features) if features else "excellent amenities"
-        
-        description = (f"Beautiful {details['bedrooms']}BHK property located in {location_desc}. "
-                      f"This property offers {size_desc} of living space with {feature_text} "
-                      f"and modern conveniences. Perfect for comfortable living with easy access "
-                      f"to all major facilities and transport links.")
-        
-        return description
-    
-    def _get_property_type_distribution(self, location_key: str) -> Dict[PropertyType, float]:
-        """Get property type distribution based on location"""
-        if location_key == "us":
-            return {
-                PropertyType.APARTMENT: 0.6,
-                PropertyType.HOUSE: 0.25,
-                PropertyType.ROOM: 0.1,
-                PropertyType.BUILDER_FLOOR: 0.05
-            }
-        else:  # Mumbai, Gurgaon
-            return {
-                PropertyType.APARTMENT: 0.5,
-                PropertyType.BUILDER_FLOOR: 0.25,
-                PropertyType.HOUSE: 0.15,
-                PropertyType.ROOM: 0.1
-            }
-    
-    def _get_property_purpose_distribution(self) -> Dict[PropertyPurpose, float]:
-        """Get property purpose distribution"""
-        return {
-            PropertyPurpose.BUY: 0.4,
-            PropertyPurpose.RENT: 0.45,
-            PropertyPurpose.SHORT_STAY: 0.15
-        }
-    
-    def _get_property_status_distribution(self) -> Dict[PropertyStatus, float]:
-        """Get property status distribution"""
-        return {
-            PropertyStatus.AVAILABLE: 0.7,
-            PropertyStatus.SOLD: 0.1,
-            PropertyStatus.RENTED: 0.12,
-            PropertyStatus.UNDER_OFFER: 0.05,
-            PropertyStatus.MAINTENANCE: 0.03
-        }
-    
-    def _weighted_choice_enum(self, enum_class, distribution: Dict) -> Any:
-        """Make weighted choice from enum based on distribution"""
-        choices = list(distribution.keys())
-        weights = list(distribution.values())
-        return random.choices(choices, weights=weights)[0]
-    
-    def _get_state_for_location(self, location_key: str) -> str:
-        """Get state/province for location"""
-        states = {
-            "us": "California",
-            "mumbai": "Maharashtra", 
-            "gurgaon": "Haryana"
-        }
-        return states.get(location_key, "Unknown")
-    
-    def _get_country_for_location(self, location_key: str) -> str:
-        """Get country for location"""
-        return "USA" if location_key == "us" else "India"
-    
-    def _generate_pincode(self, location_key: str) -> str:
-        """Generate realistic pincode for location"""
-        if location_key == "us":
-            return f"94{random.randint(100, 199)}"  # SF area codes
-        elif location_key == "mumbai":
-            return f"40{random.randint(10, 99):02d}"  # Mumbai codes
-        else:  # gurgaon
-            return f"1220{random.randint(10, 99)}"  # Gurgaon codes
-    
-    def _generate_phone_for_location(self, location_key: str) -> str:
-        """Generate phone number for location"""
-        if location_key == "us":
-            return f"+1{self.fake_us.numerify('##########')}"
-        else:
-            return f"+91{self.fake_in.numerify('##########')}"
-    
-    def _generate_full_address(self, location, details: Dict) -> str:
-        """Generate full address"""
-        street = self.fake.street_address()
+        # Select random locality
         locality = random.choice(location.localities)
-        return f"{street}, {locality}, {location.name}"
-    
-    def _generate_maintenance_charges(self, purpose: PropertyPurpose, base_price: float) -> Optional[float]:
-        """Generate maintenance charges if applicable"""
-        if purpose == PropertyPurpose.BUY:
-            return None
-        return random.randint(2000, 8000) if purpose == PropertyPurpose.RENT else random.randint(500, 2000)
-    
-    def _generate_available_from_date(self, status: PropertyStatus) -> str:
-        """Generate available from date based on status"""
-        if status == PropertyStatus.AVAILABLE:
-            # Available immediately or within 30 days
-            days_ahead = random.randint(0, 30)
-            date = datetime.now() + timedelta(days=days_ahead)
-        else:
-            # Future date for non-available properties
-            days_ahead = random.randint(30, 365)
-            date = datetime.now() + timedelta(days=days_ahead)
         
-        return date.strftime("%Y-%m-%d")
-    
-    def _generate_calendar_data(self, purpose: PropertyPurpose) -> Optional[Dict]:
-        """Generate calendar data for short stay properties"""
-        if purpose != PropertyPurpose.SHORT_STAY:
-            return None
+        # Generate area based on property type
+        if property_type == "room":
+            area_sqft = random.randint(200, 400)
+            bedrooms = 1
+            bathrooms = 1
+        elif property_type == "apartment":
+            area_sqft = random.randint(600, 2500)
+            bedrooms = random.randint(1, 4)
+            bathrooms = min(bedrooms, random.randint(1, 3))
+        elif property_type == "builder_floor":
+            area_sqft = random.randint(1200, 3000)
+            bedrooms = random.randint(2, 4)
+            bathrooms = random.randint(2, 4)
+        else:  # house
+            area_sqft = random.randint(1500, 5000)
+            bedrooms = random.randint(2, 6)
+            bathrooms = random.randint(2, 5)
         
-        # Generate availability calendar for next 90 days
-        calendar = {}
-        for i in range(90):
-            date = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
-            calendar[date] = {
-                "available": random.random() > 0.3,  # 70% availability
-                "price_override": None if random.random() > 0.2 else random.randint(50, 200)
-            }
+        # Generate price based on location and area
+        price_per_sqft = random.randint(*location.price_per_sqft_range)
+        base_price = area_sqft * price_per_sqft
         
-        return calendar
-    
-    def _generate_property_tags(self, details: Dict, location, property_type: PropertyType, purpose: PropertyPurpose) -> List[str]:
-        """Generate SEO tags for property"""
-        tags = [
-            property_type.value,
-            purpose.value,
-            f"{details['bedrooms']}bhk",
-            location.name.lower(),
-            random.choice(location.localities).lower().replace(" ", "-")
+        # Adjust for property type
+        if property_type == "house":
+            base_price = int(base_price * 1.2)
+        elif property_type == "room":
+            base_price = int(base_price * 0.7)
+        
+        # Calculate other prices
+        monthly_rent = int(base_price * 0.001) if purpose in ["rent", "short_stay"] else None
+        daily_rate = int(monthly_rent / 30) if purpose == "short_stay" and monthly_rent else None
+        security_deposit = int(monthly_rent * 2) if monthly_rent else None
+        
+        # Generate amenities
+        selected_amenities = random.sample(
+            location.popular_amenities, 
+            random.randint(3, min(8, len(location.popular_amenities)))
+        )
+        
+        # Create property title
+        titles = [
+            f"Beautiful {bedrooms}BHK {property_type.replace('_', ' ').title()}",
+            f"Spacious {bedrooms}BHK in {locality}",
+            f"Premium {property_type.replace('_', ' ').title()} for {purpose.replace('_', ' ').title()}",
+            f"Luxury {bedrooms}BHK with Modern Amenities",
+            f"Well-maintained {property_type.replace('_', ' ').title()} in Prime Location"
         ]
+        title = random.choice(titles)
         
-        # Add additional tags based on features
-        if details.get("parking_spaces", 0) > 0:
-            tags.append("parking")
-        if details.get("balconies", 0) > 0:
-            tags.append("balcony")
-        if details["area_sqft"] > 1500:
-            tags.append("spacious")
+        # Generate description
+        description = f"""
+{title} located in the heart of {locality}, {location.name}. 
+
+This well-designed {property_type.replace('_', ' ')} offers {area_sqft} sq ft of living space with {bedrooms} bedrooms and {bathrooms} bathrooms. Perfect for {purpose.replace('_', ' ')}.
+
+Key Features:
+- Prime location in {locality}
+- {area_sqft} sq ft carpet area
+- {bedrooms} spacious bedrooms
+- {bathrooms} modern bathrooms
+- {'Parking available' if random.choice([True, False]) else 'Street parking'}
+
+Amenities: {', '.join(selected_amenities)}
+
+{random.choice(location.landmarks)} - This property offers excellent connectivity and lifestyle amenities.
+        """.strip()
         
-        return list(set(tags))  # Remove duplicates
+        # Additional property features
+        features = []
+        if random.choice([True, False]):
+            features.append("Fully Furnished")
+        if random.choice([True, False]):
+            features.append("Pet Friendly")
+        if random.choice([True, False]):
+            features.append("24/7 Security")
+        if purpose == "short_stay":
+            features.extend(["WiFi", "AC", "Kitchen"])
+        
+        return {
+            "title": title,
+            "description": description,
+            "property_type": property_type,
+            "purpose": purpose,
+            "status": "available",
+            
+            # Location
+            "latitude": round(latitude, 6),
+            "longitude": round(longitude, 6),
+            "city": location.name,
+            "state": "Delhi" if location_key == "us" else ("Maharashtra" if location_key == "mumbai" else "Haryana"),
+            "country": "USA" if location_key == "us" else "India",
+            "pincode": f"{random.randint(100000, 999999)}",
+            "locality": locality,
+            "sub_locality": f"Sector {random.randint(1, 50)}" if "Sector" not in locality else None,
+            "landmark": random.choice(location.landmarks),
+            "full_address": f"{locality}, {location.name}",
+            "area_type": "Built-up Area",
+            
+            # Pricing
+            "base_price": base_price,
+            "price_per_sqft": price_per_sqft,
+            "monthly_rent": monthly_rent,
+            "daily_rate": daily_rate,
+            "security_deposit": security_deposit,
+            "maintenance_charges": random.randint(1000, 5000) if location_key != "us" else random.randint(50, 200),
+            
+            # Property details
+            "area_sqft": area_sqft,
+            "bedrooms": bedrooms,
+            "bathrooms": bathrooms,
+            "balconies": random.randint(0, 2),
+            "parking_spaces": random.randint(0, 2),
+            "floor_number": random.randint(1, 20),
+            "total_floors": random.randint(5, 25),
+            "age_of_property": random.randint(0, 20),
+            
+            # Short stay specific
+            "max_occupancy": bedrooms * 2 if purpose == "short_stay" else None,
+            "minimum_stay_days": random.randint(1, 30) if purpose == "short_stay" else 1,
+            
+            # Amenities and features
+            "amenities": selected_amenities,
+            "features": features,
+            
+            # Media
+            "main_image_url": MAIN_IMAGE_URL,
+            "virtual_tour_url": VIRTUAL_TOUR_URL,
+            
+            # Availability
+            "is_available": True,
+            "available_from": "Immediate",
+            
+            # SEO and tags
+            "tags": [property_type, purpose, locality, f"{bedrooms}bhk"],
+            "search_keywords": f"{property_type} {purpose} {locality} {bedrooms}bhk {location.name}",
+            
+            # Owner/Builder info
+            "owner_name": f"Owner {index + 1}",
+            "owner_contact": f"+91{random.randint(6000000000, 9999999999)}" if location_key != "us" else f"+1{random.randint(2000000000, 9999999999)}",
+            "builder_name": random.choice(location.builder_names),
+            
+            # Performance metrics
+            "view_count": random.randint(10, 500),
+            "like_count": random.randint(0, 50),
+            "interest_count": random.randint(0, 20)
+        }
     
-    def _generate_search_keywords(self, details: Dict, location) -> str:
-        """Generate search keywords"""
-        keywords = [
-            f"{details['bedrooms']}bhk",
-            "property",
-            location.name.lower(),
-            random.choice(location.localities).lower(),
-            "rent" if random.random() > 0.5 else "buy"
-        ]
-        return " ".join(keywords)
+    async def _create_property_images(self, property_id: int) -> None:
+        """Create sample images for a property"""
+        try:
+            images = [
+                {
+                    "property_id": property_id,
+                    "image_url": MAIN_IMAGE_URL,
+                    "caption": "Main exterior view",
+                    "display_order": 0,
+                    "is_main_image": True
+                },
+                {
+                    "property_id": property_id,
+                    "image_url": OTHER_IMAGE_URL,
+                    "caption": "Interior view",
+                    "display_order": 1,
+                    "is_main_image": False
+                },
+                {
+                    "property_id": property_id,
+                    "image_url": VIRTUAL_TOUR_URL,
+                    "caption": "360° Virtual Tour",
+                    "display_order": 2,
+                    "is_main_image": False
+                }
+            ]
+            
+            await self.property_images_repo.batch_insert(images)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create images for property {property_id}: {str(e)}")
     
-    def get_created_properties(self) -> List[Property]:
-        """Get all created properties"""
-        return self.created_properties
+    async def populate(self, count: Optional[int] = 300) -> int:
+        """
+        Create test properties across different locations
+        
+        Args:
+            count: Number of properties to create (default: 300)
+            
+        Returns:
+            Number of properties created
+        """
+        if count is None:
+            count = 1000
+            
+        self.logger.info(f"Creating {count} test properties across locations...")
+        
+        created_count = 0
+        location_keys = list(LOCATIONS.keys())
+        
+        # Distribute properties across locations
+        properties_per_location = count // len(location_keys)
+        remainder = count % len(location_keys)
+        
+        for location_idx, location_key in enumerate(location_keys):
+            # Add remainder to first few locations
+            location_count = properties_per_location + (1 if location_idx < remainder else 0)
+            
+            self.logger.info(f"Creating {location_count} properties in {LOCATIONS[location_key].name}...")
+            
+            for i in range(location_count):
+                try:
+                    property_data = self._generate_property_data(location_key, created_count)
+                    
+                    # Create property
+                    property_result = await self.property_repo.create(property_data)
+                    
+                    # Create property images
+                    if property_result and "id" in property_result:
+                        await self._create_property_images(property_result["id"])
+                    
+                    created_count += 1
+                    self.log_progress(created_count, count, "properties")
+                    
+                except Exception as e:
+                    self.logger.error(f"Failed to create property {created_count + 1}: {str(e)}")
+                    continue
+        
+        self.logger.info(f"Successfully created {created_count} properties")
+        return created_count
     
-    def clear_existing_data(self):
-        """Clear existing property data"""
-        logger.info("Clearing property and property image data")
-        self.clear_table_data(PropertyImage)
-        self.clear_table_data(Property)
+    async def clear_all(self) -> int:
+        """Clear all test properties"""
+        try:
+            # Get count before deletion
+            count_result = await self.property_repo.count()
+            
+            # Note: Since we're using cascade deletes, property_images will be automatically deleted
+            # For this test data, we'll delete all properties
+            # In production, you might want to be more selective
+            
+            # Get all property IDs first
+            all_properties = await self.property_repo.get_multi(limit=10000)  # Get all
+            
+            deleted_count = 0
+            for property_data in all_properties.get("items", []):
+                try:
+                    await self.property_repo.delete(property_data["id"])
+                    deleted_count += 1
+                except Exception as e:
+                    self.logger.error(f"Failed to delete property {property_data['id']}: {str(e)}")
+            
+            self.logger.info(f"Deleted {deleted_count} properties")
+            return deleted_count
+            
+        except Exception as e:
+            self.logger.error(f"Failed to clear properties: {str(e)}")
+            return 0

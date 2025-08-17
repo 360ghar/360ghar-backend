@@ -7,9 +7,9 @@ from starlette.responses import Response
 import hashlib
 from app.core.cache import cache_manager
 from app.core.config import settings
-import logging
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Rate limiting middleware using sliding window algorithm"""

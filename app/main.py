@@ -1,7 +1,6 @@
 import traceback
-import logging
 import yaml
-from sqlalchemy import text
+from contextlib import asynccontextmanager
 
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Request, status
@@ -11,18 +10,47 @@ from fastapi.responses import JSONResponse, Response
 from app.core.exceptions import BaseAPIException
 from app.core.config import settings
 from app.api.api_v1.api import api_router
-from app.middleware.performance import PerformanceMiddleware
-# from app.middleware.rate_limit import RateLimitMiddleware
-# from app.middleware.security import SecurityHeadersMiddleware, APIKeyMiddleware
-from app.core.cache import cache_manager
+from app.core.supabase_client import get_supabase_client, get_supabase_admin_client
 from app.core.logging import setup_logging, get_logger
+from app.core.cache import cache_manager
 
 # Configure logging
 setup_logging()
 logger = get_logger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup and shutdown events"""
+    # Startup
+    try:
+        # Initialize cache manager
+        await cache_manager.connect()
+        
+        # Test Supabase connection with a simple query (use admin client to bypass RLS)
+        supabase = get_supabase_admin_client()
+        # Try to access any table to test connectivity
+        try:
+            supabase.table("properties").select("id", count="exact").limit(1).execute()
+            logger.info("Supabase connection verified on startup")
+        except Exception as db_e:
+            logger.info(f"Database connection test: {db_e} (tables may not exist yet)")
+    except Exception as e:
+        logger.error(f"Supabase client creation failed: {e}")
+    
+    logger.info("API started", extra={
+        "event": "startup",
+        "env": settings.ENVIRONMENT,
+        "version": "1.0.0",
+    })
+    
+    yield
+    
+    # Shutdown
+    await cache_manager.disconnect()
+    logger.info("API shutdown", extra={"event": "shutdown"})
 
 app = FastAPI(
+    lifespan=lifespan,
     title="360Ghar Real Estate Platform",
     description="Tinder-like real estate platform backend APIs with Supabase integration",
     version="1.0.0",
@@ -48,9 +76,6 @@ app = FastAPI(
         }
     ]
 )
-
-# Add performance monitoring middleware (should be first)
-app.add_middleware(PerformanceMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -100,36 +125,32 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint with database and cache connectivity"""
+    """Health check endpoint with Supabase connectivity"""
     try:
-        from app.core.database import engine
-        
-        # Check database connection
+        # Check Supabase connection
         db_status = "connected"
         try:
-            async with engine.begin() as conn:
-                await conn.execute(text("SELECT 1"))
+            # Use admin client here to avoid RLS/privilege issues in health checks
+            supabase = get_supabase_admin_client()
+            # Test with a simple query - try properties table first as it's most likely to exist
+            try:
+                result = supabase.table("properties").select("id", count="exact").limit(1).execute()
+                db_status = "connected"
+            except Exception as table_e:
+                # If properties doesn't exist, the connection is still working
+                if "does not exist" in str(table_e).lower():
+                    db_status = "connected_no_tables"
+                else:
+                    raise table_e
         except Exception as db_e:
-            logger.error(f"Database health check failed: {db_e}")
+            logger.error(f"Supabase health check failed: {db_e}")
             db_status = "disconnected"
-        
-        # Check cache connection
-        cache_status = "connected"
-        try:
-            if cache_manager.redis_client:
-                await cache_manager.redis_client.ping()
-            else:
-                cache_status = "disconnected"
-        except Exception as cache_e:
-            logger.error(f"Cache health check failed: {cache_e}")
-            cache_status = "disconnected"
         
         overall_status = "healthy" if db_status == "connected" else "degraded"
         
         return {
             "status": overall_status,
             "database": db_status,
-            "cache": cache_status,
             "supabase_url": settings.SUPABASE_URL,
             "timestamp": datetime.utcnow().isoformat(),
             "version": "1.0.0"
@@ -227,18 +248,3 @@ async def general_exception_handler(request: Request, exc: Exception):
         }
     )
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    await cache_manager.connect()
-    logger.info("API started", extra={
-        "event": "startup",
-        "env": settings.ENVIRONMENT,
-        "version": "1.0.0",
-    })
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    await cache_manager.disconnect()
-    logger.info("API shutdown", extra={"event": "shutdown"})

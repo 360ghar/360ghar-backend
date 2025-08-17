@@ -2,11 +2,11 @@ from typing import Optional, Dict, Any
 from supabase import Client
 from app.core.config import settings
 from app.core.supabase_client import get_supabase_client, get_supabase_admin_client
-import jwt
+from jose import jwt
 import anyio
-import logging
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 async def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
     """Verify Supabase JWT token and return user data without blocking the event loop."""

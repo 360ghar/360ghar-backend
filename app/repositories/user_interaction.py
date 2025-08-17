@@ -1,266 +1,371 @@
 from typing import List, Optional, Dict, Any
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, desc, func
-from sqlalchemy.orm import selectinload
-from app.repositories.base import BaseRepository
-from app.models.user_interaction import UserSwipe, UserFavorite, UserSearchHistory
-from app.models.property import Property
+from supabase import Client
+from app.db.base import BaseRepository
+from app.core.supabase_client import execute_rpc
+from app.db.types import UserSwipeDB, UserFavoriteDB, UserSearchHistoryDB
 from app.schemas.property import PropertySwipe
 from app.schemas.common import PaginatedResponse
-import math
+import anyio
+from app.core.logging import get_logger
 
-class UserInteractionRepository(BaseRepository[UserSwipe]):
-    """Repository for user interaction data (swipes, favorites, search history)"""
+logger = get_logger(__name__)
+
+class UserInteractionRepository(BaseRepository):
+    """Repository for user interaction data (swipes, favorites, search history) using Supabase"""
     
-    def __init__(self, session: AsyncSession):
-        super().__init__(UserSwipe, session)
+    def __init__(self, client: Client):
+        super().__init__(client, "user_swipes")
     
     # Swipe operations
     async def record_swipe(self, user_id: int, swipe: PropertySwipe) -> bool:
-        """Record a user swipe (like or pass)"""
-        # Check if user already swiped on this property
-        existing_swipe = await self.session.execute(
-            select(UserSwipe).where(
-                and_(UserSwipe.user_id == user_id, UserSwipe.property_id == swipe.property_id)
+        """Record a user swipe (like or pass) atomically with like count update"""
+        try:
+            # Try atomic RPC function first
+            result = await execute_rpc(
+                self.client,
+                "record_swipe_with_like_count",
+                {
+                    "p_user_id": user_id,
+                    "p_property_id": swipe.property_id,
+                    "p_is_liked": swipe.is_liked,
+                    "p_user_location_lat": swipe.user_location_lat,
+                    "p_user_location_lng": swipe.user_location_lng,
+                    "p_session_id": swipe.session_id
+                }
             )
-        )
-        existing = existing_swipe.scalar_one_or_none()
-        
-        if existing:
-            # Update existing swipe
-            existing.is_liked = swipe.is_liked
-            existing.user_location_lat = swipe.user_location_lat
-            existing.user_location_lng = swipe.user_location_lng
-            existing.session_id = swipe.session_id
-        else:
-            # Create new swipe record
-            new_swipe = UserSwipe(
-                user_id=user_id,
-                property_id=swipe.property_id,
-                is_liked=swipe.is_liked,
-                user_location_lat=swipe.user_location_lat,
-                user_location_lng=swipe.user_location_lng,
-                session_id=swipe.session_id
+            return result is not None
+        except Exception as e:
+            logger.error(f"Failed to record swipe via RPC: {str(e)}")
+            # Fallback to simple upsert (without atomic like count update)
+            try:
+                swipe_data = {
+                    "user_id": user_id,
+                    "property_id": swipe.property_id,
+                    "is_liked": swipe.is_liked,
+                    "user_location_lat": swipe.user_location_lat,
+                    "user_location_lng": swipe.user_location_lng,
+                    "session_id": swipe.session_id
+                }
+                await anyio.to_thread.run_sync(
+                    lambda: (
+                        self.table
+                        .upsert(swipe_data, on_conflict="user_id,property_id")
+                        .execute()
+                    )
+                )
+                return True
+            except Exception as fallback_e:
+                logger.error(f"Fallback swipe recording failed: {str(fallback_e)}")
+                return False
+    
+    async def get_swipe_history(
+        self, 
+        user_id: int, 
+        page: int = 1, 
+        limit: int = 20, 
+        is_liked: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        """Get user's swipe history with property details"""
+        try:
+            filters = {"user_id": user_id}
+            if is_liked is not None:
+                filters["is_liked"] = is_liked
+            
+            result = await self.get_multi(
+                filters=filters,
+                select="*, properties(*)",
+                page=page,
+                limit=limit,
+                sort_field="swipe_timestamp",
+                sort_desc=True
             )
-            self.session.add(new_swipe)
-        
-        await self.session.flush()
-        return True
+            
+            return result
+        except Exception as e:
+            return {"items": [], "total": 0, "page": page, "limit": limit, "total_pages": 0}
     
-    async def get_swipe_history(self, user_id: int, page: int = 1, limit: int = 20, is_liked: Optional[bool] = None) -> PaginatedResponse:
-        """Get user's swipe history with pagination and filtering"""
-        # Build base query
-        query = select(UserSwipe).where(UserSwipe.user_id == user_id)
-        
-        # Add filter for is_liked if specified
-        if is_liked is not None:
-            query = query.where(UserSwipe.is_liked == is_liked)
-        
-        # Order by most recent first
-        query = query.order_by(desc(UserSwipe.swipe_timestamp))
-        
-        # Get total count for pagination
-        count_query = select(func.count()).select_from(query.subquery())
-        total_result = await self.session.execute(count_query)
-        total = total_result.scalar()
-        
-        # Apply pagination
-        offset = (page - 1) * limit
-        query = query.offset(offset).limit(limit)
-        
-        # Execute query
-        swipes_result = await self.session.execute(query)
-        swipes = swipes_result.scalars().all()
-        
-        # Calculate pagination metadata
-        total_pages = math.ceil(total / limit) if total > 0 else 1
-        has_next = page < total_pages
-        has_prev = page > 1
-        
-        return PaginatedResponse(
-            items=swipes,
-            total=total,
-            page=page,
-            limit=limit,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_prev=has_prev
-        )
-    
-    async def undo_last_swipe(self, user_id: int) -> bool:
-        """Remove the most recent swipe for a user"""
-        last_swipe_result = await self.session.execute(
-            select(UserSwipe)
-            .where(UserSwipe.user_id == user_id)
-            .order_by(desc(UserSwipe.swipe_timestamp))
-            .limit(1)
-        )
-        last_swipe = last_swipe_result.scalar_one_or_none()
-        
-        if not last_swipe:
-            return False
-        
-        await self.session.delete(last_swipe)
-        await self.session.flush()
-        return True
-    
-    async def get_user_swipe_stats(self, user_id: int) -> Dict[str, Any]:
-        """Get user's swipe statistics"""
-        swipes_result = await self.session.execute(
-            select(UserSwipe).where(UserSwipe.user_id == user_id)
-        )
-        swipes = swipes_result.scalars().all()
-        
-        total_swipes = len(swipes)
-        likes = sum(1 for s in swipes if s.is_liked)
-        passes = total_swipes - likes
-        
-        like_rate = (likes / total_swipes * 100) if total_swipes > 0 else 0
-        
-        return {
-            "total_swipes": total_swipes,
-            "total_likes": likes,
-            "total_passes": passes,
-            "like_rate_percentage": round(like_rate, 2)
-        }
-    
-    async def check_mutual_interest(self, user_id: int, property_id: int) -> bool:
-        """Check if user liked a specific property"""
-        user_swipe_result = await self.session.execute(
-            select(UserSwipe).where(
-                and_(
-                    UserSwipe.user_id == user_id,
-                    UserSwipe.property_id == property_id,
-                    UserSwipe.is_liked == True
+    async def get_user_liked_properties(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get properties liked by user"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.client
+                    .table("user_swipes")
+                    .select("properties(*)")
+                    .eq("user_id", user_id)
+                    .eq("is_liked", True)
+                    .order("swipe_timestamp", desc=True)
+                    .limit(limit)
+                    .execute()
                 )
             )
-        )
-        user_swipe = user_swipe_result.scalar_one_or_none()
-        return user_swipe is not None
+            
+            return [item["properties"] for item in (result.data or []) if item.get("properties")]
+        except Exception as e:
+            return []
+    
+    async def get_user_disliked_properties(self, user_id: int, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get properties disliked by user"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.client
+                    .table("user_swipes")
+                    .select("properties(*)")
+                    .eq("user_id", user_id)
+                    .eq("is_liked", False)
+                    .order("swipe_timestamp", desc=True)
+                    .limit(limit)
+                    .execute()
+                )
+            )
+            
+            return [item["properties"] for item in (result.data or []) if item.get("properties")]
+        except Exception as e:
+            return []
     
     async def get_swiped_property_ids(self, user_id: int) -> List[int]:
-        """Get all property IDs that user has swiped on"""
-        result = await self.session.execute(
-            select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
-        )
-        return [row[0] for row in result.fetchall()]
-    
-    async def get_liked_properties(self, user_id: int, limit: int = 50) -> List[UserSwipe]:
-        """Get properties that user has liked"""
-        result = await self.session.execute(
-            select(UserSwipe)
-            .options(selectinload(UserSwipe.property))
-            .where(and_(UserSwipe.user_id == user_id, UserSwipe.is_liked == True))
-            .order_by(desc(UserSwipe.swipe_timestamp))
-            .limit(limit)
-        )
-        return result.scalars().all()
-    
-    # Favorite operations
-    async def add_favorite(self, user_id: int, property_id: int, notes: str = None) -> UserFavorite:
-        """Add property to user's favorites"""
-        # Check if already favorited
-        existing = await self.session.execute(
-            select(UserFavorite).where(
-                and_(UserFavorite.user_id == user_id, UserFavorite.property_id == property_id)
+        """Get list of property IDs that user has already swiped on"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .select("property_id")
+                    .eq("user_id", user_id)
+                    .execute()
+                )
             )
-        )
-        favorite = existing.scalar_one_or_none()
-        
-        if favorite:
-            favorite.is_favorite = True
-            favorite.notes = notes
-        else:
-            favorite = UserFavorite(
-                user_id=user_id,
-                property_id=property_id,
-                is_favorite=True,
-                notes=notes
+            
+            return [item["property_id"] for item in (result.data or [])]
+        except Exception as e:
+            return []
+    
+    async def undo_last_swipe(self, user_id: int) -> Optional[UserSwipeDB]:
+        """Remove the last swipe for a user atomically with like count update"""
+        try:
+            # Try atomic RPC function first
+            result = await execute_rpc(
+                self.client,
+                "undo_last_swipe_for_user",
+                {"p_user_id": user_id}
             )
-            self.session.add(favorite)
-        
-        await self.session.flush()
-        await self.session.refresh(favorite)
-        return favorite
+            
+            if result and len(result) > 0:
+                # Convert RPC result to UserSwipeDB format
+                swipe_info = result[0]
+                return {
+                    "id": swipe_info.get("swipe_id"),
+                    "user_id": user_id,
+                    "property_id": swipe_info.get("property_id"),
+                    "is_liked": swipe_info.get("was_liked"),
+                    "swipe_timestamp": None,  # Not returned by RPC
+                    "user_location_lat": None,
+                    "user_location_lng": None,
+                    "session_id": None,
+                    "created_at": None,
+                    "updated_at": None
+                }
+            return None
+        except Exception as e:
+            logger.error(f"Failed to undo swipe via RPC: {str(e)}")
+            # Fallback to manual undo (without atomic like count update)
+            try:
+                result = await anyio.to_thread.run_sync(
+                    lambda: (
+                        self.table
+                        .select("*")
+                        .eq("user_id", user_id)
+                        .order("swipe_timestamp", desc=True)
+                        .limit(1)
+                        .execute()
+                    )
+                )
+                
+                if not result.data:
+                    return None
+                
+                last_swipe = result.data[0]
+                await self.delete(last_swipe["id"])
+                return last_swipe
+            except Exception as fallback_e:
+                logger.error(f"Fallback undo swipe failed: {str(fallback_e)}")
+                return None
+    
+    async def toggle_swipe(self, swipe_id: int, user_id: int) -> Optional[Dict[str, Any]]:
+        """Toggle the like status of an existing swipe"""
+        try:
+            # First get the current swipe
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .select("*")
+                    .eq("id", swipe_id)
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
+                )
+            )
+            
+            if not result.data:
+                return None
+            
+            current_swipe = result.data[0]
+            new_like_status = not current_swipe["is_liked"]
+            
+            # Update the swipe
+            update_result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .update({"is_liked": new_like_status})
+                    .eq("id", swipe_id)
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
+            
+            if update_result.data:
+                return {
+                    "id": swipe_id,
+                    "property_id": current_swipe["property_id"],
+                    "previous_status": current_swipe["is_liked"],
+                    "new_status": new_like_status
+                }
+            
+            return None
+        except Exception as e:
+            logger.error(f"Failed to toggle swipe: {str(e)}")
+            return None
+
+    async def get_swipe_stats(self, user_id: int) -> Dict[str, Any]:
+        """Get user swipe statistics"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: self.client.rpc("get_user_swipe_stats", {"p_user_id": user_id}).execute()
+            )
+            return result.data[0] if result.data else {
+                "total_swipes": 0,
+                "liked_count": 0,
+                "disliked_count": 0,
+                "like_percentage": 0.0
+            }
+        except Exception as e:
+            return {
+                "total_swipes": 0,
+                "liked_count": 0,
+                "disliked_count": 0,
+                "like_percentage": 0.0
+            }
+
+
+class UserFavoriteRepository(BaseRepository):
+    """Repository for user favorites using Supabase"""
+    
+    def __init__(self, client: Client):
+        super().__init__(client, "user_favorites")
+    
+    async def add_favorite(self, user_id: int, property_id: int, notes: Optional[str] = None) -> UserFavoriteDB:
+        """Add property to favorites"""
+        data = {
+            "user_id": user_id,
+            "property_id": property_id,
+            "is_favorite": True,
+            "notes": notes
+        }
+        return await self.upsert(data)
     
     async def remove_favorite(self, user_id: int, property_id: int) -> bool:
-        """Remove property from user's favorites"""
-        result = await self.session.execute(
-            select(UserFavorite).where(
-                and_(UserFavorite.user_id == user_id, UserFavorite.property_id == property_id)
+        """Remove property from favorites"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .delete()
+                    .eq("user_id", user_id)
+                    .eq("property_id", property_id)
+                    .execute()
+                )
             )
-        )
-        favorite = result.scalar_one_or_none()
-        
-        if favorite:
-            favorite.is_favorite = False
-            await self.session.flush()
-            return True
-        return False
+            return len(result.data or []) > 0
+        except Exception:
+            return False
     
-    async def get_user_favorites(self, user_id: int, limit: int = 50) -> List[UserFavorite]:
+    async def get_user_favorites(self, user_id: int, page: int = 1, limit: int = 20) -> Dict[str, Any]:
         """Get user's favorite properties"""
-        result = await self.session.execute(
-            select(UserFavorite)
-            .options(selectinload(UserFavorite.property))
-            .where(and_(UserFavorite.user_id == user_id, UserFavorite.is_favorite == True))
-            .order_by(desc(UserFavorite.created_at))
-            .limit(limit)
+        return await self.get_multi(
+            filters={"user_id": user_id, "is_favorite": True},
+            select="*, properties(*)",
+            page=page,
+            limit=limit,
+            sort_field="created_at",
+            sort_desc=True
         )
-        return result.scalars().all()
     
-    # Search history operations
-    async def record_search(
-        self,
-        user_id: int,
-        search_query: str = None,
-        search_filters: Dict[str, Any] = None,
-        search_location: str = None,
-        search_radius: int = None,
-        results_count: int = 0,
-        user_location_lat: str = None,
-        user_location_lng: str = None,
-        search_type: str = "direct_search",
-        session_id: str = None
-    ) -> UserSearchHistory:
-        """Record a user search in history"""
-        search_history = UserSearchHistory(
-            user_id=user_id,
-            search_query=search_query,
-            search_filters=search_filters,
-            search_location=search_location,
-            search_radius=search_radius,
-            results_count=results_count,
-            user_location_lat=user_location_lat,
-            user_location_lng=user_location_lng,
-            search_type=search_type,
-            session_id=session_id
-        )
-        self.session.add(search_history)
-        await self.session.flush()
-        await self.session.refresh(search_history)
-        return search_history
-    
-    async def get_user_search_history(self, user_id: int, limit: int = 50) -> List[UserSearchHistory]:
-        """Get user's search history"""
-        result = await self.session.execute(
-            select(UserSearchHistory)
-            .where(UserSearchHistory.user_id == user_id)
-            .order_by(desc(UserSearchHistory.created_at))
-            .limit(limit)
-        )
-        return result.scalars().all()
-    
-    async def get_popular_searches(self, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get most popular search queries"""
-        result = await self.session.execute(
-            select(
-                UserSearchHistory.search_query,
-                func.count(UserSearchHistory.search_query).label('count')
+    async def is_favorite(self, user_id: int, property_id: int) -> bool:
+        """Check if property is in user's favorites"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("property_id", property_id)
+                    .eq("is_favorite", True)
+                    .limit(1)
+                    .execute()
+                )
             )
-            .where(UserSearchHistory.search_query.isnot(None))
-            .group_by(UserSearchHistory.search_query)
-            .order_by(desc('count'))
-            .limit(limit)
+            return len(result.data or []) > 0
+        except Exception:
+            return False
+
+
+class UserSearchHistoryRepository(BaseRepository):
+    """Repository for user search history using Supabase"""
+    
+    def __init__(self, client: Client):
+        super().__init__(client, "user_search_history")
+    
+    async def record_search(
+        self, 
+        user_id: int, 
+        search_data: Dict[str, Any]
+    ) -> UserSearchHistoryDB:
+        """Record a user search"""
+        data = {
+            "user_id": user_id,
+            **search_data
+        }
+        return await self.create(data)
+    
+    async def get_user_search_history(
+        self, 
+        user_id: int, 
+        page: int = 1, 
+        limit: int = 20
+    ) -> Dict[str, Any]:
+        """Get user's search history"""
+        return await self.get_multi(
+            filters={"user_id": user_id},
+            page=page,
+            limit=limit,
+            sort_field="created_at",
+            sort_desc=True
         )
-        return [{"query": row[0], "count": row[1]} for row in result.fetchall()]
+    
+    async def get_popular_searches(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get most popular search queries"""
+        try:
+            result = await anyio.to_thread.run_sync(
+                lambda: (
+                    self.table
+                    .select("search_query, COUNT(*) as count")
+                    .not_.is_("search_query", "null")
+                    .order("count", desc=True)
+                    .limit(limit)
+                    .execute()
+                )
+            )
+            
+            return result.data or []
+        except Exception:
+            return []
