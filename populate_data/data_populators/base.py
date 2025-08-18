@@ -7,11 +7,13 @@ from typing import List, Optional
 from dataclasses import dataclass
 import sys
 import os
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.core.logging import get_logger
+from app.core.database import AsyncSessionLocal
 
 logger = get_logger(__name__)
 
@@ -116,6 +118,10 @@ class BasePopulator(ABC):
     def __init__(self):
         self.logger = get_logger(self.__class__.__name__)
     
+    async def get_db_session(self) -> AsyncSession:
+        """Get a database session"""
+        return AsyncSessionLocal()
+    
     @abstractmethod
     async def populate(self, count: Optional[int] = None) -> int:
         """
@@ -126,6 +132,16 @@ class BasePopulator(ABC):
             
         Returns:
             Number of records created
+        """
+        pass
+    
+    @abstractmethod
+    async def clear_all(self) -> int:
+        """
+        Clear all test data for this entity type
+        
+        Returns:
+            Number of records deleted
         """
         pass
     

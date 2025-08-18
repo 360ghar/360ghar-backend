@@ -1,7 +1,8 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
-from app.db.types import VisitStatus
+from app.models.enums import VisitStatus
+from app.schemas.property import Property as PropertySchema
 
 class VisitBase(BaseModel):
     property_id: int
@@ -49,6 +50,7 @@ class Visit(VisitBase):
     rescheduled_from: Optional[datetime] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
+    property: Optional[PropertySchema] = None
     
     class Config:
         from_attributes = True

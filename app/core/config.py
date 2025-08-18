@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     
     DATABASE_URL: str
     SUPABASE_URL: str
-    
+    SENTRY_DSN: str
     SUPABASE_KEY: str
     SUPABASE_SECRET_KEY: str
     # API Keys for middleware (comma-separated)
@@ -17,12 +17,12 @@ class Settings(BaseSettings):
     
     @property
     def ASYNC_DATABASE_URL(self) -> str:
-        """Convert DATABASE_URL to async format for asyncpg"""
+        """Convert DATABASE_URL to async format for psycopg (better PgBouncer support)"""
         url = self.DATABASE_URL
         if url.startswith("postgresql://"):
-            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            url = url.replace("postgresql://", "postgresql+psycopg://", 1)
         elif url.startswith("postgres://"):
-            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+            url = url.replace("postgres://", "postgresql+psycopg://", 1)
         
         return url
     

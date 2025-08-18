@@ -22,22 +22,12 @@ Get the currently assigned agent for the authenticated user.
 ```json
 {
   "id": 1,
-  "name": "John Doe",
-  "agent_code": "AGENT_001",
-  "description": "Senior property consultant with 5 years experience",
+  "name": "John Smith",
+  "description": "Experienced real estate agent specializing in residential properties",
   "avatar_url": "https://example.com/avatar.jpg",
-  "personality_traits": {
-    "friendly": true,
-    "professional": true
-  },
-  "specializations": ["residential", "commercial"],
   "languages": ["english", "hindi"],
-  "agent_type": "specialist",
-  "experience_level": "expert",
-  "max_concurrent_users": 50,
-  "ai_model": "gpt-4",
-  "system_prompt": null,
-  "response_style": "conversational",
+  "agent_type": "general",
+  "experience_level": "senior",
   "is_active": true,
   "is_available": true,
   "working_hours": {
@@ -46,14 +36,13 @@ Get the currently assigned agent for the authenticated user.
     "timezone": "UTC"
   },
   "total_users_assigned": 25,
-  "total_interactions": 150,
-  "average_response_time_seconds": 30,
-  "user_satisfaction_rating": 4.5,
-  "created_at": "2024-01-01T10:00:00Z",
-  "updated_at": "2024-01-15T14:30:00Z",
-  "last_active_at": "2024-01-20T09:15:00Z"
+  "user_satisfaction_rating": 4.8,
+  "created_at": "2025-01-15T10:30:00Z",
+  "updated_at": "2025-01-16T14:20:00Z"
 }
 ```
+
+**Note:** Agent types: `general`, `specialist`, `senior`. Experience levels: defined in ExperienceLevel enum.
 
 **Status: 404 Not Found**
 ```json
@@ -193,6 +182,10 @@ Get properties with comprehensive filtering, search, and pagination options.
 | `floor_number_min` | int | Minimum floor number | - | 0 |
 | `floor_number_max` | int | Maximum floor number | - | 20 |
 | `age_max` | int | Maximum property age in years | - | 5 |
+| `parking_spaces_min` | int | Minimum parking spaces | - | 1 |
+| `floor_number_min` | int | Minimum floor number | - | 0 |
+| `floor_number_max` | int | Maximum floor number | - | 20 |
+| `age_max` | int | Maximum property age in years | - | 5 |
 | `check_in` | string | Check-in date (YYYY-MM-DD) for short stays | - | 2024-02-01 |
 | `check_out` | string | Check-out date (YYYY-MM-DD) for short stays | - | 2024-02-05 |
 | `guests` | int | Number of guests (1-20) | - | 2 |
@@ -239,15 +232,19 @@ Get properties with comprehensive filtering, search, and pagination options.
       "age_of_property": 2,
       "max_occupancy": 6,
       "minimum_stay_days": 1,
-      "amenities": ["parking", "gym", "pool", "security", "elevator"],
-      "features": {
-        "furnishing": "semi-furnished",
-        "facing": "east"
-      },
+      "sub_locality": "Lokhandwala",
+      "landmark": "Near Infinity Mall",
+      "area_type": "Super Built-up",
+      "balconies": 2,
+      "max_occupancy": 6,
+      "minimum_stay_days": 1,
+      "features": ["semi-furnished", "east-facing"],
+      "calendar_data": null,
+      "tags": ["premium", "verified"],
       "main_image_url": "https://example.com/property1.jpg",
       "virtual_tour_url": "https://example.com/tour/1",
       "is_available": true,
-      "available_from": "2024-02-01",
+      "available_from": "2024-02-01T00:00:00Z",
       "calendar_data": {},
       "tags": ["premium", "verified"],
       "owner_name": "John Doe",
@@ -299,9 +296,16 @@ Get detailed information about a specific property.
 **Path Parameters:**
 - `property_id` (integer, required): The property ID
 
+**Side Effects:**
+- Increments the property's view count
+
 ### Response
 **Status: 200 OK**
-Returns a single property object (same structure as in GET /properties response)
+Returns a single property object (same structure as in GET /properties response) with complete Property schema including:
+- Full property details
+- Related images array
+- Related amenities array  
+- Distance calculation (if location provided)
 
 **Status: 404 Not Found**
 ```json
@@ -324,10 +328,7 @@ Record a property swipe (like or dislike).
 ```json
 {
   "property_id": 123,
-  "is_liked": true,
-  "user_location_lat": 19.0760,
-  "user_location_lng": 72.8777,
-  "session_id": "session-uuid-123"
+  "is_liked": true
 }
 ```
 
@@ -337,6 +338,16 @@ Record a property swipe (like or dislike).
 {
   "message": "Property liked successfully",
   "success": true
+}
+```
+
+**Status: 422 Unprocessable Entity**
+```json
+{
+  "error": {
+    "message": "Validation error details",
+    "type": "ValidationError"
+  }
 }
 ```
 
@@ -367,12 +378,9 @@ Get the user's swipe history with property details.
       "property_id": 456,
       "is_liked": true,
       "swipe_timestamp": "2024-01-20T10:30:00Z",
-      "user_location_lat": 19.0760,
-      "user_location_lng": 72.8777,
-      "session_id": "session-uuid-123",
       "created_at": "2024-01-20T10:30:00Z",
       "updated_at": null,
-      "properties": {
+      "property": {
         "id": 456,
         "title": "2BHK Apartment",
         "property_type": "apartment",
@@ -383,7 +391,25 @@ Get the user's swipe history with property details.
         "bedrooms": 2,
         "bathrooms": 2,
         "area_sqft": 950,
-        "main_image_url": "https://example.com/property.jpg"
+        "main_image_url": "https://example.com/property.jpg",
+        "images": [
+          {
+            "id": 1,
+            "property_id": 456,
+            "image_url": "https://example.com/img1.jpg",
+            "caption": "Living Room",
+            "display_order": 1,
+            "is_main_image": true
+          }
+        ],
+        "amenities": [
+          {
+            "id": 1,
+            "title": "Parking",
+            "icon": "parking",
+            "category": "transport"
+          }
+        ]
       }
     }
   ],
@@ -439,6 +465,31 @@ Toggle the like status of an existing swipe.
 ```json
 {
   "detail": "Swipe not found or does not belong to user"
+}
+```
+
+---
+
+## 9.1. DELETE /api/v1/swipes/undo
+Undo the last swipe for the authenticated user.
+
+### Request
+**Headers:**
+- `Authorization: Bearer <token>` (required)
+
+### Response
+**Status: 200 OK**
+```json
+{
+  "message": "Last swipe undone successfully",
+  "success": true
+}
+```
+
+**Status: 404 Not Found**
+```json
+{
+  "detail": "No swipes to undo"
 }
 ```
 
@@ -507,56 +558,67 @@ Update user's current location.
 ---
 
 ## 12. GET /api/v1/visits
-Get user's property visits with optional filtering.
+Get user's property visits.
 
 ### Request
 **Headers:**
 - `Authorization: Bearer <token>` (required)
 
-**Query Parameters:**
-| Parameter | Type | Description | Default | Example |
-|-----------|------|-------------|---------|---------|
-| `visit_type` | string | Filter by visit type | - | upcoming, past |
-
 ### Response
 **Status: 200 OK**
 ```json
-[
-  {
-    "id": 1,
-    "property_id": 123,
-    "user_id": 456,
-    "agent_id": 1,
-    "scheduled_date": "2024-02-01T10:00:00Z",
-    "actual_date": null,
-    "status": "scheduled",
-    "special_requirements": "Need parking information",
-    "visit_notes": null,
-    "visitor_feedback": null,
-    "interest_level": null,
-    "follow_up_required": false,
-    "follow_up_date": null,
-    "cancellation_reason": null,
-    "rescheduled_from": null,
-    "created_at": "2024-01-20T10:00:00Z",
-    "updated_at": null,
-    "properties": {
-      "id": 123,
-      "title": "3BHK Villa",
-      "property_type": "house",
-      "city": "Mumbai",
-      "locality": "Powai",
-      "base_price": 25000000
-    },
-    "agents": {
+{
+  "visits": [
+    {
       "id": 1,
-      "name": "John Doe",
-      "agent_code": "AGENT_001",
-      "phone": "+919876543210"
+      "property_id": 123,
+      "user_id": 456,
+      "agent_id": 1,
+      "scheduled_date": "2024-02-01T10:00:00Z",
+      "actual_date": null,
+      "status": "scheduled",
+      "special_requirements": "Need parking information",
+      "visit_notes": null,
+      "visitor_feedback": null,
+      "interest_level": null,
+      "follow_up_required": false,
+      "follow_up_date": null,
+      "cancellation_reason": null,
+      "rescheduled_from": null,
+      "created_at": "2024-01-20T10:00:00Z",
+      "updated_at": null
     }
-  }
-]
+  ],
+  "total": 5
+}
 ```
+
+**Visit Status Values:** `scheduled`, `confirmed`, `completed`, `cancelled`, `rescheduled`
+
+### Additional Visit Endpoints
+
+#### GET /api/v1/visits/upcoming
+Get upcoming visits (future dates with scheduled/confirmed status).
+
+#### GET /api/v1/visits/past
+Get past visits (completed or past dates).
+
+#### GET /api/v1/visits/relationship-manager
+Get assigned relationship manager details.
+
+**Response:**
+```json
+{
+  "id": 123,
+  "name": "Agent Name",
+  "description": "Agent description",
+  "avatar_url": "https://...",
+  "languages": ["English", "Hindi"]
+}
+```
+
+#### GET /api/v1/visits/{visit_id}
+Get specific visit details (with ownership verification).
 
 ---
 
@@ -573,18 +635,27 @@ Schedule a new property visit.
 {
   "property_id": 123,
   "scheduled_date": "2024-02-01T10:00:00Z",
+  "user_id": 456,
   "special_requirements": "Need to see parking space and amenities"
 }
 ```
 
+**Note:** `user_id` is optional and auto-populated from authentication if not provided.
+
 ### Response
 **Status: 200 OK**
-Returns the created visit object (same structure as in GET /visits)
+Returns the created visit object (Visit schema)
+
+**Status: 422 Unprocessable Entity**
+Validation errors
+
+**Status: 401 Unauthorized**
+Invalid or missing authentication
 
 ---
 
-## 14. PATCH /api/v1/visits/{visit_id}
-Reschedule or cancel an existing visit.
+## 14. PUT /api/v1/visits/{visit_id}
+Update an existing visit (reschedule, update status, add feedback, etc.).
 
 ### Request
 **Headers:**
@@ -594,17 +665,18 @@ Reschedule or cancel an existing visit.
 **Path Parameters:**
 - `visit_id` (integer, required): The visit ID
 
-**Body (for rescheduling):**
+**Body (all fields optional):**
 ```json
 {
-  "scheduled_date": "2024-02-05T14:00:00Z"
-}
-```
-
-**Body (for cancellation):**
-```json
-{
-  "cancellation_reason": "Found another property"
+  "scheduled_date": "2024-02-05T14:00:00Z",
+  "status": "confirmed",
+  "special_requirements": "Updated requirements",
+  "visit_notes": "Visit notes",
+  "visitor_feedback": "Great property",
+  "interest_level": "high",
+  "follow_up_required": true,
+  "follow_up_date": "2024-01-20T10:00:00Z",
+  "cancellation_reason": "Reason if cancelling"
 }
 ```
 
@@ -612,17 +684,64 @@ Reschedule or cancel an existing visit.
 **Status: 200 OK**
 Returns the updated visit object
 
-**Status: 404 Not Found**
+**Status: 403 Forbidden**
 ```json
 {
-  "detail": "Visit not found or failed to update"
+  "detail": "Access denied - not your visit"
 }
 ```
 
-**Status: 400 Bad Request**
+**Status: 404 Not Found**
 ```json
 {
-  "detail": "Either scheduled_date for reschedule or cancellation_reason for cancel must be provided"
+  "detail": "Visit not found"
+}
+```
+
+---
+
+## 14.1. POST /api/v1/visits/reschedule
+Reschedule a visit to a new date.
+
+### Request
+**Body:**
+```json
+{
+  "visit_id": 123,
+  "new_date": "2024-01-20T10:00:00Z",
+  "reason": "Optional reschedule reason"
+}
+```
+
+### Response
+**Status: 200 OK**
+```json
+{
+  "message": "Visit rescheduled successfully",
+  "success": true
+}
+```
+
+---
+
+## 14.2. POST /api/v1/visits/cancel
+Cancel a visit.
+
+### Request
+**Body:**
+```json
+{
+  "visit_id": 123,
+  "reason": "Cancellation reason"
+}
+```
+
+### Response
+**Status: 200 OK**
+```json
+{
+  "message": "Visit cancelled successfully",
+  "success": true
 }
 ```
 

@@ -2,17 +2,17 @@
 User data populator for testing
 """
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date
 from typing import Optional
 import sys
 import os
+from sqlalchemy import select, delete
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.core.supabase_client import get_supabase_admin_client
 from app.core.logging import get_logger
-from app.db.base import BaseRepository
+from app.models.models import User
 from .base import BasePopulator
 
 logger = get_logger(__name__)
@@ -21,17 +21,11 @@ class UserPopulator(BasePopulator):
     """Populates test users in the database"""
     
     def __init__(self):
-        self.client = get_supabase_admin_client()
-        self.user_repo = BaseRepository(self.client, "users")
-        self.logger = get_logger(self.__class__.__name__)
+        super().__init__()
     
     async def populate(self, count: Optional[int] = 2) -> int:
         """
         Create test users
-        
-        Note: User creation requires valid Supabase auth users due to foreign key constraints.
-        For testing purposes, this populator will log the limitation and skip user creation.
-        To test with real users, create them via Supabase Auth first.
         
         Args:
             count: Number of users to create (default: 2)
@@ -42,20 +36,16 @@ class UserPopulator(BasePopulator):
         if count is None:
             count = 2
             
-        self.logger.info(f"Attempting to create {count} test users...")
-        self.logger.warning("User creation skipped: Requires real Supabase Auth users due to FK constraints")
-        self.logger.info("To test with users: Create them via Supabase Auth, then sync via API endpoints")
+        self.logger.info(f"Creating {count} test users...")
         
-        return 0  # Skip creation for now
-        
-        # Note: Below is the test user data that would be used if FK constraints were bypassed
         # Test user data
         test_users = [
             {
+                "supabase_user_id": str(uuid.uuid4()),
                 "email": "testuser1@360ghar.com",
                 "full_name": "Raj Sharma",
                 "phone": "+919876543210",
-                "date_of_birth": "1990-05-15",
+                "date_of_birth": date(1990, 5, 15),
                 "is_active": True,
                 "is_verified": True,
                 "current_latitude": 28.4595,  # Gurgaon
@@ -72,7 +62,6 @@ class UserPopulator(BasePopulator):
                     "location_preference": ["DLF Phase 1", "DLF Phase 2", "Sector 29"],
                     "max_distance_km": 10
                 },
-                "preferred_locations": ["Gurgaon", "DLF Phase 1", "Cyber City"],
                 "notification_settings": {
                     "email_notifications": True,
                     "push_notifications": True,
@@ -85,10 +74,11 @@ class UserPopulator(BasePopulator):
                 "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Raj"
             },
             {
+                "supabase_user_id": str(uuid.uuid4()),
                 "email": "testuser2@360ghar.com",
                 "full_name": "Priya Patel",
                 "phone": "+919876543211",
-                "date_of_birth": "1988-08-22",
+                "date_of_birth": date(1988, 8, 22),
                 "is_active": True,
                 "is_verified": True,
                 "current_latitude": 19.0760,  # Mumbai
@@ -105,7 +95,6 @@ class UserPopulator(BasePopulator):
                     "location_preference": ["Bandra West", "Juhu", "Andheri West"],
                     "max_distance_km": 15
                 },
-                "preferred_locations": ["Mumbai", "Bandra West", "Juhu"],
                 "notification_settings": {
                     "email_notifications": True,
                     "push_notifications": True,
@@ -121,25 +110,38 @@ class UserPopulator(BasePopulator):
         
         created_count = 0
         
-        for i, user_data in enumerate(test_users[:count]):
+        async with await self.get_db_session() as session:
             try:
-                # Check if user already exists
-                existing_user = await self.user_repo.get_by_field("email", user_data["email"])
-                if existing_user:
-                    self.logger.info(f"User {user_data['email']} already exists, skipping...")
-                    continue
+                for i, user_data in enumerate(test_users[:count]):
+                    try:
+                        # Check if user already exists
+                        existing_user = await session.execute(
+                            select(User).where(User.email == user_data["email"])
+                        )
+                        if existing_user.scalar_one_or_none():
+                            self.logger.info(f"User {user_data['email']} already exists, skipping...")
+                            continue
+                        
+                        # Create user
+                        user = User(**user_data)
+                        session.add(user)
+                        await session.flush()  # Get the ID
+                        created_count += 1
+                        
+                        self.logger.info(f"Created user: {user_data['full_name']} ({user_data['email']})")
+                        
+                    except Exception as e:
+                        self.logger.error(f"Failed to create user {user_data['email']}: {str(e)}")
+                        continue
                 
-                # Create user
-                user = await self.user_repo.create(user_data)
-                created_count += 1
-                
-                self.logger.info(f"Created user: {user_data['full_name']} ({user_data['email']})")
+                await session.commit()
+                self.logger.info(f"Successfully created {created_count} users")
                 
             except Exception as e:
-                self.logger.error(f"Failed to create user {user_data['email']}: {str(e)}")
-                continue
+                await session.rollback()
+                self.logger.error(f"Failed to create users: {str(e)}")
+                raise
         
-        self.logger.info(f"Successfully created {created_count} users")
         return created_count
     
     async def clear_all(self) -> int:
@@ -149,9 +151,14 @@ class UserPopulator(BasePopulator):
             test_emails = ["testuser1@360ghar.com", "testuser2@360ghar.com"]
             deleted_count = 0
             
-            for email in test_emails:
-                deleted = await self.user_repo.delete_by_field("email", email)
-                deleted_count += deleted
+            async with await self.get_db_session() as session:
+                for email in test_emails:
+                    result = await session.execute(
+                        delete(User).where(User.email == email)
+                    )
+                    deleted_count += result.rowcount
+                
+                await session.commit()
             
             self.logger.info(f"Deleted {deleted_count} test users")
             return deleted_count

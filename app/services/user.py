@@ -1,70 +1,137 @@
-from supabase import Client
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import Optional, Dict, Any
-from app.repositories.user import UserRepository
-from app.schemas.user import UserUpdate, User as UserSchema
-from app.db.types import UserDB
+from app.models.models import User
+from app.schemas.user import UserUpdate
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-def _parse_user_db_to_schema(user_db: Optional[UserDB]) -> Optional[UserSchema]:
-    """Parse UserDB dict to Pydantic User schema"""
-    if not user_db:
-        return None
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    logger.debug(f"Fetching user by email: {email}")
+    try:
+        stmt = select(User).where(User.email == email)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            logger.debug(f"User found with ID {user.id}")
+        else:
+            logger.debug(f"No user found with email {email}")
+        return user
+    except Exception as e:
+        logger.error(f"Failed to fetch user by email {email}: {str(e)}", exc_info=True)
+        raise
+
+async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> Optional[User]:
+    logger.debug(f"Fetching user by Supabase ID: {supabase_user_id}")
+    try:
+        stmt = select(User).where(User.supabase_user_id == supabase_user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        if user:
+            logger.debug(f"User found with ID {user.id}")
+        else:
+            logger.debug(f"No user found with Supabase ID {supabase_user_id}")
+        return user
+    except Exception as e:
+        logger.error(f"Failed to fetch user by Supabase ID {supabase_user_id}: {str(e)}", exc_info=True)
+        raise
+
+async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data: Dict[str, Any]) -> User:
+    """Get or create user from Supabase auth data"""
+    logger.info(f"Getting or creating user from Supabase data for user {supabase_user_data['id']}")
     
-    # Convert the UserDB dict to User schema, handling any type conversions
-    user_data = dict(user_db)
+    try:
+        user = await get_user_by_supabase_id(db, supabase_user_data["id"])
+        
+        if not user:
+            user = await get_user_by_email(db, supabase_user_data["email"])
+            
+            if user:
+                # Update with Supabase ID
+                logger.info(f"Updating existing user {user.id} with Supabase ID")
+                user.supabase_user_id = supabase_user_data["id"]
+            else:
+                # Create new user
+                logger.info(f"Creating new user from Supabase data: {supabase_user_data['email']}")
+                user = User(
+                    supabase_user_id=supabase_user_data["id"],
+                    email=supabase_user_data["email"],
+                    full_name=supabase_user_data.get("user_metadata", {}).get("full_name"),
+                    phone=supabase_user_data.get("phone"),
+                    is_active=True,
+                    is_verified=supabase_user_data.get("email_verified", False)
+                )
+                db.add(user)
+            
+            await db.flush()
+            await db.refresh(user)
+            logger.info(f"User {'updated' if user.supabase_user_id else 'created'} with ID {user.id}")
+        else:
+            logger.debug(f"User already exists with ID {user.id}")
+        
+        return user
+    except Exception as e:
+        logger.error(f"Failed to get or create user from Supabase: {str(e)}", exc_info=True)
+        raise
+
+async def update_user(db: AsyncSession, user_id: int, user_update: UserUpdate) -> Optional[User]:
+    logger.info(f"Updating user {user_id}")
     
-    # Handle date_of_birth conversion if it's a string
-    if user_data.get("date_of_birth") and isinstance(user_data["date_of_birth"], str):
-        from datetime import datetime
-        try:
-            user_data["date_of_birth"] = datetime.fromisoformat(user_data["date_of_birth"]).date()
-        except Exception as e:
-            logger.warning("Failed to parse date_of_birth", extra={"user_id": user_data.get("id"), "error": str(e)})
-            user_data["date_of_birth"] = None
+    try:
+        stmt = select(User).where(User.id == user_id)
+        result = await db.execute(stmt)
+        user = result.scalar_one_or_none()
+        
+        if user:
+            update_data = user_update.model_dump(exclude_unset=True)
+            logger.debug(f"Updating user {user_id} with fields: {list(update_data.keys())}")
+            
+            for field, value in update_data.items():
+                setattr(user, field, value)
+            
+            await db.flush()
+            await db.refresh(user)
+            logger.info(f"User {user_id} updated successfully")
+        else:
+            logger.warning(f"User {user_id} not found for update")
+        
+        return user
+    except Exception as e:
+        logger.error(f"Failed to update user {user_id}: {str(e)}", exc_info=True)
+        raise
+
+async def update_user_preferences(db: AsyncSession, user_id: int, preferences: dict) -> Optional[User]:
+    logger.info(f"Updating preferences for user {user_id}")
     
-    return UserSchema.model_validate(user_data)
+    try:
+        user = await db.get(User, user_id)
+        if user:
+            user.preferences = preferences
+            await db.flush()
+            await db.refresh(user)
+            logger.info(f"Preferences updated for user {user_id}")
+        else:
+            logger.warning(f"User {user_id} not found for preferences update")
+        return user
+    except Exception as e:
+        logger.error(f"Failed to update preferences for user {user_id}: {str(e)}", exc_info=True)
+        raise
 
-async def get_user_by_email(supabase: Client, email: str) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.get_by_email(email)
-    return _parse_user_db_to_schema(user_db)
-
-async def get_user_by_id(supabase: Client, user_id: int) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.get_by_id(user_id)
-    return _parse_user_db_to_schema(user_db)
-
-async def get_user_by_supabase_id(supabase: Client, supabase_user_id: str) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.get_by_supabase_id(supabase_user_id)
-    return _parse_user_db_to_schema(user_db)
-
-async def create_user_from_supabase(supabase: Client, supabase_user_data: Dict[str, Any]) -> UserSchema:
-    """Create user in our database after Supabase authentication"""
-    repo = UserRepository(supabase)
-    user_db = await repo.create_from_supabase(supabase_user_data)
-    return _parse_user_db_to_schema(user_db)
-
-async def get_or_create_user_from_supabase(supabase: Client, supabase_user_data: Dict[str, Any]) -> UserSchema:
-    """Get existing user or create new one from Supabase data"""
-    repo = UserRepository(supabase)
-    user_db = await repo.get_or_create_from_supabase(supabase_user_data)
-    return _parse_user_db_to_schema(user_db)
-
-async def update_user(supabase: Client, user_id: int, user_update: UserUpdate) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.update_user(user_id, user_update)
-    return _parse_user_db_to_schema(user_db)
-
-async def update_user_preferences(supabase: Client, user_id: int, preferences: Dict[str, Any]) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.update_preferences(user_id, preferences)
-    return _parse_user_db_to_schema(user_db)
-
-async def update_user_location(supabase: Client, user_id: int, latitude: float, longitude: float) -> Optional[UserSchema]:
-    repo = UserRepository(supabase)
-    user_db = await repo.update_location(user_id, latitude, longitude)
-    return _parse_user_db_to_schema(user_db)
-
+async def update_user_location(db: AsyncSession, user_id: int, latitude: float, longitude: float) -> Optional[User]:
+    logger.info(f"Updating location for user {user_id}: ({latitude}, {longitude})")
+    
+    try:
+        user = await db.get(User, user_id)
+        if user:
+            user.current_latitude = latitude
+            user.current_longitude = longitude
+            await db.flush()
+            await db.refresh(user)
+            logger.info(f"Location updated for user {user_id}")
+        else:
+            logger.warning(f"User {user_id} not found for location update")
+        return user
+    except Exception as e:
+        logger.error(f"Failed to update location for user {user_id}: {str(e)}", exc_info=True)
+        raise

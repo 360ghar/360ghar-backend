@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from supabase import Client
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
-from app.core.supabase_client import get_supabase_dependency
+from app.core.database import get_db
+from app.core.logging import get_logger
 from app.api.api_v1.endpoints.auth import get_current_active_user, get_current_user_optional
 from app.schemas.user import User as UserSchema
-from app.db.types import PropertyType, PropertyPurpose
+from app.models.enums import PropertyType, PropertyPurpose
 from app.schemas.property import (
     PropertyCreate, PropertyUpdate, Property, PropertyFilter,
     PropertyInterest, UnifiedPropertyFilter, UnifiedPropertyResponse, SortBy
@@ -17,15 +18,23 @@ from app.services.property import (
 )
 
 router = APIRouter()
+logger = get_logger(__name__)
 
 @router.post("/", response_model=Property)
 async def create_new_property(
     property_data: PropertyCreate,
     current_user: UserSchema = Depends(get_current_active_user),
-    supabase: Client = Depends(get_supabase_dependency)
+    db: AsyncSession = Depends(get_db)
 ):
     """Create a new property (requires authentication)"""
-    return await create_property(supabase, property_data)
+    logger.info(f"User {current_user.id} creating property of type {property_data.property_type}")
+    try:
+        result = await create_property(db, property_data, current_user.id)
+        logger.info(f"Property created successfully with ID {result.id}")
+        return result
+    except Exception as e:
+        logger.error(f"Failed to create property for user {current_user.id}: {str(e)}")
+        raise
 
 @router.get("/", response_model=UnifiedPropertyResponse)
 async def get_properties_list(
@@ -79,7 +88,7 @@ async def get_properties_list(
     
     # Optional authentication
     current_user: Optional[UserSchema] = Depends(get_current_user_optional),
-    supabase: Client = Depends(get_supabase_dependency)
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Get properties with comprehensive filtering and optional authentication.
@@ -123,23 +132,33 @@ async def get_properties_list(
     
     # Use user_id if authenticated, otherwise use None
     user_id = current_user.id if current_user else None
-    result = await get_unified_properties_optimized(supabase, filters, user_id, page, limit)
     
-    # Adapt repository response to UnifiedPropertyResponse shape
-    return {
-        "properties": result.get("items", []),
-        "total": result.get("total", 0),
-        "page": page,
-        "limit": limit,
-        "total_pages": result.get("total_pages", 0),
-        "filters_applied": filters.model_dump(exclude_none=True),
-        "search_center": ({"latitude": lat, "longitude": lng} if lat is not None and lng is not None else None)
-    }
+    # Log search request
+    logger.info(f"Property search request - user: {user_id or 'anonymous'}, filters: {len([f for f in [q, lat, lng, property_type, city] if f])}, page: {page}")
+    
+    try:
+        result = await get_unified_properties_optimized(db, filters, user_id, page, limit)
+        
+        logger.info(f"Property search completed - found {result.get('total', 0)} properties, returning page {page}")
+        
+        # Adapt repository response to UnifiedPropertyResponse shape
+        return {
+            "properties": result.get("items", []),
+            "total": result.get("total", 0),
+            "page": page,
+            "limit": limit,
+            "total_pages": result.get("total_pages", 0),
+            "filters_applied": filters.model_dump(exclude_none=True),
+            "search_center": ({"latitude": lat, "longitude": lng} if lat is not None and lng is not None else None)
+        }
+    except Exception as e:
+        logger.error(f"Property search failed for user {user_id or 'anonymous'}: {str(e)}")
+        raise
 
 @router.get("/recommendations")
 async def get_recommendations(
     current_user: Optional[UserSchema] = Depends(get_current_user_optional),
-    supabase: Client = Depends(get_supabase_dependency),
+    db: AsyncSession = Depends(get_db),
     limit: int = Query(10, ge=1, le=50)
 ):
     """
@@ -149,23 +168,23 @@ async def get_recommendations(
     - Without authentication: Popular properties based on likes and recency
     """
     user_id = current_user.id if current_user else None
-    return await get_property_recommendations(supabase, user_id, limit)
+    return await get_property_recommendations(db, user_id, limit)
 
 
 @router.get("/{property_id}", response_model=Property)
 async def get_property_details(
     property_id: int,
     current_user: Optional[UserSchema] = Depends(get_current_user_optional),
-    supabase: Client = Depends(get_supabase_dependency)
+    db: AsyncSession = Depends(get_db)
 ):
     """Get property details"""
-    property_data = await get_property(supabase, property_id)
+    property_data = await get_property(db, property_id)
     
     if not property_data:
         raise HTTPException(status_code=404, detail="Property not found")
     
     # Increment view count
-    await increment_property_view_count(supabase, property_id)
+    await increment_property_view_count(db, property_id)
     
     return property_data
 
@@ -173,11 +192,11 @@ async def get_property_details(
 async def update_property_details(
     property_id: int,
     property_update: PropertyUpdate,
-    supabase: Client = Depends(get_supabase_dependency),
+    db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user)
 ):
     """Update property details"""
-    updated_property = await update_property(supabase, property_id, property_update)
+    updated_property = await update_property(db, property_id, property_update)
     
     if not updated_property:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -187,11 +206,11 @@ async def update_property_details(
 @router.delete("/{property_id}")
 async def delete_property_endpoint(
     property_id: int,
-    supabase: Client = Depends(get_supabase_dependency),
+    db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user)
 ):
     """Delete a property"""
-    success = await delete_property(supabase, property_id)
+    success = await delete_property(db, property_id)
     
     if not success:
         raise HTTPException(status_code=404, detail="Property not found")

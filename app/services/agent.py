@@ -1,8 +1,9 @@
-from supabase import Client
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, and_
 from typing import Optional, List, Dict, Any
-from app.repositories.agent import AgentRepository
+from app.models.models import Agent, User, Visit
 from app.schemas.agent import (
-    Agent, 
+    Agent as AgentSchema, 
     AgentCreate,
     AgentUpdate,
     AgentAssignment, 
@@ -11,147 +12,135 @@ from app.schemas.agent import (
     AgentWorkload,
     AgentSystemStats
 )
-from app.db.types import AgentDB
 from datetime import datetime
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-def _parse_agent_db_to_schema(agent_db: Optional[AgentDB]) -> Optional[Agent]:
-    """Parse AgentDB dict to Pydantic Agent schema"""
-    if not agent_db:
-        return None
-    
-    agent_data = dict(agent_db)
-    return Agent.model_validate(agent_data)
-
-async def get_all_agents(supabase: Client) -> List[Agent]:
+async def get_all_agents(db: AsyncSession) -> List[AgentSchema]:
     """Get all agents"""
-    repo = AgentRepository(supabase)
-    agents_db = await repo.get_all_agents()
-    
-    agents = []
-    for agent_db in agents_db:
-        agent_schema = _parse_agent_db_to_schema(agent_db)
-        if agent_schema:
-            agents.append(agent_schema)
-    
-    return agents
+    stmt = select(Agent)
+    result = await db.execute(stmt)
+    agents = result.scalars().all()
+    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
 
-async def get_active_agents(supabase: Client) -> List[Agent]:
+async def get_active_agents(db: AsyncSession) -> List[AgentSchema]:
     """Get all active agents"""
-    repo = AgentRepository(supabase)
-    agents_db = await repo.get_active_agents()
-    
-    agents = []
-    for agent_db in agents_db:
-        agent_schema = _parse_agent_db_to_schema(agent_db)
-        if agent_schema:
-            agents.append(agent_schema)
-    
-    return agents
+    stmt = select(Agent).where(Agent.is_active == True)
+    result = await db.execute(stmt)
+    agents = result.scalars().all()
+    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
 
-async def get_available_agents(supabase: Client) -> List[Agent]:
+async def get_available_agents(db: AsyncSession) -> List[AgentSchema]:
     """Get all available agents (active and available)"""
-    repo = AgentRepository(supabase)
-    agents_db = await repo.get_available_agents()
-    
-    agents = []
-    for agent_db in agents_db:
-        agent_schema = _parse_agent_db_to_schema(agent_db)
-        if agent_schema:
-            agents.append(agent_schema)
-    
-    return agents
+    stmt = select(Agent).where(and_(Agent.is_active == True, Agent.is_available == True))
+    result = await db.execute(stmt)
+    agents = result.scalars().all()
+    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
 
-async def get_agent_by_id(supabase: Client, agent_id: int) -> Optional[Agent]:
+async def get_agent_by_id(db: AsyncSession, agent_id: int) -> Optional[AgentSchema]:
     """Get a specific agent by ID"""
-    repo = AgentRepository(supabase)
-    agent_db = await repo.get_by_id(agent_id)
-    return _parse_agent_db_to_schema(agent_db)
+    stmt = select(Agent).where(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
+    return AgentSchema.model_validate(agent.__dict__) if agent else None
 
-async def get_agent_by_code(supabase: Client, agent_code: str) -> Optional[Agent]:
-    """Get agent by unique agent code"""
-    repo = AgentRepository(supabase)
-    agent_db = await repo.get_agent_by_code(agent_code)
-    return _parse_agent_db_to_schema(agent_db)
 
-async def create_agent(supabase: Client, agent_data: AgentCreate) -> Optional[Agent]:
+async def create_agent(db: AsyncSession, agent_data: AgentCreate) -> Optional[AgentSchema]:
     """Create a new agent"""
-    repo = AgentRepository(supabase)
-    
-    # Check if agent code already exists
-    existing_agent = await repo.get_agent_by_code(agent_data.agent_code)
-    if existing_agent:
-        logger.warning(f"Agent with code {agent_data.agent_code} already exists")
-        return None
-    
     # Create the agent
     agent_dict = agent_data.model_dump()
     agent_dict["is_active"] = True
     agent_dict["is_available"] = True
     agent_dict["total_users_assigned"] = 0
-    agent_dict["total_interactions"] = 0
-    agent_dict["average_response_time_seconds"] = 30
     agent_dict["user_satisfaction_rating"] = 0.0
     
-    created_agent = await repo.create(agent_dict)
-    return _parse_agent_db_to_schema(created_agent)
+    db_agent = Agent(**agent_dict)
+    db.add(db_agent)
+    await db.flush()
+    await db.refresh(db_agent)
+    
+    return AgentSchema.model_validate(db_agent.__dict__)
 
-async def update_agent(supabase: Client, agent_id: int, update_data: AgentUpdate) -> Optional[Agent]:
+async def update_agent(db: AsyncSession, agent_id: int, update_data: AgentUpdate) -> Optional[AgentSchema]:
     """Update agent details"""
-    repo = AgentRepository(supabase)
+    stmt = select(Agent).where(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
+    
+    if not agent:
+        return None
     
     # Filter out None values
     update_dict = {k: v for k, v in update_data.model_dump().items() if v is not None}
     
     if not update_dict:
         # No valid updates
-        return await get_agent_by_id(supabase, agent_id)
+        return AgentSchema.model_validate(agent.__dict__)
     
-    updated_agent = await repo.update(agent_id, update_dict)
-    return _parse_agent_db_to_schema(updated_agent)
+    for field, value in update_dict.items():
+        setattr(agent, field, value)
+    
+    await db.flush()
+    await db.refresh(agent)
+    return AgentSchema.model_validate(agent.__dict__)
 
-async def delete_agent(supabase: Client, agent_id: int) -> bool:
+async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
     """Soft delete an agent (set as inactive)"""
-    repo = AgentRepository(supabase)
+    stmt = select(Agent).where(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
+    
+    if not agent:
+        return False
     
     # Set agent as inactive instead of hard delete
-    update_data = {
-        "is_active": False,
-        "is_available": False
-    }
+    agent.is_active = False
+    agent.is_available = False
     
-    updated_agent = await repo.update(agent_id, update_data)
-    return updated_agent is not None
+    await db.flush()
+    return True
 
-async def get_user_agent(supabase: Client, user_id: int, auto_assign: bool = True) -> Optional[Agent]:
+async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = True) -> Optional[AgentSchema]:
     """Get the assigned agent for a user, auto-assign if none exists"""
-    repo = AgentRepository(supabase)
-    
     # Check if user already has an agent
-    agent_db = await repo.get_user_agent(user_id)
-    if agent_db:
-        return _parse_agent_db_to_schema(agent_db)
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    
+    if user and user.agent_id:
+        stmt = select(Agent).where(Agent.id == user.agent_id)
+        result = await db.execute(stmt)
+        agent = result.scalar_one_or_none()
+        if agent:
+            return AgentSchema.model_validate(agent.__dict__)
     
     # Auto-assign if requested and no agent exists
     if auto_assign:
         logger.info(f"Auto-assigning agent for user {user_id}")
-        assignment = await assign_agent_to_user(supabase, user_id)
+        assignment = await assign_agent_to_user(db, user_id)
         if assignment:
             return assignment.agent
     
     return None
 
-async def assign_agent_to_user(supabase: Client, user_id: int, agent_id: Optional[int] = None) -> Optional[AgentAssignment]:
+async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: Optional[int] = None) -> Optional[AgentAssignment]:
     """Assign an agent to a user (auto-assign if no agent_id provided)"""
-    repo = AgentRepository(supabase)
-    
     # Check if user already has an agent
-    existing_agent = await repo.get_user_agent(user_id)
-    if existing_agent:
-        agent_schema = _parse_agent_db_to_schema(existing_agent)
-        if agent_schema:
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        logger.warning(f"User {user_id} not found")
+        return None
+    
+    if user.agent_id:
+        stmt = select(Agent).where(Agent.id == user.agent_id)
+        result = await db.execute(stmt)
+        existing_agent = result.scalar_one_or_none()
+        if existing_agent:
+            agent_schema = AgentSchema.model_validate(existing_agent.__dict__)
             return AgentAssignment(
                 user_id=user_id,
                 agent=agent_schema,
@@ -162,158 +151,192 @@ async def assign_agent_to_user(supabase: Client, user_id: int, agent_id: Optiona
     # Determine which agent to assign
     if agent_id:
         # Specific agent requested
-        agent_db = await repo.get_by_id(agent_id)
-        if not agent_db or not agent_db.get("is_active") or not agent_db.get("is_available"):
+        stmt = select(Agent).where(Agent.id == agent_id)
+        result = await db.execute(stmt)
+        agent = result.scalar_one_or_none()
+        if not agent or not agent.is_active or not agent.is_available:
             logger.warning(f"Requested agent {agent_id} is not available")
             return None
     else:
-        # Auto-assign based on load balancing
-        agent_db = await repo.get_agent_with_least_users()
-        if not agent_db:
+        # Auto-assign based on load balancing - get agent with least users
+        stmt = select(Agent, func.count(User.id).label('user_count')).outerjoin(
+            User, Agent.id == User.agent_id
+        ).where(
+            and_(Agent.is_active == True, Agent.is_available == True)
+        ).group_by(Agent.id).order_by(func.count(User.id).asc()).limit(1)
+        
+        result = await db.execute(stmt)
+        agent_with_count = result.first()
+        
+        if not agent_with_count:
             logger.warning("No available agents for assignment")
             return None
-        agent_id = agent_db["id"]
+        
+        agent = agent_with_count[0]
+        agent_id = agent.id
     
     # Assign the agent
-    success = await repo.assign_agent_to_user(user_id, agent_id)
-    if not success:
-        return None
+    user.agent_id = agent_id
     
-    # Update last active timestamp
-    await repo.update_last_active(agent_id)
+    # Update agent stats
+    agent.total_users_assigned = (agent.total_users_assigned or 0) + 1
     
-    agent_schema = _parse_agent_db_to_schema(agent_db)
-    if agent_schema:
-        return AgentAssignment(
-            user_id=user_id,
-            agent=agent_schema,
-            assigned_at=datetime.utcnow(),
-            assignment_reason="auto_assigned" if not agent_id else "manual_assigned"
-        )
+    await db.flush()
+    await db.refresh(agent)
     
-    return None
+    agent_schema = AgentSchema.model_validate(agent.__dict__)
+    return AgentAssignment(
+        user_id=user_id,
+        agent=agent_schema,
+        assigned_at=datetime.utcnow(),
+        assignment_reason="auto_assigned" if not agent_id else "manual_assigned"
+    )
 
-async def get_agent_with_stats(supabase: Client, agent_id: int) -> Optional[AgentWithStats]:
+async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> Optional[AgentWithStats]:
     """Get agent with performance statistics"""
-    repo = AgentRepository(supabase)
+    stmt = select(Agent).where(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
     
-    agent_db = await repo.get_by_id(agent_id)
-    if not agent_db:
+    if not agent:
         return None
     
-    # Get agent stats
-    stats_data = await repo.get_agent_stats(agent_id)
+    # Get current active users count
+    stmt = select(func.count(User.id)).where(User.agent_id == agent_id)
+    result = await db.execute(stmt)
+    current_users = result.scalar() or 0
+    
+    # Get visit stats for efficiency calculation
+    stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
+    result = await db.execute(stmt)
+    total_visits = result.scalar() or 0
     
     stats = AgentStats(
-        total_users_assigned=stats_data.get("total_users_assigned", 0),
-        total_interactions=stats_data.get("total_interactions", 0),
-        average_response_time_seconds=stats_data.get("average_response_time_seconds", 30),
-        user_satisfaction_rating=stats_data.get("user_satisfaction_rating", 0.0),
-        active_conversations=stats_data.get("current_active_users", 0),
+        total_users_assigned=agent.total_users_assigned or 0,
+        user_satisfaction_rating=float(agent.user_satisfaction_rating or 0.0),
+        active_conversations=current_users,
         daily_interactions=0,  # TODO: Calculate from interaction logs
         weekly_interactions=0,  # TODO: Calculate from interaction logs
-        efficiency_score=_calculate_efficiency_score(stats_data)
+        efficiency_score=_calculate_efficiency_score(agent, current_users)
     )
     
-    agent_schema = _parse_agent_db_to_schema(agent_db)
-    if agent_schema:
-        return AgentWithStats(
-            **agent_schema.model_dump(),
-            stats=stats
-        )
-    
-    return None
+    agent_schema = AgentSchema.model_validate(agent.__dict__)
+    return AgentWithStats(
+        **agent_schema.model_dump(),
+        stats=stats
+    )
 
-async def get_agents_by_specialization(supabase: Client, specialization: str) -> List[Agent]:
-    """Get agents that specialize in a specific area"""
-    repo = AgentRepository(supabase)
-    agents_db = await repo.get_agents_by_specialization(specialization)
-    
-    agents = []
-    for agent_db in agents_db:
-        agent_schema = _parse_agent_db_to_schema(agent_db)
-        if agent_schema:
-            agents.append(agent_schema)
-    
-    return agents
+async def get_agents_by_specialization(db: AsyncSession, specialization: str) -> List[AgentSchema]:
+    """Get agents that specialize in a specific area - simplified to return all active agents"""
+    stmt = select(Agent).where(Agent.is_active == True)
+    result = await db.execute(stmt)
+    agents = result.scalars().all()
+    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
 
-async def get_agents_by_type(supabase: Client, agent_type: str) -> List[Agent]:
+async def get_agents_by_type(db: AsyncSession, agent_type: str) -> List[AgentSchema]:
     """Get agents by type (general, specialist, senior)"""
-    repo = AgentRepository(supabase)
-    agents_db = await repo.get_agents_by_type(agent_type)
-    
-    agents = []
-    for agent_db in agents_db:
-        agent_schema = _parse_agent_db_to_schema(agent_db)
-        if agent_schema:
-            agents.append(agent_schema)
-    
-    return agents
+    stmt = select(Agent).where(
+        and_(Agent.is_active == True, Agent.agent_type == agent_type)
+    )
+    result = await db.execute(stmt)
+    agents = result.scalars().all()
+    return [AgentSchema.model_validate(agent.__dict__) for agent in agents]
 
-async def update_agent_availability(supabase: Client, agent_id: int, is_available: bool) -> bool:
+async def update_agent_availability(db: AsyncSession, agent_id: int, is_available: bool) -> bool:
     """Update agent availability status"""
-    repo = AgentRepository(supabase)
-    return await repo.update_agent_availability(agent_id, is_available)
+    stmt = select(Agent).where(Agent.id == agent_id)
+    result = await db.execute(stmt)
+    agent = result.scalar_one_or_none()
+    
+    if not agent:
+        return False
+    
+    agent.is_available = is_available
+    await db.flush()
+    return True
 
-async def get_workload_distribution(supabase: Client) -> List[AgentWorkload]:
+async def get_workload_distribution(db: AsyncSession) -> List[AgentWorkload]:
     """Get workload distribution across all active agents"""
-    repo = AgentRepository(supabase)
-    workload_data = await repo.get_workload_distribution()
+    stmt = select(
+        Agent,
+        func.count(User.id).label('current_users')
+    ).outerjoin(
+        User, Agent.id == User.agent_id
+    ).where(
+        Agent.is_active == True
+    ).group_by(Agent.id)
+    
+    result = await db.execute(stmt)
+    agent_workloads = result.all()
     
     workload = []
-    for data in workload_data:
+    for agent, current_users in agent_workloads:
+        max_users = 50  # Default max users
+        utilization = (current_users / max_users * 100) if max_users > 0 else 0
+        
         workload.append(AgentWorkload(
-            agent_id=data["agent_id"],
-            agent_name=data["agent_name"],
-            current_users=data["current_users"],
-            max_users=data["max_users"],
-            utilization_percentage=data["utilization_percentage"],
-            is_available=data["is_available"],
-            queue_length=data["queue_length"]
+            agent_id=agent.id,
+            agent_name=agent.name,
+            current_users=current_users,
+            utilization_percentage=round(utilization, 2),
+            is_available=agent.is_available,
+            queue_length=max(0, current_users - max_users) if current_users > max_users else 0
         ))
     
     return workload
 
-async def get_system_stats(supabase: Client) -> AgentSystemStats:
+async def get_system_stats(db: AsyncSession) -> AgentSystemStats:
     """Get overall agent system statistics"""
-    repo = AgentRepository(supabase)
+    # Get all agents count
+    stmt = select(func.count(Agent.id))
+    result = await db.execute(stmt)
+    total_agents = result.scalar() or 0
     
-    all_agents = await repo.get_all_agents()
-    active_agents = await repo.get_active_agents()
-    workload = await get_workload_distribution(supabase)
+    # Get active agents count
+    stmt = select(func.count(Agent.id)).where(Agent.is_active == True)
+    result = await db.execute(stmt)
+    active_agents = result.scalar() or 0
     
-    # Calculate aggregate stats
-    total_users_served = sum(agent.get("total_users_assigned", 0) for agent in all_agents)
-    total_interactions_today = 0  # TODO: Calculate from interaction logs
-    avg_response_time = sum(agent.get("average_response_time_seconds", 30) for agent in active_agents) / len(active_agents) if active_agents else 30
-    avg_satisfaction = sum(agent.get("user_satisfaction_rating", 0) for agent in active_agents) / len(active_agents) if active_agents else 0
+    # Get total users served
+    stmt = select(func.sum(Agent.total_users_assigned)).where(Agent.is_active == True)
+    result = await db.execute(stmt)
+    total_users_served = result.scalar() or 0
+    
+    # Get average stats
+    stmt = select(
+        func.avg(Agent.user_satisfaction_rating)
+    ).where(Agent.is_active == True)
+    result = await db.execute(stmt)
+    avg_satisfaction = result.scalar() or 0
     
     # Count agents by type
-    agents_by_type = {}
-    for agent in active_agents:
-        agent_type = agent.get("agent_type", "general")
-        agents_by_type[agent_type] = agents_by_type.get(agent_type, 0) + 1
+    stmt = select(Agent.agent_type, func.count(Agent.id)).where(
+        Agent.is_active == True
+    ).group_by(Agent.agent_type)
+    result = await db.execute(stmt)
+    agents_by_type = dict(result.all())
+    
+    # Get workload distribution
+    workload = await get_workload_distribution(db)
     
     return AgentSystemStats(
-        total_agents=len(all_agents),
-        active_agents=len(active_agents),
-        total_users_served=total_users_served,
-        total_interactions_today=total_interactions_today,
-        average_response_time=avg_response_time,
-        system_satisfaction_score=avg_satisfaction,
+        total_agents=total_agents,
+        active_agents=active_agents,
+        total_users_served=int(total_users_served),
+        system_satisfaction_score=float(avg_satisfaction or 0),
         agents_by_type=agents_by_type,
         load_distribution=workload
     )
 
-def _calculate_efficiency_score(stats_data: Dict[str, Any]) -> float:
+def _calculate_efficiency_score(agent: Agent, current_users: int) -> float:
     """Calculate agent efficiency score based on various metrics"""
     try:
-        response_time = stats_data.get("average_response_time_seconds", 30)
-        satisfaction = stats_data.get("user_satisfaction_rating", 0.0)
-        utilization = stats_data.get("utilization_percentage", 0.0)
+        satisfaction = float(agent.user_satisfaction_rating or 0.0)
+        max_users = 50  # Default max users
+        utilization = (current_users / max_users * 100) if max_users > 0 else 0
         
-        # Normalize response time (lower is better, cap at 300 seconds)
-        response_score = max(0, 100 - (response_time / 300 * 100))
+        # Default response score since we don't track response time anymore
+        response_score = 75  # Assume average performance
         
         # Satisfaction score (0-5 scale, convert to 0-100)
         satisfaction_score = (satisfaction / 5.0) * 100 if satisfaction > 0 else 50

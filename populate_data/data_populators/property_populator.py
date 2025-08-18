@@ -6,13 +6,14 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 import sys
 import os
+from sqlalchemy import select, delete
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.core.supabase_client import get_supabase_admin_client
 from app.core.logging import get_logger
-from app.db.base import BaseRepository
+from app.models.models import Property, PropertyImage, User, Amenity, PropertyAmenity
+from app.models.enums import PropertyType, PropertyPurpose, PropertyStatus
 from .base import BasePopulator, LOCATIONS, VIRTUAL_TOUR_URL, MAIN_IMAGE_URL, OTHER_IMAGE_URL
 
 logger = get_logger(__name__)
@@ -21,18 +22,15 @@ class PropertyPopulator(BasePopulator):
     """Populates test properties with realistic location-based data"""
     
     def __init__(self):
-        self.client = get_supabase_admin_client()
-        self.property_repo = BaseRepository(self.client, "properties")
-        self.property_images_repo = BaseRepository(self.client, "property_images")
-        self.logger = get_logger(self.__class__.__name__)
+        super().__init__()
     
-    def _generate_property_data(self, location_key: str, index: int) -> Dict[str, Any]:
+    def _generate_property_data(self, location_key: str, index: int, owner_id: int) -> Dict[str, Any]:
         """Generate realistic property data for a specific location"""
         location = LOCATIONS[location_key]
         
         # Property types and their characteristics
-        property_types = ["apartment", "house", "builder_floor", "room"]
-        purposes = ["buy", "rent", "short_stay"]
+        property_types = [PropertyType.apartment, PropertyType.house, PropertyType.builder_floor, PropertyType.room]
+        purposes = [PropertyPurpose.buy, PropertyPurpose.rent, PropertyPurpose.short_stay]
         
         property_type = random.choice(property_types)
         purpose = random.choice(purposes)
@@ -49,15 +47,15 @@ class PropertyPopulator(BasePopulator):
         locality = random.choice(location.localities)
         
         # Generate area based on property type
-        if property_type == "room":
+        if property_type == PropertyType.room:
             area_sqft = random.randint(200, 400)
             bedrooms = 1
             bathrooms = 1
-        elif property_type == "apartment":
+        elif property_type == PropertyType.apartment:
             area_sqft = random.randint(600, 2500)
             bedrooms = random.randint(1, 4)
             bathrooms = min(bedrooms, random.randint(1, 3))
-        elif property_type == "builder_floor":
+        elif property_type == PropertyType.builder_floor:
             area_sqft = random.randint(1200, 3000)
             bedrooms = random.randint(2, 4)
             bathrooms = random.randint(2, 4)
@@ -71,29 +69,28 @@ class PropertyPopulator(BasePopulator):
         base_price = area_sqft * price_per_sqft
         
         # Adjust for property type
-        if property_type == "house":
+        if property_type == PropertyType.house:
             base_price = int(base_price * 1.2)
-        elif property_type == "room":
+        elif property_type == PropertyType.room:
             base_price = int(base_price * 0.7)
         
         # Calculate other prices
-        monthly_rent = int(base_price * 0.001) if purpose in ["rent", "short_stay"] else None
-        daily_rate = int(monthly_rent / 30) if purpose == "short_stay" and monthly_rent else None
+        monthly_rent = int(base_price * 0.001) if purpose in [PropertyPurpose.rent, PropertyPurpose.short_stay] else None
+        daily_rate = int(monthly_rent / 30) if purpose == PropertyPurpose.short_stay and monthly_rent else None
         security_deposit = int(monthly_rent * 2) if monthly_rent else None
         
-        # Generate amenities
-        selected_amenities = random.sample(
-            location.popular_amenities, 
-            random.randint(3, min(8, len(location.popular_amenities)))
-        )
+        # We'll add amenities separately after property creation
         
         # Create property title
+        property_type_str = property_type.value.replace('_', ' ').title()
+        purpose_str = purpose.value.replace('_', ' ').title()
+        
         titles = [
-            f"Beautiful {bedrooms}BHK {property_type.replace('_', ' ').title()}",
+            f"Beautiful {bedrooms}BHK {property_type_str}",
             f"Spacious {bedrooms}BHK in {locality}",
-            f"Premium {property_type.replace('_', ' ').title()} for {purpose.replace('_', ' ').title()}",
+            f"Premium {property_type_str} for {purpose_str}",
             f"Luxury {bedrooms}BHK with Modern Amenities",
-            f"Well-maintained {property_type.replace('_', ' ').title()} in Prime Location"
+            f"Well-maintained {property_type_str} in Prime Location"
         ]
         title = random.choice(titles)
         
@@ -101,7 +98,7 @@ class PropertyPopulator(BasePopulator):
         description = f"""
 {title} located in the heart of {locality}, {location.name}. 
 
-This well-designed {property_type.replace('_', ' ')} offers {area_sqft} sq ft of living space with {bedrooms} bedrooms and {bathrooms} bathrooms. Perfect for {purpose.replace('_', ' ')}.
+This well-designed {property_type.value.replace('_', ' ')} offers {area_sqft} sq ft of living space with {bedrooms} bedrooms and {bathrooms} bathrooms. Perfect for {purpose.value.replace('_', ' ')}.
 
 Key Features:
 - Prime location in {locality}
@@ -110,7 +107,7 @@ Key Features:
 - {bathrooms} modern bathrooms
 - {'Parking available' if random.choice([True, False]) else 'Street parking'}
 
-Amenities: {', '.join(selected_amenities)}
+Modern amenities available for a comfortable living experience.
 
 {random.choice(location.landmarks)} - This property offers excellent connectivity and lifestyle amenities.
         """.strip()
@@ -123,15 +120,16 @@ Amenities: {', '.join(selected_amenities)}
             features.append("Pet Friendly")
         if random.choice([True, False]):
             features.append("24/7 Security")
-        if purpose == "short_stay":
+        if purpose == PropertyPurpose.short_stay:
             features.extend(["WiFi", "AC", "Kitchen"])
         
         return {
+            "owner_id": owner_id,
             "title": title,
             "description": description,
             "property_type": property_type,
             "purpose": purpose,
-            "status": "available",
+            "status": PropertyStatus.available,
             
             # Location
             "latitude": round(latitude, 6),
@@ -165,11 +163,10 @@ Amenities: {', '.join(selected_amenities)}
             "age_of_property": random.randint(0, 20),
             
             # Short stay specific
-            "max_occupancy": bedrooms * 2 if purpose == "short_stay" else None,
-            "minimum_stay_days": random.randint(1, 30) if purpose == "short_stay" else 1,
+            "max_occupancy": bedrooms * 2 if purpose == PropertyPurpose.short_stay else None,
+            "minimum_stay_days": random.randint(1, 30) if purpose == PropertyPurpose.short_stay else 1,
             
-            # Amenities and features
-            "amenities": selected_amenities,
+            # Features
             "features": features,
             
             # Media
@@ -178,11 +175,11 @@ Amenities: {', '.join(selected_amenities)}
             
             # Availability
             "is_available": True,
-            "available_from": "Immediate",
+            "available_from": datetime.now(timezone.utc),
             
             # SEO and tags
-            "tags": [property_type, purpose, locality, f"{bedrooms}bhk"],
-            "search_keywords": f"{property_type} {purpose} {locality} {bedrooms}bhk {location.name}",
+            "tags": [property_type.value, purpose.value, locality, f"{bedrooms}bhk"],
+            "search_keywords": f"{property_type.value} {purpose.value} {locality} {bedrooms}bhk {location.name}",
             
             # Owner/Builder info
             "owner_name": f"Owner {index + 1}",
@@ -195,110 +192,157 @@ Amenities: {', '.join(selected_amenities)}
             "interest_count": random.randint(0, 20)
         }
     
-    async def _create_property_images(self, property_id: int) -> None:
+    async def _create_property_images(self, session, property_id: int) -> None:
         """Create sample images for a property"""
         try:
             images = [
-                {
-                    "property_id": property_id,
-                    "image_url": MAIN_IMAGE_URL,
-                    "caption": "Main exterior view",
-                    "display_order": 0,
-                    "is_main_image": True
-                },
-                {
-                    "property_id": property_id,
-                    "image_url": OTHER_IMAGE_URL,
-                    "caption": "Interior view",
-                    "display_order": 1,
-                    "is_main_image": False
-                },
-                {
-                    "property_id": property_id,
-                    "image_url": VIRTUAL_TOUR_URL,
-                    "caption": "360° Virtual Tour",
-                    "display_order": 2,
-                    "is_main_image": False
-                }
+                PropertyImage(
+                    property_id=property_id,
+                    image_url=MAIN_IMAGE_URL,
+                    caption="Main exterior view",
+                    display_order=0,
+                    is_main_image=True
+                ),
+                PropertyImage(
+                    property_id=property_id,
+                    image_url=OTHER_IMAGE_URL,
+                    caption="Interior view",
+                    display_order=1,
+                    is_main_image=False
+                ),
+                PropertyImage(
+                    property_id=property_id,
+                    image_url=VIRTUAL_TOUR_URL,
+                    caption="360° Virtual Tour",
+                    display_order=2,
+                    is_main_image=False
+                )
             ]
             
-            await self.property_images_repo.batch_insert(images)
+            session.add_all(images)
             
         except Exception as e:
             self.logger.error(f"Failed to create images for property {property_id}: {str(e)}")
     
-    async def populate(self, count: Optional[int] = 300) -> int:
+    async def _create_property_amenities(self, session, property_id: int, available_amenities: List[Amenity]) -> None:
+        """Create amenity associations for a property"""
+        try:
+            if not available_amenities:
+                return
+            
+            # Select 3-8 random amenities for this property
+            num_amenities = random.randint(3, min(8, len(available_amenities)))
+            selected_amenities = random.sample(available_amenities, num_amenities)
+            
+            for amenity in selected_amenities:
+                property_amenity = PropertyAmenity(
+                    property_id=property_id,
+                    amenity_id=amenity.id
+                )
+                session.add(property_amenity)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create amenities for property {property_id}: {str(e)}")
+    
+    async def populate(self, count: Optional[int] = None, properties_per_location: Optional[int] = 100) -> int:
         """
         Create test properties across different locations
         
         Args:
-            count: Number of properties to create (default: 300)
+            count: Total number of properties to create (deprecated, use properties_per_location)
+            properties_per_location: Number of properties to create per location (default: 100)
             
         Returns:
             Number of properties created
         """
-        if count is None:
-            count = 1000
-            
-        self.logger.info(f"Creating {count} test properties across locations...")
+        # Handle backward compatibility
+        if count is not None:
+            # Calculate properties per location from total count
+            location_keys = list(LOCATIONS.keys())
+            properties_per_location = count // len(location_keys)
+        elif properties_per_location is None:
+            properties_per_location = 100
+        
+        location_keys = list(LOCATIONS.keys())
+        total_properties = properties_per_location * len(location_keys)
+        
+        self.logger.info(f"Creating {properties_per_location} properties per location across {len(location_keys)} locations (total: {total_properties})...")
         
         created_count = 0
-        location_keys = list(LOCATIONS.keys())
         
-        # Distribute properties across locations
-        properties_per_location = count // len(location_keys)
-        remainder = count % len(location_keys)
+        async with await self.get_db_session() as session:
+            try:
+                # Get available users to assign as property owners
+                users_result = await session.execute(select(User))
+                users = users_result.scalars().all()
+                
+                if not users:
+                    self.logger.error("No users found to assign as property owners. Please create users first.")
+                    return 0
+                
+                # Get available amenities
+                amenities_result = await session.execute(select(Amenity).where(Amenity.is_active == True))
+                available_amenities = amenities_result.scalars().all()
+                
+                if not available_amenities:
+                    self.logger.warning("No amenities found. Properties will be created without amenities.")
+                
+                self.logger.info(f"Found {len(users)} users and {len(available_amenities)} amenities")
+                
+                for location_idx, location_key in enumerate(location_keys):
+                    self.logger.info(f"Creating {properties_per_location} properties in {LOCATIONS[location_key].name}...")
+                    
+                    for i in range(properties_per_location):
+                        try:
+                            # Assign owner in round-robin fashion
+                            owner = users[created_count % len(users)]
+                            property_data = self._generate_property_data(location_key, created_count, owner.id)
+                            
+                            # Create property
+                            property_obj = Property(**property_data)
+                            session.add(property_obj)
+                            await session.flush()  # Get the ID
+                            
+                            # Create property images
+                            await self._create_property_images(session, property_obj.id)
+                            
+                            # Create property amenities
+                            await self._create_property_amenities(session, property_obj.id, available_amenities)
+                            
+                            created_count += 1
+                            self.log_progress(created_count, total_properties, "properties")
+                            
+                            # Commit every 10 properties to avoid session issues
+                            if created_count % 10 == 0:
+                                await session.commit()
+                            
+                        except Exception as e:
+                            self.logger.error(f"Failed to create property {created_count + 1}: {str(e)}")
+                            await session.rollback()
+                            continue
+                
+                await session.commit()
+                self.logger.info(f"Successfully created {created_count} properties")
+                
+            except Exception as e:
+                await session.rollback()
+                self.logger.error(f"Failed to create properties: {str(e)}")
+                raise
         
-        for location_idx, location_key in enumerate(location_keys):
-            # Add remainder to first few locations
-            location_count = properties_per_location + (1 if location_idx < remainder else 0)
-            
-            self.logger.info(f"Creating {location_count} properties in {LOCATIONS[location_key].name}...")
-            
-            for i in range(location_count):
-                try:
-                    property_data = self._generate_property_data(location_key, created_count)
-                    
-                    # Create property
-                    property_result = await self.property_repo.create(property_data)
-                    
-                    # Create property images
-                    if property_result and "id" in property_result:
-                        await self._create_property_images(property_result["id"])
-                    
-                    created_count += 1
-                    self.log_progress(created_count, count, "properties")
-                    
-                except Exception as e:
-                    self.logger.error(f"Failed to create property {created_count + 1}: {str(e)}")
-                    continue
-        
-        self.logger.info(f"Successfully created {created_count} properties")
         return created_count
     
     async def clear_all(self) -> int:
         """Clear all test properties"""
         try:
-            # Get count before deletion
-            count_result = await self.property_repo.count()
-            
-            # Note: Since we're using cascade deletes, property_images will be automatically deleted
-            # For this test data, we'll delete all properties
-            # In production, you might want to be more selective
-            
-            # Get all property IDs first
-            all_properties = await self.property_repo.get_multi(limit=10000)  # Get all
-            
-            deleted_count = 0
-            for property_data in all_properties.get("items", []):
-                try:
-                    await self.property_repo.delete(property_data["id"])
-                    deleted_count += 1
-                except Exception as e:
-                    self.logger.error(f"Failed to delete property {property_data['id']}: {str(e)}")
-            
-            self.logger.info(f"Deleted {deleted_count} properties")
-            return deleted_count
+            async with await self.get_db_session() as session:
+                # Delete all properties - images will be cascade deleted
+                result = await session.execute(delete(Property))
+                deleted_count = result.rowcount
+                
+                await session.commit()
+                
+                self.logger.info(f"Deleted {deleted_count} properties")
+                return deleted_count
             
         except Exception as e:
             self.logger.error(f"Failed to clear properties: {str(e)}")

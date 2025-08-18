@@ -1,62 +1,129 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from supabase import Client
-from app.core.supabase_client import get_supabase_dependency
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import get_db
 from app.api.api_v1.endpoints.auth import get_current_active_user
 from app.schemas.user import User as UserSchema
-from app.schemas.visit import VisitCreate, VisitUpdate, Visit
-from app.services.visit import create_visit, get_user_visits, reschedule_visit, cancel_visit
-from app.core.logging import get_logger
-from typing import Optional
-
-logger = get_logger(__name__)
+from app.schemas.visit import (
+    VisitCreate, VisitUpdate, Visit, VisitList, VisitReschedule, VisitCancel
+)
+from app.schemas.common import MessageResponse
+from app.services.visit import (
+    create_visit, get_visit, get_user_visits, update_visit,
+    cancel_visit, reschedule_visit, get_user_relationship_manager
+)
 
 router = APIRouter()
 
-@router.get("/", response_model=list[Visit])
-async def get_visits(
-    visit_type: Optional[str] = Query(None, description="Filter by 'upcoming', 'past', or None for all"),
-    current_user: UserSchema = Depends(get_current_active_user),
-    supabase: Client = Depends(get_supabase_dependency)
-):
-    """Get user's visits with optional filter for upcoming or past visits"""
-    return await get_user_visits(supabase, current_user.id, visit_type=visit_type)
-
 @router.post("/", response_model=Visit)
-async def create_new_visit(
+async def schedule_visit(
     visit: VisitCreate,
     current_user: UserSchema = Depends(get_current_active_user),
-    supabase: Client = Depends(get_supabase_dependency)
+    db: AsyncSession = Depends(get_db)
 ):
-    """Create a new property visit - requires property_id and scheduled_date"""
-    # Add user_id from current user
-    visit_data = visit.model_dump()
-    visit_data['user_id'] = current_user.id
-    
-    # Create visit object
-    visit_with_user = VisitCreate(**visit_data)
-    result = await create_visit(supabase, visit_with_user)
-    logger.info("Visit created successfully", extra={"user_id": current_user.id, "property_id": visit.property_id, "visit_id": result.id})
-    return result
+    return await create_visit(db, current_user.id, visit)
 
-@router.patch("/{visit_id}")
-async def update_visit(
+@router.get("/", response_model=VisitList)
+async def get_my_visits(
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await get_user_visits(db, current_user.id)
+
+@router.get("/upcoming")
+async def get_upcoming_visits(
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.visit import get_user_upcoming_visits
+    return await get_user_upcoming_visits(db, current_user.id)
+
+@router.get("/past")
+async def get_past_visits(
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.services.visit import get_user_past_visits
+    return await get_user_past_visits(db, current_user.id)
+
+@router.get("/relationship-manager")
+async def get_my_relationship_manager(
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    rm = await get_user_relationship_manager(db, current_user.id)
+    if not rm:
+        raise HTTPException(status_code=404, detail="Relationship manager not assigned")
+    return rm
+
+@router.get("/{visit_id}", response_model=Visit)
+async def get_visit_details(
+    visit_id: int,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    visit = await get_visit(db, visit_id)
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    
+    # Check if visit belongs to current user
+    if visit.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return visit
+
+@router.put("/{visit_id}", response_model=Visit)
+async def update_visit_details(
     visit_id: int,
     visit_update: VisitUpdate,
-    supabase: Client = Depends(get_supabase_dependency),
-    current_user: UserSchema = Depends(get_current_active_user)
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
 ):
-    """Reschedule or cancel a visit"""
-    if visit_update.scheduled_date:
-        # Reschedule visit
-        result = await reschedule_visit(supabase, visit_id, visit_update.scheduled_date.isoformat())
-        if not result:
-            raise HTTPException(status_code=404, detail="Visit not found or failed to reschedule")
-        return result
-    elif visit_update.cancellation_reason:
-        # Cancel visit
-        result = await cancel_visit(supabase, visit_id, visit_update.cancellation_reason)
-        if not result:
-            raise HTTPException(status_code=404, detail="Visit not found or failed to cancel")
-        return result
-    else:
-        raise HTTPException(status_code=400, detail="Either scheduled_date for reschedule or cancellation_reason for cancel must be provided")
+    visit = await get_visit(db, visit_id)
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    
+    # Check if visit belongs to current user
+    if visit.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return await update_visit(db, visit_id, visit_update)
+
+@router.post("/reschedule", response_model=MessageResponse)
+async def reschedule_visit_date(
+    reschedule_data: VisitReschedule,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    visit = await get_visit(db, reschedule_data.visit_id)
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    
+    # Check if visit belongs to current user
+    if visit.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    success = await reschedule_visit(db, reschedule_data.visit_id, reschedule_data.new_date, reschedule_data.reason)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to reschedule visit")
+    
+    return MessageResponse(message="Visit rescheduled successfully")
+
+@router.post("/cancel", response_model=MessageResponse)
+async def cancel_visit_request(
+    cancel_data: VisitCancel,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    visit = await get_visit(db, cancel_data.visit_id)
+    if not visit:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    
+    # Check if visit belongs to current user
+    if visit.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    success = await cancel_visit(db, cancel_data.visit_id, cancel_data.reason)
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to cancel visit")
+    
+    return MessageResponse(message="Visit cancelled successfully")

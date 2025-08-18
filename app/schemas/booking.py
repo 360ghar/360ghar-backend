@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, Dict, Any
 from datetime import datetime
-from app.db.types import BookingStatus, PaymentStatus
+from app.models.enums import BookingStatus, PaymentStatus
 
 class BookingBase(BaseModel):
     property_id: int

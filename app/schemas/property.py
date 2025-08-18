@@ -1,8 +1,9 @@
 from pydantic import BaseModel, validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
-from app.db.types import PropertyType, PropertyPurpose, PropertyStatus
+from app.models.enums import PropertyType, PropertyPurpose, PropertyStatus
 from app.utils.validators import ValidationUtils
+from app.schemas.amenity import PropertyAmenityResponse
 from enum import Enum
 
 class PropertyImageBase(BaseModel):
@@ -58,8 +59,8 @@ class PropertyCreate(PropertyBase):
     age_of_property: Optional[int] = None
     max_occupancy: Optional[int] = None
     minimum_stay_days: Optional[int] = 1
-    amenities: Optional[List[str]] = None
-    features: Optional[Dict[str, Any]] = None
+    amenity_ids: Optional[List[int]] = None
+    features: Optional[List[str]] = None
     main_image_url: Optional[str] = None
     virtual_tour_url: Optional[str] = None
     available_from: Optional[str] = None
@@ -95,17 +96,6 @@ class PropertyCreate(PropertyBase):
             return ValidationUtils.validate_pincode(v)
         return v
     
-    @validator('amenities')
-    def validate_amenities(cls, v):
-        if v:
-            allowed_amenities = [
-                'parking', 'gym', 'pool', 'security', 'elevator',
-                'garden', 'powerbackup', 'clubhouse', 'playground'
-            ]
-            return ValidationUtils.validate_list_input(
-                v, max_items=20, allowed_values=allowed_amenities
-            )
-        return v
 
 class PropertyUpdate(BaseModel):
     title: Optional[str] = None
@@ -113,12 +103,13 @@ class PropertyUpdate(BaseModel):
     base_price: Optional[float] = None
     status: Optional[PropertyStatus] = None
     is_available: Optional[bool] = None
-    amenities: Optional[List[str]] = None
-    features: Optional[Dict[str, Any]] = None
+    amenity_ids: Optional[List[int]] = None
+    features: Optional[List[str]] = None
     calendar_data: Optional[Dict[str, Any]] = None
 
 class PropertyInDB(PropertyBase):
     id: int
+    owner_id: int
     status: PropertyStatus
     price_per_sqft: Optional[float] = None
     monthly_rent: Optional[float] = None
@@ -130,12 +121,11 @@ class PropertyInDB(PropertyBase):
     age_of_property: Optional[int] = None
     max_occupancy: Optional[int] = None
     minimum_stay_days: Optional[int] = None
-    amenities: Optional[List[str]] = None
-    features: Optional[Dict[str, Any]] = None
+    features: Optional[List[str]] = None
     main_image_url: Optional[str] = None
     virtual_tour_url: Optional[str] = None
     is_available: bool
-    available_from: Optional[str] = None
+    available_from: Optional[datetime] = None
     calendar_data: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     owner_name: Optional[str] = None
@@ -152,7 +142,11 @@ class PropertyInDB(PropertyBase):
 
 class Property(PropertyInDB):
     images: Optional[List[PropertyImage]] = None
+    amenities: Optional[List[PropertyAmenityResponse]] = None
     distance_km: Optional[float] = None  # For location-based searches
+    
+    class Config:
+        from_attributes = True
 
 class PropertyFilter(BaseModel):
     property_type: Optional[List[PropertyType]] = None
@@ -165,7 +159,7 @@ class PropertyFilter(BaseModel):
     area_max: Optional[float] = None
     city: Optional[str] = None
     locality: Optional[str] = None
-    amenities: Optional[List[str]] = None
+    amenity_ids: Optional[List[int]] = None
     max_distance_km: Optional[int] = 5
     available_from: Optional[str] = None
     
@@ -177,9 +171,6 @@ class PropertyFilter(BaseModel):
 class PropertySwipe(BaseModel):
     property_id: int
     is_liked: bool
-    user_location_lat: Optional[float] = None
-    user_location_lng: Optional[float] = None
-    session_id: Optional[str] = None
 
 class PropertyInterest(BaseModel):
     property_id: int
@@ -221,7 +212,7 @@ class UnifiedPropertyFilter(BaseModel):
     city: Optional[str] = None
     locality: Optional[str] = None
     pincode: Optional[str] = None
-    amenities: Optional[List[str]] = None
+    amenity_ids: Optional[List[int]] = None
     features: Optional[List[str]] = None
     
     available_from: Optional[str] = None

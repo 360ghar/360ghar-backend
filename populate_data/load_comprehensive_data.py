@@ -23,11 +23,13 @@ from datetime import datetime, timezone
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.supabase_client import get_supabase_admin_client
 from app.core.logging import setup_logging, get_logger
-from app.db.base import BaseRepository
+from app.core.database import AsyncSessionLocal
+from app.models.models import User, Agent
+from sqlalchemy import select
 from populate_data.data_populators.user_populator import UserPopulator
 from populate_data.data_populators.agent_populator import AgentPopulator
+from populate_data.data_populators.amenity_populator import AmenityPopulator
 from populate_data.data_populators.property_populator import PropertyPopulator
 
 # Configure logging
@@ -38,13 +40,10 @@ class DataLoader:
     """Main data loading coordinator"""
     
     def __init__(self):
-        self.client = get_supabase_admin_client()
-        self.user_repo = BaseRepository(self.client, "users")
-        self.agent_repo = BaseRepository(self.client, "agents")
-        
         # Initialize populators
         self.user_populator = UserPopulator()
         self.agent_populator = AgentPopulator()
+        self.amenity_populator = AmenityPopulator()
         self.property_populator = PropertyPopulator()
     
     async def clear_all_data(self):
@@ -56,8 +55,9 @@ class DataLoader:
             cleared_properties = await self.property_populator.clear_all()
             cleared_users = await self.user_populator.clear_all()
             cleared_agents = await self.agent_populator.clear_all()
+            cleared_amenities = await self.amenity_populator.clear_all()
             
-            logger.info(f"Cleared: {cleared_properties} properties, {cleared_users} users, {cleared_agents} agents")
+            logger.info(f"Cleared: {cleared_properties} properties, {cleared_users} users, {cleared_agents} agents, {cleared_amenities} amenities")
             
         except Exception as e:
             logger.error(f"Failed to clear data: {str(e)}")
@@ -68,34 +68,33 @@ class DataLoader:
         try:
             logger.info("Assigning agents to users...")
             
-            # Get all test users
-            users_result = await self.user_repo.get_multi(limit=10)
-            users = users_result.get("items", [])
-            
-            # Get all agents
-            agents_result = await self.agent_repo.get_multi(limit=10)
-            agents = agents_result.get("items", [])
-            
-            if not agents:
-                logger.warning("No agents found to assign")
-                return
-            
-            # Assign agents to users in round-robin fashion
-            for i, user in enumerate(users):
-                if user.get("agent_id") is None:  # Only assign if not already assigned
-                    agent = agents[i % len(agents)]
-                    
-                    # Update user with agent assignment
-                    await self.user_repo.update(user["id"], {"agent_id": agent["id"]})
-                    
-                    # Update agent statistics
-                    current_assigned = agent.get("total_users_assigned", 0)
-                    await self.agent_repo.update(agent["id"], {
-                        "total_users_assigned": current_assigned + 1,
-                        "last_active_at": datetime.now(timezone.utc).isoformat()
-                    })
-                    
-                    logger.info(f"Assigned agent {agent['name']} to user {user['full_name']}")
+            async with AsyncSessionLocal() as session:
+                # Get all test users
+                users_result = await session.execute(select(User))
+                users = users_result.scalars().all()
+                
+                # Get all agents
+                agents_result = await session.execute(select(Agent))
+                agents = agents_result.scalars().all()
+                
+                if not agents:
+                    logger.warning("No agents found to assign")
+                    return
+                
+                # Assign agents to users in round-robin fashion
+                for i, user in enumerate(users):
+                    if user.agent_id is None:  # Only assign if not already assigned
+                        agent = agents[i % len(agents)]
+                        
+                        # Update user with agent assignment
+                        user.agent_id = agent.id
+                        
+                        # Update agent statistics
+                        agent.total_users_assigned += 1
+                        
+                        logger.info(f"Assigned agent {agent.name} to user {user.full_name}")
+                
+                await session.commit()
             
         except Exception as e:
             logger.error(f"Failed to assign agents: {str(e)}")
@@ -111,11 +110,11 @@ class DataLoader:
             if quick_mode:
                 user_count = 2
                 agent_count = 2
-                property_count = 50  # Reduced for quick testing
+                properties_per_location = 17  # ~50 total for quick testing
             else:
                 user_count = 2
                 agent_count = 2
-                property_count = 300  # 100 properties per location
+                properties_per_location = 100  # 100 properties per location
             
             # Step 1: Create agents first (users reference agents)
             logger.info("Step 1: Creating agents...")
@@ -125,12 +124,16 @@ class DataLoader:
             logger.info("Step 2: Creating users...")
             created_users = await self.user_populator.populate(user_count)
             
-            # Step 3: Create properties
-            logger.info("Step 3: Creating properties...")
-            created_properties = await self.property_populator.populate(property_count)
+            # Step 3: Create amenities (properties reference amenities)
+            logger.info("Step 3: Creating amenities...")
+            created_amenities = await self.amenity_populator.populate()
             
-            # Step 4: Assign agents to users
-            logger.info("Step 4: Assigning agents to users...")
+            # Step 4: Create properties
+            logger.info("Step 4: Creating properties...")
+            created_properties = await self.property_populator.populate(properties_per_location=properties_per_location)
+            
+            # Step 5: Assign agents to users
+            logger.info("Step 5: Assigning agents to users...")
             await self.assign_agents_to_users()
             
             # Summary
@@ -142,6 +145,7 @@ class DataLoader:
             logger.info("=" * 60)
             logger.info(f"Created: {created_agents} agents")
             logger.info(f"Created: {created_users} users")
+            logger.info(f"Created: {created_amenities} amenities")
             logger.info(f"Created: {created_properties} properties")
             logger.info(f"Duration: {duration.total_seconds():.2f} seconds")
             logger.info("=" * 60)

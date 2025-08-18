@@ -1,62 +1,189 @@
-from supabase import Client
-from datetime import datetime
-from app.repositories.visit import VisitRepository
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+from datetime import datetime, timezone
+from app.models.models import Visit, Agent, User, Property
 from app.schemas.visit import VisitCreate, VisitUpdate
-from app.services.agent import get_user_agent
-from typing import Optional, Dict, Any
+from typing import Optional
 
-async def create_visit(supabase: Client, visit_data: VisitCreate):
-    """Create a new visit with automatic agent assignment"""
-    visit_repo = VisitRepository(supabase)
+async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
+    """Create a new visit"""
+    visit_data = visit.model_dump()
+    visit_data["user_id"] = user_id
     
-    # Ensure user has an agent assigned and get it
-    user_agent = await get_user_agent(supabase, visit_data.user_id, auto_assign=True)
-    if user_agent:
-        visit_data.agent_id = user_agent.id
+    db_visit = Visit(**visit_data)
+    db.add(db_visit)
+    await db.flush()
+    await db.refresh(db_visit)
+    return db_visit
+
+async def get_visit(db: AsyncSession, visit_id: int):
+    """Get a visit by ID"""
+    stmt = select(Visit).options(
+        selectinload(Visit.property).selectinload(Property.images),
+        selectinload(Visit.property).selectinload(Property.property_amenities)
+    ).where(Visit.id == visit_id)
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+async def get_user_visits(db: AsyncSession, user_id: int):
+    """Get all visits for a user"""
+    stmt = select(Visit).options(
+        selectinload(Visit.property).selectinload(Property.images),
+        selectinload(Visit.property).selectinload(Property.property_amenities)
+    ).where(Visit.user_id == user_id).order_by(Visit.scheduled_date.desc())
+    result = await db.execute(stmt)
+    visits = result.scalars().all()
     
-    return await visit_repo.create_visit_with_agent_assignment(visit_data)
+    # Count visits by status
+    now = datetime.now(timezone.utc)
+    upcoming = sum(1 for v in visits if v.status in ["scheduled", "confirmed"] and v.scheduled_date > now)
+    completed = sum(1 for v in visits if v.status == "completed")
+    cancelled = sum(1 for v in visits if v.status == "cancelled")
+    
+    return {
+        "visits": visits, 
+        "total": len(visits),
+        "upcoming": upcoming,
+        "completed": completed,
+        "cancelled": cancelled
+    }
 
-async def get_visit(supabase: Client, visit_id: int):
-    """Get visit by ID"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.get_by_id(visit_id)
+async def get_user_upcoming_visits(db: AsyncSession, user_id: int):
+    """Get upcoming visits for a user"""
+    now = datetime.now(timezone.utc)
+    stmt = select(Visit).options(
+        selectinload(Visit.property).selectinload(Property.images),
+        selectinload(Visit.property).selectinload(Property.property_amenities)
+    ).where(
+        Visit.user_id == user_id,
+        Visit.scheduled_date > now,
+        Visit.status.in_(["scheduled", "confirmed"])
+    ).order_by(Visit.scheduled_date)
+    result = await db.execute(stmt)
+    visits = result.scalars().all()
+    return {"visits": visits, "total": len(visits)}
 
-async def get_user_visits(supabase: Client, user_id: int, page: int = 1, limit: int = 20, visit_type: Optional[str] = None):
-    """Get user's visits with optional filter for upcoming or past visits"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.get_user_visits(user_id, page, limit, visit_type)
+async def get_user_past_visits(db: AsyncSession, user_id: int):
+    """Get past visits for a user"""
+    now = datetime.now(timezone.utc)
+    stmt = select(Visit).options(
+        selectinload(Visit.property).selectinload(Property.images),
+        selectinload(Visit.property).selectinload(Property.property_amenities)
+    ).where(
+        Visit.user_id == user_id,
+        Visit.scheduled_date < now
+    ).order_by(Visit.scheduled_date.desc())
+    result = await db.execute(stmt)
+    visits = result.scalars().all()
+    return {"visits": visits, "total": len(visits)}
 
-async def get_property_visits(supabase: Client, property_id: int, page: int = 1, limit: int = 20):
-    """Get property's visits"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.get_property_visits(property_id, page, limit)
+async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdate):
+    """Update a visit"""
+    stmt = select(Visit).where(Visit.id == visit_id)
+    result = await db.execute(stmt)
+    visit = result.scalar_one_or_none()
+    
+    if visit:
+        update_data = visit_update.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(visit, field, value)
+        
+        await db.flush()
+        await db.refresh(visit)
+    
+    return visit
 
-async def get_agent_visits(supabase: Client, agent_id: int, page: int = 1, limit: int = 20):
-    """Get agent's visits"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.get_agent_visits(agent_id, page, limit)
-
-async def update_visit_status(supabase: Client, visit_id: int, status: str):
-    """Update visit status"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.update_visit_status(visit_id, status)
-
-async def cancel_visit(supabase: Client, visit_id: int, reason: str):
+async def cancel_visit(db: AsyncSession, visit_id: int, reason: str):
     """Cancel a visit"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.cancel_visit(visit_id, reason)
+    stmt = select(Visit).where(Visit.id == visit_id)
+    result = await db.execute(stmt)
+    visit = result.scalar_one_or_none()
+    
+    if visit:
+        visit.status = "cancelled"
+        visit.cancellation_reason = reason
+        await db.flush()
+        return True
+    
+    return False
 
-async def reschedule_visit(supabase: Client, visit_id: int, new_date: str):
+async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, reason: Optional[str] = None):
     """Reschedule a visit"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.reschedule_visit(visit_id, new_date)
+    stmt = select(Visit).where(Visit.id == visit_id)
+    result = await db.execute(stmt)
+    visit = result.scalar_one_or_none()
+    
+    if visit:
+        visit.rescheduled_from = visit.scheduled_date
+        visit.scheduled_date = new_date
+        visit.status = "rescheduled"
+        if reason:
+            visit.cancellation_reason = reason
+        await db.flush()
+        return True
+    
+    return False
 
-async def get_available_agents(supabase: Client):
-    """Get available agents"""
-    from app.services.agent import get_available_agents
-    return await get_available_agents(supabase)
+async def get_user_relationship_manager(db: AsyncSession, user_id: int):
+    """Get the relationship manager (agent) for a user"""
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    
+    if user and user.agent_id:
+        stmt = select(Agent).where(Agent.id == user.agent_id)
+        result = await db.execute(stmt)
+        agent = result.scalar_one_or_none()
+        if agent:
+            return {
+                "id": agent.id,
+                "name": agent.name,
+                "description": agent.description,
+                "avatar_url": agent.avatar_url,
+                "languages": agent.languages
+            }
+    
+    return None
 
-async def assign_agent_to_visit(supabase: Client, visit_id: int, agent_id: int):
-    """Assign agent to visit"""
-    visit_repo = VisitRepository(supabase)
-    return await visit_repo.update(visit_id, {"agent_id": agent_id})
+async def get_agent_visits(db: AsyncSession, agent_id: int, page: int = 1, limit: int = 20):
+    """Get visits handled by a specific agent"""
+    offset = (page - 1) * limit
+    
+    stmt = select(Visit).options(
+        selectinload(Visit.property).selectinload(Property.images),
+        selectinload(Visit.property).selectinload(Property.property_amenities)
+    ).where(Visit.agent_id == agent_id).offset(offset).limit(limit).order_by(Visit.scheduled_date.desc())
+    result = await db.execute(stmt)
+    visits = result.scalars().all()
+    
+    # Get total count
+    count_stmt = select(Visit).where(Visit.agent_id == agent_id)
+    count_result = await db.execute(count_stmt)
+    total = len(count_result.scalars().all())
+    
+    return {
+        "visits": visits,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit
+    }
+
+async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str = None, feedback: str = None):
+    """Mark a visit as completed"""
+    stmt = select(Visit).where(Visit.id == visit_id)
+    result = await db.execute(stmt)
+    visit = result.scalar_one_or_none()
+    
+    if visit:
+        visit.status = "completed"
+        visit.actual_date = datetime.now(timezone.utc)
+        if notes:
+            visit.visit_notes = notes
+        if feedback:
+            visit.visitor_feedback = feedback
+        await db.flush()
+        return True
+    
+    return False
