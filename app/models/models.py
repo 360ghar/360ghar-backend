@@ -1,4 +1,5 @@
 from sqlalchemy import Integer, String, Float, Boolean, DateTime, ForeignKey, JSON, Text, Index
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import Enum as SQLEnum
@@ -9,6 +10,7 @@ from app.models.enums import (
     PropertyType, PropertyPurpose, PropertyStatus, BookingStatus, PaymentStatus,
     VisitStatus, AgentType, ExperienceLevel
 )
+from geoalchemy2 import Geography
 
 class User(Base):
     __tablename__ = "users"
@@ -41,12 +43,14 @@ class User(Base):
 class Property(Base):
     __tablename__ = "properties"
     __table_args__ = (
-        Index('idx_property_location', 'latitude', 'longitude'),
         Index('idx_property_filters', 'property_type', 'purpose', 'is_available'),
         Index('idx_property_price', 'base_price'),
+        Index('idx_property_location_gist', 'location', postgresql_using='gist'),
+        Index('idx_property_ts_vector', '__ts_vector__', postgresql_using='gin'),
     )
     
     id: Mapped[int] = mapped_column(primary_key=True)
+    __ts_vector__: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     property_type: Mapped[PropertyType] = mapped_column(SQLEnum(PropertyType, name='property_type'), nullable=False)
@@ -56,6 +60,7 @@ class Property(Base):
     # Location
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    location: Mapped[Optional[str]] = mapped_column(Geography(geometry_type='POINT', srid=4326), nullable=True)
     city: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     state: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     country: Mapped[str] = mapped_column(String, default="India")

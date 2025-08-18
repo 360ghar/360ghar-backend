@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]==0.24.0
 pydantic>=2.5.2
-pydantic-settings==2.1.0
+pydantic-settings>=2.1.0
 python-multipart==0.0.6
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
@@ -27,3 +27,4 @@ aiohttp
 sentry-sdk[fastapi]
 fastapi-debug-toolbar>=0.6.0
 psycopg[binary]
+aiohttp>=3.8.0

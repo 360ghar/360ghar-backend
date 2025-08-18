@@ -15,13 +15,21 @@ async def create_property(db: AsyncSession, property_data: PropertyCreate, owner
     try:
         property_dict = property_data.model_dump(exclude_unset=True)
         property_dict["owner_id"] = owner_id
+
+        # Create WKT for location
+        if 'latitude' in property_dict and 'longitude' in property_dict:
+            lat = property_dict['latitude']
+            lon = property_dict['longitude']
+            property_dict['location'] = f'SRID=4326;POINT({lon} {lat})'
+
         db_property = Property(**property_dict)
         db.add(db_property)
         await db.flush()
         await db.refresh(db_property)
         
         logger.info(f"Property created successfully with ID {db_property.id}")
-        return db_property
+        from app.schemas.property import Property as PropertySchema
+        return PropertySchema.model_validate(db_property)
     except Exception as e:
         logger.error(f"Failed to create property: {str(e)}", exc_info=True)
         raise
@@ -68,6 +76,14 @@ async def update_property(db: AsyncSession, property_id: int, property_update: P
             return None
         
         update_data = property_update.model_dump(exclude_unset=True)
+
+        # Handle location update
+        if 'latitude' in update_data or 'longitude' in update_data:
+            lat = update_data.get('latitude', property_obj.latitude)
+            lon = update_data.get('longitude', property_obj.longitude)
+            if lat is not None and lon is not None:
+                update_data['location'] = f'SRID=4326;POINT({lon} {lat})'
+
         for field, value in update_data.items():
             setattr(property_obj, field, value)
         
@@ -109,7 +125,7 @@ async def get_unified_properties_optimized(
     page: int,
     limit: int
 ):
-    """Unified property search"""
+    """Unified property search with geospatial optimization."""
     logger.info(f"Searching properties for user {user_id}, page {page}, limit {limit}")
     
     try:
@@ -125,27 +141,36 @@ async def get_unified_properties_optimized(
         # Location-based search
         if filters.latitude and filters.longitude and filters.radius_km:
             logger.debug(f"Adding location filter: {filters.latitude}, {filters.longitude}, radius: {filters.radius_km}km")
-            # Haversine formula in PostgreSQL
-            distance = func.acos(
-                func.sin(func.radians(filters.latitude)) * func.sin(func.radians(Property.latitude)) +
-                func.cos(func.radians(filters.latitude)) * func.cos(func.radians(Property.latitude)) *
-                func.cos(func.radians(Property.longitude) - func.radians(filters.longitude))
-            ) * 6371
             
-            conditions.append(distance <= filters.radius_km)
-            query = query.add_columns(distance.label('distance_km'))
+            # Create a point from the user's location, ensuring SRID is set
+            user_location = func.ST_SetSRID(func.ST_MakePoint(filters.longitude, filters.latitude), 4326)
+
+            # Use ST_DWithin for efficient, index-based distance filtering.
+            # ST_DWithin takes distance in meters.
+            radius_m = filters.radius_km * 1000
+            conditions.append(func.ST_DWithin(Property.location, user_location, radius_m))
+
+            # Calculate distance for ordering and display, converting from meters to km.
+            distance = func.ST_Distance(Property.location, user_location) / 1000
+            query = query.add_columns(distance.label('distance_km')).order_by(distance)
         
         # Text search
         if filters.search_query:
-            logger.debug(f"Adding text search filter: {filters.search_query}")
-            search_term = f"%{filters.search_query}%"
-            text_conditions = or_(
-                Property.title.ilike(search_term),
-                Property.description.ilike(search_term),
-                Property.address.ilike(search_term),
-                Property.city.ilike(search_term)
+            logger.debug(f"Adding full-text search filter: {filters.search_query}")
+
+            # Process the search query to be used with to_tsquery
+            # We replace spaces with '&' to search for all words (AND logic)
+            # This is a simple approach; more complex parsing can be added later.
+            search_query_formatted = " & ".join(filters.search_query.strip().split())
+
+            conditions.append(
+                Property.__ts_vector__.match(
+                    func.to_tsquery('english', search_query_formatted)
+                )
             )
-            conditions.append(text_conditions)
+            # Optional: Rank the results based on search relevance
+            rank = func.ts_rank_cd(Property.__ts_vector__, func.to_tsquery('english', search_query_formatted)).label('rank')
+            query = query.add_columns(rank).order_by(rank.desc())
         
         # Property type filter
         if filters.property_type:
