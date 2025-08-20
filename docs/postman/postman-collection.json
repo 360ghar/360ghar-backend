@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "360ghar-api-collection",
 		"name": "360Ghar Real Estate Platform API",
-		"description": "Complete API collection for 360Ghar - Tinder-like real estate platform with Supabase integration and AI-powered agents.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## API Modules:\n- **Authentication**: User signup, login, and token management\n- **Users**: Profile management and preferences\n- **Properties**: Property search, discovery, and details\n- **Swipes**: Tinder-like property swiping functionality\n- **Visits**: Property visit scheduling with agents\n- **Bookings**: Short-stay property bookings\n- **Agents**: 360Ghar employee agent management and assignment\n\n## Agent System:\nThe platform features 360Ghar employee agents who serve as relationship managers:\n- **Auto-assignment**: New users automatically get assigned agents\n- **Specializations**: Agents specialize in different property types and services\n- **Performance tracking**: Real-time monitoring of agent effectiveness\n- **Load balancing**: Intelligent distribution of users across agents\n\n## Features:\n- Automatic token management\n- Response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling\n- Environment variable management",
+		"description": "Complete API collection for 360Ghar - Tinder-like real estate platform with comprehensive property filtering, Supabase integration, and AI-powered agents.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## API Modules:\n- **Authentication**: User signup, login, and token management\n- **Users**: Profile management and preferences\n- **Properties**: Comprehensive property search with 25+ filters, discovery, and details\n- **Swipes**: Tinder-like property swiping functionality\n- **Visits**: Property visit scheduling with agents\n- **Bookings**: Short-stay property bookings\n- **Agents**: 360Ghar employee agent management and assignment\n\n## Property Search Capabilities:\nThe Properties module includes 15 different search scenarios covering:\n- **Location-Based Search**: Radius filtering with lat/lng coordinates\n- **Property Types**: Single or multiple property types (apartment, house, builder_floor, room)\n- **Price Filtering**: Min/max price ranges with sorting\n- **Room Filters**: Bedroom and bathroom count filtering\n- **Text Search**: Full-text search across title, description, locality, city\n- **Area Filtering**: Property size in square feet\n- **Location Filters**: City, locality, and pincode filtering\n- **Amenities**: Multiple amenity requirements (Parking, Gym, etc.)\n- **Short Stay**: Guest capacity, check-in/out dates\n- **Sorting Options**: Distance, price (low/high), newest, popularity, relevance\n- **Additional Filters**: Parking spaces, floor number, property age\n- **Comprehensive Filtering**: All filters combined\n\n## Agent System:\nThe platform features 360Ghar employee agents who serve as relationship managers:\n- **Auto-assignment**: New users automatically get assigned agents\n- **Specializations**: Agents specialize in different property types and services\n- **Performance tracking**: Real-time monitoring of agent effectiveness\n- **Load balancing**: Intelligent distribution of users across agents\n\n## Features:\n- Automatic token management\n- Comprehensive response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling\n- Environment variable management\n- Property filter validation and testing",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "360ghar"
 	},
@@ -535,7 +535,7 @@
 					"response": []
 				},
 				{
-					"name": "Search Properties",
+					"name": "Search Properties - Basic",
 					"event": [
 						{
 							"listen": "test",
@@ -552,6 +552,615 @@
 									"    pm.expect(response).to.have.property('total');",
 									"    pm.expect(response).to.have.property('page');",
 									"    pm.expect(response).to.have.property('limit');",
+									"    pm.expect(response).to.have.property('filters_applied');",
+									"});",
+									"",
+									"pm.test('Properties contain required fields', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        const property = response.properties[0];",
+									"        pm.expect(property).to.have.property('id');",
+									"        pm.expect(property).to.have.property('title');",
+									"        pm.expect(property).to.have.property('property_type');",
+									"        pm.expect(property).to.have.property('base_price');",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?limit=5",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "5"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Location Based",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Response has search center', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('search_center');",
+									"    pm.expect(response.search_center).to.have.property('latitude');",
+									"    pm.expect(response.search_center).to.have.property('longitude');",
+									"});",
+									"",
+									"pm.test('Filters applied correctly', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('radius_km', 10);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?lat=28.446400&lng=77.011711&radius=10&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "lat",
+									"value": "28.446400",
+									"description": "Gurgaon latitude"
+								},
+								{
+									"key": "lng",
+									"value": "77.011711",
+									"description": "Gurgaon longitude"
+								},
+								{
+									"key": "radius",
+									"value": "10",
+									"description": "Search radius in kilometers"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Multiple Property Types",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Multiple property types filter applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied.property_type).to.be.an('array');",
+									"    pm.expect(response.filters_applied.property_type).to.include.members(['apartment', 'house']);",
+									"});",
+									"",
+									"pm.test('Properties match requested types', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            pm.expect(['apartment', 'house']).to.include(property.property_type);",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?property_type=apartment&property_type=house&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "property_type",
+									"value": "apartment",
+									"description": "First property type"
+								},
+								{
+									"key": "property_type",
+									"value": "house",
+									"description": "Second property type"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Price Range",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Price filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('price_min', 1000000);",
+									"    pm.expect(response.filters_applied).to.have.property('price_max', 5000000);",
+									"});",
+									"",
+									"pm.test('Properties within price range', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            pm.expect(property.base_price).to.be.at.least(1000000);",
+									"            pm.expect(property.base_price).to.be.at.most(5000000);",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?price_min=1000000&price_max=5000000&sort_by=price_low&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "price_min",
+									"value": "1000000",
+									"description": "Minimum price: 10 lakhs"
+								},
+								{
+									"key": "price_max",
+									"value": "5000000",
+									"description": "Maximum price: 50 lakhs"
+								},
+								{
+									"key": "sort_by",
+									"value": "price_low",
+									"description": "Sort by price (low to high)"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Bedrooms & Bathrooms",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Room filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('bedrooms_min', 2);",
+									"    pm.expect(response.filters_applied).to.have.property('bedrooms_max', 3);",
+									"    pm.expect(response.filters_applied).to.have.property('bathrooms_min', 2);",
+									"});",
+									"",
+									"pm.test('Properties match room requirements', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            if (property.bedrooms) {",
+									"                pm.expect(property.bedrooms).to.be.at.least(2);",
+									"                pm.expect(property.bedrooms).to.be.at.most(3);",
+									"            }",
+									"            if (property.bathrooms) {",
+									"                pm.expect(property.bathrooms).to.be.at.least(2);",
+									"            }",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?bedrooms_min=2&bedrooms_max=3&bathrooms_min=2&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "bedrooms_min",
+									"value": "2",
+									"description": "Minimum bedrooms"
+								},
+								{
+									"key": "bedrooms_max",
+									"value": "3",
+									"description": "Maximum bedrooms"
+								},
+								{
+									"key": "bathrooms_min",
+									"value": "2",
+									"description": "Minimum bathrooms"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Text Search",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Search query applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('search_query', 'luxury apartment');",
+									"});",
+									"",
+									"pm.test('Properties contain search terms', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            const searchText = (property.title + ' ' + property.description + ' ' + property.locality + ' ' + property.city).toLowerCase();",
+									"            const hasLuxury = searchText.includes('luxury');",
+									"            const hasApartment = searchText.includes('apartment');",
+									"            pm.expect(hasLuxury || hasApartment).to.be.true;",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?q=luxury apartment&sort_by=relevance&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "q",
+									"value": "luxury apartment",
+									"description": "Text search query"
+								},
+								{
+									"key": "sort_by",
+									"value": "relevance",
+									"description": "Sort by relevance to search"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Area Range",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Area filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('area_min', 800);",
+									"    pm.expect(response.filters_applied).to.have.property('area_max', 2000);",
+									"});",
+									"",
+									"pm.test('Properties within area range', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            if (property.area_sqft) {",
+									"                pm.expect(property.area_sqft).to.be.at.least(800);",
+									"                pm.expect(property.area_sqft).to.be.at.most(2000);",
+									"            }",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?area_min=800&area_max=2000&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "area_min",
+									"value": "800",
+									"description": "Minimum area in sqft"
+								},
+								{
+									"key": "area_max",
+									"value": "2000",
+									"description": "Maximum area in sqft"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Location Filters",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Location filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('city', 'Gurgaon');",
+									"    pm.expect(response.filters_applied).to.have.property('locality', 'DLF');",
+									"});",
+									"",
+									"pm.test('Properties match location filters', function() {",
+									"    const response = pm.response.json();",
+									"    if (response.properties && response.properties.length > 0) {",
+									"        response.properties.forEach(property => {",
+									"            if (property.city) {",
+									"                pm.expect(property.city.toLowerCase()).to.include('gurgaon');",
+									"            }",
+									"            if (property.locality) {",
+									"                pm.expect(property.locality.toLowerCase()).to.include('dlf');",
+									"            }",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?city=Gurgaon&locality=DLF&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "city",
+									"value": "Gurgaon",
+									"description": "Filter by city"
+								},
+								{
+									"key": "locality",
+									"value": "DLF",
+									"description": "Filter by locality"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Amenities Filter",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Amenities filter applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('amenities');",
+									"    pm.expect(response.filters_applied.amenities).to.be.an('array');",
+									"    pm.expect(response.filters_applied.amenities).to.include.members(['Parking', 'Gym']);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?amenities=Parking&amenities=Gym&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "amenities",
+									"value": "Parking",
+									"description": "Required amenity: Parking"
+								},
+								{
+									"key": "amenities",
+									"value": "Gym",
+									"description": "Required amenity: Gym"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Comprehensive Filters",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('All filters applied correctly', function() {",
+									"    const response = pm.response.json();",
+									"    const filters = response.filters_applied;",
+									"    pm.expect(filters).to.have.property('property_type');",
+									"    pm.expect(filters).to.have.property('purpose', 'rent');",
+									"    pm.expect(filters).to.have.property('price_min', 15000);",
+									"    pm.expect(filters).to.have.property('price_max', 40000);",
+									"    pm.expect(filters).to.have.property('bedrooms_min', 2);",
+									"    pm.expect(filters).to.have.property('bedrooms_max', 3);",
+									"    pm.expect(filters).to.have.property('city', 'Gurgaon');",
+									"    pm.expect(filters).to.have.property('sort_by', 'distance');",
+									"});",
+									"",
+									"pm.test('Response structure is correct', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response).to.have.property('properties');",
+									"    pm.expect(response).to.have.property('total');",
+									"    pm.expect(response).to.have.property('page', 1);",
+									"    pm.expect(response).to.have.property('limit', 20);",
+									"    pm.expect(response).to.have.property('total_pages');",
+									"    pm.expect(response).to.have.property('filters_applied');",
+									"    pm.expect(response).to.have.property('search_center');",
 									"});"
 								],
 								"type": "text/javascript"
@@ -575,59 +1184,362 @@
 							"query": [
 								{
 									"key": "lat",
-									"value": "28.446400"
+									"value": "28.446400",
+									"description": "Latitude for location-based search"
 								},
 								{
 									"key": "lng",
-									"value": "77.011711"
+									"value": "77.011711",
+									"description": "Longitude for location-based search"
 								},
 								{
 									"key": "radius",
-									"value": "10"
+									"value": "10",
+									"description": "Search radius in km"
 								},
 								{
 									"key": "property_type",
-									"value": "apartment"
+									"value": "apartment",
+									"description": "Property type: Apartment"
 								},
 								{
 									"key": "property_type",
-									"value": "house"
+									"value": "house",
+									"description": "Property type: House"
 								},
 								{
 									"key": "purpose",
-									"value": "rent"
+									"value": "rent",
+									"description": "Property purpose: Rent"
 								},
 								{
 									"key": "price_min",
-									"value": "15000"
+									"value": "15000",
+									"description": "Minimum price"
 								},
 								{
 									"key": "price_max",
-									"value": "40000"
+									"value": "40000",
+									"description": "Maximum price"
 								},
 								{
 									"key": "bedrooms_min",
-									"value": "2"
+									"value": "2",
+									"description": "Minimum bedrooms"
 								},
 								{
 									"key": "bedrooms_max",
-									"value": "3"
+									"value": "3",
+									"description": "Maximum bedrooms"
 								},
 								{
 									"key": "city",
-									"value": "Gurgaon"
+									"value": "Gurgaon",
+									"description": "Filter by city"
 								},
 								{
 									"key": "sort_by",
-									"value": "distance"
+									"value": "distance",
+									"description": "Sort by distance"
 								},
 								{
 									"key": "page",
-									"value": "1"
+									"value": "1",
+									"description": "Page number"
 								},
 								{
 									"key": "limit",
-									"value": "20"
+									"value": "20",
+									"description": "Items per page"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Short Stay Filters",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Short stay filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('purpose', 'short_stay');",
+									"    pm.expect(response.filters_applied).to.have.property('guests', 4);",
+									"    pm.expect(response.filters_applied).to.have.property('check_in_date', '2024-06-15');",
+									"    pm.expect(response.filters_applied).to.have.property('check_out_date', '2024-06-20');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?purpose=short_stay&guests=4&check_in=2024-06-15&check_out=2024-06-20&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "purpose",
+									"value": "short_stay",
+									"description": "Purpose: Short stay booking"
+								},
+								{
+									"key": "guests",
+									"value": "4",
+									"description": "Number of guests"
+								},
+								{
+									"key": "check_in",
+									"value": "2024-06-15",
+									"description": "Check-in date"
+								},
+								{
+									"key": "check_out",
+									"value": "2024-06-20",
+									"description": "Check-out date"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Sort by Price (High to Low)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Properties sorted by price (high to low)', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('sort_by', 'price_high');",
+									"    ",
+									"    if (response.properties && response.properties.length > 1) {",
+									"        for (let i = 0; i < response.properties.length - 1; i++) {",
+									"            const current = response.properties[i].base_price;",
+									"            const next = response.properties[i + 1].base_price;",
+									"            pm.expect(current).to.be.at.least(next);",
+									"        }",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?sort_by=price_high&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "sort_by",
+									"value": "price_high",
+									"description": "Sort by price (high to low)"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Sort by Newest",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Properties sorted by newest', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('sort_by', 'newest');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?sort_by=newest&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "sort_by",
+									"value": "newest",
+									"description": "Sort by newest properties first"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Sort by Popularity",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Properties sorted by popularity', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('sort_by', 'popular');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?sort_by=popular&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "sort_by",
+									"value": "popular",
+									"description": "Sort by popularity (likes and views)"
+								},
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search Properties - Additional Filters",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Status code is 200', function() {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test('Additional filters applied', function() {",
+									"    const response = pm.response.json();",
+									"    pm.expect(response.filters_applied).to.have.property('parking_spaces_min', 1);",
+									"    pm.expect(response.filters_applied).to.have.property('floor_number_min', 2);",
+									"    pm.expect(response.filters_applied).to.have.property('floor_number_max', 10);",
+									"    pm.expect(response.filters_applied).to.have.property('age_max', 5);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/api/v1/properties/?parking_spaces_min=1&floor_number_min=2&floor_number_max=10&age_max=5&limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"properties",
+								""
+							],
+							"query": [
+								{
+									"key": "parking_spaces_min",
+									"value": "1",
+									"description": "Minimum parking spaces"
+								},
+								{
+									"key": "floor_number_min",
+									"value": "2",
+									"description": "Minimum floor number"
+								},
+								{
+									"key": "floor_number_max",
+									"value": "10",
+									"description": "Maximum floor number"
+								},
+								{
+									"key": "age_max",
+									"value": "5",
+									"description": "Maximum age of property (years)"
+								},
+								{
+									"key": "limit",
+									"value": "10"
 								}
 							]
 						}

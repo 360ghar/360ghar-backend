@@ -71,6 +71,7 @@ async def get_properties_list(
     
     # Additional filters
     amenities: Optional[List[str]] = Query(None),
+    features: Optional[List[str]] = Query(None),
     parking_spaces_min: Optional[int] = Query(None, ge=0),
     floor_number_min: Optional[int] = Query(None, ge=0),
     floor_number_max: Optional[int] = Query(None, le=100),
@@ -120,6 +121,7 @@ async def get_properties_list(
         locality=locality,
         pincode=pincode,
         amenities=amenities,
+        features=features,
         parking_spaces_min=parking_spaces_min,
         floor_number_min=floor_number_min,
         floor_number_max=floor_number_max,

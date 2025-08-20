@@ -212,7 +212,7 @@ class UnifiedPropertyFilter(BaseModel):
     city: Optional[str] = None
     locality: Optional[str] = None
     pincode: Optional[str] = None
-    amenity_ids: Optional[List[int]] = None
+    amenities: Optional[List[str]] = None
     features: Optional[List[str]] = None
     
     available_from: Optional[str] = None

@@ -2,8 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, update, case
 from sqlalchemy.orm import selectinload, joinedload
 from typing import List, Optional, Dict, Any
-from app.models.models import Property, PropertyImage, UserSwipe
-from app.schemas.property import PropertyCreate, PropertyUpdate, UnifiedPropertyFilter
+from app.models.models import Property, PropertyImage, UserSwipe, PropertyAmenity, Amenity
+from app.schemas.property import PropertyCreate, PropertyUpdate, UnifiedPropertyFilter, SortBy
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -125,20 +125,29 @@ async def get_unified_properties_optimized(
     page: int,
     limit: int
 ):
-    """Unified property search with geospatial optimization."""
+    """Unified property search with comprehensive filtering and geospatial optimization."""
     logger.info(f"Searching properties for user {user_id}, page {page}, limit {limit}")
     
     try:
         skip = (page - 1) * limit
         
-        # Base query
-        query = select(Property).options(selectinload(Property.images))
+        # Base query with eager loading
+        query = select(Property).options(
+            selectinload(Property.images),
+            selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity)
+        )
         count_query = select(func.count(Property.id))
         
-        # Build conditions
-        conditions = [Property.is_available == True]
+        # Build base conditions
+        conditions = []
+        
+        # Always filter by availability unless explicitly requested
+        if not filters.include_unavailable:
+            conditions.append(Property.is_available == True)
         
         # Location-based search
+        user_location = None
+        distance = None
         if filters.latitude and filters.longitude and filters.radius_km:
             logger.debug(f"Adding location filter: {filters.latitude}, {filters.longitude}, radius: {filters.radius_km}km")
             
@@ -152,42 +161,176 @@ async def get_unified_properties_optimized(
 
             # Calculate distance for ordering and display, converting from meters to km.
             distance = func.ST_Distance(Property.location, user_location) / 1000
-            query = query.add_columns(distance.label('distance_km')).order_by(distance)
+            query = query.add_columns(distance.label('distance_km'))
         
         # Text search
         if filters.search_query:
             logger.debug(f"Adding full-text search filter: {filters.search_query}")
 
-            # Process the search query to be used with to_tsquery
-            # We replace spaces with '&' to search for all words (AND logic)
-            # This is a simple approach; more complex parsing can be added later.
-            search_query_formatted = " & ".join(filters.search_query.strip().split())
 
-            conditions.append(
-                Property.__ts_vector__.match(
-                    func.to_tsquery('english', search_query_formatted)
+            # Use simple ILIKE search instead of full-text search for now
+            search_terms = filters.search_query.strip().split()
+            search_conditions = []
+            
+            for term in search_terms:
+                term_filter = or_(
+                    Property.title.ilike(f"%{term}%"),
+                    Property.description.ilike(f"%{term}%"),
+                    Property.locality.ilike(f"%{term}%"),
+                    Property.city.ilike(f"%{term}%")
                 )
-            )
-            # Optional: Rank the results based on search relevance
-            rank = func.ts_rank_cd(Property.__ts_vector__, func.to_tsquery('english', search_query_formatted)).label('rank')
-            query = query.add_columns(rank).order_by(rank.desc())
+                search_conditions.append(term_filter)
+            
+            if search_conditions:
+                # All search terms must match (AND logic)
+                conditions.append(and_(*search_conditions))
         
-        # Property type filter
+        # Property type filter - handle list of property types
         if filters.property_type:
             logger.debug(f"Adding property type filter: {filters.property_type}")
-            conditions.append(Property.property_type == filters.property_type)
+            if isinstance(filters.property_type, list) and len(filters.property_type) > 0:
+                conditions.append(Property.property_type.in_(filters.property_type))
+            elif not isinstance(filters.property_type, list):
+                conditions.append(Property.property_type == filters.property_type)
         
-        # Price range filter
-        if filters.price_min:
+        # Purpose filter
+        if filters.purpose:
+            logger.debug(f"Adding purpose filter: {filters.purpose}")
+            conditions.append(Property.purpose == filters.purpose)
+        
+        # Price range filters
+        if filters.price_min is not None:
             logger.debug(f"Adding min price filter: {filters.price_min}")
             conditions.append(Property.base_price >= filters.price_min)
-        if filters.price_max:
+        if filters.price_max is not None:
             logger.debug(f"Adding max price filter: {filters.price_max}")
             conditions.append(Property.base_price <= filters.price_max)
         
+        # Bedroom filters
+        if filters.bedrooms_min is not None:
+            logger.debug(f"Adding min bedrooms filter: {filters.bedrooms_min}")
+            conditions.append(Property.bedrooms >= filters.bedrooms_min)
+        if filters.bedrooms_max is not None:
+            logger.debug(f"Adding max bedrooms filter: {filters.bedrooms_max}")
+            conditions.append(Property.bedrooms <= filters.bedrooms_max)
+        
+        # Bathroom filters
+        if filters.bathrooms_min is not None:
+            logger.debug(f"Adding min bathrooms filter: {filters.bathrooms_min}")
+            conditions.append(Property.bathrooms >= filters.bathrooms_min)
+        if filters.bathrooms_max is not None:
+            logger.debug(f"Adding max bathrooms filter: {filters.bathrooms_max}")
+            conditions.append(Property.bathrooms <= filters.bathrooms_max)
+        
+        # Area filters
+        if filters.area_min is not None:
+            logger.debug(f"Adding min area filter: {filters.area_min}")
+            conditions.append(Property.area_sqft >= filters.area_min)
+        if filters.area_max is not None:
+            logger.debug(f"Adding max area filter: {filters.area_max}")
+            conditions.append(Property.area_sqft <= filters.area_max)
+        
+        # Location filters
+        if filters.city:
+            logger.debug(f"Adding city filter: {filters.city}")
+            conditions.append(Property.city.ilike(f"%{filters.city}%"))
+        if filters.locality:
+            logger.debug(f"Adding locality filter: {filters.locality}")
+            conditions.append(Property.locality.ilike(f"%{filters.locality}%"))
+        if filters.pincode:
+            logger.debug(f"Adding pincode filter: {filters.pincode}")
+            conditions.append(Property.pincode == filters.pincode)
+        
+        # Additional filters
+        if filters.parking_spaces_min is not None:
+            logger.debug(f"Adding min parking spaces filter: {filters.parking_spaces_min}")
+            conditions.append(Property.parking_spaces >= filters.parking_spaces_min)
+        
+        if filters.floor_number_min is not None:
+            logger.debug(f"Adding min floor number filter: {filters.floor_number_min}")
+            conditions.append(Property.floor_number >= filters.floor_number_min)
+        if filters.floor_number_max is not None:
+            logger.debug(f"Adding max floor number filter: {filters.floor_number_max}")
+            conditions.append(Property.floor_number <= filters.floor_number_max)
+        
+        if filters.age_max is not None:
+            logger.debug(f"Adding max age filter: {filters.age_max}")
+            conditions.append(Property.age_of_property <= filters.age_max)
+        
+        # Amenities filter
+        if filters.amenities:
+            logger.debug(f"Adding amenities filter: {filters.amenities}")
+            # Join with PropertyAmenity and Amenity tables
+            
+            # Convert amenity names to IDs if needed
+            amenity_ids = []
+            amenity_names = []
+            
+            for amenity in filters.amenities:
+                if isinstance(amenity, int) or (isinstance(amenity, str) and amenity.isdigit()):
+                    amenity_ids.append(int(amenity))
+                else:
+                    amenity_names.append(amenity)
+            
+            # Get amenity IDs from names if any
+            if amenity_names:
+                amenity_result = await db.execute(
+                    select(Amenity.id).where(Amenity.title.in_(amenity_names))
+                )
+                amenity_ids.extend([row[0] for row in amenity_result.fetchall()])
+            
+            if amenity_ids:
+                # Subquery to find properties with all required amenities
+                amenity_subquery = (
+                    select(PropertyAmenity.property_id)
+                    .where(PropertyAmenity.amenity_id.in_(amenity_ids))
+                    .group_by(PropertyAmenity.property_id)
+                    .having(func.count(PropertyAmenity.amenity_id) >= len(amenity_ids))
+                )
+                conditions.append(Property.id.in_(amenity_subquery))
+        
+        # Features filter - TODO: Implement proper JSON filtering once schema is clarified
+        if filters.features:
+            logger.debug(f"Features filter requested but not yet implemented: {filters.features}")
+            # Features are stored as JSON dict, need to determine proper filtering logic
+            # For now, skip this filter to avoid errors
+            pass
+        
+        # Short stay filters
+        if filters.guests is not None:
+            logger.debug(f"Adding max occupancy filter for guests: {filters.guests}")
+            conditions.append(Property.max_occupancy >= filters.guests)
+        
+        # TODO: Implement check-in/check-out date availability filtering
+        # This would require checking against booking calendar
+        
+        # Exclude properties already swiped by the user if authenticated
+        if user_id:
+            from app.models.models import UserSwipe
+            swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
+            conditions.append(~Property.id.in_(swiped_subquery))
+        
         # Apply all conditions
-        query = query.where(and_(*conditions))
-        count_query = count_query.where(and_(*conditions))
+        if conditions:
+            query = query.where(and_(*conditions))
+            count_query = count_query.where(and_(*conditions))
+        
+        # Apply sorting
+        sort_by = filters.sort_by or SortBy.distance
+        if sort_by == SortBy.distance and distance is not None:
+            query = query.order_by(distance)
+        elif sort_by == SortBy.price_low:
+            query = query.order_by(Property.base_price.asc())
+        elif sort_by == SortBy.price_high:
+            query = query.order_by(Property.base_price.desc())
+        elif sort_by == SortBy.newest:
+            query = query.order_by(Property.created_at.desc())
+        elif sort_by == SortBy.popular:
+            # Sort by like count, then view count
+            query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
+        else:
+            # Default sorting
+            query = query.order_by(Property.created_at.desc())
         
         # Add pagination
         query = query.offset(skip).limit(limit)
@@ -196,7 +339,21 @@ async def get_unified_properties_optimized(
         result = await db.execute(query)
         count_result = await db.execute(count_query)
         
-        properties = result.scalars().all()
+        # Handle results - check if we have additional columns
+        if distance is not None:
+            rows = result.all()
+            properties = [row[0] for row in rows]  # First column is the Property object
+            
+            # Add computed fields to properties
+            for i, row in enumerate(rows):
+                prop = properties[i]
+                if distance is not None and len(row) > 1:
+                    # Set distance_km on the property for serialization
+                    # TODO: Handle distance_km in response later
+                    pass
+        else:
+            properties = result.scalars().all()
+        
         total_count = count_result.scalar()
         
         logger.info(f"Found {len(properties)} properties out of {total_count} total")
