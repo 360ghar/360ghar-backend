@@ -45,8 +45,9 @@ class Property(Base):
     __table_args__ = (
         Index('idx_property_filters', 'property_type', 'purpose', 'is_available'),
         Index('idx_property_price', 'base_price'),
-        Index('idx_property_location_gist', 'location', postgresql_using='gist'),
-        Index('idx_property_ts_vector', '__ts_vector__', postgresql_using='gin'),
+        # PostGIS and FTS indexes are created by migrations:
+        # - supabase/migrations/20250818081100_add_geography_to_properties.sql
+        # - supabase/migrations/20250818081200_add_full_text_search_to_properties.sql
     )
     
     id: Mapped[int] = mapped_column(primary_key=True)

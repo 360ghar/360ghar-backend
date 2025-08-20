@@ -1,6 +1,12 @@
 import asyncio
-from sqlalchemy import select, update
+import os
+import sys
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import create_async_engine
+
+# Ensure project root is on sys.path when running this script directly
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app.core.config import settings
 from app.models.models import Property
 
@@ -34,12 +40,15 @@ async def backfill_property_locations():
         for prop in properties_to_update:
             prop_id, lat, lon = prop
 
-            # Create the WKT string for the point
-            # Note: GeoAlchemy2/PostGIS expect POINT(longitude latitude)
+            # Create the EWKT string for the point (longitude, latitude)
             location_wkt = f'SRID=4326;POINT({lon} {lat})'
 
-            # Create and execute the update statement
-            update_stmt = update(Property).where(Property.id == prop_id).values(location=location_wkt)
+            # Update using PostGIS geography constructor for type safety
+            update_stmt = (
+                update(Property)
+                .where(Property.id == prop_id)
+                .values(location=func.ST_GeogFromText(location_wkt))
+            )
 
             try:
                 await conn.execute(update_stmt)
@@ -55,13 +64,4 @@ async def backfill_property_locations():
         print(f"Backfill complete. Updated {updated_count} properties.")
 
 if __name__ == "__main__":
-    # This script needs to be run in an environment where the app's settings are available.
-    # For example, by running `python -m populate_data.backfill_locations` from the project root.
-
-    # To run this script, you might need to adjust the Python path if running directly
-    import sys
-    import os
-    # Add project root to path to allow imports like `from app.core.config import settings`
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
     asyncio.run(backfill_property_locations())
