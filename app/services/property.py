@@ -1,8 +1,8 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, update, case
-from sqlalchemy.orm import selectinload, joinedload
-from typing import List, Optional, Dict, Any
-from app.models.models import Property, PropertyImage, UserSwipe, PropertyAmenity, Amenity
+from sqlalchemy import select, func, and_, update, text
+from sqlalchemy.orm import selectinload
+from typing import Optional
+from app.models.models import Property, PropertyAmenity, Amenity
 from app.schemas.property import PropertyCreate, PropertyUpdate, UnifiedPropertyFilter, SortBy
 from app.core.logging import get_logger
 
@@ -163,27 +163,16 @@ async def get_unified_properties_optimized(
             distance = func.ST_Distance(Property.location, user_location) / 1000
             query = query.add_columns(distance.label('distance_km'))
         
-        # Text search
+        # Text search using PostgreSQL full-text search with GIN index
+        search_query_obj = None
         if filters.search_query:
             logger.debug(f"Adding full-text search filter: {filters.search_query}")
-
-
-            # Use simple ILIKE search instead of full-text search for now
-            search_terms = filters.search_query.strip().split()
-            search_conditions = []
             
-            for term in search_terms:
-                term_filter = or_(
-                    Property.title.ilike(f"%{term}%"),
-                    Property.description.ilike(f"%{term}%"),
-                    Property.locality.ilike(f"%{term}%"),
-                    Property.city.ilike(f"%{term}%")
-                )
-                search_conditions.append(term_filter)
-            
-            if search_conditions:
-                # All search terms must match (AND logic)
-                conditions.append(and_(*search_conditions))
+            # Use PostgreSQL full-text search with the indexed __ts_vector__ column
+            # plainto_tsquery handles normalization and is safer for user input than to_tsquery
+            search_query_obj = func.plainto_tsquery('english', filters.search_query)
+            # Use text() to properly reference the ts_vector column
+            conditions.append(text("properties.__ts_vector__ @@ plainto_tsquery('english', :search_query)").params(search_query=filters.search_query))
         
         # Property type filter - handle list of property types
         if filters.property_type:
@@ -317,6 +306,7 @@ async def get_unified_properties_optimized(
         
         # Apply sorting
         sort_by = filters.sort_by or SortBy.distance
+        
         if sort_by == SortBy.distance and distance is not None:
             query = query.order_by(distance)
         elif sort_by == SortBy.price_low:
@@ -328,6 +318,10 @@ async def get_unified_properties_optimized(
         elif sort_by == SortBy.popular:
             # Sort by like count, then view count
             query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
+        elif sort_by == SortBy.relevance and search_query_obj is not None:
+            # Sort by text search relevance using ts_rank
+            # Create a simple ranking expression for ordering
+            query = query.order_by(text("ts_rank(properties.__ts_vector__, plainto_tsquery('english', :search_query)) DESC").params(search_query=filters.search_query))
         else:
             # Default sorting
             query = query.order_by(Property.created_at.desc())
@@ -339,18 +333,13 @@ async def get_unified_properties_optimized(
         result = await db.execute(query)
         count_result = await db.execute(count_query)
         
-        # Handle results - check if we have additional columns
+        # Handle results - check if we have additional columns (distance)
         if distance is not None:
             rows = result.all()
             properties = [row[0] for row in rows]  # First column is the Property object
             
-            # Add computed fields to properties
-            for i, row in enumerate(rows):
-                prop = properties[i]
-                if distance is not None and len(row) > 1:
-                    # Set distance_km on the property for serialization
-                    # TODO: Handle distance_km in response later
-                    pass
+            # Additional computed columns (distance_km) can be extracted here if needed
+            # For now, we just extract the property objects
         else:
             properties = result.scalars().all()
         
