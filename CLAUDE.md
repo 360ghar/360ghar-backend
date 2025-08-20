@@ -44,10 +44,17 @@ docker-compose up db redis
 
 ### Testing and Quality Assurance
 ```bash
-# Currently no specific test framework is configured
-# When adding tests, use pytest:
-pip install pytest pytest-asyncio httpx
+# Run tests using pytest (already included in requirements.txt)
 pytest tests/
+
+# Run specific test file
+pytest tests/test_specific_file.py
+
+# Run tests with verbose output
+pytest -v tests/
+
+# Run load testing for API endpoints
+python tests/load_test_properties.py
 
 # No specific linting configuration found
 # For code formatting, add ruff or black:

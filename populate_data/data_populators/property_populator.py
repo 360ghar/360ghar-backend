@@ -123,6 +123,9 @@ Modern amenities available for a comfortable living experience.
         if purpose == PropertyPurpose.short_stay:
             features.extend(["WiFi", "AC", "Kitchen"])
         
+        # Create WKT location string for PostGIS
+        location_wkt = f'SRID=4326;POINT({longitude} {latitude})'
+        
         return {
             "owner_id": owner_id,
             "title": title,
@@ -134,6 +137,7 @@ Modern amenities available for a comfortable living experience.
             # Location
             "latitude": round(latitude, 6),
             "longitude": round(longitude, 6),
+            "location": location_wkt,
             "city": location.name,
             "state": "Delhi" if location_key == "us" else ("Maharashtra" if location_key == "mumbai" else "Haryana"),
             "country": "USA" if location_key == "us" else "India",
