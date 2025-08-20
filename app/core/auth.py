@@ -1,9 +1,20 @@
+from supabase import create_client, Client
 from jose import jwt, JWTError
 from app.core.config import settings
 from typing import Optional, Dict, Any
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Supabase client for auth only
+_supabase_client: Client = None
+
+def get_supabase_auth_client() -> Client:
+    """Get Supabase client for authentication only"""
+    global _supabase_client
+    if _supabase_client is None:
+        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+    return _supabase_client
 
 async def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
     """
