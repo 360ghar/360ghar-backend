@@ -22,13 +22,13 @@
 		},
 		{
 			"key": "test_email",
-			"value": "test@360ghar.com",
+			"value": "saksham1991999@gmail.com",
 			"enabled": true,
 			"type": "default"
 		},
 		{
 			"key": "test_password",
-			"value": "Test@123456",
+			"value": "saksham123",
 			"enabled": true,
 			"type": "secret"
 		},

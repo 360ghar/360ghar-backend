@@ -266,7 +266,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"email\": \"{{test_email}}\",\n    \"password\": \"{{test_password}}\"\n}",
+							"raw": "{\n    \"email\": \"saksham1991999@gmail.com\",\n    \"password\": \"saksham123\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -322,7 +322,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"email\": \"{{randomEmail}}\",\n    \"password\": \"Test@123456\",\n    \"full_name\": \"{{randomName}}\",\n    \"phone\": \"{{randomPhone}}\"\n}",
+							"raw": "{\n    \"email\": \"testuser1@360ghar.com\",\n    \"password\": \"Test@123456\",\n    \"full_name\": \"Test User\",\n    \"phone\": \"+917890123456\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -401,7 +401,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"full_name\": \"{{randomName}}\",\n    \"phone\": \"{{randomPhone}}\",\n    \"date_of_birth\": \"1990-01-15\",\n    \"preferences\": {\n        \"property_type\": [\"apartment\", \"house\"],\n        \"purpose\": \"rent\",\n        \"budget_min\": 20000,\n        \"budget_max\": 50000,\n        \"bedrooms_min\": 2,\n        \"bedrooms_max\": 3\n    },\n    \"notification_settings\": {\n        \"email_notifications\": true,\n        \"push_notifications\": true,\n        \"sms_notifications\": false\n    }\n}",
+							"raw": "{\n    \"full_name\": \"Test User\",\n    \"phone\": \"+917890123456\",\n    \"date_of_birth\": \"1990-01-15\",\n    \"preferences\": {\n        \"property_type\": [\"apartment\", \"house\"],\n        \"purpose\": \"rent\",\n        \"budget_min\": 20000,\n        \"budget_max\": 50000,\n        \"bedrooms_min\": 2,\n        \"bedrooms_max\": 3\n    },\n    \"notification_settings\": {\n        \"email_notifications\": true,\n        \"push_notifications\": true,\n        \"sms_notifications\": false\n    }\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -430,7 +430,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"property_type\": [\"apartment\", \"builder_floor\"],\n    \"purpose\": \"rent\",\n    \"budget_min\": 15000,\n    \"budget_max\": 40000,\n    \"bedrooms_min\": 2,\n    \"bedrooms_max\": 3,\n    \"area_min\": 800,\n    \"area_max\": 1500,\n    \"location_preference\": [\"Bangalore\", \"Mumbai\"],\n    \"max_distance_km\": 10\n}",
+							"raw": "{\n    \"property_type\": [\"apartment\", \"builder_floor\"],\n    \"purpose\": \"rent\",\n    \"budget_min\": 15000,\n    \"budget_max\": 40000,\n    \"bedrooms_min\": 2,\n    \"bedrooms_max\": 3,\n    \"area_min\": 800,\n    \"area_max\": 1500,\n    \"location_preference\": [\"Gurgaon\", \"Mumbai\"],\n    \"max_distance_km\": 10\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -459,7 +459,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"latitude\": \"12.9716\",\n    \"longitude\": \"77.5946\"\n}",
+							"raw": "{\n    \"latitude\": \"28.446400\",\n    \"longitude\": \"77.011711\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -512,7 +512,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"title\": \"Beautiful 2BHK Apartment in Koramangala\",\n    \"description\": \"Spacious 2BHK apartment with modern amenities, located in the heart of Koramangala. Close to tech parks, restaurants, and shopping centers.\",\n    \"property_type\": \"apartment\",\n    \"purpose\": \"rent\",\n    \"base_price\": {{randomPrice}},\n    \"monthly_rent\": 35000,\n    \"security_deposit\": 70000,\n    \"maintenance_charges\": 3000,\n    \"latitude\": 12.9352,\n    \"longitude\": 77.6245,\n    \"city\": \"Bangalore\",\n    \"state\": \"Karnataka\",\n    \"country\": \"India\",\n    \"pincode\": \"560034\",\n    \"locality\": \"Koramangala\",\n    \"sub_locality\": \"4th Block\",\n    \"landmark\": \"Near Forum Mall\",\n    \"full_address\": \"123, 4th Block, Koramangala, Bangalore - 560034\",\n    \"area_sqft\": {{randomArea}},\n    \"bedrooms\": {{randomBedrooms}},\n    \"bathrooms\": 2,\n    \"balconies\": 1,\n    \"parking_spaces\": 1,\n    \"floor_number\": 3,\n    \"total_floors\": 5,\n    \"age_of_property\": 2,\n    \"amenities\": [\"parking\", \"gym\", \"pool\", \"security\", \"elevator\", \"powerbackup\"],\n    \"features\": {\n        \"furnished\": \"semi-furnished\",\n        \"facing\": \"east\",\n        \"flooring\": \"vitrified\",\n        \"water_supply\": \"24x7\"\n    },\n    \"main_image_url\": \"https://example.com/property1.jpg\",\n    \"owner_name\": \"John Doe\",\n    \"owner_contact\": \"+919876543210\",\n    \"available_from\": \"2024-02-01\",\n    \"tags\": [\"pet-friendly\", \"family\", \"gated-community\"]\n}",
+							"raw": "{\n    \"title\": \"Beautiful 2BHK Apartment in DLF Phase 1\",\n    \"description\": \"Spacious 2BHK apartment with modern amenities, located in DLF Phase 1, Gurgaon. Close to tech parks, restaurants, and shopping centers.\",\n    \"property_type\": \"apartment\",\n    \"purpose\": \"rent\",\n    \"base_price\": 25000,\n    \"monthly_rent\": 25000,\n    \"security_deposit\": 50000,\n    \"maintenance_charges\": 2500,\n    \"latitude\": 28.446400,\n    \"longitude\": 77.011711,\n    \"city\": \"Gurgaon\",\n    \"state\": \"Haryana\",\n    \"country\": \"India\",\n    \"pincode\": \"122002\",\n    \"locality\": \"DLF Phase 1\",\n    \"sub_locality\": \"DLF Phase 1\",\n    \"landmark\": \"Near Metro Station\",\n    \"full_address\": \"Tower A, DLF Phase 1, Gurgaon - 122002\",\n    \"area_sqft\": 1200,\n    \"bedrooms\": 2,\n    \"bathrooms\": 2,\n    \"balconies\": 1,\n    \"parking_spaces\": 1,\n    \"floor_number\": 3,\n    \"total_floors\": 15,\n    \"age_of_property\": 5,\n    \"amenities\": [\"parking\", \"gym\", \"pool\", \"security\", \"elevator\", \"power_backup\"],\n    \"features\": {\n        \"furnished\": \"semi-furnished\",\n        \"facing\": \"east\",\n        \"flooring\": \"vitrified\",\n        \"water_supply\": \"24x7\"\n    },\n    \"main_image_url\": \"https://www.nobroker.in/blog/wp-content/uploads/2023/11/Victory-Valley.jpg\",\n    \"virtual_tour_url\": \"https://kuula.co/share/collection/71284?logo=-1&card=1&info=0&fs=1&vr=1&thumbs=3&alpha=0.71\",\n    \"owner_name\": \"Owner 1\",\n    \"owner_contact\": \"+916789012345\",\n    \"available_from\": \"2024-02-01\",\n    \"tags\": [\"fully_furnished\", \"pet_friendly\", \"24_7_security\"]\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -562,7 +562,7 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{BASE_URL}}/api/v1/properties/?lat=12.9716&lng=77.5946&radius=10&property_type=apartment&property_type=house&purpose=rent&price_min=10000&price_max=50000&bedrooms_min=2&bedrooms_max=3&city=Bangalore&sort_by=distance&page=1&limit=20",
+							"raw": "{{BASE_URL}}/api/v1/properties/?lat=28.446400&lng=77.011711&radius=10&property_type=apartment&property_type=house&purpose=rent&price_min=15000&price_max=40000&bedrooms_min=2&bedrooms_max=3&city=Gurgaon&sort_by=distance&page=1&limit=20",
 							"host": [
 								"{{BASE_URL}}"
 							],
@@ -575,11 +575,11 @@
 							"query": [
 								{
 									"key": "lat",
-									"value": "12.9716"
+									"value": "28.446400"
 								},
 								{
 									"key": "lng",
-									"value": "77.5946"
+									"value": "77.011711"
 								},
 								{
 									"key": "radius",
@@ -599,11 +599,11 @@
 								},
 								{
 									"key": "price_min",
-									"value": "10000"
+									"value": "15000"
 								},
 								{
 									"key": "price_max",
-									"value": "50000"
+									"value": "40000"
 								},
 								{
 									"key": "bedrooms_min",
@@ -615,7 +615,7 @@
 								},
 								{
 									"key": "city",
-									"value": "Bangalore"
+									"value": "Gurgaon"
 								},
 								{
 									"key": "sort_by",
@@ -760,7 +760,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"is_liked\": true,\n    \"user_location_lat\": \"12.9716\",\n    \"user_location_lng\": \"77.5946\",\n    \"session_id\": \"{{request_id}}\"\n}",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"is_liked\": true,\n    \"user_location_lat\": \"28.446400\",\n    \"user_location_lng\": \"77.011711\",\n    \"session_id\": \"{{request_id}}\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -938,7 +938,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"scheduled_date\": \"{{futureDate}}\",\n    \"visitor_name\": \"{{randomName}}\",\n    \"visitor_phone\": \"{{randomPhone}}\",\n    \"visitor_email\": \"{{randomEmail}}\",\n    \"number_of_visitors\": 2,\n    \"preferred_time_slot\": \"morning\",\n    \"special_requirements\": \"Please arrange for parking\"\n}",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"scheduled_date\": \"{{futureDate}}\",\n    \"visitor_name\": \"Test User\",\n    \"visitor_phone\": \"+917890123456\",\n    \"visitor_email\": \"testuser1@360ghar.com\",\n    \"number_of_visitors\": 2,\n    \"preferred_time_slot\": \"morning\",\n    \"special_requirements\": \"Please arrange for parking\"\n}",
 							"options": {
 								"raw": {
 									"language": "json"
@@ -1036,7 +1036,7 @@
 						"header": [],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"check_in_date\": \"2024-03-01T14:00:00Z\",\n    \"check_out_date\": \"2024-03-05T11:00:00Z\",\n    \"guests\": 2,\n    \"primary_guest_name\": \"{{randomName}}\",\n    \"primary_guest_phone\": \"{{randomPhone}}\",\n    \"primary_guest_email\": \"{{randomEmail}}\",\n    \"special_requests\": \"Early check-in if possible\",\n    \"guest_details\": {\n        \"adults\": 2,\n        \"children\": 0,\n        \"infants\": 0\n    }\n}",
+							"raw": "{\n    \"property_id\": {{test_property_id}},\n    \"check_in_date\": \"2024-03-01T14:00:00Z\",\n    \"check_out_date\": \"2024-03-05T11:00:00Z\",\n    \"guests\": 2,\n    \"primary_guest_name\": \"Test User\",\n    \"primary_guest_phone\": \"+917890123456\",\n    \"primary_guest_email\": \"testuser1@360ghar.com\",\n    \"special_requests\": \"Early check-in if possible\",\n    \"guest_details\": {\n        \"adults\": 2,\n        \"children\": 0,\n        \"infants\": 0\n    }\n}",
 							"options": {
 								"raw": {
 									"language": "json"
