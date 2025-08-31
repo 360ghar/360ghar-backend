@@ -130,6 +130,55 @@
           "response": []
         },
         {
+          "name": "Get Visit Details",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "{{test_visit_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Visit",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_date\": \"{{futureDate}}\",\n  \"special_requirements\": \"Update: please ensure keys are available\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "{{test_visit_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Health Check",
           "event": [
             {
@@ -279,7 +328,7 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/login",
+              "raw": "{{BASE_URL}}/api/v1/auth/login/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -287,7 +336,8 @@
                 "api",
                 "v1",
                 "auth",
-                "login"
+                "login",
+                ""
               ]
             }
           },
@@ -335,7 +385,7 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/register",
+              "raw": "{{BASE_URL}}/api/v1/auth/register/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -343,7 +393,8 @@
                 "api",
                 "v1",
                 "auth",
-                "register"
+                "register",
+                ""
               ]
             }
           },
@@ -514,68 +565,9 @@
           },
           "response": []
         },
+        
         {
-          "name": "Search Properties - Basic",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Response has properties array', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('properties');",
-                  "    pm.expect(response.properties).to.be.an('array');",
-                  "    pm.expect(response).to.have.property('total');",
-                  "    pm.expect(response).to.have.property('page');",
-                  "    pm.expect(response).to.have.property('limit');",
-                  "    pm.expect(response).to.have.property('filters_applied');",
-                  "});",
-                  "",
-                  "pm.test('Properties contain required fields', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        const property = response.properties[0];",
-                  "        pm.expect(property).to.have.property('id');",
-                  "        pm.expect(property).to.have.property('title');",
-                  "        pm.expect(property).to.have.property('property_type');",
-                  "        pm.expect(property).to.have.property('base_price');",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?limit=5",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "limit",
-                  "value": "5"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - All Filters",
+          "name": "Get Properties",
           "request": {
             "method": "GET",
             "header": [],
@@ -791,958 +783,11 @@
           },
           "response": []
         },
-        {
-          "name": "Search Properties - Location Based",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Response has search center', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('search_center');",
-                  "    pm.expect(response.search_center).to.have.property('latitude');",
-                  "    pm.expect(response.search_center).to.have.property('longitude');",
-                  "});",
-                  "",
-                  "pm.test('Filters applied correctly', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('radius_km', 10);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?lat=28.446400&lng=77.011711&radius=10&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "lat",
-                  "value": "28.446400",
-                  "description": "Gurgaon latitude"
-                },
-                {
-                  "key": "lng",
-                  "value": "77.011711",
-                  "description": "Gurgaon longitude"
-                },
-                {
-                  "key": "radius",
-                  "value": "10",
-                  "description": "Search radius in kilometers"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Multiple Property Types",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Multiple property types filter applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied.property_type).to.be.an('array');",
-                  "    pm.expect(response.filters_applied.property_type).to.include.members(['apartment', 'house']);",
-                  "});",
-                  "",
-                  "pm.test('Properties match requested types', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            pm.expect(['apartment', 'house']).to.include(property.property_type);",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?property_type=apartment&property_type=house&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "property_type",
-                  "value": "apartment",
-                  "description": "First property type"
-                },
-                {
-                  "key": "property_type",
-                  "value": "house",
-                  "description": "Second property type"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Price Range",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Price filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('price_min', 1000000);",
-                  "    pm.expect(response.filters_applied).to.have.property('price_max', 5000000);",
-                  "});",
-                  "",
-                  "pm.test('Properties within price range', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            pm.expect(property.base_price).to.be.at.least(1000000);",
-                  "            pm.expect(property.base_price).to.be.at.most(5000000);",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?price_min=1000000&price_max=5000000&sort_by=price_low&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "price_min",
-                  "value": "1000000",
-                  "description": "Minimum price: 10 lakhs"
-                },
-                {
-                  "key": "price_max",
-                  "value": "5000000",
-                  "description": "Maximum price: 50 lakhs"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "price_low",
-                  "description": "Sort by price (low to high)"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Bedrooms & Bathrooms",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Room filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('bedrooms_min', 2);",
-                  "    pm.expect(response.filters_applied).to.have.property('bedrooms_max', 3);",
-                  "    pm.expect(response.filters_applied).to.have.property('bathrooms_min', 2);",
-                  "});",
-                  "",
-                  "pm.test('Properties match room requirements', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            if (property.bedrooms) {",
-                  "                pm.expect(property.bedrooms).to.be.at.least(2);",
-                  "                pm.expect(property.bedrooms).to.be.at.most(3);",
-                  "            }",
-                  "            if (property.bathrooms) {",
-                  "                pm.expect(property.bathrooms).to.be.at.least(2);",
-                  "            }",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?bedrooms_min=2&bedrooms_max=3&bathrooms_min=2&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "bedrooms_min",
-                  "value": "2",
-                  "description": "Minimum bedrooms"
-                },
-                {
-                  "key": "bedrooms_max",
-                  "value": "3",
-                  "description": "Maximum bedrooms"
-                },
-                {
-                  "key": "bathrooms_min",
-                  "value": "2",
-                  "description": "Minimum bathrooms"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Text Search",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Search query applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('search_query', 'luxury apartment');",
-                  "});",
-                  "",
-                  "pm.test('Properties contain search terms', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            const searchText = (property.title + ' ' + property.description + ' ' + property.locality + ' ' + property.city).toLowerCase();",
-                  "            const hasLuxury = searchText.includes('luxury');",
-                  "            const hasApartment = searchText.includes('apartment');",
-                  "            pm.expect(hasLuxury || hasApartment).to.be.true;",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?q=luxury apartment&sort_by=relevance&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "q",
-                  "value": "luxury apartment",
-                  "description": "Text search query"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "relevance",
-                  "description": "Sort by relevance to search"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Area Range",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Area filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('area_min', 800);",
-                  "    pm.expect(response.filters_applied).to.have.property('area_max', 2000);",
-                  "});",
-                  "",
-                  "pm.test('Properties within area range', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            if (property.area_sqft) {",
-                  "                pm.expect(property.area_sqft).to.be.at.least(800);",
-                  "                pm.expect(property.area_sqft).to.be.at.most(2000);",
-                  "            }",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?area_min=800&area_max=2000&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "area_min",
-                  "value": "800",
-                  "description": "Minimum area in sqft"
-                },
-                {
-                  "key": "area_max",
-                  "value": "2000",
-                  "description": "Maximum area in sqft"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Location Filters",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Location filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('city', 'Gurgaon');",
-                  "    pm.expect(response.filters_applied).to.have.property('locality', 'DLF');",
-                  "});",
-                  "",
-                  "pm.test('Properties match location filters', function() {",
-                  "    const response = pm.response.json();",
-                  "    if (response.properties && response.properties.length > 0) {",
-                  "        response.properties.forEach(property => {",
-                  "            if (property.city) {",
-                  "                pm.expect(property.city.toLowerCase()).to.include('gurgaon');",
-                  "            }",
-                  "            if (property.locality) {",
-                  "                pm.expect(property.locality.toLowerCase()).to.include('dlf');",
-                  "            }",
-                  "        });",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?city=Gurgaon&locality=DLF&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "city",
-                  "value": "Gurgaon",
-                  "description": "Filter by city"
-                },
-                {
-                  "key": "locality",
-                  "value": "DLF",
-                  "description": "Filter by locality"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Amenities Filter",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Amenities filter applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('amenities');",
-                  "    pm.expect(response.filters_applied.amenities).to.be.an('array');",
-                  "    pm.expect(response.filters_applied.amenities).to.include.members(['Parking', 'Gym']);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?amenities=Parking&amenities=Gym&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "amenities",
-                  "value": "Parking",
-                  "description": "Required amenity: Parking"
-                },
-                {
-                  "key": "amenities",
-                  "value": "Gym",
-                  "description": "Required amenity: Gym"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Comprehensive Filters",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('All filters applied correctly', function() {",
-                  "    const response = pm.response.json();",
-                  "    const filters = response.filters_applied;",
-                  "    pm.expect(filters).to.have.property('property_type');",
-                  "    pm.expect(filters).to.have.property('purpose', 'rent');",
-                  "    pm.expect(filters).to.have.property('price_min', 15000);",
-                  "    pm.expect(filters).to.have.property('price_max', 40000);",
-                  "    pm.expect(filters).to.have.property('bedrooms_min', 2);",
-                  "    pm.expect(filters).to.have.property('bedrooms_max', 3);",
-                  "    pm.expect(filters).to.have.property('city', 'Gurgaon');",
-                  "    pm.expect(filters).to.have.property('sort_by', 'distance');",
-                  "});",
-                  "",
-                  "pm.test('Response structure is correct', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('properties');",
-                  "    pm.expect(response).to.have.property('total');",
-                  "    pm.expect(response).to.have.property('page', 1);",
-                  "    pm.expect(response).to.have.property('limit', 20);",
-                  "    pm.expect(response).to.have.property('total_pages');",
-                  "    pm.expect(response).to.have.property('filters_applied');",
-                  "    pm.expect(response).to.have.property('search_center');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?lat=28.446400&lng=77.011711&radius=10&property_type=apartment&property_type=house&purpose=rent&price_min=15000&price_max=40000&bedrooms_min=2&bedrooms_max=3&city=Gurgaon&sort_by=distance&page=1&limit=20",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "lat",
-                  "value": "28.446400",
-                  "description": "Latitude for location-based search"
-                },
-                {
-                  "key": "lng",
-                  "value": "77.011711",
-                  "description": "Longitude for location-based search"
-                },
-                {
-                  "key": "radius",
-                  "value": "10",
-                  "description": "Search radius in km"
-                },
-                {
-                  "key": "property_type",
-                  "value": "apartment",
-                  "description": "Property type: Apartment"
-                },
-                {
-                  "key": "property_type",
-                  "value": "house",
-                  "description": "Property type: House"
-                },
-                {
-                  "key": "purpose",
-                  "value": "rent",
-                  "description": "Property purpose: Rent"
-                },
-                {
-                  "key": "price_min",
-                  "value": "15000",
-                  "description": "Minimum price"
-                },
-                {
-                  "key": "price_max",
-                  "value": "40000",
-                  "description": "Maximum price"
-                },
-                {
-                  "key": "bedrooms_min",
-                  "value": "2",
-                  "description": "Minimum bedrooms"
-                },
-                {
-                  "key": "bedrooms_max",
-                  "value": "3",
-                  "description": "Maximum bedrooms"
-                },
-                {
-                  "key": "city",
-                  "value": "Gurgaon",
-                  "description": "Filter by city"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "distance",
-                  "description": "Sort by distance"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "Page number"
-                },
-                {
-                  "key": "limit",
-                  "value": "20",
-                  "description": "Items per page"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Short Stay Filters",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Short stay filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('purpose', 'short_stay');",
-                  "    pm.expect(response.filters_applied).to.have.property('guests', 4);",
-                  "    pm.expect(response.filters_applied).to.have.property('check_in_date', '2024-06-15');",
-                  "    pm.expect(response.filters_applied).to.have.property('check_out_date', '2024-06-20');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?purpose=short_stay&guests=4&check_in=2024-06-15&check_out=2024-06-20&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "purpose",
-                  "value": "short_stay",
-                  "description": "Purpose: Short stay booking"
-                },
-                {
-                  "key": "guests",
-                  "value": "4",
-                  "description": "Number of guests"
-                },
-                {
-                  "key": "check_in",
-                  "value": "2024-06-15",
-                  "description": "Check-in date"
-                },
-                {
-                  "key": "check_out",
-                  "value": "2024-06-20",
-                  "description": "Check-out date"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Sort by Price (High to Low)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Properties sorted by price (high to low)', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('sort_by', 'price_high');",
-                  "    ",
-                  "    if (response.properties && response.properties.length > 1) {",
-                  "        for (let i = 0; i < response.properties.length - 1; i++) {",
-                  "            const current = response.properties[i].base_price;",
-                  "            const next = response.properties[i + 1].base_price;",
-                  "            pm.expect(current).to.be.at.least(next);",
-                  "        }",
-                  "    }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?sort_by=price_high&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "sort_by",
-                  "value": "price_high",
-                  "description": "Sort by price (high to low)"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Sort by Newest",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Properties sorted by newest', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('sort_by', 'newest');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?sort_by=newest&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "sort_by",
-                  "value": "newest",
-                  "description": "Sort by newest properties first"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Sort by Popularity",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Properties sorted by popularity', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('sort_by', 'popular');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?sort_by=popular&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "sort_by",
-                  "value": "popular",
-                  "description": "Sort by popularity (likes and views)"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Search Properties - Additional Filters",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Additional filters applied', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response.filters_applied).to.have.property('parking_spaces_min', 1);",
-                  "    pm.expect(response.filters_applied).to.have.property('floor_number_min', 2);",
-                  "    pm.expect(response.filters_applied).to.have.property('floor_number_max', 10);",
-                  "    pm.expect(response.filters_applied).to.have.property('age_max', 5);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?parking_spaces_min=1&floor_number_min=2&floor_number_max=10&age_max=5&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "properties",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "parking_spaces_min",
-                  "value": "1",
-                  "description": "Minimum parking spaces"
-                },
-                {
-                  "key": "floor_number_min",
-                  "value": "2",
-                  "description": "Minimum floor number"
-                },
-                {
-                  "key": "floor_number_max",
-                  "value": "10",
-                  "description": "Maximum floor number"
-                },
-                {
-                  "key": "age_max",
-                  "value": "5",
-                  "description": "Maximum age of property (years)"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
+        
+        
+        
+        
+        
         {
           "name": "Get Property Details",
           "request": {
@@ -1891,74 +936,9 @@
           },
           "response": []
         },
+        
         {
-          "name": "Get Swipe History - Basic",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                  "const res = pm.response.json();",
-                  "pm.test('Response has properties array', function() {",
-                  "  pm.expect(res).to.have.property('properties');",
-                  "  pm.expect(res.properties).to.be.an('array');",
-                  "  pm.expect(res).to.have.property('total');",
-                  "  pm.expect(res).to.have.property('page', 1);",
-                  "  pm.expect(res).to.have.property('limit', 20);",
-                  "});",
-                  "",
-                  "pm.test('Properties contain liked attribute', function() {",
-                  "  const res = pm.response.json();",
-                  "  if (res.properties && res.properties.length > 0) {",
-                  "    res.properties.forEach(property => {",
-                  "      pm.expect(property).to.have.property('liked');",
-                  "      pm.expect(property.liked).to.be.oneOf([true, false]);",
-                  "    });",
-                  "  }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/?is_liked=true&page=1&limit=20",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "swipes",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "is_liked",
-                  "value": "true",
-                  "description": "Filter by liked (true) or disliked (false) swipes"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "Page number for pagination"
-                },
-                {
-                  "key": "limit",
-                  "value": "20",
-                  "description": "Number of items per page"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Swipe History - All Filters",
+          "name": "Get Swipe History",
           "request": {
             "method": "GET",
             "header": [],
@@ -2174,324 +1154,10 @@
           },
           "response": []
         },
-        {
-          "name": "Get Swipe History - Location Based",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                  "pm.test('Response has search center', function() {",
-                  "  const res = pm.response.json();",
-                  "  pm.expect(res).to.have.property('search_center');",
-                  "  pm.expect(res.search_center).to.have.property('latitude', 28.446400);",
-                  "  pm.expect(res.search_center).to.have.property('longitude', 77.011711);",
-                  "});",
-                  "pm.test('Filters applied correctly', function() {",
-                  "  const res = pm.response.json();",
-                  "  pm.expect(res.filters_applied).to.have.property('radius_km', 10);",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/?lat=28.446400&lng=77.011711&radius=10&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "swipes",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "lat",
-                  "value": "28.446400",
-                  "description": "Latitude for location-based search"
-                },
-                {
-                  "key": "lng",
-                  "value": "77.011711",
-                  "description": "Longitude for location-based search"
-                },
-                {
-                  "key": "radius",
-                  "value": "10",
-                  "description": "Search radius in kilometers"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Swipe History - Text Search",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                  "pm.test('Search query applied', function() {",
-                  "  const res = pm.response.json();",
-                  "  pm.expect(res.filters_applied).to.have.property('search_query', 'luxury apartment');",
-                  "});",
-                  "pm.test('Properties contain search terms', function() {",
-                  "  const res = pm.response.json();",
-                  "  if (res.properties && res.properties.length > 0) {",
-                  "    res.properties.forEach(property => {",
-                  "      const searchText = (property.title + ' ' + property.description + ' ' + property.locality + ' ' + property.city).toLowerCase();",
-                  "      const hasLuxury = searchText.includes('luxury');",
-                  "      const hasApartment = searchText.includes('apartment');",
-                  "      pm.expect(hasLuxury || hasApartment).to.be.true;",
-                  "    });",
-                  "  }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/?q=luxury apartment&sort_by=relevance&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "swipes",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "q",
-                  "value": "luxury apartment",
-                  "description": "Text search query"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "relevance",
-                  "description": "Sort by relevance to search"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Swipe History - Price Range",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                  "pm.test('Price filters applied', function() {",
-                  "  const res = pm.response.json();",
-                  "  pm.expect(res.filters_applied).to.have.property('price_min', 15000);",
-                  "  pm.expect(res.filters_applied).to.have.property('price_max', 40000);",
-                  "});",
-                  "pm.test('Properties within price range', function() {",
-                  "  const res = pm.response.json();",
-                  "  if (res.properties && res.properties.length > 0) {",
-                  "    res.properties.forEach(property => {",
-                  "      if (property.base_price) {",
-                  "        pm.expect(property.base_price).to.be.at.least(15000);",
-                  "        pm.expect(property.base_price).to.be.at.most(40000);",
-                  "      }",
-                  "    });",
-                  "  }",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/?price_min=15000&price_max=40000&sort_by=price_low&limit=10",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "swipes",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "price_min",
-                  "value": "15000",
-                  "description": "Minimum price"
-                },
-                {
-                  "key": "price_max",
-                  "value": "40000",
-                  "description": "Maximum price"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "price_low",
-                  "description": "Sort by price (low to high)"
-                },
-                {
-                  "key": "limit",
-                  "value": "10"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Get Swipe History - Comprehensive Filters",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
-                  "pm.test('All filters applied correctly', function() {",
-                  "  const res = pm.response.json();",
-                  "  const filters = res.filters_applied;",
-                  "  pm.expect(filters).to.have.property('property_type');",
-                  "  pm.expect(filters).to.have.property('purpose', 'rent');",
-                  "  pm.expect(filters).to.have.property('price_min', 15000);",
-                  "  pm.expect(filters).to.have.property('price_max', 40000);",
-                  "  pm.expect(filters).to.have.property('bedrooms_min', 2);",
-                  "  pm.expect(filters).to.have.property('bedrooms_max', 3);",
-                  "  pm.expect(filters).to.have.property('city', 'Gurgaon');",
-                  "  pm.expect(filters).to.have.property('sort_by', 'distance');",
-                  "});",
-                  "",
-                  "pm.test('Response structure is correct', function() {",
-                  "  const res = pm.response.json();",
-                  "  pm.expect(res).to.have.property('properties');",
-                  "  pm.expect(res).to.have.property('total');",
-                  "  pm.expect(res).to.have.property('page', 1);",
-                  "  pm.expect(res).to.have.property('limit', 20);",
-                  "  pm.expect(res).to.have.property('total_pages');",
-                  "  pm.expect(res).to.have.property('filters_applied');",
-                  "  pm.expect(res).to.have.property('search_center');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/?lat=28.446400&lng=77.011711&radius=10&property_type=apartment&property_type=house&purpose=rent&price_min=15000&price_max=40000&bedrooms_min=2&bedrooms_max=3&city=Gurgaon&sort_by=distance&page=1&limit=20",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "swipes",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "lat",
-                  "value": "28.446400",
-                  "description": "Latitude for location-based search"
-                },
-                {
-                  "key": "lng",
-                  "value": "77.011711",
-                  "description": "Longitude for location-based search"
-                },
-                {
-                  "key": "radius",
-                  "value": "10",
-                  "description": "Search radius in km"
-                },
-                {
-                  "key": "property_type",
-                  "value": "apartment",
-                  "description": "Property type: Apartment"
-                },
-                {
-                  "key": "property_type",
-                  "value": "house",
-                  "description": "Property type: House"
-                },
-                {
-                  "key": "purpose",
-                  "value": "rent",
-                  "description": "Property purpose: Rent"
-                },
-                {
-                  "key": "price_min",
-                  "value": "15000",
-                  "description": "Minimum price"
-                },
-                {
-                  "key": "price_max",
-                  "value": "40000",
-                  "description": "Maximum price"
-                },
-                {
-                  "key": "bedrooms_min",
-                  "value": "2",
-                  "description": "Minimum bedrooms"
-                },
-                {
-                  "key": "bedrooms_max",
-                  "value": "3",
-                  "description": "Maximum bedrooms"
-                },
-                {
-                  "key": "city",
-                  "value": "Gurgaon",
-                  "description": "Filter by city"
-                },
-                {
-                  "key": "sort_by",
-                  "value": "distance",
-                  "description": "Sort by distance"
-                },
-                {
-                  "key": "page",
-                  "value": "1",
-                  "description": "Page number"
-                },
-                {
-                  "key": "limit",
-                  "value": "20",
-                  "description": "Items per page"
-                }
-              ]
-            }
-          },
-          "response": []
-        },
+        
+        
+        
+        
         {
           "name": "Get Swipe Stats",
           "request": {
@@ -2535,19 +1201,10 @@
         {
           "name": "Toggle Swipe Like",
           "request": {
-            "method": "POST",
+            "method": "PUT",
             "header": [],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"swipe_id\": 123\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/swipes/toggle",
+              "raw": "{{BASE_URL}}/api/v1/swipes/{{swipe_id}}/toggle/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -2555,7 +1212,9 @@
                 "api",
                 "v1",
                 "swipes",
-                "toggle"
+                "{{swipe_id}}",
+                "toggle",
+                ""
               ]
             }
           },
@@ -2626,46 +1285,7 @@
           },
           "response": []
         },
-        {
-          "name": "Get Relationship Manager",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Response has relationship manager data', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('id');",
-                  "    pm.expect(response).to.have.property('name');",
-                  "    pm.expect(response).to.have.property('agent_code');",
-                  "});"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/visits/relationship-manager",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "visits",
-                "relationship-manager"
-              ]
-            }
-          },
-          "response": []
-        },
+        
         {
           "name": "Schedule Visit",
           "event": [
@@ -2710,21 +1330,12 @@
           "response": []
         },
         {
-          "name": "Reschedule Visit",
+          "name": "Get Visit Details",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"new_date\": \"{{futureDate}}\",\n    \"reason\": \"Schedule conflict\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/visits/reschedule",
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -2732,6 +1343,65 @@
                 "api",
                 "v1",
                 "visits",
+                "{{test_visit_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Visit",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_date\": \"{{futureDate}}\",\n  \"special_requirements\": \"Update: please ensure keys are available\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "{{test_visit_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reschedule Visit",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"new_date\": \"{{futureDate}}\",\n    \"reason\": \"Schedule conflict\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}/reschedule",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "{{test_visit_id}}",
                 "reschedule"
               ]
             }
@@ -2745,7 +1415,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"visit_id\": {{test_visit_id}},\n    \"reason\": \"Changed my mind about the property\"\n}",
+              "raw": "{\n    \"reason\": \"Changed my mind about the property\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -2753,7 +1423,7 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/visits/cancel",
+              "raw": "{{BASE_URL}}/api/v1/visits/{{test_visit_id}}/cancel",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -2761,6 +1431,7 @@
                 "api",
                 "v1",
                 "visits",
+                "{{test_visit_id}}",
                 "cancel"
               ]
             }
@@ -2955,6 +1626,35 @@
           "response": []
         },
         {
+          "name": "Update Booking",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"check_in_date\": \"2024-03-02T14:00:00Z\",\n  \"check_out_date\": \"2024-03-06T11:00:00Z\",\n  \"guests\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/{{test_booking_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{test_booking_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
           "name": "Cancel Booking",
           "request": {
             "method": "POST",
@@ -3071,7 +1771,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/assigned",
+              "raw": "{{BASE_URL}}/api/v1/agents/assigned/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -3079,7 +1779,8 @@
                 "api",
                 "v1",
                 "agents",
-                "assigned"
+                "assigned",
+                ""
               ]
             }
           },
@@ -3109,7 +1810,7 @@
             "method": "POST",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/assign",
+              "raw": "{{BASE_URL}}/api/v1/agents/assign/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -3117,7 +1818,8 @@
                 "api",
                 "v1",
                 "agents",
-                "assign"
+                "assign",
+                ""
               ]
             }
           },
@@ -3129,7 +1831,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/available",
+              "raw": "{{BASE_URL}}/api/v1/agents/available/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -3137,7 +1839,8 @@
                 "api",
                 "v1",
                 "agents",
-                "available"
+                "available",
+                ""
               ]
             }
           },
@@ -3205,34 +1908,14 @@
           },
           "response": []
         },
-        {
-          "name": "Get Agent by Code",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/code/AGENT_001",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "agents",
-                "code",
-                "AGENT_001"
-              ]
-            }
-          },
-          "response": []
-        },
+        
         {
           "name": "Get Agent Statistics",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/stats",
+              "raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/stats/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -3241,7 +1924,8 @@
                 "v1",
                 "agents",
                 "{{my_agent_id}}",
-                "stats"
+                "stats",
+                ""
               ]
             }
           },
@@ -3253,7 +1937,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/visits",
+              "raw": "{{BASE_URL}}/api/v1/agents/{{my_agent_id}}/visits/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -3262,7 +1946,8 @@
                 "v1",
                 "agents",
                 "{{my_agent_id}}",
-                "visits"
+                "visits",
+                ""
               ]
             }
           },

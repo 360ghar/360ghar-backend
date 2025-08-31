@@ -312,3 +312,16 @@ async def get_swipe_stats(db: AsyncSession, user_id: int):
         "disliked_count": disliked,
         "like_percentage": (liked / total * 100) if total > 0 else 0
     }
+
+async def get_user_like_for_property(db: AsyncSession, user_id: int, property_id: int) -> Optional[bool]:
+    """Return whether the user has a swipe for the property and if it's liked.
+
+    Returns:
+        True if liked, False if explicitly disliked, None if no swipe exists.
+    """
+    stmt = select(UserSwipe.is_liked).where(
+        and_(UserSwipe.user_id == user_id, UserSwipe.property_id == property_id)
+    )
+    result = await db.execute(stmt)
+    row = result.one_or_none()
+    return row[0] if row is not None else None

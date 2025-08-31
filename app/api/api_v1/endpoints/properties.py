@@ -16,6 +16,8 @@ from app.services.property import (
     delete_property, get_property_recommendations,
     get_unified_properties_optimized, increment_property_view_count
 )
+from app.services.visit import get_user_property_visit_stats
+from app.services.swipe import get_user_like_for_property
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -192,7 +194,24 @@ async def get_property_details(
     
     # Increment view count
     await increment_property_view_count(db, property_id)
-    
+
+    # If user is authenticated, enrich with user-specific context
+    if current_user:
+        try:
+            # Liked status (True/False/None)
+            liked = await get_user_like_for_property(db, current_user.id, property_id)
+            # Upcoming visit stats
+            visit_stats = await get_user_property_visit_stats(db, current_user.id, property_id)
+            property_data = property_data.model_copy(update={
+                "liked": bool(liked) if liked is not None else None,
+                "user_has_scheduled_visit": visit_stats["count"] > 0,
+                "user_scheduled_visit_count": visit_stats["count"],
+                "user_next_visit_date": visit_stats["next_date"],
+            })
+        except Exception as e:
+            # Log and continue without blocking property details
+            logger.error(f"Failed to enrich property {property_id} with user context: {str(e)}")
+
     return property_data
 
 @router.put("/{property_id}", response_model=Property)

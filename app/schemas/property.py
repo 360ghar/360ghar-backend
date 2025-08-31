@@ -145,6 +145,10 @@ class Property(PropertyInDB):
     amenities: Optional[List[PropertyAmenityResponse]] = None
     distance_km: Optional[float] = None  # For location-based searches
     liked: Optional[bool] = None  # For swipe history - indicates if user liked this property
+    # Auth-aware context populated on detail view when user is logged in
+    user_has_scheduled_visit: Optional[bool] = None
+    user_scheduled_visit_count: Optional[int] = None
+    user_next_visit_date: Optional[datetime] = None
     
     class Config:
         from_attributes = True

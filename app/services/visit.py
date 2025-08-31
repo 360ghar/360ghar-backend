@@ -185,3 +185,27 @@ async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str = Non
         return True
     
     return False
+
+async def get_user_property_visit_stats(db: AsyncSession, user_id: int, property_id: int):
+    """Return upcoming scheduled visit stats for a user on a given property.
+
+    Calculates count of upcoming visits with status in [scheduled, confirmed, rescheduled]
+    and returns the earliest upcoming date if present.
+    """
+    now = datetime.now(timezone.utc)
+    # Filter upcoming and scheduled-like statuses
+    stmt = (
+        select(Visit.scheduled_date)
+        .where(
+            Visit.user_id == user_id,
+            Visit.property_id == property_id,
+            Visit.scheduled_date >= now,
+            Visit.status.in_(["scheduled", "confirmed", "rescheduled"]),
+        )
+        .order_by(Visit.scheduled_date.asc())
+    )
+    result = await db.execute(stmt)
+    rows = result.fetchall()
+    count = len(rows)
+    next_date = rows[0][0] if count else None
+    return {"count": count, "next_date": next_date}
