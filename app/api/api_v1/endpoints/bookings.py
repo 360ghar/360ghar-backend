@@ -141,7 +141,8 @@ async def process_booking_payment(
         if current_user.role != 'agent':
             raise HTTPException(status_code=403, detail="Access denied")
         # Agent is allowed only if they manage the booking's user or the property's owner
-        from app.models.models import User as UserModel, Property
+        from app.models.users import User as UserModel
+        from app.models.properties import Property
         booking_user = await db.get(UserModel, booking.user_id)
         property_obj = await db.get(Property, booking.property_id)
         owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
@@ -172,7 +173,8 @@ async def add_booking_review(
         if current_user.role != 'agent':
             raise HTTPException(status_code=403, detail="Access denied")
         # Agent is allowed only if they manage the booking's user or the property's owner
-        from app.models.models import User as UserModel, Property
+        from app.models.users import User as UserModel
+        from app.models.properties import Property
         booking_user = await db.get(UserModel, booking.user_id)
         property_obj = await db.get(Property, booking.property_id)
         owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None

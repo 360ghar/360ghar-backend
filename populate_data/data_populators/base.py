@@ -1,13 +1,14 @@
 """
-Base classes and utilities for data population
+Base classes and utilities for data population with duplicate checking
 """
 import asyncio
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Set
 from dataclasses import dataclass
 import sys
 import os
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete, and_
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -137,40 +138,183 @@ LOCATIONS = {
 }
 
 class BasePopulator(ABC):
-    """Base class for all data populators"""
-    
+    """Base class for all data populators with duplicate checking"""
+
     def __init__(self):
         self.logger = get_logger(self.__class__.__name__)
-    
+
     async def get_db_session(self) -> AsyncSession:
         """Get a database session"""
         return AsyncSessionLocal()
-    
+
+    @property
     @abstractmethod
-    async def populate(self, count: Optional[int] = None) -> int:
+    def model_class(self):
+        """Return the SQLAlchemy model class for this populator"""
+        pass
+
+    @property
+    @abstractmethod
+    def unique_fields(self) -> List[str]:
         """
-        Populate data for this entity type
-        
-        Args:
-            count: Number of records to create (if applicable)
-            
-        Returns:
-            Number of records created
+        Return list of field names that uniquely identify a record.
+        For single field uniqueness: ['field_name']
+        For composite uniqueness: ['field1', 'field2']
+        For no uniqueness constraint: [] (will always create new records)
         """
         pass
-    
-    @abstractmethod
-    async def clear_all(self) -> int:
+
+    async def _record_exists(self, session: AsyncSession, data: Dict[str, Any]) -> bool:
         """
-        Clear all test data for this entity type
-        
+        Check if a record already exists based on unique fields
+
+        Args:
+            session: Database session
+            data: Record data dictionary
+
+        Returns:
+            True if record exists, False otherwise
+        """
+        if not self.unique_fields:
+            # No uniqueness constraint - always allow creation
+            return False
+
+        # Build where clause for unique field check
+        where_conditions = []
+        for field in self.unique_fields:
+            if field in data:
+                value = data[field]
+                where_conditions.append(getattr(self.model_class, field) == value)
+
+        if not where_conditions:
+            # No unique field values provided - allow creation
+            return False
+
+        stmt = select(self.model_class).where(and_(*where_conditions))
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        return existing is not None
+
+    async def _create_record(self, session: AsyncSession, data: Dict[str, Any]) -> bool:
+        """
+        Create a single record if it doesn't already exist
+
+        Args:
+            session: Database session
+            data: Record data dictionary
+
+        Returns:
+            True if record was created, False if it already existed
+        """
+        if await self._record_exists(session, data):
+            # Extract unique field values for logging
+            unique_values = {field: data.get(field) for field in self.unique_fields if field in data}
+            self.logger.debug(f"Record already exists with unique fields: {unique_values}")
+            return False
+
+        # Create new record
+        record = self.model_class(**data)
+        session.add(record)
+        await session.flush()  # Get ID without committing
+
+        # Log creation
+        unique_values = {field: getattr(record, field) for field in self.unique_fields if hasattr(record, field)}
+        self.logger.debug(f"Created new record with unique fields: {unique_values}")
+
+        return True
+
+    async def populate(
+        self,
+        data_list: List[Dict[str, Any]],
+        skip_existing: bool = True
+    ) -> Dict[str, int]:
+        """
+        Populate data for this entity type with duplicate checking
+
+        Args:
+            data_list: List of record data dictionaries
+            skip_existing: If True, skip records that already exist
+
+        Returns:
+            Dict with 'created' and 'skipped' counts
+        """
+        created_count = 0
+        skipped_count = 0
+
+        self.logger.info(f"Processing {len(data_list)} records for {self.__class__.__name__}")
+
+        async with await self.get_db_session() as session:
+            try:
+                for data in data_list:
+                    if skip_existing and await self._record_exists(session, data):
+                        skipped_count += 1
+                        continue
+
+                    try:
+                        if await self._create_record(session, data):
+                            created_count += 1
+                        else:
+                            skipped_count += 1
+                    except Exception as exc:
+                        self.logger.error(f"Failed to create record: {exc}")
+                        continue
+
+                    # Commit in batches to avoid memory issues
+                    if (created_count + skipped_count) % 50 == 0:
+                        await session.commit()
+
+                await session.commit()
+                self.logger.info(f"Population complete: {created_count} created, {skipped_count} skipped")
+
+            except Exception as exc:
+                await session.rollback()
+                self.logger.error(f"Population failed: {exc}")
+                raise
+
+        return {"created": created_count, "skipped": skipped_count}
+
+    async def clear_all(self, filters: Optional[Dict[str, Any]] = None) -> int:
+        """
+        Clear all records for this entity type
+
+        Args:
+            filters: Optional filters to limit deletion (e.g., {'is_test_data': True})
+
         Returns:
             Number of records deleted
         """
-        pass
-    
+        self.logger.info(f"Clearing all records for {self.__class__.__name__}")
+
+        async with await self.get_db_session() as session:
+            try:
+                stmt = delete(self.model_class)
+                if filters:
+                    for field, value in filters.items():
+                        stmt = stmt.where(getattr(self.model_class, field) == value)
+
+                result = await session.execute(stmt)
+                deleted_count = result.rowcount or 0
+
+                await session.commit()
+                self.logger.info(f"Cleared {deleted_count} records")
+
+                return deleted_count
+
+            except Exception as exc:
+                await session.rollback()
+                self.logger.error(f"Clear failed: {exc}")
+                raise
+
     def log_progress(self, current: int, total: int, entity_name: str):
         """Log progress of data creation"""
         if current % max(1, total // 10) == 0 or current == total:
             percentage = (current / total) * 100
-            self.logger.info(f"Created {current}/{total} {entity_name} ({percentage:.1f}%)")
+            self.logger.info(f"Processed {current}/{total} {entity_name} ({percentage:.1f}%)")
+
+    # Legacy method for backward compatibility
+    async def populate_legacy(self, count: Optional[int] = None) -> int:
+        """
+        Legacy populate method - override in subclasses if needed
+        """
+        raise NotImplementedError("Use populate() method with data_list parameter")

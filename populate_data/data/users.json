@@ -1,10 +1,10 @@
 [
   {
     "supabase_user_id": null,
-    "email": "testuser1@360ghar.com",
-    "full_name": "Raj Sharma",
-    "phone": "+919876543210",
-    "date_of_birth": "1990-05-15",
+    "email": "saksham1991999@gmail.com",
+    "full_name": "Saksham Mittal",
+    "phone": "+918178340031",
+    "date_of_birth": "2000-09-19",
     "is_active": true,
     "is_verified": true,
     "current_latitude": 28.4595,
@@ -30,14 +30,14 @@
       "profile_visibility": "public",
       "location_sharing": true
     },
-    "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Raj"
+    "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=SakshamMittal"
   },
   {
     "supabase_user_id": null,
-    "email": "testuser2@360ghar.com",
-    "full_name": "Priya Patel",
-    "phone": "+919876543211",
-    "date_of_birth": "1988-08-22",
+    "email": "ayush.kashyap.99@gmail.com",
+    "full_name": "Ayush Kashyap",
+    "phone": "+919958344200",
+    "date_of_birth": "1999-06-14",
     "is_active": true,
     "is_verified": true,
     "current_latitude": 19.076,
@@ -63,6 +63,6 @@
       "profile_visibility": "friends",
       "location_sharing": false
     },
-    "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya"
+    "profile_image_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=AyushKashyap"
   }
 ]

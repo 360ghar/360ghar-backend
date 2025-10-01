@@ -10,114 +10,193 @@ description: Data population, testing patterns, and development workflows
 ### Main Data Loader
 ```python
 # Located in populate_data/load_comprehensive_data.py
-# This script populates the database with realistic test data
+# Async data population script for comprehensive test data
 
 # Usage:
-# python populate_data/load_comprehensive_data.py --users 100 --properties 500 --agents 20
+# python populate_data/load_comprehensive_data.py           # Full dataset
+# python populate_data/load_comprehensive_data.py --quick   # Reduced data for faster testing
+# python populate_data/load_comprehensive_data.py --clear   # Clear existing data first
 
-# Data flow:
+# Data flow (dependency order):
 # 1. Clear existing data (optional)
-# 2. Create users with different roles
-# 3. Create agent profiles
-# 4. Create properties with amenities
-# 5. Create bookings and visits
-# 6. Create swipe interactions
+# 2. Create agents (users reference agents)
+# 3. Create users with Supabase integration
+# 4. Create amenities (properties reference amenities)
+# 5. Create properties with PostGIS locations and full-text search
+# 6. Create FAQs for help center
+# 7. Assign agents to users for testing
 ```
 
 ### Individual Data Populators
 ```python
-# Located in populate_data/data_populators/
+# Located in populate_data/data_populators/ - Async populator classes
 
-# User Populator
-# - Creates users with realistic Indian names
-# - Generates phone numbers and emails
-# - Assigns roles (USER, AGENT, ADMIN)
-# - Uses Faker library for realistic data
+# UserPopulator
+# - Creates users with realistic Indian names and Supabase user IDs
+# - Generates valid Indian phone numbers (+91 format)
+# - Optional emails with proper validation
+# - Sets user roles (user, agent, admin)
+# - Creates user preferences and location data
 
-# Property Populator
-# - Creates properties with real Indian addresses
-# - Adds amenities based on property type
-# - Generates realistic pricing
-# - Includes property images
+# PropertyPopulator
+# - Creates properties with real Indian city coordinates
+# - PostGIS geography points for location-based search
+# - Multiple property types: apartment, house, builder_floor, room
+# - Three purposes: buy, rent, short_stay with appropriate pricing
+# - Full-text search vectors for property search
+# - Realistic amenities assignment based on property type
+# - Multiple property images with captions
 
-# Agent Populator
-# - Creates agent profiles
-# - Assigns service areas
-# - Sets experience levels
-# - Links to existing users
+# AgentPopulator
+# - Creates agent profiles with Indian names
+# - Assigns service areas and specializations
+# - Sets experience levels and ratings
+# - Links to user accounts for authentication
+
+# AmenityPopulator
+# - Core amenities: parking, security, gym, pool, garden, etc.
+# - Categories: safety, recreation, convenience
+# - Property-type specific amenity assignments
+
+# FAQPopulator
+# - Help center questions and answers
+# - Categorized by topic (booking, payments, properties, etc.)
+# - Public FAQs for app help section
 ```
 
-### Data Clearing
+### Data Clearing and Management
 ```python
 # Located in populate_data/clear_all_data.py
-# Safely removes all data while maintaining schema integrity
-# Useful for fresh test environments
+# Safe async data clearing in reverse dependency order:
+# 1. Properties (clears images, amenities, swipes, visits, bookings)
+# 2. Users (clears search history, swipes, visits, bookings)
+# 3. Agents
+# 4. Amenities
+# 5. FAQs and Pages
+# 6. Bug reports and app versions
+
+# Usage: python populate_data/clear_all_data.py
 ```
 
 ## Testing Patterns
 
-### Test Structure
+### Async Test Structure
 ```python
-# Located in tests/
-# Follow this pattern for new tests:
-
+# Located in tests/ - All tests use async patterns
 import pytest
-from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.services import UserService
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.user import get_or_create_user_from_supabase
 from app.schemas.user import UserCreate
 
 class TestUserService:
-    def test_create_user(self, db: Session):
-        user_service = UserService(db)
-        user_data = UserCreate(
-            email="test@example.com",
-            phone="+919876543210",
-            password="testpassword123",
-            full_name="Test User"
-        )
+    @pytest.mark.asyncio
+    async def test_get_or_create_user_from_supabase(self, test_db: AsyncSession):
+        """Test Supabase user synchronization"""
+        # Mock Supabase user data
+        supabase_data = {
+            "id": "test-supabase-id",
+            "email": "test@example.com",
+            "phone": "+919876543210",
+            "user_metadata": {"full_name": "Test User"},
+            "email_verified": True
+        }
 
-        user = user_service.create_user(user_data)
+        user = await get_or_create_user_from_supabase(test_db, supabase_data)
 
+        assert user.supabase_user_id == "test-supabase-id"
         assert user.email == "test@example.com"
         assert user.phone == "+919876543210"
         assert user.full_name == "Test User"
+        assert user.is_verified == True
 
-    def test_get_user_by_id(self, db: Session):
-        # Test user retrieval
-        pass
+    @pytest.mark.asyncio
+    async def test_user_update(self, test_db: AsyncSession):
+        """Test user profile updates"""
+        # Create test user first
+        user_data = {
+            "supabase_user_id": "test-id",
+            "phone": "+919876543210",
+            "full_name": "Original Name",
+            "is_active": True,
+            "is_verified": True
+        }
+        user = User(**user_data)
+        test_db.add(user)
+        await test_db.commit()
+        await test_db.refresh(user)
 
-    def test_update_user_profile(self, db: Session):
-        # Test user profile updates
-        pass
+        # Test update
+        update_data = {"full_name": "Updated Name", "email": "new@example.com"}
+        updated_user = await update_user(test_db, user.id, update_data)
+
+        assert updated_user.full_name == "Updated Name"
+        assert updated_user.email == "new@example.com"
 ```
 
-### Test Utilities
+### Async Test Fixtures and Utilities
 ```python
-# Common test utilities you can create:
+# Located in tests/conftest.py
+import pytest
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from app.core.database import Base
 
-def create_test_user(db: Session) -> User:
-    """Create a test user for testing"""
-    user_service = UserService(db)
-    return user_service.create_user({
-        "email": "test@example.com",
+@pytest.fixture
+async def test_db():
+    """Async test database fixture with proper cleanup"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+
+    # Create all tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    # Create session factory
+    async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with async_session() as session:
+        yield session
+
+    # Cleanup
+    await engine.dispose()
+
+# Test utilities
+async def create_test_user(db: AsyncSession, **overrides) -> User:
+    """Create a test user with default values and optional overrides"""
+    user_data = {
+        "supabase_user_id": f"test-{random.randint(1000, 9999)}",
         "phone": "+919876543210",
-        "password": "testpassword123",
-        "full_name": "Test User"
-    })
+        "full_name": "Test User",
+        "email": "test@example.com",
+        "is_active": True,
+        "is_verified": True,
+        **overrides  # Allow overriding defaults
+    }
+    user = User(**user_data)
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
-def create_test_property(db: Session, owner_id: UUID) -> Property:
-    """Create a test property for testing"""
-    property_service = PropertyService(db)
-    return property_service.create_property({
+async def create_test_property(db: AsyncSession, owner_id: int, **overrides) -> Property:
+    """Create a test property with realistic data"""
+    property_data = {
         "title": "Test Property",
-        "description": "A test property",
-        "price": 5000000,
-        "property_type": "APARTMENT",
-        "address": "123 Test Street",
+        "description": "A beautiful test property",
+        "property_type": PropertyType.apartment,
+        "purpose": PropertyPurpose.rent,
+        "base_price": 25000,
         "city": "Mumbai",
-        "owner_id": owner_id
-    })
+        "latitude": 19.0760,
+        "longitude": 72.8777,
+        "owner_id": owner_id,
+        "is_available": True,
+        **overrides
+    }
+    property = Property(**property_data)
+    db.add(property)
+    await db.commit()
+    await db.refresh(property)
+    return property
 ```
 
 ## Database Migration Testing
@@ -227,21 +306,24 @@ pm.test("Properties have required fields", function () {
 ```bash
 # 1. Set up virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # On macOS/Linux
+# or on Windows: venv\Scripts\activate
 
 # 2. Install dependencies
 pip install -r requirements.txt
 
 # 3. Set up environment variables
 cp .env.example .env
-# Edit .env with your local configuration
+# Configure: DATABASE_URL, SUPABASE_URL, SUPABASE_KEY, etc.
 
 # 4. Run database migrations
-supabase db reset
-supabase db push
+supabase db reset  # Reset local database
+supabase db push   # Apply migrations
 
 # 5. Populate test data
-python populate_data/load_comprehensive_data.py --users 50 --properties 100
+python populate_data/load_comprehensive_data.py --quick  # Quick test data
+# or
+python populate_data/load_comprehensive_data.py          # Full dataset
 
 # 6. Start development server
 python run.py
@@ -251,57 +333,89 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Testing Workflow
 ```bash
-# Run all tests
-pytest tests/ -v
+# Run all async tests
+pytest tests/ -v --asyncio-mode=auto
 
 # Run specific test file
-pytest tests/test_user_service.py -v
+pytest tests/test_user_service.py -v --asyncio-mode=auto
 
 # Run tests with coverage
-pytest tests/ --cov=app --cov-report=html
+pytest tests/ --cov=app --cov-report=html --asyncio-mode=auto
 
 # Run tests for specific module
-pytest tests/ -k "user" -v
+pytest tests/ -k "user" -v --asyncio-mode=auto
 
-# Run tests in parallel
-pytest tests/ -n auto
+# Run tests in parallel (be careful with database conflicts)
+pytest tests/ -n auto --asyncio-mode=auto
+
+# Run tests with detailed output
+pytest tests/ -v -s --tb=short --asyncio-mode=auto
 ```
 
-### API Documentation
+### API Documentation and Testing
 ```bash
-# Generate/update API documentation
-# FastAPI automatically generates docs at:
-# http://localhost:8000/docs (Swagger UI)
-# http://localhost:8000/redoc (ReDoc)
+# FastAPI automatically generates comprehensive docs at:
+# http://localhost:8000/docs (Interactive Swagger UI)
+# http://localhost:8000/redoc (Clean ReDoc format)
+# http://localhost:8000/openapi.json (OpenAPI 3.0 spec)
 
-# Export Postman collection from FastAPI docs
-# Or use: python -m scripts.export_postman_collection
+# Test API endpoints with authentication:
+# 1. Register/Login via /api/v1/auth/login/
+# 2. Copy the returned access_token
+# 3. Use Authorization: Bearer <token> header
+# 4. Test endpoints in Swagger UI or with tools like Postman/Insomnia
+
+# Export OpenAPI spec for external tools:
+# curl http://localhost:8000/api/v1/openapi.yaml > openapi-spec.yaml
 ```
 
-## Data Validation
+## Data Validation and Realism
 
-### Realistic Test Data
+### Realistic Test Data Patterns
 ```python
-# Use these patterns for realistic test data:
+# Located in populate_data/data_populators/base.py
 
-# Indian phone numbers
-phone_patterns = [
-    "+919876543210",
-    "+918123456789",
-    "+917890123456"
-]
+# Indian phone numbers (valid +91 format)
+VALID_PHONE_PREFIXES = ['6', '7', '8', '9']
+def generate_indian_phone():
+    prefix = random.choice(VALID_PHONE_PREFIXES)
+    number = f"+91{prefix}" + "".join(random.choices("0123456789", k=9))
+    return number
 
-# Indian cities
-cities = [
-    "Mumbai", "Delhi", "Bangalore", "Chennai", "Hyderabad",
-    "Pune", "Ahmedabad", "Kolkata", "Surat", "Jaipur"
-]
+# Major Indian cities with coordinates
+INDIAN_CITIES = {
+    "Mumbai": {"lat": 19.0760, "lng": 72.8777, "state": "Maharashtra"},
+    "Delhi": {"lat": 28.7041, "lng": 77.1025, "state": "Delhi"},
+    "Bangalore": {"lat": 12.9716, "lng": 77.5946, "state": "Karnataka"},
+    "Chennai": {"lat": 13.0827, "lng": 80.2707, "state": "Tamil Nadu"},
+    "Hyderabad": {"lat": 17.3850, "lng": 78.4867, "state": "Telangana"}
+}
 
-# Property price ranges by city
-price_ranges = {
-    "Mumbai": (5000000, 50000000),    # 50L - 5Cr
-    "Delhi": (3000000, 30000000),     # 30L - 3Cr
-    "Bangalore": (4000000, 25000000)  # 40L - 2.5Cr
+# Property pricing by city and purpose
+PRICE_RANGES = {
+    "Mumbai": {
+        "buy": (5000000, 50000000),      # 50L - 5Cr
+        "rent": (15000, 200000),          # 15K - 2L/month
+        "short_stay": (2000, 15000)       # 2K - 15K/night
+    },
+    "Delhi": {
+        "buy": (3000000, 30000000),       # 30L - 3Cr
+        "rent": (10000, 150000),          # 10K - 1.5L/month
+        "short_stay": (1500, 10000)       # 1.5K - 10K/night
+    },
+    "Bangalore": {
+        "buy": (4000000, 25000000),       # 40L - 2.5Cr
+        "rent": (12000, 180000),          # 12K - 1.8L/month
+        "short_stay": (1800, 12000)       # 1.8K - 12K/night
+    }
+}
+
+# Property types with realistic amenities
+PROPERTY_TYPE_AMENITIES = {
+    "apartment": ["parking", "security", "lift", "gym", "pool"],
+    "house": ["garden", "parking", "security", "water_supply"],
+    "builder_floor": ["parking", "security", "modular_kitchen", "water_supply"],
+    "room": ["wifi", "meals", "laundry", "security"]
 }
 ```
 

@@ -27,13 +27,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.logging import setup_logging, get_logger
 from app.core.database import AsyncSessionLocal
-from app.models.models import User, Agent
+from app.models.users import User
+from app.models.agents import Agent
 from sqlalchemy import select
 from populate_data.data_populators.user_populator import UserPopulator
 from populate_data.data_populators.agent_populator import AgentPopulator
 from populate_data.data_populators.amenity_populator import AmenityPopulator
 from populate_data.data_populators.property_populator import PropertyPopulator
 from populate_data.data_populators.faq_populator import FAQPopulator
+from populate_data.data_populators.page_populator import PagePopulator
 
 # Configure logging
 setup_logging()
@@ -41,7 +43,7 @@ logger = get_logger(__name__)
 
 class DataLoader:
     """Main data loading coordinator"""
-    
+
     def __init__(self):
         # Initialize populators
         self.user_populator = UserPopulator()
@@ -49,11 +51,12 @@ class DataLoader:
         self.amenity_populator = AmenityPopulator()
         self.property_populator = PropertyPopulator()
         self.faq_populator = FAQPopulator()
+        self.page_populator = PagePopulator()
     
     async def clear_all_data(self):
         """Clear all test data from database"""
         logger.info("Clearing all test data...")
-        
+
         try:
             # Clear in reverse dependency order
             cleared_properties = await self.property_populator.clear_all()
@@ -61,16 +64,18 @@ class DataLoader:
             cleared_agents = await self.agent_populator.clear_all()
             cleared_amenities = await self.amenity_populator.clear_all()
             cleared_faqs = await self.faq_populator.clear_all()
-            
+            cleared_pages = await self.page_populator.clear_all()
+
             logger.info(
-                "Cleared: %s properties, %s users, %s agents, %s amenities, %s FAQs",
+                "Cleared: %s properties, %s users, %s agents, %s amenities, %s FAQs, %s pages",
                 cleared_properties,
                 cleared_users,
                 cleared_agents,
                 cleared_amenities,
                 cleared_faqs,
+                cleared_pages,
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to clear data: {str(e)}")
             raise
@@ -130,27 +135,43 @@ class DataLoader:
             
             # Step 1: Create agents first (users reference agents)
             logger.info("Step 1: Creating agents...")
-            created_agents = await self.agent_populator.populate(agent_count)
-            
+            agent_result = await self.agent_populator.populate_from_json(agent_count)
+            created_agents = agent_result["created"]
+            skipped_agents = agent_result["skipped"]
+
             # Step 2: Create users
             logger.info("Step 2: Creating users...")
-            created_users = await self.user_populator.populate(user_count)
-            
+            user_result = await self.user_populator.populate_from_json(user_count)
+            created_users = user_result["created"]
+            skipped_users = user_result["skipped"]
+
             # Step 3: Create amenities (properties reference amenities)
             logger.info("Step 3: Creating amenities...")
-            created_amenities = await self.amenity_populator.populate()
-            
+            amenity_result = await self.amenity_populator.populate_from_json()
+            created_amenities = amenity_result["created"]
+            skipped_amenities = amenity_result["skipped"]
+
             # Step 4: Create properties
             logger.info("Step 4: Creating properties...")
-            created_properties = await self.property_populator.populate(properties_per_location=properties_per_location)
-            
+            property_result = await self.property_populator.populate_generated(properties_per_location=properties_per_location)
+            created_properties = property_result["created"]
+            skipped_properties = property_result["skipped"]
+
             # Step 5: Assign agents to users
             logger.info("Step 5: Assigning agents to users...")
             await self.assign_agents_to_users()
-            
+
             # Step 6: Create FAQs
             logger.info("Step 6: Creating FAQs...")
-            created_faqs = await self.faq_populator.populate(update_existing=True)
+            faq_result = await self.faq_populator.populate_from_json(update_existing=True)
+            created_faqs = faq_result.get("created", faq_result.get("updated", 0))
+            skipped_faqs = faq_result.get("skipped", 0)
+
+            # Step 7: Create Pages
+            logger.info("Step 7: Creating pages...")
+            page_result = await self.page_populator.populate_from_json(update_existing=True)
+            created_pages = page_result.get("created", page_result.get("updated", 0))
+            skipped_pages = page_result.get("skipped", 0)
             
             # Summary
             end_time = datetime.now()
@@ -159,14 +180,12 @@ class DataLoader:
             logger.info("=" * 60)
             logger.info("DATA POPULATION COMPLETE")
             logger.info("=" * 60)
-            logger.info(f"Created: {created_agents} agents")
-            logger.info(f"Created: {created_users} users")
-            logger.info(f"Created: {created_amenities} amenities")
-            logger.info(f"Created: {created_properties} properties")
-            logger.info(
-                "Created: %s FAQs (updates allowed; see debug logs for update count)",
-                created_faqs,
-            )
+            logger.info(f"Agents: {created_agents} created, {skipped_agents} skipped")
+            logger.info(f"Users: {created_users} created, {skipped_users} skipped")
+            logger.info(f"Amenities: {created_amenities} created, {skipped_amenities} skipped")
+            logger.info(f"Properties: {created_properties} created, {skipped_properties} skipped")
+            logger.info(f"FAQs: {created_faqs} created/updated, {skipped_faqs} skipped")
+            logger.info(f"Pages: {created_pages} created/updated, {skipped_pages} skipped")
             logger.info(f"Duration: {duration.total_seconds():.2f} seconds")
             logger.info("=" * 60)
             

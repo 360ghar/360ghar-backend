@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, and_, desc, func, case
 from sqlalchemy.orm import selectinload
 from typing import Optional
-from app.models.models import UserSwipe, Property, PropertyAmenity, Amenity
+from app.models.users import UserSwipe
+from app.models.properties import Property, PropertyAmenity, Amenity
 from app.schemas.property import PropertySwipe, UnifiedPropertyFilter, SortBy
 
 async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe):

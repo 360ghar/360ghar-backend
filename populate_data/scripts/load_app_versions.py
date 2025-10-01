@@ -15,7 +15,7 @@ sys.path.insert(0, str(parent_dir))
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
-from app.models.models import AppVersion
+from app.models.core import AppVersion
 import asyncio
 
 

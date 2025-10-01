@@ -3,12 +3,11 @@ import json
 from typing import Optional, List, Dict, Any
 import sys
 import os
-from sqlalchemy import select, delete
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.models.models import Amenity
+from app.models.properties import Amenity
 from .base import BasePopulator
 
 class AmenityPopulator(BasePopulator):
@@ -16,6 +15,14 @@ class AmenityPopulator(BasePopulator):
 
     def __init__(self):
         super().__init__()
+
+    @property
+    def model_class(self):
+        return Amenity
+
+    @property
+    def unique_fields(self) -> List[str]:
+        return ['title']  # Amenities are unique by title
 
     def _default_amenities_path(self) -> str:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,84 +39,24 @@ class AmenityPopulator(BasePopulator):
             raise ValueError("amenities.json must contain a list of amenity objects")
         return data
 
-    async def populate(
+    async def populate_from_json(
         self,
         count: Optional[int] = None,
         file_path: Optional[str] = None,
-    ) -> int:
-        """Create predefined amenities from JSON data."""
+    ) -> Dict[str, int]:
+        """Create predefined amenities from JSON data with duplicate checking."""
         amenities_data = self._load_amenities_from_file(file_path)
 
-        if count is None:
-            count = len(amenities_data)
+        if count is not None:
+            amenities_data = amenities_data[:count]
 
-        self.logger.info(f"Creating up to {count} amenities from JSON seed data...")
+        # Filter out amenities without titles
+        processed_data = []
+        for amenity_data in amenities_data:
+            title = amenity_data.get("title")
+            if not title:
+                self.logger.warning("Skipping amenity without a title in JSON data")
+                continue
+            processed_data.append(amenity_data)
 
-        created_count = 0
-
-        async with await self.get_db_session() as session:
-            try:
-                for amenity_data in amenities_data[:count]:
-                    try:
-                        title = amenity_data.get("title")
-                        if not title:
-                            self.logger.warning("Skipping amenity without a title in JSON data")
-                            continue
-
-                        existing_amenity = await session.execute(
-                            select(Amenity).where(Amenity.title == title)
-                        )
-                        if existing_amenity.scalar_one_or_none():
-                            self.logger.debug(f"Amenity '{title}' already exists, skipping...")
-                            continue
-
-                        amenity = Amenity(**amenity_data)
-                        session.add(amenity)
-                        created_count += 1
-                        self.logger.debug(f"Created amenity: {title}")
-
-                    except Exception as exc:
-                        self.logger.error(f"Failed to create amenity {amenity_data.get('title', '<unknown>')}: {exc}")
-                        continue
-
-                await session.commit()
-                self.logger.info(f"Successfully created {created_count} amenities")
-
-            except Exception as exc:
-                await session.rollback()
-                self.logger.error(f"Failed to create amenities: {exc}")
-                raise
-
-        return created_count
-    
-    async def clear_all(self, file_path: Optional[str] = None) -> int:
-        """Clear JSON-defined amenities from the database."""
-        try:
-            try:
-                amenities_data = self._load_amenities_from_file(file_path)
-                target_titles = [a["title"] for a in amenities_data if a.get("title")]
-            except (FileNotFoundError, ValueError) as exc:
-                self.logger.warning(f"Unable to load amenity seed data for cleanup: {exc}")
-                target_titles = []
-
-            deleted_count = 0
-
-            async with await self.get_db_session() as session:
-                if target_titles:
-                    for title in target_titles:
-                        result = await session.execute(
-                            delete(Amenity).where(Amenity.title == title)
-                        )
-                        deleted_count += result.rowcount or 0
-                else:
-                    result = await session.execute(delete(Amenity))
-                    deleted_count = result.rowcount or 0
-
-                await session.commit()
-
-            self.logger.info(f"Deleted {deleted_count} amenities")
-            return deleted_count
-
-        except Exception as exc:
-            self.logger.error(f"Failed to clear amenities: {exc}")
-            return 0
+        return await self.populate(processed_data, skip_existing=True)

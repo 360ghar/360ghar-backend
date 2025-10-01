@@ -198,7 +198,7 @@ This project follows strict coding conventions as defined in `.rules/codingrules
 All database operations MUST use async patterns with SQLAlchemy 2.0+ style:
 ```python
 # Correct - Using SQLAlchemy 2.0 async style with direct models
-from app.models.models import Property
+from app.models.properties import Property
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

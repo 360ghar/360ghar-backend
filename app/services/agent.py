@@ -1,7 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional, List, Dict, Any
-from app.models.models import Agent, User, Visit
+from app.models.agents import Agent
+from app.models.users import User
+from app.models.properties import Visit
 from app.schemas.agent import (
     Agent as AgentSchema, 
     AgentCreate,

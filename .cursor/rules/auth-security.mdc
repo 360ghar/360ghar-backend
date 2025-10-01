@@ -7,39 +7,62 @@ description: Authentication, authorization, and security patterns
 
 ## Authentication System
 
-### JWT Token Structure
+### Supabase Authentication
 ```python
 # Located in app/core/auth.py
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from supabase import create_client, Client
+import os
 
-# Token payload structure
-{
-    "sub": "user_id",           # Subject (user ID)
-    "email": "user@example.com", # User email
-    "role": "USER",             # User role
-    "exp": 1234567890           # Expiration time
-}
+# Supabase client initialization
+supabase: Client = create_client(
+    supabase_url=os.getenv("SUPABASE_URL"),
+    supabase_key=os.getenv("SUPABASE_KEY")
+)
+
+# Token verification
+async def verify_supabase_token(token: str) -> Optional[dict]:
+    """Verify Supabase JWT token and return user data"""
+    try:
+        # Verify token with Supabase
+        user_data = supabase.auth.get_user(token)
+        return {
+            "id": user_data.user.id,
+            "email": user_data.user.email,
+            "phone": user_data.user.phone,
+            "email_verified": user_data.user.email_confirmed_at is not None,
+            "user_metadata": user_data.user.user_metadata or {}
+        }
+    except Exception as e:
+        logger.error(f"Token verification failed: {e}")
+        return None
 ```
 
 ### Authentication Flow
-1. **Login**: User provides credentials
-2. **Token Generation**: Server creates JWT token with user info
-3. **Token Validation**: Each request validates JWT token
-4. **Role-based Access**: Check user role for protected endpoints
+1. **Registration/Login**: User provides phone + password to Supabase Auth
+2. **Supabase Verification**: Supabase handles authentication and returns JWT
+3. **Token Validation**: Each request validates Supabase JWT token
+4. **User Sync**: Create/update local user record from Supabase data
+5. **Role-based Access**: Check user role for protected endpoints
 
 ### Protected Endpoint Pattern
 ```python
 from fastapi import Depends, HTTPException
-from app.core.auth import get_current_user
+from app.schemas.user import User
+from app.api.api_v1.endpoints.auth import get_current_user
 
 @router.get("/protected-endpoint")
 async def protected_endpoint(
-    current_user: dict = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
-    # current_user contains: id, email, role, exp
-    if current_user["role"] not in ["AGENT", "ADMIN"]:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    # current_user contains full User schema with id, email, phone, role, etc.
+    if current_user.role not in ["agent", "admin"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "INSUFFICIENT_PERMISSIONS",
+                "message": "Agent or admin access required"
+            }
+        )
     return {"message": "Access granted"}
 ```
 
@@ -63,22 +86,53 @@ async def protected_endpoint(
 
 ### Role-based Access Control (RBAC)
 ```python
-# Check user roles
-user_roles = {
-    "USER": ["read_properties", "create_booking", "create_visit", "swipe"],
-    "AGENT": ["read_properties", "create_property", "update_property", "manage_bookings", "manage_visits"],
-    "ADMIN": ["all_permissions"]
+# User roles: 'user', 'agent', 'admin'
+user_permissions = {
+    "user": ["read_properties", "swipe", "create_booking", "create_visit"],
+    "agent": ["read_properties", "create_property", "update_own_properties", "manage_assigned_bookings", "manage_assigned_visits"],
+    "admin": ["all_permissions"]
 }
 
 def has_permission(user_role: str, required_permission: str) -> bool:
-    return required_permission in user_roles.get(user_role, [])
+    """Check if user role has required permission"""
+    if user_role == "admin":
+        return True
+    return required_permission in user_permissions.get(user_role, [])
+
+# Usage in services
+async def update_property(db: AsyncSession, property_id: int, data: dict, current_user: User):
+    property = await get_property_by_id(db, property_id)
+    if not property:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Check ownership or admin/agent permissions
+    is_owner = property.owner_id == current_user.id
+    is_agent = current_user.role == "agent" and current_user.agent_id is not None
+    is_admin = current_user.role == "admin"
+
+    if not (is_owner or is_agent or is_admin):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "INSUFFICIENT_PERMISSIONS",
+                "message": "You can only update your own properties"
+            }
+        )
+    # Continue with update...
 ```
 
 ### Resource Ownership
 ```python
-# Users can only access their own resources
-def is_owner_or_admin(user_id: str, resource_owner_id: str, user_role: str) -> bool:
-    return user_id == resource_owner_id or user_role == "ADMIN"
+# Users can access their own resources, agents can access assigned resources
+def can_access_resource(user: User, resource_owner_id: int, resource_agent_id: Optional[int] = None) -> bool:
+    """Check if user can access a resource based on ownership or assignment"""
+    if user.role == "admin":
+        return True
+    if user.id == resource_owner_id:
+        return True
+    if user.role == "agent" and resource_agent_id and user.agent_id == resource_agent_id:
+        return True
+    return False
 ```
 
 ## Common Security Patterns
@@ -98,14 +152,60 @@ is_valid = pwd_context.verify(plain_password, hashed_password)
 
 ### Input Validation
 ```python
-from pydantic import BaseModel, EmailStr, constr
-from app.utils.validators import validate_phone_number
+from pydantic import BaseModel, EmailStr, field_validator
+from typing import Optional
+from app.utils.validators import ValidationUtils
 
 class UserCreate(BaseModel):
-    email: EmailStr
-    phone: constr(regex=r'^\+91[6-9]\d{9}$')  # Indian phone format
-    password: constr(min_length=8, max_length=128)
-    full_name: constr(min_length=2, max_length=100)
+    phone: str  # Required for registration
+    password: str
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone_create(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Phone number is required for registration")
+        return ValidationUtils.validate_phone(v)
+
+    @field_validator('full_name')
+    @classmethod
+    def validate_name(cls, v):
+        if v:
+            v = ValidationUtils.sanitize_string(v, max_length=100)
+            if len(v) < 2:
+                raise ValueError("Name must be at least 2 characters long")
+        return v
+
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    date_of_birth: Optional[date] = None
+    profile_image_url: Optional[str] = None
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v):
+        if v:
+            return ValidationUtils.validate_phone(v)
+        return v
+
+    @field_validator('date_of_birth')
+    @classmethod
+    def validate_dob(cls, v):
+        if v:
+            min_age = 18
+            max_age = 120
+            today = date.today()
+            age = today.year - v.year - ((today.month, today.day) < (v.month, v.day))
+
+            if age < min_age:
+                raise ValueError(f"Must be at least {min_age} years old")
+            if age > max_age:
+                raise ValueError(f"Invalid date of birth")
+        return v
 ```
 
 ### SQL Injection Prevention
@@ -131,42 +231,81 @@ async def search_properties():
 ## Security Best Practices
 
 ### API Security
-- Use HTTPS in production
-- Validate all input data
-- Implement proper CORS policies
-- Use rate limiting to prevent abuse
-- Implement proper error handling (don't expose internal errors)
+- Use Supabase Auth for user authentication (handles password security, rate limiting, etc.)
+- Validate all input data with Pydantic schemas
+- Implement proper CORS policies (different for dev/prod)
+- Implement structured error responses with error codes
+- Use HTTPS in production with valid SSL certificates
+- Log security events with structured logging
 
 ### Authentication Security
-- Use strong JWT secrets
-- Set appropriate token expiration times
-- Implement refresh token rotation
-- Use secure password hashing (bcrypt)
-- Implement account lockout after failed attempts
+- Phone number as primary identifier (more secure than email)
+- Supabase handles password hashing and security
+- JWT tokens issued by Supabase (proper expiration, rotation)
+- Email/phone verification required for account activation
+- Account lockout handled by Supabase Auth
 
 ### Data Security
-- Encrypt sensitive data at rest
-- Use parameterized queries to prevent SQL injection
-- Implement proper access controls
-- Log security events
-- Regular security audits
+- Use async SQLAlchemy with proper session management
+- Parameterized queries prevent SQL injection
+- Role-based access control (RBAC) for all resources
+- Sensitive data validation and sanitization
+- Database constraints and indexes for data integrity
+- Regular security audits and dependency updates
 
 ### File Upload Security
-- Validate file types and sizes
-- Scan uploaded files for malware
-- Store files outside web root
-- Use secure file permissions
+- File type validation using magic numbers
+- Size limits enforced (5MB default)
+- Secure file storage with Supabase Storage
+- Image processing and optimization
+- Access control for uploaded files
 
 ## Error Handling Security
 ```python
-# Don't expose internal errors
-try:
-    result = await service.process_request(data)
-    return result
-except Exception as e:
-    logger.error(f"Internal error: {str(e)}")
-    raise HTTPException(
+# Structured error responses with error codes
+@app.exception_handler(BaseAPIException)
+async def api_exception_handler(request: Request, exc: BaseAPIException):
+    logger.warning(f"API exception: {exc.detail} - {request.method} {request.url.path}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "message": exc.detail,
+                "type": exc.__class__.__name__,
+                "code": getattr(exc, 'code', 'UNKNOWN_ERROR'),
+                "path": str(request.url),
+                "method": request.method,
+                "timestamp": datetime.utcnow().isoformat(),
+                **getattr(exc, 'extra', {})
+            }
+        },
+        headers=getattr(exc, 'headers', None)
+    )
+
+# Don't expose internal errors in production
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unexpected error: {str(exc)} - {request.method} {request.url.path}", exc_info=True)
+
+    # Different error detail based on environment
+    if settings.ENVIRONMENT == "production":
+        message = "An unexpected error occurred"
+        error_type = "InternalServerError"
+    else:
+        message = str(exc)
+        error_type = exc.__class__.__name__
+
+    return JSONResponse(
         status_code=500,
-        detail="Internal server error"
+        content={
+            "error": {
+                "message": message,
+                "type": error_type,
+                "code": "INTERNAL_SERVER_ERROR",
+                "path": str(request.url),
+                "method": request.method,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        }
     )
 ```

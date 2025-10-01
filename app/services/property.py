@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, update
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
-from app.models.models import Property, PropertyAmenity, Amenity
+from app.models.properties import Property, PropertyAmenity, Amenity
 from app.schemas.property import PropertyCreate, PropertyUpdate, UnifiedPropertyFilter, SortBy
 from app.schemas.user import User as UserSchema
 from app.core.logging import get_logger
@@ -19,7 +19,7 @@ async def create_property(db: AsyncSession, property_data: PropertyCreate, owner
             pass
         elif actor.role == 'agent':
             # Agent can only create for users they manage
-            from app.models.models import User as UserModel
+            from app.models.users import User as UserModel
             owner = await db.get(UserModel, owner_id)
             if not owner or actor.agent_id is None or owner.agent_id != actor.agent_id:
                 raise PermissionError("Agent not authorized to create property for this owner")
@@ -344,7 +344,7 @@ async def get_unified_properties_optimized(
         
         # Optionally exclude properties already swiped by the user if authenticated
         if user_id and getattr(filters, "exclude_swiped", False):
-            from app.models.models import UserSwipe
+            from app.models.users import UserSwipe
             swiped_subquery = select(UserSwipe.property_id).where(UserSwipe.user_id == user_id)
             conditions.append(~Property.id.in_(swiped_subquery))
         

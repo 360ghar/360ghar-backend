@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import aliased
 from datetime import datetime, timedelta
-from app.models.models import Booking, Property
+from app.models.bookings import Booking
+from app.models.properties import Property
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingPayment, BookingReview
 from typing import Optional
 import uuid
@@ -227,7 +228,7 @@ async def get_all_bookings(
     When filter_agent_id is provided, returns bookings for users/properties assigned to that agent.
     """
     offset = (page - 1) * limit
-    from app.models.models import User
+    from app.models.users import User
     Owner = aliased(User)
     now = datetime.utcnow()
 
@@ -242,7 +243,8 @@ async def get_all_bookings(
 
     if filter_agent_id is not None:
         # Bookings where the booking user is assigned to agent OR the property's owner is assigned to agent
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         base = base.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
 
@@ -256,7 +258,8 @@ async def get_all_bookings(
     # Count total with same filters
     count_query = select(Booking)
     if filter_agent_id is not None:
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         count_query = count_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         count_query = count_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
     if status:
@@ -272,7 +275,8 @@ async def get_all_bookings(
     # Upcoming: check_in_date > now and status is confirmed/pending
     upcoming_query = select(Booking)
     if filter_agent_id is not None:
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         upcoming_query = upcoming_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         upcoming_query = upcoming_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
     if property_id:
@@ -291,7 +295,8 @@ async def get_all_bookings(
     # Completed: check_out_date < now and status is confirmed/completed
     completed_query = select(Booking)
     if filter_agent_id is not None:
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         completed_query = completed_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         completed_query = completed_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
     if property_id:
@@ -310,7 +315,8 @@ async def get_all_bookings(
     # Cancelled: status is cancelled
     cancelled_query = select(Booking)
     if filter_agent_id is not None:
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         cancelled_query = cancelled_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         cancelled_query = cancelled_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
     if property_id:

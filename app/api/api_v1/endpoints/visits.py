@@ -172,7 +172,8 @@ async def complete_visit(
     elif current_user.role == 'agent':
         # Agent must manage either the visiting user or the property owner
         # Need to check ownership
-        from app.models.models import Property, User
+        from app.models.properties import Property
+        from app.models.users import User
         # Fetch property owner
         stmt = select(Property).where(Property.id == visit.property_id)
         prop_res = await db.execute(stmt)

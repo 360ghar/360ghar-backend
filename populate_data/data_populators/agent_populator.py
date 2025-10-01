@@ -3,12 +3,11 @@ import json
 from typing import Optional, List, Dict, Any
 import sys
 import os
-from sqlalchemy import select, delete
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.models.models import Agent
+from app.models.agents import Agent
 from app.models.enums import AgentType, ExperienceLevel
 from .base import BasePopulator
 
@@ -17,6 +16,14 @@ class AgentPopulator(BasePopulator):
 
     def __init__(self):
         super().__init__()
+
+    @property
+    def model_class(self):
+        return Agent
+
+    @property
+    def unique_fields(self) -> List[str]:
+        return ['name']  # Agents are unique by name
 
     def _default_agents_path(self) -> str:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -47,97 +54,40 @@ class AgentPopulator(BasePopulator):
 
         return payload
 
-    async def populate(
+    async def populate_from_json(
         self,
         count: Optional[int] = None,
         file_path: Optional[str] = None,
-    ) -> int:
+    ) -> Dict[str, int]:
         """
-        Create test agents (defaults to all entries found in agents.json).
+        Create test agents from JSON seed data with duplicate checking.
 
         Args:
             count: Optional cap on number of agents to create.
             file_path: Optional path to a custom agents.json file.
 
         Returns:
-            Number of agents created.
+            Dict with 'created' and 'skipped' counts.
         """
         agents_data = self._load_agents_from_file(file_path)
 
-        if count is None:
-            count = len(agents_data)
+        if count is not None:
+            agents_data = agents_data[:count]
 
-        self.logger.info(f"Creating {count} agents from JSON seed data...")
-
-        created_count = 0
-
-        async with await self.get_db_session() as session:
+        # Prepare agent payloads
+        processed_data = []
+        for agent_data in agents_data:
             try:
-                for agent_data in agents_data[:count]:
-                    try:
-                        name = agent_data.get("name")
-                        if not name:
-                            self.logger.warning("Skipping agent without a name in JSON data")
-                            continue
+                name = agent_data.get("name")
+                if not name:
+                    self.logger.warning("Skipping agent without a name in JSON data")
+                    continue
 
-                        existing_agent = await session.execute(
-                            select(Agent).where(Agent.name == name)
-                        )
-                        if existing_agent.scalar_one_or_none():
-                            self.logger.info(f"Agent {name} already exists, skipping...")
-                            continue
-
-                        payload = self._prepare_agent_payload(agent_data)
-
-                        agent = Agent(**payload)
-                        session.add(agent)
-                        await session.flush()
-                        created_count += 1
-
-                        self.logger.info(f"Created agent: {name}")
-
-                    except Exception as exc:
-                        self.logger.error(f"Failed to create agent {agent_data.get('name', '<unknown>')}: {exc}")
-                        continue
-
-                await session.commit()
-                self.logger.info(f"Successfully created {created_count} agents")
+                payload = self._prepare_agent_payload(agent_data)
+                processed_data.append(payload)
 
             except Exception as exc:
-                await session.rollback()
-                self.logger.error(f"Failed to create agents: {exc}")
-                raise
+                self.logger.error(f"Failed to prepare agent payload: {exc}")
+                continue
 
-        return created_count
-
-    async def clear_all(self, file_path: Optional[str] = None) -> int:
-        """Clear JSON-defined agents from the database."""
-        try:
-            try:
-                agents_data = self._load_agents_from_file(file_path)
-                target_names = [a["name"] for a in agents_data if a.get("name")]
-            except (FileNotFoundError, ValueError) as exc:
-                self.logger.warning(f"Unable to load agent seed data for cleanup: {exc}")
-                target_names = []
-
-            if not target_names:
-                self.logger.info("No agent names found in JSON; skipping cleanup")
-                return 0
-
-            deleted_count = 0
-
-            async with await self.get_db_session() as session:
-                for name in target_names:
-                    result = await session.execute(
-                        delete(Agent).where(Agent.name == name)
-                    )
-                    deleted_count += result.rowcount or 0
-
-                await session.commit()
-
-            self.logger.info(f"Deleted {deleted_count} agents defined in JSON")
-            return deleted_count
-
-        except Exception as exc:
-            self.logger.error(f"Failed to clear agents: {exc}")
-            return 0
+        return await self.populate(processed_data, skip_existing=True)

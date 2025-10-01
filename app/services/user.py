@@ -3,7 +3,7 @@ from sqlalchemy import select, or_, and_, func
 from sqlalchemy.exc import IntegrityError
 from typing import Optional, Dict, Any, List, Tuple
 from fastapi import HTTPException, status
-from app.models.models import User
+from app.models.users import User
 from app.schemas.user import UserUpdate
 from app.core.logging import get_logger
 

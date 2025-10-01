@@ -5,12 +5,11 @@ from datetime import date
 from typing import Optional, List, Dict, Any
 import sys
 import os
-from sqlalchemy import select, delete
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from app.models.models import User
+from app.models.users import User
 from .base import BasePopulator
 
 class UserPopulator(BasePopulator):
@@ -18,6 +17,14 @@ class UserPopulator(BasePopulator):
 
     def __init__(self):
         super().__init__()
+
+    @property
+    def model_class(self):
+        return User
+
+    @property
+    def unique_fields(self) -> List[str]:
+        return ['email']  # Users are unique by email
 
     def _default_users_path(self) -> str:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -62,97 +69,40 @@ class UserPopulator(BasePopulator):
 
         return payload
 
-    async def populate(
+    async def populate_from_json(
         self,
         count: Optional[int] = None,
         file_path: Optional[str] = None,
-    ) -> int:
+    ) -> Dict[str, int]:
         """
-        Create test users (defaults to users defined in users.json).
+        Create test users from JSON seed data with duplicate checking.
 
         Args:
             count: Optional cap on number of users to create.
             file_path: Optional path to a custom users.json file.
 
         Returns:
-            Number of users created.
+            Dict with 'created' and 'skipped' counts.
         """
         users_data = self._load_users_from_file(file_path)
 
-        if count is None:
-            count = len(users_data)
+        if count is not None:
+            users_data = users_data[:count]
 
-        self.logger.info(f"Creating {count} users from JSON seed data...")
-
-        created_count = 0
-
-        async with await self.get_db_session() as session:
+        # Prepare user payloads
+        processed_data = []
+        for user_data in users_data:
             try:
-                for user_data in users_data[:count]:
-                    try:
-                        email = user_data.get("email")
-                        if not email:
-                            self.logger.warning("Skipping user without an email in JSON data")
-                            continue
+                email = user_data.get("email")
+                if not email:
+                    self.logger.warning("Skipping user without an email in JSON data")
+                    continue
 
-                        existing_user = await session.execute(
-                            select(User).where(User.email == email)
-                        )
-                        if existing_user.scalar_one_or_none():
-                            self.logger.info(f"User {email} already exists, skipping...")
-                            continue
-
-                        payload = self._prepare_user_payload(user_data)
-
-                        user = User(**payload)
-                        session.add(user)
-                        await session.flush()
-                        created_count += 1
-
-                        self.logger.info(f"Created user: {payload.get('full_name')} ({email})")
-
-                    except Exception as exc:
-                        self.logger.error(f"Failed to create user {user_data.get('email', '<unknown>')}: {exc}")
-                        continue
-
-                await session.commit()
-                self.logger.info(f"Successfully created {created_count} users")
+                payload = self._prepare_user_payload(user_data)
+                processed_data.append(payload)
 
             except Exception as exc:
-                await session.rollback()
-                self.logger.error(f"Failed to create users: {exc}")
-                raise
+                self.logger.error(f"Failed to prepare user payload: {exc}")
+                continue
 
-        return created_count
-    
-    async def clear_all(self, file_path: Optional[str] = None) -> int:
-        """Clear JSON-defined users from the database."""
-        try:
-            try:
-                users_data = self._load_users_from_file(file_path)
-                target_emails = [u["email"] for u in users_data if u.get("email")]
-            except (FileNotFoundError, ValueError) as exc:
-                self.logger.warning(f"Unable to load user seed data for cleanup: {exc}")
-                target_emails = []
-
-            if not target_emails:
-                self.logger.info("No user emails found in JSON; skipping cleanup")
-                return 0
-
-            deleted_count = 0
-
-            async with await self.get_db_session() as session:
-                for email in target_emails:
-                    result = await session.execute(
-                        delete(User).where(User.email == email)
-                    )
-                    deleted_count += result.rowcount or 0
-
-                await session.commit()
-
-            self.logger.info(f"Deleted {deleted_count} users defined in JSON")
-            return deleted_count
-
-        except Exception as exc:
-            self.logger.error(f"Failed to clear users: {exc}")
-            return 0
+        return await self.populate(processed_data, skip_existing=True)

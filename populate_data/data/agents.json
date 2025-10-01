@@ -1,9 +1,9 @@
 [
   {
-    "name": "Arjun Singh",
+    "name": "Ayush Kashyap",
     "description": "Expert property consultant specializing in Delhi NCR with 5+ years of experience helping seekers find the right fit through curated recommendations and guided tours.",
-    "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=ArjunSingh",
-    "languages": ["english", "hindi", "punjabi"],
+    "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=AyushKashyap",
+    "languages": ["english", "hindi"],
     "agent_type": "senior",
     "experience_level": "expert",
     "is_active": true,
@@ -12,23 +12,23 @@
       "start": "09:00",
       "end": "19:00",
       "timezone": "Asia/Kolkata",
-      "days": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
+      "days": ["monday", "thursday", "friday", "saturday", "sunday"]
     },
     "total_users_assigned": 45,
     "user_satisfaction_rating": 4.8
   },
   {
-    "name": "Sneha Reddy",
-    "description": "Mumbai luxury specialist with deep knowledge of premium residential and commercial micro-markets, focused on white-glove experiences for high-intent buyers.",
-    "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=SnehaReddy",
-    "languages": ["english", "hindi", "marathi", "telugu"],
+    "name": "Saksham Mittal",
+    "description": "Gurugram luxury specialist with deep knowledge of premium residential and commercial micro-markets, focused on white-glove experiences for high-intent buyers.",
+    "avatar_url": "https://api.dicebear.com/7.x/avataaars/svg?seed=SakshamMittal",
+    "languages": ["english", "hindi"],
     "agent_type": "senior",
     "experience_level": "expert",
     "is_active": true,
     "is_available": true,
     "working_hours": {
-      "start": "08:30",
-      "end": "18:30",
+      "start": "10:00",
+      "end": "18:00",
       "timezone": "Asia/Kolkata",
       "days": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]
     },

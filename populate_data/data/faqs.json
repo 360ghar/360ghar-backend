@@ -3,6 +3,7 @@
     "question": "How does 360Ghar verify property listings?",
     "answer": "Our field team visits every property to capture 360° media, verify ownership documents, and confirm key details like location, amenities, and pricing before it is published on the platform.",
     "category": "general",
+    "product": "real_estate",
     "tags": ["verification", "buyers"],
     "display_order": 1,
     "is_active": true
@@ -11,6 +12,7 @@
     "question": "Can I schedule a property visit through the app?",
     "answer": "Yes. Use the 'Schedule Visit' button on any property detail page to pick a preferred time. Our team will confirm the slot and coordinate access with the owner or agent.",
     "category": "buyers",
+    "product": "real_estate",
     "tags": ["appointments", "visits"],
     "display_order": 2,
     "is_active": true
@@ -19,6 +21,7 @@
     "question": "What fees do owners pay to list on 360Ghar?",
     "answer": "Listing on 360Ghar is currently free. If you choose a premium marketing package or close a deal through our managed services, our team will share the applicable service fees in advance.",
     "category": "owners",
+    "product": "real_estate",
     "tags": ["pricing", "listing"],
     "display_order": 3,
     "is_active": true
@@ -27,6 +30,7 @@
     "question": "Is short-stay inventory available on 360Ghar?",
     "answer": "Select properties support short stays. Filter by 'Short Stay' under purpose or look for the nightly rate badge on the property card to discover instantly bookable homes.",
     "category": "rentals",
+    "product": "short_stays",
     "tags": ["short-stay", "filters"],
     "display_order": 4,
     "is_active": true
@@ -35,6 +39,7 @@
     "question": "How do I contact my assigned property expert?",
     "answer": "Every registered seeker gets a dedicated 360Ghar agent. Open the 'My Agent' section in the app or website to find their contact details and chat options.",
     "category": "support",
+    "product": "all",
     "tags": ["agents", "communication"],
     "display_order": 5,
     "is_active": true

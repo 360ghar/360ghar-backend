@@ -4,7 +4,8 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-from app.models.models import BugReport, Page, AppVersion, User, FAQ
+from app.models.core import BugReport, Page, AppVersion, FAQ
+from app.models.users import User
 from app.models.enums import BugStatus, PageFormat, BugType
 from app.schemas.core import (
     BugReportCreate, BugReportUpdate, BugReportResponse,

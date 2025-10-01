@@ -77,3 +77,17 @@ class PageFormat(str, Enum):
     html = "html"
     markdown = "markdown"
     json = "json"
+
+class ImageCategory(str, Enum):
+    room = "room"
+    hall = "hall"
+    kitchen = "kitchen"
+    bathroom = "bathroom"
+    balcony = "balcony"
+    terrace = "terrace"
+    garden = "garden"
+    parking = "parking"
+    entrance = "entrance"
+    exterior = "exterior"
+    interior = "interior"
+    others = "others"

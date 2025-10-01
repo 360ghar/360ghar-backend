@@ -12,7 +12,8 @@ from sqlalchemy import select, delete
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from app.core.logging import get_logger
-from app.models.models import Property, PropertyImage, User, Amenity, PropertyAmenity
+from app.models.properties import Property, PropertyImage, Amenity, PropertyAmenity
+from app.models.users import User
 from app.models.enums import PropertyType, PropertyPurpose, PropertyStatus
 from .base import BasePopulator, LOCATIONS, VIRTUAL_TOUR_URL, MAIN_IMAGE_URL, OTHER_IMAGE_URL
 
@@ -20,9 +21,17 @@ logger = get_logger(__name__)
 
 class PropertyPopulator(BasePopulator):
     """Populates test properties with realistic location-based data"""
-    
+
     def __init__(self):
         super().__init__()
+
+    @property
+    def model_class(self):
+        return Property
+
+    @property
+    def unique_fields(self) -> List[str]:
+        return []  # Properties don't have uniqueness constraints - always create new ones
     
     def _generate_property_data(self, location_key: str, index: int, owner_id: int) -> Dict[str, Any]:
         """Generate realistic property data for a specific location"""
@@ -248,16 +257,20 @@ Modern amenities available for a comfortable living experience.
         except Exception as e:
             self.logger.error(f"Failed to create amenities for property {property_id}: {str(e)}")
     
-    async def populate(self, count: Optional[int] = None, properties_per_location: Optional[int] = 100) -> int:
+    async def populate_generated(
+        self,
+        count: Optional[int] = None,
+        properties_per_location: Optional[int] = 100
+    ) -> Dict[str, int]:
         """
-        Create test properties across different locations
-        
+        Create test properties across different locations with duplicate checking
+
         Args:
             count: Total number of properties to create (deprecated, use properties_per_location)
             properties_per_location: Number of properties to create per location (default: 100)
-            
+
         Returns:
-            Number of properties created
+            Dict with 'created' and 'skipped' counts
         """
         # Handle backward compatibility
         if count is not None:
@@ -266,74 +279,99 @@ Modern amenities available for a comfortable living experience.
             properties_per_location = count // len(location_keys)
         elif properties_per_location is None:
             properties_per_location = 100
-        
+
         location_keys = list(LOCATIONS.keys())
         total_properties = properties_per_location * len(location_keys)
-        
+
         self.logger.info(f"Creating {properties_per_location} properties per location across {len(location_keys)} locations (total: {total_properties})...")
-        
-        created_count = 0
-        
+
+        # Generate all property data first
+        property_data_list = []
+
         async with await self.get_db_session() as session:
             try:
                 # Get available users to assign as property owners
                 users_result = await session.execute(select(User))
                 users = users_result.scalars().all()
-                
+
                 if not users:
                     self.logger.error("No users found to assign as property owners. Please create users first.")
-                    return 0
-                
+                    return {"created": 0, "skipped": 0}
+
                 # Get available amenities
                 amenities_result = await session.execute(select(Amenity).where(Amenity.is_active == True))
                 available_amenities = amenities_result.scalars().all()
-                
-                if not available_amenities:
-                    self.logger.warning("No amenities found. Properties will be created without amenities.")
-                
+
                 self.logger.info(f"Found {len(users)} users and {len(available_amenities)} amenities")
-                
+
                 for location_idx, location_key in enumerate(location_keys):
-                    self.logger.info(f"Creating {properties_per_location} properties in {LOCATIONS[location_key].name}...")
-                    
+                    self.logger.info(f"Generating {properties_per_location} properties in {LOCATIONS[location_key].name}...")
+
                     for i in range(properties_per_location):
                         try:
+                            # Since properties don't have uniqueness constraints, we generate them all
                             # Assign owner in round-robin fashion
-                            owner = users[created_count % len(users)]
-                            property_data = self._generate_property_data(location_key, created_count, owner.id)
-                            
-                            # Create property
-                            property_obj = Property(**property_data)
-                            session.add(property_obj)
-                            await session.flush()  # Get the ID
-                            
-                            # Create property images
-                            await self._create_property_images(session, property_obj.id)
-                            
-                            # Create property amenities
-                            await self._create_property_amenities(session, property_obj.id, available_amenities)
-                            
-                            created_count += 1
-                            self.log_progress(created_count, total_properties, "properties")
-                            
-                            # Commit every 10 properties to avoid session issues
-                            if created_count % 10 == 0:
-                                await session.commit()
-                            
+                            owner = users[i % len(users)]
+                            property_data = self._generate_property_data(location_key, i, owner.id)
+                            property_data_list.append(property_data)
+
                         except Exception as e:
-                            self.logger.error(f"Failed to create property {created_count + 1}: {str(e)}")
-                            await session.rollback()
+                            self.logger.error(f"Failed to generate property data {i + 1}: {str(e)}")
                             continue
-                
-                await session.commit()
-                self.logger.info(f"Successfully created {created_count} properties")
-                
+
+                # Use base class populate method for creation (no duplicate checking for properties)
+                result = await self.populate(property_data_list, skip_existing=False)
+
+                # Now create images and amenities for the created properties
+                if result["created"] > 0:
+                    await self._create_images_and_amenities_for_created_properties(session, available_amenities)
+
+                self.logger.info(f"Successfully created {result['created']} properties")
+
             except Exception as e:
                 await session.rollback()
                 self.logger.error(f"Failed to create properties: {str(e)}")
                 raise
-        
-        return created_count
+
+        return result
+
+    async def _create_images_and_amenities_for_created_properties(self, session, available_amenities):
+        """Create images and amenities for newly created properties"""
+        try:
+            # Get all properties that were just created (no images yet)
+            # This is a bit hacky but works for our use case
+            from sqlalchemy import outerjoin
+            properties_result = await session.execute(
+                select(Property)
+                .outerjoin(PropertyImage, Property.id == PropertyImage.property_id)
+                .where(PropertyImage.id.is_(None))
+                .limit(1000)  # Limit to avoid memory issues
+            )
+            properties_without_images = properties_result.scalars().all()
+
+            batch_size = 10
+            for i in range(0, len(properties_without_images), batch_size):
+                batch = properties_without_images[i:i + batch_size]
+
+                for property_obj in batch:
+                    try:
+                        # Create property images
+                        await self._create_property_images(session, property_obj.id)
+
+                        # Create property amenities
+                        await self._create_property_amenities(session, property_obj.id, available_amenities)
+
+                    except Exception as e:
+                        self.logger.error(f"Failed to create images/amenities for property {property_obj.id}: {str(e)}")
+                        continue
+
+                # Commit each batch
+                await session.commit()
+                self.logger.debug(f"Processed batch {i//batch_size + 1} of property images/amenities")
+
+        except Exception as e:
+            self.logger.error(f"Failed to create images and amenities: {str(e)}")
+            raise
     
     async def clear_all(self) -> int:
         """Clear all test properties"""
