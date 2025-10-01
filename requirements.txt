@@ -28,3 +28,4 @@ fastapi-debug-toolbar>=0.6.0
 psycopg[binary]
 aiohttp>=3.9.0,<4
 email-validator
+fastmcp>=2.0.0,<3

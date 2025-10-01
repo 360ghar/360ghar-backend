@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.api_v1.endpoints import auth, users, properties, visits, bookings, swipes, agents, amenities, upload, core
+from app.api.api_v1.endpoints import auth, users, properties, visits, bookings, swipes, agents, amenities, upload, core, blog
 
 api_router = APIRouter()
 
@@ -13,3 +13,4 @@ api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(amenities.router, prefix="/amenities", tags=["amenities"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
 api_router.include_router(core.router, prefix="", tags=["core"])
+api_router.include_router(blog.router, prefix="/blog", tags=["blog"])
