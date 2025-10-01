@@ -203,3 +203,306 @@ async def list_blog_posts(
     total = (await db.execute(count_query)).scalar() or 0
 
     return [BlogPostSchema.model_validate(i) for i in items], int(total)
+
+
+# Category CRUD operations
+async def create_category(db: AsyncSession, name: str, description: Optional[str] = None) -> BlogCategory:
+    """Create a new blog category."""
+    slug = _slugify(name)
+
+    # Check if category already exists
+    existing_stmt = select(BlogCategory).where(
+        or_(BlogCategory.slug == slug, BlogCategory.name == name)
+    )
+    existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+    if existing:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Category with name '{name}' or slug '{slug}' already exists"
+        )
+
+    category = BlogCategory(name=name, slug=slug, description=description)
+    db.add(category)
+    await db.commit()
+    await db.refresh(category)
+    return category
+
+
+async def get_category(db: AsyncSession, identifier: str) -> Optional[BlogCategory]:
+    """Get category by ID or slug."""
+    try:
+        # Try to parse as ID
+        ident_int = int(identifier)
+        stmt = select(BlogCategory).where(BlogCategory.id == ident_int)
+    except ValueError:
+        # Treat as slug
+        stmt = select(BlogCategory).where(BlogCategory.slug == identifier)
+
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def list_categories(db: AsyncSession, page: int = 1, limit: int = 100) -> Tuple[List[BlogCategory], int]:
+    """List all categories with pagination."""
+    count_stmt = select(func.count(BlogCategory.id))
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    stmt = select(BlogCategory).order_by(BlogCategory.name).offset((page - 1) * limit).limit(limit)
+    result = await db.execute(stmt)
+    categories = result.scalars().all()
+
+    return list(categories), int(total)
+
+
+async def update_category(db: AsyncSession, identifier: str, name: Optional[str] = None, description: Optional[str] = None) -> BlogCategory:
+    """Update category by ID or slug."""
+    category = await get_category(db, identifier)
+    if not category:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    if name:
+        # Check for conflicts
+        existing_stmt = select(BlogCategory).where(
+            and_(
+                or_(BlogCategory.slug == _slugify(name), BlogCategory.name == name),
+                BlogCategory.id != category.id
+            )
+        )
+        existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+        if existing:
+            from fastapi import HTTPException, status
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Category with name '{name}' already exists"
+            )
+
+        category.name = name
+        category.slug = _slugify(name)
+
+    if description is not None:
+        category.description = description
+
+    await db.commit()
+    await db.refresh(category)
+    return category
+
+
+async def delete_category(db: AsyncSession, identifier: str) -> bool:
+    """Delete category by ID or slug."""
+    category = await get_category(db, identifier)
+    if not category:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    await db.delete(category)
+    await db.commit()
+    return True
+
+
+# Tag CRUD operations
+async def create_tag(db: AsyncSession, name: str) -> BlogTag:
+    """Create a new blog tag."""
+    slug = _slugify(name)
+
+    # Check if tag already exists
+    existing_stmt = select(BlogTag).where(
+        or_(BlogTag.slug == slug, BlogTag.name == name)
+    )
+    existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+    if existing:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Tag with name '{name}' or slug '{slug}' already exists"
+        )
+
+    tag = BlogTag(name=name, slug=slug)
+    db.add(tag)
+    await db.commit()
+    await db.refresh(tag)
+    return tag
+
+
+async def get_tag(db: AsyncSession, identifier: str) -> Optional[BlogTag]:
+    """Get tag by ID or slug."""
+    try:
+        # Try to parse as ID
+        ident_int = int(identifier)
+        stmt = select(BlogTag).where(BlogTag.id == ident_int)
+    except ValueError:
+        # Treat as slug
+        stmt = select(BlogTag).where(BlogTag.slug == identifier)
+
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def list_tags(db: AsyncSession, page: int = 1, limit: int = 100) -> Tuple[List[BlogTag], int]:
+    """List all tags with pagination."""
+    count_stmt = select(func.count(BlogTag.id))
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    stmt = select(BlogTag).order_by(BlogTag.name).offset((page - 1) * limit).limit(limit)
+    result = await db.execute(stmt)
+    tags = result.scalars().all()
+
+    return list(tags), int(total)
+
+
+async def update_tag(db: AsyncSession, identifier: str, name: str) -> BlogTag:
+    """Update tag by ID or slug."""
+    tag = await get_tag(db, identifier)
+    if not tag:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+
+    # Check for conflicts
+    existing_stmt = select(BlogTag).where(
+        and_(
+            or_(BlogTag.slug == _slugify(name), BlogTag.name == name),
+            BlogTag.id != tag.id
+        )
+    )
+    existing = (await db.execute(existing_stmt)).scalar_one_or_none()
+    if existing:
+        from fastapi import HTTPException, status
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Tag with name '{name}' already exists"
+        )
+
+    tag.name = name
+    tag.slug = _slugify(name)
+
+    await db.commit()
+    await db.refresh(tag)
+    return tag
+
+
+async def delete_tag(db: AsyncSession, identifier: str) -> bool:
+    """Delete tag by ID or slug."""
+    tag = await get_tag(db, identifier)
+    if not tag:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found")
+
+    await db.delete(tag)
+    await db.commit()
+    return True
+
+
+# Blog Post CRUD operations (additional)
+async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> "app.schemas.blog.BlogPost":
+    """Update blog post by ID or slug."""
+    from app.schemas.blog import BlogPost as BlogPostSchema
+
+    if actor.role != "admin":
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can update blog posts")
+
+    # Get the post
+    cond = None
+    try:
+        ident_int = int(identifier)
+        cond = BlogPost.id == ident_int
+    except ValueError:
+        cond = BlogPost.slug == identifier
+
+    stmt = select(BlogPost).where(cond)
+    result = await db.execute(stmt)
+    post = result.scalar_one_or_none()
+
+    if not post:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog post not found")
+
+    # Update fields
+    if data.title:
+        post.title = data.title
+        # Regenerate slug if title changed
+        slug = _slugify(data.title)
+        if slug != post.slug:
+            # Ensure new slug is unique
+            suffix = 1
+            base_slug = slug
+            while True:
+                exists_stmt = select(func.count(BlogPost.id)).where(and_(BlogPost.slug == slug, BlogPost.id != post.id))
+                exists = (await db.execute(exists_stmt)).scalar()
+                if not exists:
+                    break
+                suffix += 1
+                slug = f"{base_slug}-{suffix}"
+            post.slug = slug
+
+    if data.content:
+        post.content = data.content
+    if data.excerpt is not None:
+        post.excerpt = data.excerpt
+    if data.cover_image_url is not None:
+        post.cover_image_url = data.cover_image_url
+
+    # Update categories and tags if provided
+    if data.categories is not None:
+        # Remove existing categories
+        delete_rel_stmt = select(BlogPostCategory).where(BlogPostCategory.post_id == post.id)
+        existing_rels = (await db.execute(delete_rel_stmt)).scalars().all()
+        for rel in existing_rels:
+            await db.delete(rel)
+
+        # Add new categories
+        categories = await _get_or_create_categories(db, data.categories)
+        for c in categories:
+            db.add(BlogPostCategory(post_id=post.id, category_id=c.id))
+
+    if data.tags is not None:
+        # Remove existing tags
+        delete_rel_stmt = select(BlogPostTag).where(BlogPostTag.post_id == post.id)
+        existing_rels = (await db.execute(delete_rel_stmt)).scalars().all()
+        for rel in existing_rels:
+            await db.delete(rel)
+
+        # Add new tags
+        tags = await _get_or_create_tags(db, data.tags)
+        for t in tags:
+            db.add(BlogPostTag(post_id=post.id, tag_id=t.id))
+
+    await db.commit()
+    await db.refresh(post)
+
+    # Reload with relationships
+    result = await db.execute(
+        select(BlogPost)
+        .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
+        .where(BlogPost.id == post.id)
+    )
+    updated = result.scalar_one()
+    return BlogPostSchema.model_validate(updated)
+
+
+async def delete_blog_post(db: AsyncSession, identifier: str, actor) -> bool:
+    """Delete blog post by ID or slug."""
+    if actor.role != "admin":
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins can delete blog posts")
+
+    # Get the post
+    cond = None
+    try:
+        ident_int = int(identifier)
+        cond = BlogPost.id == ident_int
+    except ValueError:
+        cond = BlogPost.slug == identifier
+
+    stmt = select(BlogPost).where(cond)
+    result = await db.execute(stmt)
+    post = result.scalar_one_or_none()
+
+    if not post:
+        from fastapi import HTTPException, status
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Blog post not found")
+
+    await db.delete(post)
+    await db.commit()
+    return True
