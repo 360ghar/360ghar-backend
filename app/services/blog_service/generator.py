@@ -1,4 +1,5 @@
 import json
+import random
 from typing import List, Dict, Any, Tuple
 
 import httpx
@@ -11,6 +12,22 @@ from app.services.blog import create_blog_post
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
+
+BLOG_CATEGORIES = [
+    "Buyer & Seller Guides (First-time Homebuyer, Step-by-step Process, How to Sell Faster, Home Loan Tips)",
+    "Finance & Pricing (Interest Rate Updates, Stamp Duty & Registration, Budget-based Picks, Tax Benefits)",
+    "Construction & Home Improvement (Cost Updates, Interior Design Trends, Renovation Guides, Floor Plans)",
+    "Locality Deep Dives (Connectivity, Infrastructure, Ratings, Future Development)",
+    "Developer & Project Reviews (Reputation Analysis, Project Comparisons, Delivery History, RERA)",
+    "Lifestyle & Living (Gated Communities, Amenities Trends, Community Stories, Green Living)",
+    "Real Estate for Businesses (Commercial Guides, Co-working Trends, Warehouse/Industrial, Retail Insights)",
+    "Niche & Special Segments (Luxury, Affordable Housing, Senior Living, Student Housing, Holiday Homes)",
+    "Tools, Tips & DIY (How to Read Floor Plans, Maintenance Tips, Verification Checklists, Negotiation)",
+    "Tech in Real Estate (PropTech, AI & VR, Smart Homes, Digital Transactions)",
+    "Opinion & Editorials (Expert Interviews, Predictions, Trends, Myths vs. Facts)",
+    "Scam & Fraud Awareness (Common Scams, Verifying Builders, Legal Red Flags, Online Safety)",
+    "Relocation & NRI (NRI Buying Guides, Returning to India, State-to-State Relocation)"
+]
 
 
 def _build_excerpt_from_html(html: str, max_len: int = 280) -> str:
@@ -35,25 +52,39 @@ async def _perplexity_generate(topic: str) -> Dict[str, str]:
     }
 
     system = (
-        "You are an expert real estate content strategist for Gurgaon, writing for 360 Ghar "
-        "(India's first VR-first real estate platform focused on verified, 360° virtual tours in Gurgaon). "
-        "Write SEO-optimized, long-form blog posts with clear H2/H3 headings, short paragraphs, bullets, "
-        "concrete local data/insights where helpful, and an engaging, trustworthy tone. "
-        "Emphasize 360° virtual walkthroughs, verified listings, reduced site visits, Relationship Managers, "
-        "and a modern, tech-enabled, broker-plus experience. Always stay focused on Gurgaon real estate. "
-        "Return ONLY a valid JSON object with exactly the keys: title, content_html. "
-        "Do NOT include markdown, code fences, or any explanation text around the JSON. "
-        "content_html should be well-structured HTML suitable for direct rendering in a blog CMS."
+        "You are an expert real estate content strategist and SEO copywriter for '360 Ghar', "
+        "India's premier VR-first real estate platform in Gurgaon. "
+        "Your goal is to write highly engaging, authoritative, and SEO-optimized blog posts that rank well on Google "
+        "and provide immense value to readers (buyers, sellers, tenants, investors).\n\n"
+        "**Voice & Tone:**\n"
+        "- Trustworthy, professional, yet accessible and human.\n"
+        "- Data-driven but easy to understand.\n"
+        "- Localized: Use Gurgaon-specific terminology and context.\n\n"
+        "**Key Value Propositions to Weave In (Subtly):**\n"
+        "- 360° Virtual Tours (immersive, save time).\n"
+        "- Verified Listings (no fakes, no duplicates).\n"
+        "- Relationship Managers (expert guidance, not just a broker).\n"
+        "- Map-based Discovery.\n\n"
+        "**Formatting Rules:**\n"
+        "- Use clear H2 and H3 headings to break up text.\n"
+        "- Use short paragraphs (2-3 sentences).\n"
+        "- Use bullet points and numbered lists heavily for readability.\n"
+        "- Include a 'Key Takeaways' section at the start or end.\n"
+        "- **Return ONLY valid JSON** with keys: 'title', 'content_html'."
     )
 
     user_prompt = (
-        f"Research and write a high-quality blog post about: '{topic}'. "
-        "Make it deeply specific to Gurgaon real estate (India) and the realities of buyers, tenants, and owners there in 2024/2025. "
-        "Incorporate where appropriate: immersive 360° virtual tours, verified listings, fewer wasted visits, "
-        "map-based discovery, and guided support from a Relationship Manager. "
-        "Structure the article with: a strong intro, 3–6 key sections with H2/H3s, bullets or numbered lists where useful, "
-        "4–6 Gurgaon-specific FAQs, and a clear conclusion with a soft CTA to explore homes on 360 Ghar. "
-        "Use clean semantic HTML tags only (p, h2, h3, ul, ol, li, a, strong, em, blockquote)."
+        f"Write a comprehensive, high-quality blog post on the topic: '{topic}'.\n\n"
+        "**Requirements:**\n"
+        "1. **Scope:** Focus specifically on the Gurgaon (Gurugram) real estate market context for 2024-2025.\n"
+        "2. **Structure:**\n"
+        "   - **Catchy Title:** (If the provided topic is plain, make the title punchy and SEO-friendly).\n"
+        "   - **Introduction:** Hook the reader, state the problem/opportunity.\n"
+        "   - **Body:** 4-6 detailed sections using H2/H3 tags. Include real-world examples, recent trends, or data if available.\n"
+        "   - **FAQ Section:** 3-5 common questions related to the topic, strictly relevant to Gurgaon.\n"
+        "   - **Conclusion:** Summarize and include a soft Call-to-Action (CTA) to explore properties on 360 Ghar.\n"
+        "3. **SEO:** naturally include keywords related to '{topic}', 'Gurgaon real estate', 'property in Gurgaon', etc.\n"
+        "4. **Output:** valid HTML string (no markdown, no ```html blocks). Use tags: <p>, <h2>, <h3>, <ul>, <ol>, <li>, <strong>, <em>, <blockquote>.\n"
     )
 
     payload = {
@@ -83,7 +114,7 @@ async def _perplexity_generate(topic: str) -> Dict[str, str]:
         },
     }
 
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=120) as client:  # Increased timeout for longer generation
         resp = await client.post(url, headers=headers, json=payload)
         if resp.status_code >= 400:
             logger.error(f"Perplexity API error {resp.status_code}: {resp.text}")
@@ -199,6 +230,7 @@ async def generate_bulk_blogs(db, *, count: int, actor) -> List[Dict[str, Any]]:
     if not settings.PERPLEXITY_API_KEY:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="PERPLEXITY_API_KEY not configured")
 
+    categories_str = "\n- ".join(BLOG_CATEGORIES)
     url = "https://api.perplexity.ai/chat/completions"
     headers = {
         "Authorization": f"Bearer {settings.PERPLEXITY_API_KEY}",
@@ -206,22 +238,23 @@ async def generate_bulk_blogs(db, *, count: int, actor) -> List[Dict[str, Any]]:
     }
 
     system = (
-        "You create topical, SEO-aware content plans for Gurgaon-focused real estate blogs for 360 Ghar "
-        "(India's first VR-first real estate platform with verified 360° virtual tours, no duplicate/misleading listings, "
-        "and Relationship Manager support). "
-        "You always think from the lens of buyers, tenants, and property owners in Gurgaon in 2024/2025."
+        "You are a senior editor for a leading Gurgaon real estate news portal (360 Ghar). "
+        "Your job is to assign high-traffic, timely, and relevant blog topics to your writers. "
+        "You focus on: Breaking News, Market Data Analysis, New Govt Policies, Infrastructure Projects (Metro, Roads), "
+        "and helpful guides for buyers/tenants."
     )
     prompt = (
-        f"Generate {count} unique, high-intent blog topics about real estate in Gurgaon, India for 360 Ghar. "
-        "Cover a diverse mix across buying and selling, renting, luxury and premium housing, investment trends, "
-        "neighbourhood deep-dives (by sector/locality), legal and documentation guidance, and how VR/360° virtual tours "
-        "plus verified listings and Relationship Managers change the property search journey. "
-        "Each topic should be concise but specific (not just one-word), and sound natural for a blog article title. "
-        "Return a JSON object of the shape: {\"topics\": [\"topic 1\", \"topic 2\", ...]}."
+        f"Generate {count} unique, engaging, and search-worthy blog topics about Gurgaon Real Estate.\n\n"
+        f"**Source Inspiration from these Categories:**\n- {categories_str}\n\n"
+        "**Critical Instructions:**\n"
+        "1. **News Hook:** At least 40% of the topics MUST be about recent developments in Gurgaon (last 3-6 months) - e.g., new RERA rules, specific highway openings, circle rate changes, upcoming commercial corridors.\n"
+        "2. **Specificity:** No generic titles like 'How to buy a house'. Instead use: 'Impact of Dwarka Expressway Opening on Sector 102 Property Rates'.\n"
+        "3. **User Intent:** target what people actually type into Google (e.g., 'best society in Golf Course Ext Road', 'rent vs buy in Gurgaon 2025').\n"
+        "4. **Format:** Return a JSON object of the shape: {\"topics\": [\"topic 1\", \"topic 2\", ...]}."
     )
     payload = {
         "model": settings.PERPLEXITY_MODEL or "sonar",
-        "temperature": 0.6,
+        "temperature": 0.7,
         "max_tokens": 8000,
         "messages": [
             {"role": "system", "content": system},
