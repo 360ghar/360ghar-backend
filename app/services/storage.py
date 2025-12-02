@@ -39,8 +39,8 @@ class StorageService:
         """Generic file upload method"""
         try:
             # Validate file type
-            if not self._is_valid_image(file):
-                raise HTTPException(status_code=400, detail="Invalid image file type")
+            if not self._is_valid_media(file):
+                raise HTTPException(status_code=400, detail="Invalid image or video file type")
             
             # Generate unique filename
             file_extension = self._get_file_extension(file.filename)
@@ -106,10 +106,11 @@ class StorageService:
             logger.error(f"File listing error: {str(e)}")
             return []
     
-    def _is_valid_image(self, file: UploadFile) -> bool:
-        """Validate if file is a valid image"""
-        valid_types = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]
-        return file.content_type in valid_types
+    def _is_valid_media(self, file: UploadFile) -> bool:
+        """Validate if file is a supported image or video"""
+        valid_image_types = ["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]
+        valid_video_types = ["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "video/ogg"]
+        return file.content_type in (valid_image_types + valid_video_types)
     
     def _get_file_extension(self, filename: str) -> str:
         """Get file extension from filename"""

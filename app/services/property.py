@@ -13,7 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from pgvector.sqlalchemy import Vector
-from app.models.properties import Property, PropertyAmenity, Amenity
+from app.models.properties import Property, PropertyAmenity, Amenity, PropertyImage
 from app.schemas.property import PropertyCreate, PropertyUpdate, UnifiedPropertyFilter, SortBy
 from app.schemas.user import User as UserSchema
 from app.core.logging import get_logger
@@ -54,6 +54,9 @@ async def create_property(db: AsyncSession, property_data: PropertyCreate, owner
                 raise PermissionError("Users can only create their own properties")
 
         property_dict = property_data.model_dump(exclude_unset=True)
+        images_data = property_dict.pop("images", None)
+        # amenity_ids are handled elsewhere; avoid passing unknown keys to the model
+        property_dict.pop("amenity_ids", None)
         property_dict["owner_id"] = owner_id
 
         # Create WKT for location
@@ -65,6 +68,11 @@ async def create_property(db: AsyncSession, property_data: PropertyCreate, owner
         db_property = Property(**property_dict)
         db.add(db_property)
         await db.flush()
+        # Persist associated images if provided
+        if images_data:
+            for img in images_data:
+                db_property.images.append(PropertyImage(property_id=db_property.id, **img))
+            await db.flush()
         await db.refresh(db_property)
         
         logger.info(f"Property created successfully with ID {db_property.id}")
@@ -129,6 +137,8 @@ async def update_property(db: AsyncSession, property_id: int, property_update: P
                 raise PermissionError("Users can only modify their own properties")
         
         update_data = property_update.model_dump(exclude_unset=True)
+        images_data = update_data.pop("images", None)
+        update_data.pop("amenity_ids", None)
 
         # Handle location update
         if 'latitude' in update_data or 'longitude' in update_data:
@@ -139,6 +149,11 @@ async def update_property(db: AsyncSession, property_id: int, property_update: P
 
         for field, value in update_data.items():
             setattr(property_obj, field, value)
+
+        if images_data is not None:
+            property_obj.images.clear()
+            for img in images_data:
+                property_obj.images.append(PropertyImage(property_id=property_id, **img))
         
         await db.flush()
         await db.refresh(property_obj)

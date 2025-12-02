@@ -11,6 +11,24 @@ class PropertyImageBase(BaseModel):
     caption: Optional[str] = None
     display_order: int = 0
     is_main_image: bool = False
+    category: Optional[str] = None
+    is_main: bool = False
+
+    @field_validator("category")
+    @classmethod
+    def sanitize_category(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            cleaned = v.strip()
+            return cleaned[:50] if cleaned else None
+        return v
+
+    @model_validator(mode="after")
+    def sync_main_flags(self):
+        if self.is_main:
+            self.is_main_image = True
+        elif self.is_main_image:
+            self.is_main = True
+        return self
 
 class PropertyImageCreate(PropertyImageBase):
     pass
@@ -48,6 +66,10 @@ class PropertyBase(BaseModel):
     parking_spaces: Optional[int] = None
     video_urls: Optional[List[str]] = None
     google_street_view_url: Optional[str] = None
+    main_image_url: Optional[str] = None
+    virtual_tour_url: Optional[str] = None
+    floor_plan_url: Optional[str] = None
+    video_tour_url: Optional[str] = None
 
 class PropertyCreate(PropertyBase):
     price_per_sqft: Optional[float] = None
@@ -62,8 +84,7 @@ class PropertyCreate(PropertyBase):
     minimum_stay_days: Optional[int] = 1
     amenity_ids: Optional[List[int]] = None
     features: Optional[List[str]] = None
-    main_image_url: Optional[str] = None
-    virtual_tour_url: Optional[str] = None
+    images: Optional[List[PropertyImageCreate]] = None
     available_from: Optional[str] = None
     calendar_data: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
@@ -118,6 +139,14 @@ class PropertyCreate(PropertyBase):
             return sanitized[:500] if sanitized else None
         return v
 
+    @field_validator("main_image_url", "virtual_tour_url", "floor_plan_url", "video_tour_url")
+    @classmethod
+    def sanitize_media_urls(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            sanitized = str(v).strip()
+            return sanitized[:500] if sanitized else None
+        return v
+
     @model_validator(mode="after")
     def validate_coordinates(self):
         if self.latitude is not None and self.longitude is not None:
@@ -136,6 +165,11 @@ class PropertyUpdate(BaseModel):
     calendar_data: Optional[Dict[str, Any]] = None
     video_urls: Optional[List[str]] = None
     google_street_view_url: Optional[str] = None
+    main_image_url: Optional[str] = None
+    virtual_tour_url: Optional[str] = None
+    floor_plan_url: Optional[str] = None
+    video_tour_url: Optional[str] = None
+    images: Optional[List[PropertyImageCreate]] = None
 
     @field_validator("video_urls")
     @classmethod
@@ -160,6 +194,14 @@ class PropertyUpdate(BaseModel):
             return sanitized[:500] if sanitized else None
         return v
 
+    @field_validator("main_image_url", "virtual_tour_url", "floor_plan_url", "video_tour_url")
+    @classmethod
+    def sanitize_media_urls(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            sanitized = str(v).strip()
+            return sanitized[:500] if sanitized else None
+        return v
+
 class PropertyInDB(PropertyBase):
     id: int
     owner_id: int
@@ -175,8 +217,6 @@ class PropertyInDB(PropertyBase):
     max_occupancy: Optional[int] = None
     minimum_stay_days: Optional[int] = None
     features: Optional[List[str]] = None
-    main_image_url: Optional[str] = None
-    virtual_tour_url: Optional[str] = None
     is_available: bool
     available_from: Optional[datetime] = None
     calendar_data: Optional[Dict[str, Any]] = None
