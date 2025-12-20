@@ -213,6 +213,45 @@
             }
           },
           "response": []
+        },
+        {
+          "name": "Register User (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"{{randomName}}\",\n  \"email\": \"{{randomEmail}}\",\n  \"phone\": \"{{randomPhone}}\",\n  \"password\": \"ChangeMe123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/auth/register/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register",
+                ""
+              ]
+            },
+            "description": "Public registration with phone + password. Creates Supabase auth user and DB user."
+          },
+          "response": []
         }
       ]
     },
@@ -265,6 +304,28 @@
           "response": []
         },
         {
+          "name": "👤 Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/profile/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "profile",
+                ""
+              ]
+            },
+            "description": "Return the current authenticated user profile."
+          },
+          "response": []
+        },
+        {
           "name": "👤 Get User Details",
           "request": {
             "method": "GET",
@@ -306,7 +367,7 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/users/{{target_user_id}}",
+              "raw": "{{BASE_URL}}/api/v1/users/{{target_user_id}}/",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -314,7 +375,8 @@
                 "api",
                 "v1",
                 "users",
-                "{{target_user_id}}"
+                "{{target_user_id}}",
+                ""
               ]
             },
             "description": "**Admin**: Can update any field\n**Agent**: Can update limited fields for assigned users"
@@ -355,6 +417,298 @@
               ]
             },
             "description": "**Admin Only**: Assign an agent to a specific user"
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"email\": \"updated@example.com\",\n  \"phone\": \"+911234567890\",\n  \"date_of_birth\": \"1990-01-15\",\n  \"profile_image_url\": \"https://example.com/avatar.jpg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/profile/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "profile",
+                ""
+              ]
+            },
+            "description": "Update the current user's profile fields."
+          },
+          "response": []
+        },
+        {
+          "name": "⚙️ Update Preferences",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_type\": [\n    \"apartment\",\n    \"house\"\n  ],\n  \"purpose\": \"rent\",\n  \"budget_min\": 20000,\n  \"budget_max\": 60000,\n  \"bedrooms_min\": 2,\n  \"bedrooms_max\": 3,\n  \"area_min\": 600,\n  \"area_max\": 1500,\n  \"location_preference\": [\n    \"Gurgaon\"\n  ],\n  \"max_distance_km\": 5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/preferences/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "preferences",
+                ""
+              ]
+            },
+            "description": "Update the current user's search/preferences used for recommendations."
+          },
+          "response": []
+        },
+        {
+          "name": "📍 Update Location",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"latitude\": 28.4464,\n  \"longitude\": 77.011711\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/location/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "location",
+                ""
+              ]
+            },
+            "description": "Update the current user's last known location (used for proximity search)."
+          },
+          "response": []
+        },
+        {
+          "name": "🔔 Get Notification Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/notification-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "notification-settings"
+              ]
+            },
+            "description": "Fetch current user's notification settings with defaults applied."
+          },
+          "response": []
+        },
+        {
+          "name": "🔔 Update Notification Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email_notifications\": true,\n  \"push_notifications\": true,\n  \"sms_notifications\": false,\n  \"visit_reminders\": true,\n  \"property_updates\": true,\n  \"promotional_emails\": false,\n  \"onboarding\": true,\n  \"digest\": true,\n  \"frequency\": \"weekly\",\n  \"quietHours\": {\n    \"start\": \"22:00\",\n    \"end\": \"07:00\"\n  },\n  \"categories\": {\n    \"promotions\": true,\n    \"onboarding\": true,\n    \"property_updates\": true,\n    \"digest\": true,\n    \"visit_reminders\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/notification-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "notification-settings"
+              ]
+            },
+            "description": "Update notification preferences for the 360Ghar app."
+          },
+          "response": []
+        },
+        {
+          "name": "🔔 Update Notifications (Compat)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email_notifications\": true,\n  \"push_notifications\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/notifications/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "notifications",
+                ""
+              ]
+            },
+            "description": "Compatibility endpoint: stores an arbitrary JSON blob in users.notification_settings."
+          },
+          "response": []
+        },
+        {
+          "name": "🔒 Get Privacy Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/privacy-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "privacy-settings"
+              ]
+            },
+            "description": "Fetch current user's privacy settings."
+          },
+          "response": []
+        },
+        {
+          "name": "🔒 Update Privacy Settings",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profile_visibility\": \"public\",\n  \"location_sharing\": true,\n  \"contact_sharing\": true,\n  \"search_history_tracking\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/privacy-settings",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "privacy-settings"
+              ]
+            },
+            "description": "Update privacy controls (profile visibility, location sharing, etc.)."
+          },
+          "response": []
+        },
+        {
+          "name": "🔒 Update Privacy (Compat)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profile_visibility\": \"private\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/privacy/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "privacy",
+                ""
+              ]
+            },
+            "description": "Compatibility endpoint: stores an arbitrary JSON blob in users.privacy_settings."
           },
           "response": []
         }
@@ -630,23 +984,9 @@
           "name": "🔗 Assign Agent to Me",
           "request": {
             "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"agent_id\": {{target_agent_id}}\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
+            "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/assign/",
+              "raw": "{{BASE_URL}}/api/v1/agents/assign/?agent_id={{target_agent_id}}",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -656,9 +996,17 @@
                 "agents",
                 "assign",
                 ""
+              ],
+              "query": [
+                {
+                  "key": "agent_id",
+                  "value": "{{target_agent_id}}",
+                  "description": "Optional. Auto-assign if omitted",
+                  "disabled": true
+                }
               ]
             },
-            "description": "**User**: Assign an agent to yourself (auto-assign if no agent_id provided)"
+            "description": "**User**: Assign an agent to yourself. Provide agent_id to pick a specific agent; omit to auto-assign."
           },
           "response": []
         },
@@ -868,7 +1216,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/properties/?page=1&limit=20",
+              "raw": "{{BASE_URL}}/api/v1/properties/?page=1&limit=20&lat=28.446400&lng=77.011711&radius=5&q={{property_search}}&semantic_search=false&exclude_swiped=true&property_type=apartment&purpose=rent&price_min=20000&price_max=50000&bedrooms_min=2&bedrooms_max=3&bathrooms_min=1&bathrooms_max=2&area_min=600&area_max=1500&amenities=gym,pool&features=security,power_backup&parking_spaces_min=1&floor_number_min=1&floor_number_max=20&age_max=5&check_in=2025-01-01&check_out=2025-01-10&guests=2&city=Gurgaon&locality=DLF Phase 1&pincode=122002&sort_by=newest",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -908,6 +1256,18 @@
                   "disabled": true
                 },
                 {
+                  "key": "semantic_search",
+                  "value": "false",
+                  "disabled": true,
+                  "description": "Requires q"
+                },
+                {
+                  "key": "exclude_swiped",
+                  "value": "true",
+                  "disabled": true,
+                  "description": "Auth required"
+                },
+                {
                   "key": "property_type",
                   "value": "apartment",
                   "disabled": true
@@ -928,8 +1288,93 @@
                   "disabled": true
                 },
                 {
+                  "key": "bedrooms_min",
+                  "value": "2",
+                  "disabled": true
+                },
+                {
+                  "key": "bedrooms_max",
+                  "value": "3",
+                  "disabled": true
+                },
+                {
+                  "key": "bathrooms_min",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "bathrooms_max",
+                  "value": "2",
+                  "disabled": true
+                },
+                {
+                  "key": "area_min",
+                  "value": "600",
+                  "disabled": true
+                },
+                {
+                  "key": "area_max",
+                  "value": "1500",
+                  "disabled": true
+                },
+                {
+                  "key": "amenities",
+                  "value": "gym,pool",
+                  "disabled": true
+                },
+                {
+                  "key": "features",
+                  "value": "security,power_backup",
+                  "disabled": true
+                },
+                {
+                  "key": "parking_spaces_min",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "floor_number_min",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "floor_number_max",
+                  "value": "20",
+                  "disabled": true
+                },
+                {
+                  "key": "age_max",
+                  "value": "5",
+                  "disabled": true
+                },
+                {
+                  "key": "check_in",
+                  "value": "2025-01-01",
+                  "disabled": true
+                },
+                {
+                  "key": "check_out",
+                  "value": "2025-01-10",
+                  "disabled": true
+                },
+                {
+                  "key": "guests",
+                  "value": "2",
+                  "disabled": true
+                },
+                {
                   "key": "city",
                   "value": "Gurgaon",
+                  "disabled": true
+                },
+                {
+                  "key": "locality",
+                  "value": "DLF Phase 1",
+                  "disabled": true
+                },
+                {
+                  "key": "pincode",
+                  "value": "122002",
                   "disabled": true
                 },
                 {
@@ -939,7 +1384,7 @@
                 }
               ]
             },
-            "description": "Search properties with comprehensive filters"
+            "description": "Search properties with comprehensive filters.\n\nEnums: property_type=house|apartment|builder_floor|room, purpose=buy|rent|short_stay, sort_by=distance|price_low|price_high|newest|popular|relevance.\nNotes: semantic_search requires q; exclude_swiped requires auth.\nResponse: {properties,total,page,limit,total_pages,filters_applied,search_center}"
           },
           "response": []
         },
@@ -1106,6 +1551,255 @@
             "description": "Get personalized property recommendations"
           },
           "response": []
+        },
+        {
+          "name": "🧠 Semantic Property Search",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/properties/semantic-search?q=luxury apartment&page=1&limit=20&lat=28.446400&lng=77.011711&radius=5&property_type=apartment&purpose=rent&price_min=20000&price_max=50000&city=Gurgaon",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "properties",
+                "semantic-search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "luxury apartment",
+                  "description": "Required"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "lat",
+                  "value": "28.446400",
+                  "disabled": true
+                },
+                {
+                  "key": "lng",
+                  "value": "77.011711",
+                  "disabled": true
+                },
+                {
+                  "key": "radius",
+                  "value": "5",
+                  "disabled": true
+                },
+                {
+                  "key": "property_type",
+                  "value": "apartment",
+                  "disabled": true
+                },
+                {
+                  "key": "purpose",
+                  "value": "rent",
+                  "disabled": true
+                },
+                {
+                  "key": "price_min",
+                  "value": "20000",
+                  "disabled": true
+                },
+                {
+                  "key": "price_max",
+                  "value": "50000",
+                  "disabled": true
+                },
+                {
+                  "key": "city",
+                  "value": "Gurgaon",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Vector-powered semantic search. Requires q. Returns relevance_score and vector_distance when available."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "👆 Swipe Management",
+      "item": [
+        {
+          "name": "👍 Record Swipe",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": \"{{target_property_id}}\",\n  \"is_liked\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/swipes/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "swipes",
+                ""
+              ]
+            },
+            "description": "Record a swipe (like/dislike) for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "🧾 Swipe History",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/swipes/?page=1&limit=20&is_liked=true&q={{property_search}}&city=Gurgaon&property_type=apartment&purpose=rent&price_min=20000&price_max=50000",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "swipes",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "is_liked",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "{{property_search}}",
+                  "disabled": true
+                },
+                {
+                  "key": "city",
+                  "value": "Gurgaon",
+                  "disabled": true
+                },
+                {
+                  "key": "property_type",
+                  "value": "apartment",
+                  "disabled": true
+                },
+                {
+                  "key": "purpose",
+                  "value": "rent",
+                  "disabled": true
+                },
+                {
+                  "key": "price_min",
+                  "value": "20000",
+                  "disabled": true
+                },
+                {
+                  "key": "price_max",
+                  "value": "50000",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Swipe history with property filters and pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "↩️ Undo Last Swipe",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/swipes/undo/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "swipes",
+                "undo",
+                ""
+              ]
+            },
+            "description": "Undo the most recent swipe for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "🔁 Toggle Swipe Like",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/swipes/{{target_swipe_id}}/toggle/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "swipes",
+                "{{target_swipe_id}}",
+                "toggle",
+                ""
+              ]
+            },
+            "description": "Toggle like/unlike for a swipe by swipe_id."
+          },
+          "response": []
+        },
+        {
+          "name": "📊 Swipe Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/swipes/stats/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "swipes",
+                "stats",
+                ""
+              ]
+            },
+            "description": "Get swipe statistics for the current user."
+          },
+          "response": []
         }
       ]
     },
@@ -1232,7 +1926,7 @@
                 }
               ]
             },
-            "description": "**Admin**: View all visits\n**Agent**: View visits for assigned users/properties"
+            "description": "**Admin**: View all visits. **Agent**: Visits for assigned users/properties.\nstatus values: scheduled|confirmed|completed|cancelled|rescheduled."
           },
           "response": []
         },
@@ -1365,6 +2059,85 @@
             "description": "Cancel a visit (visit owner)"
           },
           "response": []
+        },
+        {
+          "name": "📆 My Upcoming Visits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/upcoming/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "upcoming",
+                ""
+              ]
+            },
+            "description": "Get upcoming visits for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "📜 My Past Visits",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/past/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "past",
+                ""
+              ]
+            },
+            "description": "Get past visits for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update Visit",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scheduled_date\": \"{{futureDate}}\",\n  \"status\": \"confirmed\",\n  \"special_requirements\": \"Please ensure parking is available\",\n  \"visit_notes\": \"Client prefers morning visits\",\n  \"visitor_feedback\": \"Great experience\",\n  \"interest_level\": \"high\",\n  \"follow_up_required\": true,\n  \"follow_up_date\": \"{{futureDate}}\",\n  \"cancellation_reason\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/visits/{{target_visit_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "visits",
+                "{{target_visit_id}}"
+              ]
+            },
+            "description": "Update visit details (visit owner only). Status values: scheduled|confirmed|completed|cancelled|rescheduled."
+          },
+          "response": []
         }
       ]
     },
@@ -1441,7 +2214,7 @@
                 }
               ]
             },
-            "description": "**Admin**: View all bookings\n**Agent**: View bookings for assigned users/properties"
+            "description": "**Admin**: View all bookings. **Agent**: View bookings for assigned users/properties.\nstatus values: pending|confirmed|checked_in|checked_out|cancelled|completed."
           },
           "response": []
         },
@@ -1498,7 +2271,7 @@
                 ""
               ]
             },
-            "description": "**Admin/Agent**: Process payment for booking"
+            "description": "**User (owner)** or **Agent managing the booking** can process payment."
           },
           "response": []
         },
@@ -1534,7 +2307,588 @@
                 ""
               ]
             },
-            "description": "**Admin/Agent**: Add review for booking"
+            "description": "**User (owner)** or **Agent managing the booking** can add a review."
+          },
+          "response": []
+        },
+        {
+          "name": "➕ Create Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": 1,\n  \"check_in_date\": \"2025-01-05T12:00:00Z\",\n  \"check_out_date\": \"2025-01-10T12:00:00Z\",\n  \"guests\": 2,\n  \"primary_guest_name\": \"John Doe\",\n  \"primary_guest_phone\": \"+911234567890\",\n  \"primary_guest_email\": \"guest@example.com\",\n  \"special_requests\": \"Late check-in\",\n  \"guest_details\": {\n    \"id_proof\": \"Aadhaar\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                ""
+              ]
+            },
+            "description": "Create a booking for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update Booking",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"check_in_date\": \"2025-01-06T12:00:00Z\",\n  \"check_out_date\": \"2025-01-11T12:00:00Z\",\n  \"guests\": 3,\n  \"special_requests\": \"Early check-in\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/{{target_booking_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "{{target_booking_id}}"
+              ]
+            },
+            "description": "Update a booking (booking owner only)."
+          },
+          "response": []
+        },
+        {
+          "name": "❌ Cancel Booking",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"booking_id\": \"{{target_booking_id}}\",\n  \"reason\": \"Change of plans\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/cancel/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "cancel",
+                ""
+              ]
+            },
+            "description": "Cancel a booking (booking owner only)."
+          },
+          "response": []
+        },
+        {
+          "name": "📆 My Upcoming Bookings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/upcoming/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "upcoming",
+                ""
+              ]
+            },
+            "description": "Get upcoming bookings for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "📜 My Past Bookings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/past/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "past",
+                ""
+              ]
+            },
+            "description": "Get past bookings for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "✅ Check Availability (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": 1,\n  \"check_in_date\": \"2025-01-05T12:00:00Z\",\n  \"check_out_date\": \"2025-01-10T12:00:00Z\",\n  \"guests\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/check-availability/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "check-availability",
+                ""
+              ]
+            },
+            "description": "Public endpoint to check availability for a date range."
+          },
+          "response": []
+        },
+        {
+          "name": "🧮 Calculate Pricing (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"property_id\": 1,\n  \"check_in_date\": \"2025-01-05T12:00:00Z\",\n  \"check_out_date\": \"2025-01-10T12:00:00Z\",\n  \"guests\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/bookings/calculate-pricing/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "bookings",
+                "calculate-pricing",
+                ""
+              ]
+            },
+            "description": "Public endpoint to compute pricing for a date range."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔔 Notifications",
+      "item": [
+        {
+          "name": "📱 Register Device Token",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{notification_token}}\",\n  \"platform\": \"android\",\n  \"app_version\": \"1.2.3\",\n  \"locale\": \"en\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/devices/register",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "devices",
+                "register"
+              ]
+            },
+            "description": "Register a device token. If authenticated, it will bind to the current user; unauthenticated calls leave it unbound."
+          },
+          "response": []
+        },
+        {
+          "name": "📨 Send to Token (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{notification_token}}\",\n  \"title\": \"Promo\",\n  \"body\": \"Limited-time offer\",\n  \"data\": {\n    \"screen\": \"offers\"\n  },\n  \"deep_link\": \"app://offers\",\n  \"image\": \"https://example.com/banner.jpg\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/send/token",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "send",
+                "token"
+              ]
+            },
+            "description": "Admin-only push to a single device token."
+          },
+          "response": []
+        },
+        {
+          "name": "👤 Send to User (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{notification_user_supabase_id}}\",\n  \"title\": \"Account Update\",\n  \"body\": \"Your profile was updated\",\n  \"data\": {\n    \"screen\": \"profile\"\n  },\n  \"deep_link\": \"app://profile\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/send/user",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "send",
+                "user"
+              ]
+            },
+            "description": "Admin-only send to a Supabase user_id (UUID)."
+          },
+          "response": []
+        },
+        {
+          "name": "📣 Send to Topic (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"{{notification_topic}}\",\n  \"title\": \"System Notice\",\n  \"body\": \"Scheduled maintenance tonight\",\n  \"data\": {\n    \"screen\": \"home\"\n  },\n  \"deep_link\": \"app://home\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/send/topic",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "send",
+                "topic"
+              ]
+            },
+            "description": "Admin-only broadcast to a topic."
+          },
+          "response": []
+        },
+        {
+          "name": "📦 Send Bulk Tokens (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tokens\": [\n    \"{{notification_token}}\"\n  ],\n  \"title\": \"Bulk Update\",\n  \"body\": \"Hello users\",\n  \"data\": {\n    \"screen\": \"home\"\n  },\n  \"deep_link\": \"app://home\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/send/bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "send",
+                "bulk"
+              ]
+            },
+            "description": "Admin-only bulk send to device tokens (max 500 per request)."
+          },
+          "response": []
+        },
+        {
+          "name": "✅ Mark Delivery Opened",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/deliveries/{{notification_delivery_id}}/opened",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "deliveries",
+                "{{notification_delivery_id}}",
+                "opened"
+              ]
+            },
+            "description": "Mark a delivery as opened for the current authenticated user."
+          },
+          "response": []
+        },
+        {
+          "name": "📨 Send Typed Notification (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{notification_user_id}}\",\n  \"type_key\": \"{{notification_type_key}}\",\n  \"title\": \"Booking confirmed\",\n  \"body\": \"Your booking is confirmed\",\n  \"data\": {\n    \"booking_id\": \"{{target_booking_id}}\"\n  },\n  \"deep_link\": \"app://bookings\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/send/typed/user",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "send",
+                "typed",
+                "user"
+              ]
+            },
+            "description": "Admin-only typed multi-channel notification (DB user_id). type_key must be configured; see notification_config.py."
+          },
+          "response": []
+        },
+        {
+          "name": "📜 List User Notifications (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/users/{{notification_user_id}}/?limit=50&offset=0",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "users",
+                "{{notification_user_id}}",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Admin-only: list notifications sent to a user (DB user_id)."
+          },
+          "response": []
+        },
+        {
+          "name": "📣 Marketing Broadcast (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type_key\": \"promotion_generic\",\n  \"title\": \"Holiday Sale\",\n  \"body\": \"Up to 20% off\",\n  \"data\": {\n    \"screen\": \"offers\"\n  },\n  \"deep_link\": \"app://offers\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/marketing/broadcast",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "marketing",
+                "broadcast"
+              ]
+            },
+            "description": "Admin-only broadcast to all active users. type_key must be a MARKETING type: promotion_generic, discount_offer, win_back, upsell_suggestion, onboarding_nudge, property_recommendation, daily_digest."
+          },
+          "response": []
+        },
+        {
+          "name": "🎯 Marketing Segment (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type_key\": \"promotion_generic\",\n  \"title\": \"Targeted Offer\",\n  \"body\": \"Special deal for your segment\",\n  \"data\": {\n    \"screen\": \"offers\"\n  },\n  \"deep_link\": \"app://offers\",\n  \"filter\": {\n    \"role\": \"user\",\n    \"agent_id\": null,\n    \"is_active\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/notifications/marketing/segment",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "notifications",
+                "marketing",
+                "segment"
+              ]
+            },
+            "description": "Admin-only: send to a filtered segment (role/agent_id/is_active)."
           },
           "response": []
         }
@@ -1922,6 +3276,754 @@
       ]
     },
     {
+      "name": "❓ FAQ Management",
+      "item": [
+        {
+          "name": "➕ Create FAQ (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"How do I schedule a visit?\",\n  \"answer\": \"Use the Visits section to schedule a property visit.\",\n  \"category\": \"user\",\n  \"tags\": [\n    \"visits\"\n  ],\n  \"display_order\": 0,\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                ""
+              ]
+            },
+            "description": "Admin-only: create a FAQ entry."
+          },
+          "response": []
+        },
+        {
+          "name": "📋 List FAQs (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/?category=user&is_active=true&limit=50&offset=0",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                ""
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "user",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "true",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Admin-only list with filters (category, is_active)."
+          },
+          "response": []
+        },
+        {
+          "name": "🌐 List FAQs (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/public?category=user&limit=50&offset=0",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                "public"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "user",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50"
+                },
+                {
+                  "key": "offset",
+                  "value": "0"
+                }
+              ]
+            },
+            "description": "Public list of active FAQs only."
+          },
+          "response": []
+        },
+        {
+          "name": "📄 Get FAQ (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/{{target_faq_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                "{{target_faq_id}}"
+              ]
+            },
+            "description": "Admin-only: get a FAQ by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update FAQ (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"answer\": \"Updated answer\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/{{target_faq_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                "{{target_faq_id}}"
+              ]
+            },
+            "description": "Admin-only: update a FAQ entry."
+          },
+          "response": []
+        },
+        {
+          "name": "🗑️ Delete FAQ (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/faqs/{{target_faq_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "faqs",
+                "{{target_faq_id}}"
+              ]
+            },
+            "description": "Admin-only: soft delete a FAQ entry."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "📝 Blog Management",
+      "item": [
+        {
+          "name": "➕ Create Blog Post (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Market Trends in Gurgaon\",\n  \"content\": \"<p>Content here...</p>\",\n  \"excerpt\": \"Short summary\",\n  \"cover_image_url\": \"https://example.com/cover.jpg\",\n  \"categories\": [\n    \"market\"\n  ],\n  \"tags\": [\n    \"gurgaon\",\n    \"trends\"\n  ],\n  \"active\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/posts",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts"
+              ]
+            },
+            "description": "Admin-only: create a blog post (defaults to draft when active=false)."
+          },
+          "response": []
+        },
+        {
+          "name": "📋 List Blog Posts (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/posts?q=market&categories=market&tags=trends&keywords=trends&page=1&limit=20",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "market",
+                  "disabled": true
+                },
+                {
+                  "key": "categories",
+                  "value": "market",
+                  "disabled": true
+                },
+                {
+                  "key": "tags",
+                  "value": "trends",
+                  "disabled": true
+                },
+                {
+                  "key": "keywords",
+                  "value": "trends",
+                  "disabled": true
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Public list of active blog posts. With admin auth, inactive posts are included."
+          },
+          "response": []
+        },
+        {
+          "name": "📄 Get Blog Post (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/posts/{{target_blog_post_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts",
+                "{{target_blog_post_identifier}}"
+              ]
+            },
+            "description": "Public: get a blog post by ID or slug. Admin auth includes inactive posts."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update Blog Post (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Title\",\n  \"content\": \"<p>Updated content</p>\",\n  \"excerpt\": \"Updated summary\",\n  \"cover_image_url\": \"https://example.com/cover.jpg\",\n  \"categories\": [\n    \"market\"\n  ],\n  \"tags\": [\n    \"gurgaon\"\n  ],\n  \"active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/posts/{{target_blog_post_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts",
+                "{{target_blog_post_identifier}}"
+              ]
+            },
+            "description": "Admin-only: update a blog post by ID or slug."
+          },
+          "response": []
+        },
+        {
+          "name": "🗑️ Delete Blog Post (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/posts/{{target_blog_post_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "posts",
+                "{{target_blog_post_identifier}}"
+              ]
+            },
+            "description": "Admin-only: delete a blog post by ID or slug."
+          },
+          "response": []
+        },
+        {
+          "name": "🧠 Generate Blog From Topic (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"topic\": \"Luxury apartments in Gurgaon\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/generate-from-topic",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "generate-from-topic"
+              ]
+            },
+            "description": "Admin-only: generate a draft blog post from a topic."
+          },
+          "response": []
+        },
+        {
+          "name": "🧠 Generate Bulk Blogs (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"count\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/generate-bulk",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "generate-bulk"
+              ]
+            },
+            "description": "Admin-only: generate multiple draft blog posts."
+          },
+          "response": []
+        },
+        {
+          "name": "➕ Create Blog Category (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Market\",\n  \"description\": \"Market trends\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/categories",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories"
+              ]
+            },
+            "description": "Admin-only: create a blog category."
+          },
+          "response": []
+        },
+        {
+          "name": "📋 List Blog Categories (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/categories?page=1&limit=20",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Public list of blog categories."
+          },
+          "response": []
+        },
+        {
+          "name": "📄 Get Blog Category (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/categories/{{target_blog_category_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories",
+                "{{target_blog_category_identifier}}"
+              ]
+            },
+            "description": "Get a blog category by ID or slug."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update Blog Category (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Market\",\n  \"description\": \"Updated description\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/categories/{{target_blog_category_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories",
+                "{{target_blog_category_identifier}}"
+              ]
+            },
+            "description": "Admin-only: update a blog category."
+          },
+          "response": []
+        },
+        {
+          "name": "🗑️ Delete Blog Category (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/categories/{{target_blog_category_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "categories",
+                "{{target_blog_category_identifier}}"
+              ]
+            },
+            "description": "Admin-only: delete a blog category."
+          },
+          "response": []
+        },
+        {
+          "name": "➕ Create Blog Tag (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"trends\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/tags",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "tags"
+              ]
+            },
+            "description": "Admin-only: create a blog tag."
+          },
+          "response": []
+        },
+        {
+          "name": "📋 List Blog Tags (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/tags?page=1&limit=20",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "tags"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Public list of blog tags."
+          },
+          "response": []
+        },
+        {
+          "name": "📄 Get Blog Tag (Public)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/tags/{{target_blog_tag_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "tags",
+                "{{target_blog_tag_identifier}}"
+              ]
+            },
+            "description": "Get a blog tag by ID or slug."
+          },
+          "response": []
+        },
+        {
+          "name": "✏️ Update Blog Tag (Admin)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"market\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/tags/{{target_blog_tag_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "tags",
+                "{{target_blog_tag_identifier}}"
+              ]
+            },
+            "description": "Admin-only: update a blog tag."
+          },
+          "response": []
+        },
+        {
+          "name": "🗑️ Delete Blog Tag (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/blog/tags/{{target_blog_tag_identifier}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "blog",
+                "tags",
+                "{{target_blog_tag_identifier}}"
+              ]
+            },
+            "description": "Admin-only: delete a blog tag."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "📱 App Versions",
       "item": [
         {
@@ -2229,6 +4331,259 @@
             "description": "Get OpenAPI specification"
           },
           "response": []
+        },
+        {
+          "name": "🏠 API Root",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                ""
+              ]
+            },
+            "description": "Public root endpoint with API version and status."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🔗 MCP OAuth",
+      "item": [
+        {
+          "name": "🔐 Authorization Endpoint",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/mcp/oauth/authorize?response_type=code&client_id={{oauth_client_id}}&redirect_uri={{oauth_redirect_uri}}&scope=mcp:read mcp:write&state={{request_id}}&code_challenge={{oauth_code_challenge}}&code_challenge_method=S256",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "mcp",
+                "oauth",
+                "authorize"
+              ],
+              "query": [
+                {
+                  "key": "response_type",
+                  "value": "code"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{oauth_client_id}}"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{oauth_redirect_uri}}",
+                  "disabled": true
+                },
+                {
+                  "key": "scope",
+                  "value": "mcp:read mcp:write",
+                  "disabled": true
+                },
+                {
+                  "key": "state",
+                  "value": "{{request_id}}",
+                  "disabled": true
+                },
+                {
+                  "key": "code_challenge",
+                  "value": "{{oauth_code_challenge}}",
+                  "disabled": true
+                },
+                {
+                  "key": "code_challenge_method",
+                  "value": "S256",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "OAuth 2.1 authorization endpoint for MCP. client_id must be ghar360-mcp."
+          },
+          "response": []
+        },
+        {
+          "name": "🧾 Consent Page",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/mcp/oauth/consent?session={{mcp_session_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "mcp",
+                "oauth",
+                "consent"
+              ],
+              "query": [
+                {
+                  "key": "session",
+                  "value": "{{mcp_session_id}}"
+                }
+              ]
+            },
+            "description": "Consent/login HTML page for MCP OAuth."
+          },
+          "response": []
+        },
+        {
+          "name": "✅ Submit Consent",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "phone",
+                  "value": "+911234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "ChangeMe123!",
+                  "type": "text"
+                },
+                {
+                  "key": "session",
+                  "value": "{{mcp_session_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "action",
+                  "value": "authorize",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/mcp/oauth/consent",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "mcp",
+                "oauth",
+                "consent"
+              ]
+            },
+            "description": "Submit consent/login to exchange for an authorization code."
+          },
+          "response": []
+        },
+        {
+          "name": "🎟️ Token Endpoint",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "authorization_code",
+                  "type": "text"
+                },
+                {
+                  "key": "code",
+                  "value": "{{oauth_code}}",
+                  "type": "text"
+                },
+                {
+                  "key": "redirect_uri",
+                  "value": "{{oauth_redirect_uri}}",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{oauth_client_id}}",
+                  "type": "text"
+                },
+                {
+                  "key": "refresh_token",
+                  "value": "",
+                  "type": "text"
+                },
+                {
+                  "key": "code_verifier",
+                  "value": "{{oauth_code_verifier}}",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/mcp/oauth/token",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "mcp",
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "Exchange authorization code or refresh token for access token."
+          },
+          "response": []
+        },
+        {
+          "name": "📄 Authorization Server Metadata",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/.well-known/oauth-authorization-server/mcp/oauth",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                ".well-known",
+                "oauth-authorization-server",
+                "mcp",
+                "oauth"
+              ]
+            },
+            "description": "RFC 8414 metadata for MCP OAuth issuer."
+          },
+          "response": []
         }
       ]
     }
@@ -2413,6 +4768,108 @@
       "value": "",
       "type": "string",
       "description": "Newly created app update ID"
+    },
+    {
+      "key": "target_swipe_id",
+      "value": "1",
+      "type": "string",
+      "description": "Target swipe ID for operations"
+    },
+    {
+      "key": "target_blog_post_identifier",
+      "value": "1",
+      "type": "string",
+      "description": "Blog post ID or slug"
+    },
+    {
+      "key": "target_blog_category_identifier",
+      "value": "1",
+      "type": "string",
+      "description": "Blog category ID or slug"
+    },
+    {
+      "key": "target_blog_tag_identifier",
+      "value": "1",
+      "type": "string",
+      "description": "Blog tag ID or slug"
+    },
+    {
+      "key": "target_faq_id",
+      "value": "1",
+      "type": "string",
+      "description": "Target FAQ ID"
+    },
+    {
+      "key": "notification_user_id",
+      "value": "1",
+      "type": "string",
+      "description": "Notification target DB user ID"
+    },
+    {
+      "key": "notification_user_supabase_id",
+      "value": "",
+      "type": "string",
+      "description": "Notification target Supabase user UUID"
+    },
+    {
+      "key": "notification_token",
+      "value": "",
+      "type": "string",
+      "description": "Device push token"
+    },
+    {
+      "key": "notification_topic",
+      "value": "all_users",
+      "type": "string",
+      "description": "Notification topic name"
+    },
+    {
+      "key": "notification_type_key",
+      "value": "booking_confirmed",
+      "type": "string",
+      "description": "Notification type key"
+    },
+    {
+      "key": "notification_delivery_id",
+      "value": "",
+      "type": "string",
+      "description": "Notification delivery ID"
+    },
+    {
+      "key": "mcp_session_id",
+      "value": "",
+      "type": "string",
+      "description": "MCP OAuth session ID"
+    },
+    {
+      "key": "oauth_client_id",
+      "value": "ghar360-mcp",
+      "type": "string",
+      "description": "MCP OAuth client_id"
+    },
+    {
+      "key": "oauth_redirect_uri",
+      "value": "https://example.com/callback",
+      "type": "string",
+      "description": "MCP OAuth redirect URI"
+    },
+    {
+      "key": "oauth_code",
+      "value": "",
+      "type": "string",
+      "description": "OAuth authorization code"
+    },
+    {
+      "key": "oauth_code_verifier",
+      "value": "",
+      "type": "string",
+      "description": "OAuth PKCE code verifier"
+    },
+    {
+      "key": "oauth_code_challenge",
+      "value": "",
+      "type": "string",
+      "description": "OAuth PKCE code challenge"
     }
   ]
 }

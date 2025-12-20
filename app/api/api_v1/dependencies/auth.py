@@ -114,9 +114,7 @@ async def get_current_user_optional(
         return None
 
     try:
-        scheme, token = authorization.split()
-        if scheme.lower() != "bearer":
-            return None
+        token = _parse_bearer_token(authorization)
 
         supabase_user_data = await verify_supabase_token(token)
         if not supabase_user_data:
