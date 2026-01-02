@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
+    PUBLIC_BASE_URL: Optional[str] = None
     
     # Additional Supabase settings
     SUPABASE_STORAGE_BUCKET: str = "property-images"

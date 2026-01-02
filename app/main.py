@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, Response
 from sqlalchemy import text
 
 from app.api.api_v1.api import api_router
+from app.api.api_v1.endpoints import oauth
 from app.core.cache import cache_manager
 from app.core.config import settings
 from app.core.database import engine
@@ -205,6 +206,7 @@ app.add_middleware(
 # app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(oauth.router)
 
 # Mount MCP HTTP app at /mcp using FastMCP's HTTP transport.
 app.mount("/mcp", mcp_app)
