@@ -98,7 +98,7 @@ async def authorize(
             detail={"error": "unsupported_response_type", "error_description": "Only authorization code flow is supported"}
         )
     
-    if client_id != "ghar360-mcp":
+    if client_id != "ghar360-mcp" and not client_id.startswith("mcp-client-"):
         raise HTTPException(
             status_code=400,
             detail={"error": "invalid_client", "error_description": "Invalid client_id"}
@@ -323,14 +323,17 @@ async def process_consent(
         
         # Build redirect URL with authorization code
         redirect_uri = oauth_session.get("redirect_uri", f"{request.base_url}mcp/oauth/callback")
-        params = {"code": auth_code}
+        base_url = str(request.base_url).rstrip("/")
+        issuer = f"{base_url}/mcp/oauth"
+        params = {"code": auth_code, "iss": issuer}
         
         if oauth_session.get("state"):
             params["state"] = oauth_session["state"]
         
         redirect_url = f"{redirect_uri}?{urlencode(params)}"
         
-        return RedirectResponse(url=redirect_url)
+        # Use 303 so the redirect switches to GET (OAuth callback expects GET).
+        return RedirectResponse(url=redirect_url, status_code=303)
         
     except Exception as e:
         logger.error(f"OAuth consent error: {e}")
@@ -468,23 +471,110 @@ async def token_endpoint(
             detail={"error": "server_error", "error_description": "Internal server error"}
         )
 
-@router.get("/.well-known/oauth-authorization-server/mcp/oauth")
-async def authorization_server_metadata(request: Request):
-    """OAuth 2.1 Authorization Server Metadata for the MCP OAuth issuer.
 
-    This endpoint is discovered by MCP clients based on the issuer URL
-    advertised in the protected resource metadata for `/mcp`. The issuer
-    URL is path-aware as per RFC 8414 and matches:
-        {scheme}://{host}/mcp/oauth
+# ============================================================================
+# RFC 7591 Dynamic Client Registration
+# ============================================================================
+
+# In-memory store for dynamically registered clients (use Redis/DB in production)
+_registered_clients: Dict[str, Dict[str, Any]] = {
+    # Pre-registered default client
+    "ghar360-mcp": {
+        "client_id": "ghar360-mcp",
+        "client_name": "360Ghar MCP Client",
+        "redirect_uris": [],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+        "scope": "mcp:read mcp:write",
+    }
+}
+
+
+class ClientRegistrationRequest(BaseModel):
+    """RFC 7591 Client Registration Request"""
+    client_name: Optional[str] = None
+    redirect_uris: Optional[list[str]] = None
+    grant_types: Optional[list[str]] = None
+    response_types: Optional[list[str]] = None
+    token_endpoint_auth_method: Optional[str] = None
+    scope: Optional[str] = None
+    contacts: Optional[list[str]] = None
+    logo_uri: Optional[str] = None
+    client_uri: Optional[str] = None
+    policy_uri: Optional[str] = None
+    tos_uri: Optional[str] = None
+
+
+@router.post("/mcp/oauth/register")
+async def register_client(
+    request: Request,
+    registration: ClientRegistrationRequest = None
+):
     """
+    RFC 7591 Dynamic Client Registration Endpoint.
+    
+    This allows MCP clients (like ChatGPT) to dynamically register
+    and obtain client credentials.
+    """
+    try:
+        # Parse body if not already parsed by Pydantic
+        if registration is None:
+            body = await request.json()
+            registration = ClientRegistrationRequest(**body)
+    except Exception:
+        # If no body or invalid body, use defaults
+        registration = ClientRegistrationRequest()
+    
+    # Generate a unique client_id
+    client_id = f"mcp-client-{secrets.token_hex(8)}"
+    
+    # For public clients (MCP), we don't issue a client_secret
+    # as they use PKCE for security
+    
+    # Build client metadata
+    client_metadata = {
+        "client_id": client_id,
+        "client_name": registration.client_name or f"MCP Client {client_id[-8:]}",
+        "redirect_uris": registration.redirect_uris or [],
+        "grant_types": registration.grant_types or ["authorization_code", "refresh_token"],
+        "response_types": registration.response_types or ["code"],
+        "token_endpoint_auth_method": registration.token_endpoint_auth_method or "none",
+        "scope": registration.scope or "mcp:read mcp:write",
+        "client_id_issued_at": int(time.time()),
+    }
+    
+    # Store the registered client
+    _registered_clients[client_id] = client_metadata
+    
+    logger.info(f"Registered new MCP client: {client_id}")
+    
+    # Return client registration response (RFC 7591)
+    return JSONResponse(
+        status_code=201,
+        content=client_metadata
+    )
 
-    base_url = str(request.base_url).rstrip("/")
-    issuer = f"{base_url}/mcp/oauth"
 
+@router.get("/mcp/oauth/register/{client_id}")
+async def get_client_registration(client_id: str):
+    """Get client registration details (RFC 7592)"""
+    if client_id not in _registered_clients:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "invalid_client", "error_description": "Client not found"}
+        )
+    return _registered_clients[client_id]
+
+def _build_oauth_metadata(base_url: str, issuer_path: str) -> Dict[str, Any]:
+    issuer_path = issuer_path.rstrip("/")
+    issuer = f"{base_url}{issuer_path}" if issuer_path else base_url
+    oauth_base = f"{base_url}/mcp/oauth"
     return {
         "issuer": issuer,
-        "authorization_endpoint": f"{issuer}/authorize",
-        "token_endpoint": f"{issuer}/token",
+        "authorization_endpoint": f"{oauth_base}/authorize",
+        "token_endpoint": f"{oauth_base}/token",
+        "registration_endpoint": f"{oauth_base}/register",  # RFC 7591 Dynamic Client Registration
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "scopes_supported": ["mcp:read", "mcp:write", "offline_access"],
@@ -497,3 +587,58 @@ async def authorization_server_metadata(request: Request):
         "op_policy_uri": f"{base_url}/privacy",
         "op_tos_uri": f"{base_url}/terms",
     }
+
+
+@router.get("/.well-known/oauth-authorization-server/mcp/oauth")
+async def authorization_server_metadata(request: Request):
+    """OAuth 2.1 Authorization Server Metadata for the MCP OAuth issuer.
+
+    This endpoint is discovered by MCP clients based on the issuer URL
+    advertised in the protected resource metadata for `/mcp`. The issuer
+    URL is path-aware as per RFC 8414 and matches:
+        {scheme}://{host}/mcp/oauth
+    """
+    base_url = str(request.base_url).rstrip("/")
+    return _build_oauth_metadata(base_url, "/mcp/oauth")
+
+
+# Compatibility endpoints for clients that probe alternate well-known paths.
+@router.get("/.well-known/oauth-authorization-server")
+@router.get("/.well-known/oauth-authorization-server/mcp")
+@router.get("/mcp/.well-known/oauth-authorization-server")
+async def authorization_server_metadata_compat(request: Request):
+    base_url = str(request.base_url).rstrip("/")
+    path = request.url.path
+    if path.endswith("/mcp"):
+        issuer_path = "/mcp"
+    else:
+        issuer_path = ""
+    return _build_oauth_metadata(base_url, issuer_path)
+
+
+@router.get("/.well-known/openid-configuration")
+@router.get("/.well-known/openid-configuration/mcp")
+@router.get("/mcp/.well-known/openid-configuration")
+async def openid_configuration_compat(request: Request):
+    base_url = str(request.base_url).rstrip("/")
+    path = request.url.path
+    if path.endswith("/mcp"):
+        issuer_path = "/mcp"
+    else:
+        issuer_path = ""
+    return _build_oauth_metadata(base_url, issuer_path)
+
+
+@router.get("/.well-known/oauth-protected-resource")
+@router.get("/.well-known/oauth-protected-resource/mcp")
+async def protected_resource_metadata(request: Request):
+    base_url = str(request.base_url).rstrip("/")
+    return {
+        "resource": f"{base_url}/mcp",
+        "authorization_servers": [f"{base_url}/mcp/oauth"],
+        "scopes_supported": ["mcp:read", "mcp:write"],
+        "resource_name": "360Ghar MCP API",
+        "resource_documentation": f"{base_url}/docs",
+        "bearer_methods_supported": ["header"],
+    }
+
