@@ -73,6 +73,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if path.endswith("/openapi.json") or path.endswith("/openapi.yaml"):
             return True
 
+        # SSE and MCP endpoints use streaming which is incompatible with BaseHTTPMiddleware
+        if path.startswith("/sse") or path.startswith("/mcp"):
+            return True
+
         return False
     
     def get_client_id(self, request: Request) -> str:

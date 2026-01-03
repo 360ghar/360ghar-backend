@@ -13,7 +13,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastmcp import FastMCP
+from app.mcp.apps_sdk import (
+    AppsSDKFastMCP,
+    AuthRequiredError,
+    MCP_SECURITY_SCHEMES_MIXED,
+    raise_auth_required,
+)
 
 from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
@@ -53,15 +58,53 @@ from app.services import booking as booking_svc
 logger = get_logger(__name__)
 
 # Create the User MCP server instance
-user_mcp = FastMCP("ghar360-user")
+user_mcp = AppsSDKFastMCP("ghar360-user")
 
-# Legacy session JWT for backward compatibility
-_SESSION_JWT: Optional[str] = None
+# ChatGPT widget linkage metadata (used by Apps SDK)
+OWNER_DASHBOARD_META = {
+    "openai/outputTemplate": "ui://widget/ownerdashboardwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading your properties...",
+    "openai/toolInvocation/invoked": "Properties loaded",
+}
+
+LEASE_DETAILS_META = {
+    "openai/outputTemplate": "ui://widget/leasedetailswidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading lease details...",
+    "openai/toolInvocation/invoked": "Lease details loaded",
+}
+
+MAINTENANCE_WIDGET_META = {
+    "openai/outputTemplate": "ui://widget/maintenancewidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading maintenance requests...",
+    "openai/toolInvocation/invoked": "Maintenance requests loaded",
+}
+
+TENANT_RENT_WIDGET_META = {
+    "openai/outputTemplate": "ui://widget/tenantrentwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading your rent information...",
+    "openai/toolInvocation/invoked": "Rent information loaded",
+}
 
 
-async def _get_user(db, jwt: Optional[str] = None):
-    """Get user from MCP context or legacy JWT."""
-    return await get_user_from_mcp_context(db, jwt, _SESSION_JWT)
+async def _get_user(db):
+    """Get user from MCP OAuth context."""
+    return await get_user_from_mcp_context(db)
+
+
+def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> None:
+    raise_auth_required(
+        message=message,
+        error_description=message,
+        scope=scope,
+        structured_content={
+            "requires_auth": True,
+            "action": action,
+        },
+    )
 
 
 # ============================================================================
@@ -69,9 +112,16 @@ async def _get_user(db, jwt: Optional[str] = None):
 # ============================================================================
 
 
-@user_mcp.tool("owner.properties.list")
+@user_mcp.tool(
+    "owner.properties.list",
+    annotations={
+        "title": "List My Properties",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=OWNER_DASHBOARD_META,
+)
 async def owner_properties_list(
-    jwt: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
     occupancy: Optional[str] = None,
@@ -88,12 +138,25 @@ async def owner_properties_list(
     try:
         limit = min(max(1, limit), 100)
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                raise_auth_required(
+                    message="Please log in to view your property dashboard.",
+                    error_description="Authentication required",
+                    scope="mcp:read",
+                    structured_content={
+                        "requires_auth": True,
+                        "action": "owner.properties.list",
+                    },
+                )
 
             # Import here to get the User schema
             from app.schemas.user import User as UserSchema
+            from sqlalchemy import select
+
+            from app.models.enums import LeaseStatus
+            from app.models.pm_leases import Lease
+            from app.models.users import User as UserModel
             user_schema = UserSchema.model_validate(user)
 
             properties = await list_managed_properties(
@@ -106,20 +169,64 @@ async def owner_properties_list(
                 offset=(page - 1) * limit,
             )
 
-            items = [serialize_property_basic(p) for p in properties]
+            property_ids = [p.id for p in properties]
+            active_lease_tenants: dict[int, str | None] = {}
+            if property_ids:
+                lease_stmt = (
+                    select(Lease.property_id, UserModel.full_name)
+                    .join(UserModel, UserModel.id == Lease.tenant_user_id)
+                    .where(Lease.property_id.in_(property_ids), Lease.status == LeaseStatus.active)
+                )
+                lease_result = await db.execute(lease_stmt)
+                for prop_id, tenant_name in lease_result.all():
+                    if prop_id not in active_lease_tenants:
+                        active_lease_tenants[prop_id] = tenant_name
 
-            return MCPResponse.success({
+            items: list[dict[str, Any]] = []
+            for prop in properties:
+                item = serialize_property_basic(prop)
+                tenant_name = active_lease_tenants.get(prop.id)
+                item["has_active_lease"] = prop.id in active_lease_tenants
+                if tenant_name:
+                    item["tenant_name"] = tenant_name
+                items.append(item)
+
+            occupied = sum(1 for p in items if p.get("has_active_lease"))
+            vacant = len(items) - occupied
+            total_monthly_income = sum(
+                float(p.get("monthly_rent") or 0) for p in items if p.get("has_active_lease")
+            )
+
+            return {
+                "items": items,
                 "total": len(items),
                 "page": page,
                 "limit": limit,
-                "items": items,
-            }).dict()
+                "stats": {
+                    "total_properties": len(items),
+                    "occupied": occupied,
+                    "vacant": vacant,
+                    "total_monthly_income": total_monthly_income,
+                },
+            }
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.properties.list: {e}", exc_info=True)
-        return internal_error_response(f"Failed to list properties: {str(e)}")
+        return {
+            "error": True,
+            "message": "Failed to list properties.",
+        }
 
 
-@user_mcp.tool("owner.properties.create")
+@user_mcp.tool(
+    "owner.properties.create",
+    annotations={
+        "title": "Create Property Listing",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def owner_properties_create(
     title: str,
     property_type: str,
@@ -130,7 +237,6 @@ async def owner_properties_create(
     latitude: float,
     longitude: float,
     base_price: float,
-    jwt: Optional[str] = None,
     description: Optional[str] = None,
     sub_locality: Optional[str] = None,
     pincode: Optional[str] = None,
@@ -180,9 +286,13 @@ async def owner_properties_create(
             return invalid_input_response(f"Invalid purpose: {purpose}")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="owner.properties.create",
+                    message="Please log in to create a property listing.",
+                    scope="mcp:write",
+                )
 
             from app.schemas.user import User as UserSchema
             user_schema = UserSchema.model_validate(user)
@@ -233,15 +343,23 @@ async def owner_properties_create(
             }).dict()
     except ValueError as e:
         return invalid_input_response(str(e))
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.properties.create: {e}", exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
 
 
-@user_mcp.tool("owner.properties.get")
+@user_mcp.tool(
+    "owner.properties.get",
+    annotations={
+        "title": "Get Property Details (Owner)",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def owner_properties_get(
     property_id: int,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get detailed information about one of your properties.
 
@@ -250,9 +368,13 @@ async def owner_properties_get(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="owner.properties.get",
+                    message="Please log in to view this property.",
+                    scope="mcp:read",
+                )
 
             from app.schemas.user import User as UserSchema
             user_schema = UserSchema.model_validate(user)
@@ -284,15 +406,23 @@ async def owner_properties_get(
                 "property": property_data,
                 "active_lease": lease_data,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.properties.get: {e}", exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
 
 
-@user_mcp.tool("owner.properties.update")
+@user_mcp.tool(
+    "owner.properties.update",
+    annotations={
+        "title": "Update Property Listing",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def owner_properties_update(
     property_id: int,
-    jwt: Optional[str] = None,
     title: Optional[str] = None,
     description: Optional[str] = None,
     base_price: Optional[float] = None,
@@ -310,9 +440,13 @@ async def owner_properties_update(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="owner.properties.update",
+                    message="Please log in to update a property listing.",
+                    scope="mcp:write",
+                )
 
             from app.schemas.user import User as UserSchema
             user_schema = UserSchema.model_validate(user)
@@ -355,16 +489,24 @@ async def owner_properties_update(
                 "message": "Property updated successfully",
                 "property": serialize_property_basic(prop),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.properties.update: {e}", exc_info=True)
         return internal_error_response(f"Failed to update property: {str(e)}")
 
 
-@user_mcp.tool("owner.properties.toggle_availability")
+@user_mcp.tool(
+    "owner.properties.toggle_availability",
+    annotations={
+        "title": "Toggle Property Availability",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def owner_properties_toggle_availability(
     property_id: int,
     is_available: bool,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Toggle a property's availability status.
 
@@ -374,9 +516,13 @@ async def owner_properties_toggle_availability(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="owner.properties.toggle_availability",
+                    message="Please log in to update property availability.",
+                    scope="mcp:write",
+                )
 
             from app.schemas.user import User as UserSchema
             user_schema = UserSchema.model_validate(user)
@@ -403,6 +549,8 @@ async def owner_properties_toggle_availability(
                 "property_id": property_id,
                 "is_available": is_available,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.properties.toggle_availability: {e}", exc_info=True)
         return internal_error_response(f"Failed to toggle availability: {str(e)}")
@@ -413,8 +561,16 @@ async def owner_properties_toggle_availability(
 # ============================================================================
 
 
-@user_mcp.tool("tenant.lease.current")
-async def tenant_lease_current(jwt: Optional[str] = None) -> Dict[str, Any]:
+@user_mcp.tool(
+    "tenant.lease.current",
+    annotations={
+        "title": "View My Current Lease",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=LEASE_DETAILS_META,
+)
+async def tenant_lease_current() -> Dict[str, Any]:
     """Get the current active lease for the tenant."""
     try:
         from sqlalchemy import select
@@ -422,9 +578,13 @@ async def tenant_lease_current(jwt: Optional[str] = None) -> Dict[str, Any]:
         from app.models.enums import LeaseStatus
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="tenant.lease.current",
+                    message="Please log in to view your lease details.",
+                    scope="mcp:read",
+                )
 
             # Find active lease for this tenant
             stmt = select(Lease).where(
@@ -436,11 +596,10 @@ async def tenant_lease_current(jwt: Optional[str] = None) -> Dict[str, Any]:
             lease = result.scalar_one_or_none()
 
             if not lease:
-                return MCPResponse.success({
-                    "has_lease": False,
+                return {
                     "lease": None,
-                    "message": "No active lease found",
-                }).dict()
+                    "message": "No active lease found.",
+                }
 
             # Get property details
             from app.models.properties import Property
@@ -448,21 +607,43 @@ async def tenant_lease_current(jwt: Optional[str] = None) -> Dict[str, Any]:
             prop_result = await db.execute(prop_stmt)
             prop = prop_result.scalar_one_or_none()
 
-            property_data = serialize_property_basic(prop) if prop else None
+            property_data = None
+            if prop:
+                property_data = {
+                    "id": prop.id,
+                    "title": prop.title,
+                    "locality": prop.locality,
+                    "city": prop.city,
+                    "full_address": getattr(prop, "full_address", None),
+                    "main_image_url": getattr(prop, "main_image_url", None),
+                }
 
-            return MCPResponse.success({
-                "has_lease": True,
-                "lease": serialize_lease(lease),
-                "property": property_data,
-            }).dict()
+            lease_data = serialize_lease(lease)
+            lease_data["property"] = property_data
+
+            return {
+                "lease": lease_data,
+            }
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in tenant.lease.current: {e}", exc_info=True)
-        return internal_error_response(f"Failed to get current lease: {str(e)}")
+        return {
+            "error": True,
+            "message": "Failed to get current lease.",
+        }
 
 
-@user_mcp.tool("tenant.rent.history")
+@user_mcp.tool(
+    "tenant.rent.history",
+    annotations={
+        "title": "View My Rent Payment History",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=TENANT_RENT_WIDGET_META,
+)
 async def tenant_rent_history(
-    jwt: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
 ) -> Dict[str, Any]:
@@ -475,9 +656,13 @@ async def tenant_rent_history(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="tenant.rent.history",
+                    message="Please log in to view your rent payment history.",
+                    scope="mcp:read",
+                )
 
             # Get all leases for this tenant
             lease_stmt = select(Lease.id).where(Lease.tenant_user_id == user.id)
@@ -485,19 +670,20 @@ async def tenant_rent_history(
             lease_ids = [r[0] for r in lease_result.all()]
 
             if not lease_ids:
-                return MCPResponse.success({
+                return {
+                    "payments": [],
                     "total": 0,
+                    "total_collected": 0,
                     "page": page,
                     "limit": limit,
-                    "payments": [],
-                }).dict()
+                }
 
             # Get rent payments for these leases
             offset = (page - 1) * limit
             stmt = (
                 select(RentPayment)
                 .where(RentPayment.lease_id.in_(lease_ids))
-                .order_by(RentPayment.payment_date.desc())
+                .order_by(RentPayment.paid_at.desc())
                 .offset(offset)
                 .limit(limit)
             )
@@ -508,33 +694,47 @@ async def tenant_rent_history(
             for p in payments:
                 items.append({
                     "id": p.id,
-                    "lease_id": p.lease_id,
-                    "amount": float(p.amount or 0),
-                    "payment_date": p.payment_date.isoformat() if p.payment_date else None,
-                    "payment_method": getattr(p, "payment_method", None),
-                    "status": getattr(p, "status", None),
-                    "transaction_reference": getattr(p, "transaction_reference", None),
+                    "rent_charge_id": p.charge_id,
+                    "amount": float(p.amount_paid or 0),
+                    "payment_date": p.paid_at.isoformat() if p.paid_at else None,
+                    "payment_method": p.payment_method,
+                    "transaction_id": p.reference,
                     "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
                 })
 
-            return MCPResponse.success({
+            total_collected = sum(p["amount"] for p in items)
+
+            return {
+                "payments": items,
                 "total": len(items),
+                "total_collected": total_collected,
                 "page": page,
                 "limit": limit,
-                "payments": items,
-            }).dict()
+            }
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in tenant.rent.history: {e}", exc_info=True)
-        return internal_error_response(f"Failed to get rent history: {str(e)}")
+        return {
+            "error": True,
+            "message": "Failed to get rent history.",
+        }
 
 
-@user_mcp.tool("tenant.maintenance.create")
+@user_mcp.tool(
+    "tenant.maintenance.create",
+    annotations={
+        "title": "Create Maintenance Request",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=MAINTENANCE_WIDGET_META,
+)
 async def tenant_maintenance_create(
     property_id: int,
     title: str,
     description: str,
     category: str,
-    jwt: Optional[str] = None,
     priority: str = "medium",
 ) -> Dict[str, Any]:
     """Submit a maintenance request for a property you're renting.
@@ -553,26 +753,45 @@ async def tenant_maintenance_create(
         from app.models.enums import (
             LeaseStatus,
             MaintenanceCategory,
-            MaintenancePriority,
-            MaintenanceStatus,
+            MaintenanceRequestStatus,
+            MaintenanceUrgency,
         )
 
         # Validate category
         try:
             cat = MaintenanceCategory(category.lower())
         except ValueError:
-            return invalid_input_response(f"Invalid category: {category}")
+            valid_categories = [c.value for c in MaintenanceCategory]
+            return {
+                "error": True,
+                "message": f"Invalid category: {category}.",
+                "valid_categories": valid_categories,
+            }
 
-        # Validate priority
-        try:
-            prio = MaintenancePriority(priority.lower())
-        except ValueError:
-            return invalid_input_response(f"Invalid priority: {priority}")
+        priority_norm = priority.lower().strip()
+        urgency_map = {
+            "low": MaintenanceUrgency.low,
+            "medium": MaintenanceUrgency.medium,
+            "high": MaintenanceUrgency.high,
+            "urgent": MaintenanceUrgency.emergency,
+            "emergency": MaintenanceUrgency.emergency,
+        }
+        urgency = urgency_map.get(priority_norm)
+        if urgency is None:
+            return {
+                "error": True,
+                "message": f"Invalid priority: {priority}.",
+                "valid_priorities": ["low", "medium", "high", "urgent"],
+            }
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="tenant.maintenance.create",
+                    message="Please log in to submit a maintenance request.",
+                    scope="mcp:write",
+                )
 
             # Verify tenant has active lease for this property
             lease_stmt = select(Lease).where(
@@ -584,39 +803,53 @@ async def tenant_maintenance_create(
             lease = lease_result.scalar_one_or_none()
 
             if not lease:
-                return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have an active lease for this property"
-                ).dict()
+                return {
+                    "error": True,
+                    "code": "INSUFFICIENT_PERMISSIONS",
+                    "message": "You do not have an active lease for this property.",
+                }
 
             # Create maintenance request
             request = MaintenanceRequest(
                 property_id=property_id,
                 lease_id=lease.id,
-                reported_by_user_id=user.id,
+                owner_id=lease.owner_id,
+                tenant_user_id=user.id,
                 title=title,
                 description=description,
                 category=cat,
-                priority=prio,
-                status=MaintenanceStatus.open,
+                urgency=urgency,
+                priority=priority_norm,
+                request_status=MaintenanceRequestStatus.open,
             )
             db.add(request)
             await db.flush()
             await db.refresh(request)
             await db.commit()
 
-            return MCPResponse.success({
-                "message": "Maintenance request submitted successfully",
+            return {
                 "request": serialize_maintenance_request(request),
-            }).dict()
+            }
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in tenant.maintenance.create: {e}", exc_info=True)
-        return internal_error_response(f"Failed to create maintenance request: {str(e)}")
+        return {
+            "error": True,
+            "message": "Failed to create maintenance request.",
+        }
 
 
-@user_mcp.tool("tenant.maintenance.list")
+@user_mcp.tool(
+    "tenant.maintenance.list",
+    annotations={
+        "title": "List My Maintenance Requests",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=MAINTENANCE_WIDGET_META,
+)
 async def tenant_maintenance_list(
-    jwt: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
     status: Optional[str] = None,
@@ -631,25 +864,47 @@ async def tenant_maintenance_list(
     try:
         from sqlalchemy import select
         from app.models.pm_maintenance import MaintenanceRequest
-        from app.models.enums import MaintenanceStatus
+        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
 
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="tenant.maintenance.list",
+                    message="Please log in to view your maintenance requests.",
+                    scope="mcp:read",
+                )
 
             stmt = select(MaintenanceRequest).where(
-                MaintenanceRequest.reported_by_user_id == user.id
+                MaintenanceRequest.tenant_user_id == user.id
             )
 
             if status:
-                try:
-                    status_enum = MaintenanceStatus(status.lower())
-                    stmt = stmt.where(MaintenanceRequest.status == status_enum)
-                except ValueError:
-                    return invalid_input_response(f"Invalid status: {status}")
+                status_norm = status.lower().strip()
+                if status_norm == "open":
+                    stmt = stmt.where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
+                elif status_norm == "in_progress":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress)
+                elif status_norm == "scheduled":
+                    stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
+                elif status_norm == "completed":
+                    stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
+                elif status_norm == "cancelled":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
+                else:
+                    return {
+                        "error": True,
+                        "message": f"Invalid status: {status}.",
+                        "valid_statuses": [
+                            "open",
+                            "in_progress",
+                            "scheduled",
+                            "completed",
+                            "cancelled",
+                        ],
+                    }
 
             offset = (page - 1) * limit
             stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
@@ -659,15 +914,22 @@ async def tenant_maintenance_list(
 
             items = [serialize_maintenance_request(r) for r in requests]
 
-            return MCPResponse.success({
-                "total": len(items),
+            total = len(items)
+            return {
+                "items": items,
+                "total": total,
                 "page": page,
                 "limit": limit,
-                "requests": items,
-            }).dict()
+                "total_pages": (total + limit - 1) // limit if total else 0,
+            }
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in tenant.maintenance.list: {e}", exc_info=True)
-        return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
+        return {
+            "error": True,
+            "message": "Failed to list maintenance requests.",
+        }
 
 
 # ============================================================================
@@ -675,13 +937,19 @@ async def tenant_maintenance_list(
 # ============================================================================
 
 
-@user_mcp.tool("bookings.create")
+@user_mcp.tool(
+    "bookings.create",
+    annotations={
+        "title": "Create Booking",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_create(
     property_id: int,
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    jwt: Optional[str] = None,
     special_requests: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Create a new booking for a short-stay property.
@@ -705,9 +973,13 @@ async def bookings_create(
             return invalid_input_response("Check-out date must be after check-in date")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="bookings.create",
+                    message="Please log in to create a booking.",
+                    scope="mcp:write",
+                )
 
             # Check availability
             availability = await booking_svc.check_availability(
@@ -736,14 +1008,22 @@ async def bookings_create(
                 "message": "Booking created successfully",
                 "booking": serialize_booking(booking),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.create: {e}", exc_info=True)
         return internal_error_response(f"Failed to create booking: {str(e)}")
 
 
-@user_mcp.tool("bookings.list")
+@user_mcp.tool(
+    "bookings.list",
+    annotations={
+        "title": "List My Bookings",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_list(
-    jwt: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
     status: Optional[str] = None,
@@ -759,9 +1039,13 @@ async def bookings_list(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="bookings.list",
+                    message="Please log in to view your bookings.",
+                    scope="mcp:read",
+                )
 
             data = await booking_svc.get_user_bookings(db, user.id)
             bookings = data.get("bookings", [])
@@ -786,15 +1070,23 @@ async def bookings_list(
                 "limit": limit,
                 "bookings": items,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.list: {e}", exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
 
 
-@user_mcp.tool("bookings.get")
+@user_mcp.tool(
+    "bookings.get",
+    annotations={
+        "title": "Get Booking Details",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_get(
     booking_id: int,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get details of a specific booking.
 
@@ -803,9 +1095,13 @@ async def bookings_get(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="bookings.get",
+                    message="Please log in to view this booking.",
+                    scope="mcp:read",
+                )
 
             booking = await booking_svc.get_booking(db, booking_id)
 
@@ -832,16 +1128,25 @@ async def bookings_get(
                 "booking": serialize_booking(booking),
                 "property": property_data,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.get: {e}", exc_info=True)
         return internal_error_response(f"Failed to get booking: {str(e)}")
 
 
-@user_mcp.tool("bookings.cancel")
+@user_mcp.tool(
+    "bookings.cancel",
+    annotations={
+        "title": "Cancel Booking",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_cancel(
     booking_id: int,
     reason: str,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Cancel a booking.
 
@@ -851,9 +1156,13 @@ async def bookings_cancel(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="bookings.cancel",
+                    message="Please log in to cancel a booking.",
+                    scope="mcp:write",
+                )
 
             booking = await booking_svc.get_booking(db, booking_id)
 
@@ -884,18 +1193,26 @@ async def bookings_cancel(
                 }).dict()
             else:
                 return internal_error_response("Failed to cancel booking")
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.cancel: {e}", exc_info=True)
         return internal_error_response(f"Failed to cancel booking: {str(e)}")
 
 
-@user_mcp.tool("bookings.check_availability")
+@user_mcp.tool(
+    "bookings.check_availability",
+    annotations={
+        "title": "Check Booking Availability",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_check_availability(
     property_id: int,
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Check if a property is available for booking.
 
@@ -916,18 +1233,26 @@ async def bookings_check_availability(
                 "reason": result.get("reason"),
                 "max_occupancy": result.get("max_occupancy"),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.check_availability: {e}", exc_info=True)
         return internal_error_response(f"Failed to check availability: {str(e)}")
 
 
-@user_mcp.tool("bookings.get_pricing")
+@user_mcp.tool(
+    "bookings.get_pricing",
+    annotations={
+        "title": "Get Booking Pricing",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def bookings_get_pricing(
     property_id: int,
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get pricing details for a potential booking.
 
@@ -958,6 +1283,8 @@ async def bookings_get_pricing(
             return MCPResponse.success({
                 "pricing": pricing,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in bookings.get_pricing: {e}", exc_info=True)
         return internal_error_response(f"Failed to get pricing: {str(e)}")
@@ -968,15 +1295,22 @@ async def bookings_get_pricing(
 # ============================================================================
 
 
-@user_mcp.tool("user.system.status")
-async def user_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
+@user_mcp.tool(
+    "user.system.status",
+    annotations={
+        "title": "System Status",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
+async def user_system_status() -> Dict[str, Any]:
     """Get system status and available user features."""
     try:
         auth_status = "unauthenticated"
         user_info = None
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if user:
                 auth_status = "authenticated"
                 user_info = {
@@ -1016,6 +1350,8 @@ async def user_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
                 },
             },
         }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in user.system.status: {e}", exc_info=True)
         return internal_error_response(f"Failed to get system status: {str(e)}")
@@ -1029,6 +1365,7 @@ async def user_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
 try:
     from app.mcp.chatgpt import discovery_tools  # noqa: F401
     from app.mcp.chatgpt import visit_tools  # noqa: F401
+    from app.mcp.chatgpt import pm_tools  # noqa: F401
     logger.info("ChatGPT App tools registered successfully")
 except ImportError as e:
     logger.warning(f"ChatGPT tools not registered: {e}")

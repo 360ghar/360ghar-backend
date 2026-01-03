@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     DEBUG: bool = False
 
+    # Public base URL for OAuth/MCP (set when behind ngrok or reverse proxy)
+    PUBLIC_BASE_URL: Optional[str] = None  # e.g., https://xyz.ngrok-free.app
+
     # Cache configuration
     CACHE_BACKEND: str = "memory"  # "memory" or "redis"
     CACHE_DEFAULT_TTL: int = 300  # 5 minutes default

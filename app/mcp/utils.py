@@ -11,10 +11,9 @@ from typing import Any, Optional, TYPE_CHECKING
 from mcp.server.auth.middleware.auth_context import get_access_token as get_auth_access_token
 
 from app.core.database import AsyncSessionLocal
-from app.core.auth import verify_supabase_token
 from app.core.logging import get_logger
 from app.models.enums import UserRole
-from app.services.user import get_or_create_user_from_supabase, get_user_by_id
+from app.services.user import get_user_by_id
 
 if TYPE_CHECKING:
     from app.models.users import User
@@ -66,71 +65,49 @@ def can_manage_property(user: "User", property_owner_id: int) -> bool:
     return False
 
 
-async def get_user_from_mcp_context(
-    db,
-    jwt: Optional[str] = None,
-    session_jwt: Optional[str] = None,
-) -> Optional["User"]:
+async def get_user_from_mcp_context(db) -> Optional["User"]:
     """
     Resolve the current authenticated user for MCP tools.
 
-    Priority:
-    1. Use the access token from the MCP auth context (OAuth or Supabase JWT)
-    2. Fallback to an explicit JWT argument or legacy session JWT
+    Uses OAuth access token from the MCP auth context.
+    Supabase JWT authentication is no longer supported in MCP endpoints.
 
     Args:
         db: AsyncSession database connection
-        jwt: Explicit JWT token passed to the tool
-        session_jwt: Legacy session JWT stored in memory
 
     Returns:
         User object or None if not authenticated
     """
-    # 1) Authenticated bearer token from MCP HTTP auth (preferred path)
+    logger.debug("Resolving user from MCP auth context")
     access_token = get_auth_access_token()
-    if access_token is not None:
-        claims = getattr(access_token, "claims", {}) or {}
-        auth_method = claims.get("auth_method")
-
-        if auth_method == "oauth":
-            user_id_raw = claims.get("sub") or claims.get("user_id")
-            if not user_id_raw:
-                logger.warning("OAuth access token missing user id claim")
-                return None
-            try:
-                user_id = int(user_id_raw)
-            except (TypeError, ValueError):
-                logger.warning("OAuth access token has invalid user id: %r", user_id_raw)
-                return None
-
-            user = await get_user_by_id(db, user_id)
-            if not user:
-                logger.warning("OAuth access token refers to unknown user id %s", user_id)
-            return user
-
-        if auth_method == "supabase_jwt":
-            supa_id = claims.get("sub")
-            if not supa_id:
-                logger.warning("Supabase JWT access token missing sub claim")
-                return None
-            supa_data = {
-                "id": supa_id,
-                "email": claims.get("email"),
-                "phone": claims.get("phone"),
-                "email_verified": claims.get("email_verified", False),
-                "user_metadata": claims.get("user_metadata") or {},
-            }
-            return await get_or_create_user_from_supabase(db, supa_data)
-
-    # 2) Fallback: explicit JWT argument or legacy in-process session JWT
-    token = jwt or session_jwt
-    if not token:
+    if access_token is None:
+        logger.debug("No access token in MCP auth context")
         return None
 
-    supa = await verify_supabase_token(token)
-    if not supa:
+    claims = getattr(access_token, "claims", {}) or {}
+    auth_method = claims.get("auth_method")
+
+    if auth_method != "oauth":
+        logger.warning("Unsupported auth method in MCP context", extra={"auth_method": auth_method})
         return None
-    return await get_or_create_user_from_supabase(db, supa)
+
+    user_id_raw = claims.get("sub") or claims.get("user_id")
+    if not user_id_raw:
+        logger.warning("OAuth access token missing user id claim")
+        return None
+
+    try:
+        user_id = int(user_id_raw)
+    except (TypeError, ValueError):
+        logger.warning("OAuth access token has invalid user id", extra={"user_id_raw": user_id_raw})
+        return None
+
+    user = await get_user_by_id(db, user_id)
+    if user:
+        logger.info("User resolved from MCP context", extra={"user_id": user.id, "role": user.role})
+    else:
+        logger.warning("OAuth access token refers to unknown user id", extra={"user_id": user_id})
+    return user
 
 
 def serialize_property_basic(prop: Any) -> dict:
@@ -144,6 +121,7 @@ def serialize_property_basic(prop: Any) -> dict:
         "city": prop.city,
         "locality": prop.locality,
         "full_address": getattr(prop, "full_address", None),
+        "base_price": prop.base_price,
         "price": prop.base_price,
         "monthly_rent": getattr(prop, "monthly_rent", None),
         "daily_rate": getattr(prop, "daily_rate", None),
@@ -260,23 +238,59 @@ def serialize_lease(lease: Any) -> dict:
 
 def serialize_maintenance_request(req: Any) -> dict:
     """Serialize a maintenance request for MCP responses."""
+    category = getattr(req, "category", None)
+    category_value = category.value if hasattr(category, "value") else category
+
+    urgency = getattr(req, "urgency", None)
+    urgency_value = urgency.value if hasattr(urgency, "value") else urgency
+
+    # Widget expects priority values: low|medium|high|urgent.
+    # Our DB enum uses urgency: low|medium|high|emergency.
+    priority_value = "urgent" if urgency_value == "emergency" else urgency_value
+
+    request_status = getattr(req, "request_status", None)
+    request_status_value = request_status.value if hasattr(request_status, "value") else request_status
+
+    work_order_status = getattr(req, "work_order_status", None)
+    work_order_status_value = (
+        work_order_status.value if hasattr(work_order_status, "value") else work_order_status
+    )
+
+    scheduled_for = getattr(req, "scheduled_for", None)
+    completed_at = getattr(req, "completed_at", None)
+
+    # Best-effort mapping to widget status values:
+    # open|in_progress|scheduled|completed|cancelled
+    if work_order_status_value == "cancelled":
+        status_value = "cancelled"
+    elif completed_at is not None or request_status_value in ("resolved", "closed"):
+        status_value = "completed"
+    elif scheduled_for is not None:
+        status_value = "scheduled"
+    elif work_order_status_value == "in_progress":
+        status_value = "in_progress"
+    else:
+        status_value = "open"
+
     return {
         "id": req.id,
         "property_id": getattr(req, "property_id", None),
         "lease_id": getattr(req, "lease_id", None),
-        "reported_by_user_id": getattr(req, "reported_by_user_id", None),
+        "reported_by_user_id": getattr(req, "tenant_user_id", None),
+        "tenant_user_id": getattr(req, "tenant_user_id", None),
         "title": getattr(req, "title", None),
         "description": getattr(req, "description", None),
-        "category": getattr(req, "category", None).value if getattr(req, "category", None) else None,
-        "priority": getattr(req, "priority", None).value if getattr(req, "priority", None) else None,
-        "status": getattr(req, "status", None).value if getattr(req, "status", None) else None,
+        "category": category_value,
+        "priority": priority_value,
+        "status": status_value,
+        "request_status": request_status_value,
+        "work_order_status": work_order_status_value,
         "estimated_cost": float(getattr(req, "estimated_cost", 0) or 0) if getattr(req, "estimated_cost", None) else None,
         "actual_cost": float(getattr(req, "actual_cost", 0) or 0) if getattr(req, "actual_cost", None) else None,
-        "scheduled_date": getattr(req, "scheduled_date", None).isoformat() if getattr(req, "scheduled_date", None) else None,
-        "completed_date": getattr(req, "completed_date", None).isoformat() if getattr(req, "completed_date", None) else None,
+        "scheduled_date": scheduled_for.isoformat() if scheduled_for else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
         "vendor_name": getattr(req, "vendor_name", None),
-        "vendor_contact": getattr(req, "vendor_contact", None),
-        "notes": getattr(req, "notes", None),
+        "notes": getattr(req, "completion_notes", None),
         "created_at": req.created_at.isoformat() if getattr(req, "created_at", None) else None,
         "updated_at": getattr(req, "updated_at", None).isoformat() if getattr(req, "updated_at", None) else None,
     }

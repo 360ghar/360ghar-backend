@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
+from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED
 from app.mcp.chatgpt.response_formatter import (
     format_chatgpt_response,
     format_auth_required_response,
@@ -25,10 +26,46 @@ from app.mcp.user_server import user_mcp
 
 logger = get_logger(__name__)
 
+# ChatGPT tool metadata for widget linkage
+LEASE_MANAGEMENT_META = {
+    "openai/outputTemplate": "ui://widget/leasemanagementwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading lease information...",
+    "openai/toolInvocation/invoked": "Lease data loaded",
+}
 
-async def _get_optional_user(db, jwt: Optional[str] = None):
+RENT_COLLECTION_META = {
+    "openai/outputTemplate": "ui://widget/rentcollectionwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading rent data...",
+    "openai/toolInvocation/invoked": "Rent data loaded",
+}
+
+OWNER_DASHBOARD_META = {
+    "openai/outputTemplate": "ui://widget/ownerdashboardwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading dashboard...",
+    "openai/toolInvocation/invoked": "Dashboard ready",
+}
+
+MAINTENANCE_META = {
+    "openai/outputTemplate": "ui://widget/maintenancewidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading maintenance requests...",
+    "openai/toolInvocation/invoked": "Maintenance data loaded",
+}
+
+TENANT_RENT_META = {
+    "openai/outputTemplate": "ui://widget/tenantrentwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading your rent status...",
+    "openai/toolInvocation/invoked": "Rent status loaded",
+}
+
+
+async def _get_optional_user(db):
     """Get user if authenticated, None for guests."""
-    return await get_user_from_mcp_context(db, jwt, None)
+    return await get_user_from_mcp_context(db)
 
 
 def _serialize_lease(lease) -> Dict[str, Any]:
@@ -132,9 +169,16 @@ def _format_rent_summary(charges: List[Dict], totals: Dict) -> str:
 # ============================================================================
 
 
-@user_mcp.tool("owner.leases.list")
+@user_mcp.tool(
+    "owner.leases.list",
+    annotations={
+        "title": "List Property Leases",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=LEASE_MANAGEMENT_META,
+)
 async def owner_leases_list(
-    jwt: Optional[str] = None,
     property_id: Optional[int] = None,
     status: Optional[str] = None,
     page: int = 1,
@@ -163,7 +207,7 @@ async def owner_leases_list(
         page = max(1, page)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -204,6 +248,8 @@ async def owner_leases_list(
                 content_summary=f"You have {len(serialized)} leases. {active_count} active with total monthly rent of ₹{total_rent:,.0f}.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.leases.list: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -212,10 +258,17 @@ async def owner_leases_list(
         )
 
 
-@user_mcp.tool("owner.leases.get")
+@user_mcp.tool(
+    "owner.leases.get",
+    annotations={
+        "title": "Get Lease Details",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=LEASE_MANAGEMENT_META,
+)
 async def owner_leases_get(
     lease_id: int,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get detailed information about a specific lease.
 
@@ -234,7 +287,7 @@ async def owner_leases_get(
         from app.schemas.user import User as UserSchema
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -261,6 +314,8 @@ async def owner_leases_get(
                 content_summary=_format_lease_summary(lease_data),
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.leases.get: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -269,11 +324,22 @@ async def owner_leases_get(
         )
 
 
-@user_mcp.tool("owner.leases.terminate")
+@user_mcp.tool(
+    "owner.leases.terminate",
+    annotations={
+        "title": "Terminate Lease",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta={
+        "openai/toolInvocation/invoking": "Terminating lease...",
+        "openai/toolInvocation/invoked": "Lease terminated",
+    },
+)
 async def owner_leases_terminate(
     lease_id: int,
     termination_date: str,
-    jwt: Optional[str] = None,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Terminate an active lease early.
@@ -295,7 +361,7 @@ async def owner_leases_terminate(
         from app.schemas.user import User as UserSchema
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -341,6 +407,8 @@ async def owner_leases_terminate(
                 content_summary=f"Lease has been terminated effective {termination_date}.{' Reason: ' + reason if reason else ''}",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.leases.terminate: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -354,9 +422,16 @@ async def owner_leases_terminate(
 # ============================================================================
 
 
-@user_mcp.tool("owner.rent.status")
+@user_mcp.tool(
+    "owner.rent.status",
+    annotations={
+        "title": "View Rent Collection Status",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=RENT_COLLECTION_META,
+)
 async def owner_rent_status(
-    jwt: Optional[str] = None,
     property_id: Optional[int] = None,
     include_paid: bool = False,
     page: int = 1,
@@ -386,7 +461,7 @@ async def owner_rent_status(
         page = max(1, page)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -432,6 +507,8 @@ async def owner_rent_status(
                 content_summary=_format_rent_summary(serialized, totals),
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.rent.status: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -440,13 +517,20 @@ async def owner_rent_status(
         )
 
 
-@user_mcp.tool("owner.rent.record_payment")
+@user_mcp.tool(
+    "owner.rent.record_payment",
+    annotations={
+        "title": "Record Rent Payment",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=RENT_COLLECTION_META,
+)
 async def owner_rent_record_payment(
     rent_charge_id: int,
     amount: float,
     payment_date: str,
     payment_method: str,
-    jwt: Optional[str] = None,
     transaction_id: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -473,7 +557,7 @@ async def owner_rent_record_payment(
         from app.models.enums import PaymentMethod
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -530,6 +614,8 @@ async def owner_rent_record_payment(
                 content_summary=f"Payment of ₹{amount:,.0f} recorded successfully via {payment_method} on {payment_date}.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.rent.record_payment: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -538,9 +624,16 @@ async def owner_rent_record_payment(
         )
 
 
-@user_mcp.tool("owner.rent.history")
+@user_mcp.tool(
+    "owner.rent.history",
+    annotations={
+        "title": "View Payment History",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=RENT_COLLECTION_META,
+)
 async def owner_rent_history(
-    jwt: Optional[str] = None,
     property_id: Optional[int] = None,
     lease_id: Optional[int] = None,
     page: int = 1,
@@ -569,7 +662,7 @@ async def owner_rent_history(
         page = max(1, page)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -603,6 +696,8 @@ async def owner_rent_history(
                 content_summary=f"Showing {len(serialized)} payments totaling ₹{total_collected:,.0f}.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.rent.history: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -616,9 +711,16 @@ async def owner_rent_history(
 # ============================================================================
 
 
-@user_mcp.tool("owner.dashboard.overview")
+@user_mcp.tool(
+    "owner.dashboard.overview",
+    annotations={
+        "title": "Property Owner Dashboard",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=OWNER_DASHBOARD_META,
+)
 async def owner_dashboard_overview(
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get a comprehensive dashboard overview for property owners.
 
@@ -634,7 +736,7 @@ async def owner_dashboard_overview(
         from app.schemas.user import User as UserSchema
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -665,6 +767,8 @@ async def owner_dashboard_overview(
                 content_summary=summary,
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.dashboard.overview: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -673,9 +777,16 @@ async def owner_dashboard_overview(
         )
 
 
-@user_mcp.tool("owner.maintenance.list")
+@user_mcp.tool(
+    "owner.maintenance.list",
+    annotations={
+        "title": "List Maintenance Requests",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=MAINTENANCE_META,
+)
 async def owner_maintenance_list(
-    jwt: Optional[str] = None,
     property_id: Optional[int] = None,
     status: Optional[str] = None,
     priority: Optional[str] = None,
@@ -700,16 +811,17 @@ async def owner_maintenance_list(
     """
     try:
         from sqlalchemy import select
+
+        from app.models.enums import MaintenanceRequestStatus, MaintenanceUrgency, WorkOrderStatus
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
-        from app.models.enums import MaintenanceStatus, MaintenancePriority
         from app.mcp.utils import serialize_maintenance_request
 
         limit = min(max(1, limit), 50)
         page = max(1, page)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -724,7 +836,7 @@ async def owner_maintenance_list(
 
             if not owner_property_ids:
                 return format_chatgpt_response(
-                    data={"requests": [], "total": 0, "stats": {}},
+                    data={"items": [], "total": 0, "stats": {}},
                     content_summary="You don't have any properties to show maintenance requests for.",
                 )
 
@@ -737,18 +849,30 @@ async def owner_maintenance_list(
                 stmt = stmt.where(MaintenanceRequest.property_id == property_id)
 
             if status:
-                try:
-                    status_enum = MaintenanceStatus(status.lower())
-                    stmt = stmt.where(MaintenanceRequest.status == status_enum)
-                except ValueError:
-                    pass
+                status_norm = status.lower().strip()
+                if status_norm == "open":
+                    stmt = stmt.where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
+                elif status_norm == "in_progress":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress)
+                elif status_norm == "scheduled":
+                    stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
+                elif status_norm == "completed":
+                    stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
+                elif status_norm == "cancelled":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
 
             if priority:
-                try:
-                    priority_enum = MaintenancePriority(priority.lower())
-                    stmt = stmt.where(MaintenanceRequest.priority == priority_enum)
-                except ValueError:
-                    pass
+                priority_norm = priority.lower().strip()
+                urgency_map = {
+                    "low": MaintenanceUrgency.low,
+                    "medium": MaintenanceUrgency.medium,
+                    "high": MaintenanceUrgency.high,
+                    "urgent": MaintenanceUrgency.emergency,
+                    "emergency": MaintenanceUrgency.emergency,
+                }
+                urgency = urgency_map.get(priority_norm)
+                if urgency is not None:
+                    stmt = stmt.where(MaintenanceRequest.urgency == urgency)
 
             stmt = stmt.order_by(MaintenanceRequest.created_at.desc())
             stmt = stmt.offset((page - 1) * limit).limit(limit)
@@ -764,10 +888,11 @@ async def owner_maintenance_list(
 
             return format_chatgpt_response(
                 data={
-                    "requests": serialized,
+                    "items": serialized,
                     "total": len(serialized),
                     "page": page,
                     "limit": limit,
+                    "total_pages": (len(serialized) + limit - 1) // limit if serialized else 0,
                     "stats": {
                         "open": open_count,
                         "urgent": urgent_count,
@@ -776,6 +901,8 @@ async def owner_maintenance_list(
                 content_summary=f"Found {len(serialized)} maintenance requests. {open_count} open, {urgent_count} urgent.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.maintenance.list: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -784,11 +911,18 @@ async def owner_maintenance_list(
         )
 
 
-@user_mcp.tool("owner.maintenance.update")
+@user_mcp.tool(
+    "owner.maintenance.update",
+    annotations={
+        "title": "Update Maintenance Request",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=MAINTENANCE_META,
+)
 async def owner_maintenance_update(
     request_id: int,
     status: str,
-    jwt: Optional[str] = None,
     vendor_name: Optional[str] = None,
     scheduled_date: Optional[str] = None,
     estimated_cost: Optional[float] = None,
@@ -815,13 +949,14 @@ async def owner_maintenance_update(
     """
     try:
         from sqlalchemy import select
+
+        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
-        from app.models.enums import MaintenanceStatus
         from app.mcp.utils import serialize_maintenance_request
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -851,34 +986,51 @@ async def owner_maintenance_update(
                     content_summary="You don't have permission to update this maintenance request.",
                 )
 
-            # Validate and update status
-            try:
-                new_status = MaintenanceStatus(status.lower())
-                request.status = new_status
-            except ValueError:
-                valid_statuses = [s.value for s in MaintenanceStatus]
+            valid_statuses = ["open", "in_progress", "scheduled", "completed", "cancelled"]
+            status_norm = status.lower().strip()
+            if status_norm not in valid_statuses:
                 return format_chatgpt_response(
-                    data={"error": True, "code": "INVALID_STATUS", "valid_statuses": valid_statuses},
+                    data={
+                        "error": True,
+                        "code": "INVALID_STATUS",
+                        "valid_statuses": valid_statuses,
+                    },
                     content_summary=f"Invalid status. Please use one of: {', '.join(valid_statuses)}.",
                 )
 
             # Update optional fields
-            if vendor_name is not None:
-                request.vendor_name = vendor_name
             if scheduled_date:
                 try:
-                    request.scheduled_date = datetime.fromisoformat(scheduled_date.replace("Z", "+00:00"))
+                    request.scheduled_for = datetime.fromisoformat(scheduled_date.replace("Z", "+00:00"))
                 except ValueError:
                     pass
             if estimated_cost is not None:
                 request.estimated_cost = estimated_cost
             if actual_cost is not None:
                 request.actual_cost = actual_cost
-            if resolution_notes is not None:
-                request.resolution_notes = resolution_notes
 
-            if status == "completed":
-                request.completed_at = datetime.now(timezone.utc)
+            if resolution_notes is not None:
+                request.completion_notes = resolution_notes
+
+            if status_norm == "open":
+                request.request_status = MaintenanceRequestStatus.open
+                request.work_order_status = None
+                request.scheduled_for = None
+                request.completed_at = None
+            elif status_norm == "scheduled":
+                request.request_status = MaintenanceRequestStatus.work_order_created
+                request.work_order_status = WorkOrderStatus.assigned
+            elif status_norm == "in_progress":
+                request.request_status = MaintenanceRequestStatus.work_order_created
+                request.work_order_status = WorkOrderStatus.in_progress
+            elif status_norm == "completed":
+                request.request_status = MaintenanceRequestStatus.resolved
+                request.work_order_status = WorkOrderStatus.completed
+                if request.completed_at is None:
+                    request.completed_at = datetime.now(timezone.utc)
+            elif status_norm == "cancelled":
+                request.request_status = MaintenanceRequestStatus.closed
+                request.work_order_status = WorkOrderStatus.cancelled
 
             await db.commit()
 
@@ -887,9 +1039,11 @@ async def owner_maintenance_update(
                     "success": True,
                     "request": serialize_maintenance_request(request),
                 },
-                content_summary=f"Maintenance request updated to '{status}'.{' Assigned to ' + vendor_name if vendor_name else ''}",
+                content_summary=f"Maintenance request updated to '{status_norm}'.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in owner.maintenance.update: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -903,9 +1057,16 @@ async def owner_maintenance_update(
 # ============================================================================
 
 
-@user_mcp.tool("tenant.rent.dues")
+@user_mcp.tool(
+    "tenant.rent.dues",
+    annotations={
+        "title": "View My Rent Dues",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=TENANT_RENT_META,
+)
 async def tenant_rent_dues(
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """View current rent dues for the tenant.
 
@@ -923,7 +1084,7 @@ async def tenant_rent_dues(
         from app.models.enums import RentChargeStatus
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -971,6 +1132,8 @@ async def tenant_rent_dues(
                 content_summary=summary,
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in tenant.rent.dues: {e}", exc_info=True)
         return format_chatgpt_response(

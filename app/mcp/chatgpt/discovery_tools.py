@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
+from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED
 from app.mcp.chatgpt.response_formatter import (
     format_chatgpt_response,
     format_auth_required_response,
@@ -34,6 +35,35 @@ from app.mcp.user_server import user_mcp
 
 logger = get_logger(__name__)
 
+# ChatGPT tool metadata for widget linkage
+DISCOVERY_SEARCH_META = {
+    "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Searching for properties...",
+    "openai/toolInvocation/invoked": "Found properties",
+}
+
+PROPERTY_DETAILS_META = {
+    "openai/outputTemplate": "ui://widget/propertydetailswidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading property details...",
+    "openai/toolInvocation/invoked": "Property details loaded",
+}
+
+DISCOVERY_FEED_META = {
+    "openai/outputTemplate": "ui://widget/propertyswipewidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading discovery feed...",
+    "openai/toolInvocation/invoked": "Discovery feed ready",
+}
+
+SHORTLIST_META = {
+    "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
+    "openai/widgetAccessible": True,
+    "openai/toolInvocation/invoking": "Loading your shortlist...",
+    "openai/toolInvocation/invoked": "Shortlist loaded",
+}
+
 
 async def _get_db():
     """Get database session."""
@@ -41,9 +71,9 @@ async def _get_db():
         yield db
 
 
-async def _get_optional_user(db, jwt: Optional[str] = None):
+async def _get_optional_user(db):
     """Get user if authenticated, None for guests."""
-    return await get_user_from_mcp_context(db, jwt, None)
+    return await get_user_from_mcp_context(db)
 
 
 # ============================================================================
@@ -51,9 +81,16 @@ async def _get_optional_user(db, jwt: Optional[str] = None):
 # ============================================================================
 
 
-@user_mcp.tool("discovery.search")
+@user_mcp.tool(
+    "discovery.search",
+    annotations={
+        "title": "Search Properties",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=DISCOVERY_SEARCH_META,
+)
 async def discovery_search(
-    jwt: Optional[str] = None,
     query: Optional[str] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
@@ -106,7 +143,7 @@ async def discovery_search(
 
         async with AsyncSessionLocal() as db:
             # Get optional user for personalization
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
             user_id = user.id if user else None
 
             # Build filter object
@@ -178,10 +215,17 @@ async def discovery_search(
         )
 
 
-@user_mcp.tool("discovery.property.get")
+@user_mcp.tool(
+    "discovery.property.get",
+    annotations={
+        "title": "Get Property Details",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=PROPERTY_DETAILS_META,
+)
 async def discovery_property_get(
     property_id: int,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get detailed information about a property.
 
@@ -199,7 +243,7 @@ async def discovery_property_get(
 
         async with AsyncSessionLocal() as db:
             # Get optional user to check if property is liked
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             # Get property details
             property_obj = await get_property(db, property_id)
@@ -231,9 +275,16 @@ async def discovery_property_get(
         )
 
 
-@user_mcp.tool("discovery.feed")
+@user_mcp.tool(
+    "discovery.feed",
+    annotations={
+        "title": "Property Discovery Feed",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=DISCOVERY_FEED_META,
+)
 async def discovery_feed(
-    jwt: Optional[str] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     purpose: Optional[str] = None,
@@ -263,7 +314,7 @@ async def discovery_feed(
         limit = min(max(1, limit), 20)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
             user_id = user.id if user else None
 
             # Build filters
@@ -302,7 +353,14 @@ async def discovery_feed(
         )
 
 
-@user_mcp.tool("discovery.amenities")
+@user_mcp.tool(
+    "discovery.amenities",
+    annotations={
+        "title": "List Property Amenities",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def discovery_amenities() -> Dict[str, Any]:
     """Get list of available amenities for filtering.
 
@@ -343,11 +401,23 @@ async def discovery_amenities() -> Dict[str, Any]:
 # ============================================================================
 
 
-@user_mcp.tool("discovery.swipe")
+@user_mcp.tool(
+    "discovery.swipe",
+    annotations={
+        "title": "Like or Pass Property",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta={
+        "openai/outputTemplate": "ui://widget/propertyswipewidget.html",
+        "openai/widgetAccessible": True,
+        "openai/toolInvocation/invoking": "Recording your preference...",
+        "openai/toolInvocation/invoked": "Preference saved",
+    },
+)
 async def discovery_swipe(
     property_id: int,
     is_liked: bool,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Record a swipe action on a property (like or pass).
 
@@ -367,7 +437,7 @@ async def discovery_swipe(
         from app.services.swipe import record_swipe
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -392,6 +462,8 @@ async def discovery_swipe(
                 content_summary=f"You {action} this property. {'It has been added to your shortlist.' if is_liked else ''}",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in discovery.swipe: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -400,9 +472,16 @@ async def discovery_swipe(
         )
 
 
-@user_mcp.tool("discovery.shortlist")
+@user_mcp.tool(
+    "discovery.shortlist",
+    annotations={
+        "title": "View Shortlisted Properties",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta=SHORTLIST_META,
+)
 async def discovery_shortlist(
-    jwt: Optional[str] = None,
     page: int = 1,
     limit: int = 20,
 ) -> Dict[str, Any]:
@@ -426,7 +505,7 @@ async def discovery_shortlist(
         page = max(1, page)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -467,6 +546,8 @@ async def discovery_shortlist(
                 content_summary=f"You have {total} properties in your shortlist. Showing {len(properties)} on this page.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in discovery.shortlist: {e}", exc_info=True)
         return format_chatgpt_response(
@@ -475,9 +556,21 @@ async def discovery_shortlist(
         )
 
 
-@user_mcp.tool("discovery.recommendations")
+@user_mcp.tool(
+    "discovery.recommendations",
+    annotations={
+        "title": "Get Property Recommendations",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+    meta={
+        "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
+        "openai/widgetAccessible": True,
+        "openai/toolInvocation/invoking": "Finding recommended properties...",
+        "openai/toolInvocation/invoked": "Recommendations ready",
+    },
+)
 async def discovery_recommendations(
-    jwt: Optional[str] = None,
     latitude: Optional[float] = None,
     longitude: Optional[float] = None,
     limit: int = 10,
@@ -503,7 +596,7 @@ async def discovery_recommendations(
         limit = min(max(1, limit), 20)
 
         async with AsyncSessionLocal() as db:
-            user = await _get_optional_user(db, jwt)
+            user = await _get_optional_user(db)
 
             if not user:
                 return format_auth_required_response(
@@ -531,6 +624,8 @@ async def discovery_recommendations(
                 content_summary=f"Based on your preferences, here are {len(properties)} properties we think you'll love.",
             )
 
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in discovery.recommendations: {e}", exc_info=True)
         return format_chatgpt_response(

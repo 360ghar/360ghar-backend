@@ -2,6 +2,7 @@ from typing import Optional, List
 from fastapi import Request, HTTPException, status, Header
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from starlette.types import ASGIApp, Receive, Scope, Send
 import hashlib
 import hmac
 import secrets
@@ -13,28 +14,67 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+class RequestLoggingMiddleware:
+    """
+    Pure ASGI middleware for logging ALL incoming requests, including MCP/SSE.
+
+    Uses raw ASGI instead of BaseHTTPMiddleware to avoid issues with streaming responses.
+    """
+
+    def __init__(self, app: ASGIApp, prefix: str = ""):
+        self.app = app
+        self.prefix = prefix
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send):
+        if scope["type"] == "http":
+            method = scope.get("method", "?")
+            path = scope.get("path", "?")
+            query = scope.get("query_string", b"").decode("utf-8", errors="ignore")
+
+            # Log every incoming request
+            full_path = f"{self.prefix}{path}" if self.prefix else path
+            logger.info(
+                "Incoming request",
+                extra={
+                    "method": method,
+                    "path": full_path,
+                    "query": query[:100] if query else None,
+                }
+            )
+
+        await self.app(scope, receive, send)
+
 class RequestIDMiddleware(BaseHTTPMiddleware):
     """Add unique request ID to each request for tracing"""
-    
+
     async def dispatch(self, request: Request, call_next):
+        # Skip for SSE/MCP paths (streaming incompatible with BaseHTTPMiddleware)
+        if request.url.path.startswith(("/sse", "/mcp")):
+            return await call_next(request)
+
         # Generate or use existing request ID
         request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-        
+
         # Store request ID in request state for logging
         request.state.request_id = request_id
-        
+
         # Process request
         response = await call_next(request)
-        
+
         # Add request ID to response headers
         response.headers["X-Request-ID"] = request_id
-        
+
         return response
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses"""
-    
+
     async def dispatch(self, request: Request, call_next):
+        # Skip for SSE/MCP paths (streaming incompatible with BaseHTTPMiddleware)
+        if request.url.path.startswith(("/sse", "/mcp")):
+            return await call_next(request)
+
         response = await call_next(request)
         
         # Security headers

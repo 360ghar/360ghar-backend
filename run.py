@@ -3,7 +3,6 @@ import logging
 import warnings
 
 import uvicorn
-from app.main import app
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -28,7 +27,7 @@ if __name__ == "__main__":
     port_str = os.getenv("PORT", "8000")
 
     logger.info(f"Starting Container - PORT: {port_str}")
-    
+
     # Handle Railway's PORT environment variable properly
     try:
         port = int(port_str)
@@ -39,15 +38,21 @@ if __name__ == "__main__":
     environment = os.getenv("ENVIRONMENT", "development")
     reload = environment == "development"
 
+    # Determine log level from DEBUG env var
+    debug = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+    log_level = "debug" if debug else "info"
+
     # Build uvicorn options with safe feature detection
     uvicorn_kwargs = {
         "host": "0.0.0.0",
         "port": port,
         "reload": reload,
-        "log_level": "info",
+        "log_level": log_level,
         "use_colors": True,
         # Keep workers=1 to avoid reload conflicts; uvicorn enforces it with reload anyway
         "workers": 1,
+        # IMPORTANT: Don't let uvicorn override our logging config
+        "log_config": None,
     }
 
     if reload:
@@ -67,6 +72,12 @@ if __name__ == "__main__":
         uvicorn_kwargs["http"] = "httptools"
     except Exception:
         logger.info("httptools not available; using default http implementation")
+
+    # Import and setup logging BEFORE running uvicorn
+    from app.core.logging import setup_logging
+    setup_logging()
+
+    logger.info(f"Starting uvicorn with log_level={log_level}, debug={debug}")
 
     # Configure uvicorn with better reload settings
     uvicorn.run("app.main:app", **uvicorn_kwargs)

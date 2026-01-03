@@ -27,7 +27,7 @@ class TestOwnerPropertyTools:
                 with patch("app.mcp.user_server.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                    result = await fn(jwt="test_token")
+                    result = await fn()
 
                     assert "data" in result or "error" in result
 
@@ -35,6 +35,7 @@ class TestOwnerPropertyTools:
     async def test_owner_properties_list_unauthenticated(self):
         """Test listing properties without auth."""
         from app.mcp.user_server import owner_properties_list
+        from app.mcp.apps_sdk import AuthRequiredError
 
         # Get the underlying function from the FunctionTool
         fn = owner_properties_list.fn if hasattr(owner_properties_list, 'fn') else owner_properties_list
@@ -45,10 +46,40 @@ class TestOwnerPropertyTools:
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt=None)
+                with pytest.raises(AuthRequiredError):
+                    await fn()
 
-                assert "error" in result
-                assert result["error"]["code"] == "UNAUTHORIZED"
+    @pytest.mark.asyncio
+    async def test_owner_properties_list_www_authenticate_meta(self, mock_mcp_context):
+        """Tool-level auth prompts should include mcp/www_authenticate meta."""
+        from app.mcp.user_server import user_mcp
+
+        with patch("app.mcp.user_server._get_user", new_callable=AsyncMock) as mock_user:
+            mock_user.return_value = None
+
+            with patch("app.mcp.user_server.get_db") as mock_db:
+                mock_db.return_value = AsyncIteratorMock([MagicMock()])
+
+                result = await user_mcp._mcp_call_tool("owner.properties.list", {})
+
+                assert result.isError is True
+                assert result.meta is not None
+                assert "mcp/www_authenticate" in result.meta
+                assert result.structuredContent is not None
+                assert result.structuredContent.get("requires_auth") is True
+
+    @pytest.mark.asyncio
+    async def test_tools_list_includes_security_schemes_and_template(self, mock_mcp_context):
+        """Apps SDK expects tool security schemes + output template metadata."""
+        from app.mcp.user_server import user_mcp
+
+        tools = await user_mcp._mcp_list_tools()
+        owner_tool = next(tool for tool in tools if tool.name == "owner.properties.list")
+
+        assert owner_tool.annotations is not None
+        assert getattr(owner_tool.annotations, "securitySchemes", None) is not None
+        assert owner_tool.meta is not None
+        assert owner_tool.meta.get("openai/outputTemplate") == "ui://widget/ownerdashboardwidget.html"
 
 
 class TestOwnerPropertyCreate:
@@ -75,7 +106,6 @@ class TestOwnerPropertyCreate:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                     result = await fn(
-                        jwt="test_token",
                         title="New Property",
                         property_type="apartment",
                         purpose="rent",
@@ -108,7 +138,7 @@ class TestTenantTools:
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -126,7 +156,7 @@ class TestTenantTools:
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -151,7 +181,7 @@ class TestBookingTools:
                 with patch("app.mcp.user_server.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                    result = await fn(jwt="test_token")
+                    result = await fn()
 
                     assert isinstance(result, dict)
 

@@ -12,7 +12,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from fastmcp import FastMCP
+from app.mcp.apps_sdk import (
+    AppsSDKFastMCP,
+    AuthRequiredError,
+    MCP_SECURITY_SCHEMES_MIXED,
+    raise_auth_required,
+)
 
 from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
@@ -47,15 +52,24 @@ from app.mcp.utils import (
 logger = get_logger(__name__)
 
 # Create the Admin MCP server instance
-admin_mcp = FastMCP("ghar360-admin")
-
-# Legacy session JWT for backward compatibility
-_SESSION_JWT: Optional[str] = None
+admin_mcp = AppsSDKFastMCP("ghar360-admin")
 
 
-async def _get_user(db, jwt: Optional[str] = None):
-    """Get user from MCP context or legacy JWT."""
-    return await get_user_from_mcp_context(db, jwt, _SESSION_JWT)
+async def _get_user(db):
+    """Get user from MCP OAuth context."""
+    return await get_user_from_mcp_context(db)
+
+
+def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> None:
+    raise_auth_required(
+        message=message,
+        error_description=message,
+        scope=scope,
+        structured_content={
+            "requires_auth": True,
+            "action": action,
+        },
+    )
 
 
 def _require_agent_or_admin(user) -> bool:
@@ -69,9 +83,15 @@ def _require_agent_or_admin(user) -> bool:
 # ============================================================================
 
 
-@admin_mcp.tool("agent.properties.list")
+@admin_mcp.tool(
+    "agent.properties.list",
+    annotations={
+        "title": "List Managed Properties",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_properties_list(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
     page: int = 1,
     limit: int = 50,
@@ -94,9 +114,13 @@ async def agent_properties_list(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.properties.list",
+                    message="Please log in to list managed properties.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -133,15 +157,23 @@ async def agent_properties_list(
                 "limit": limit,
                 "items": items,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.properties.list: {e}", exc_info=True)
         return internal_error_response(f"Failed to list properties: {str(e)}")
 
 
-@admin_mcp.tool("agent.properties.get")
+@admin_mcp.tool(
+    "agent.properties.get",
+    annotations={
+        "title": "Get Managed Property Details",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_properties_get(
     property_id: int,
-    jwt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Get detailed property information including lease and tenant data.
 
@@ -150,9 +182,13 @@ async def agent_properties_get(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.properties.get",
+                    message="Please log in to view managed property details.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -208,12 +244,21 @@ async def agent_properties_get(
                 "active_lease": lease_data,
                 "tenant": tenant_data,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.properties.get: {e}", exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
 
 
-@admin_mcp.tool("agent.properties.create_for_owner")
+@admin_mcp.tool(
+    "agent.properties.create_for_owner",
+    annotations={
+        "title": "Create Property For Owner",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_properties_create_for_owner(
     owner_id: int,
     title: str,
@@ -225,7 +270,6 @@ async def agent_properties_create_for_owner(
     latitude: float,
     longitude: float,
     base_price: float,
-    jwt: Optional[str] = None,
     description: Optional[str] = None,
     monthly_rent: Optional[float] = None,
     daily_rate: Optional[float] = None,
@@ -259,9 +303,13 @@ async def agent_properties_create_for_owner(
             return invalid_input_response(f"Invalid purpose: {purpose}")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.properties.create_for_owner",
+                    message="Please log in to create a property for an owner.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -314,16 +362,24 @@ async def agent_properties_create_for_owner(
                 "message": "Property created successfully",
                 "property": serialize_property_basic(prop),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.properties.create_for_owner: {e}", exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
 
 
-@admin_mcp.tool("agent.properties.verify")
+@admin_mcp.tool(
+    "agent.properties.verify",
+    annotations={
+        "title": "Verify Property Listing",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_properties_verify(
     property_id: int,
     is_verified: bool,
-    jwt: Optional[str] = None,
     verification_notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Mark a property as verified or unverified.
@@ -335,9 +391,13 @@ async def agent_properties_verify(
     """
     try:
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.properties.verify",
+                    message="Please log in to verify a property listing.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -380,6 +440,8 @@ async def agent_properties_verify(
                 "property_id": property_id,
                 "is_verified": is_verified,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.properties.verify: {e}", exc_info=True)
         return internal_error_response(f"Failed to verify property: {str(e)}")
@@ -390,9 +452,15 @@ async def agent_properties_verify(
 # ============================================================================
 
 
-@admin_mcp.tool("agent.leases.list")
+@admin_mcp.tool(
+    "agent.leases.list",
+    annotations={
+        "title": "List Leases",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_leases_list(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
     property_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -417,9 +485,13 @@ async def agent_leases_list(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.leases.list",
+                    message="Please log in to list leases.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -470,12 +542,21 @@ async def agent_leases_list(
                 "limit": limit,
                 "leases": items,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.leases.list: {e}", exc_info=True)
         return internal_error_response(f"Failed to list leases: {str(e)}")
 
 
-@admin_mcp.tool("agent.leases.create")
+@admin_mcp.tool(
+    "agent.leases.create",
+    annotations={
+        "title": "Create Lease",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_leases_create(
     property_id: int,
     tenant_user_id: int,
@@ -483,7 +564,6 @@ async def agent_leases_create(
     end_date: str,
     monthly_rent: float,
     security_deposit: float,
-    jwt: Optional[str] = None,
     payment_due_day: int = 1,
     grace_period_days: int = 5,
     terms: Optional[str] = None,
@@ -517,9 +597,13 @@ async def agent_leases_create(
             return invalid_input_response("End date must be after start date")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.leases.create",
+                    message="Please log in to create a lease.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -575,16 +659,25 @@ async def agent_leases_create(
                 "message": "Lease created successfully",
                 "lease": serialize_lease(lease),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.leases.create: {e}", exc_info=True)
         return internal_error_response(f"Failed to create lease: {str(e)}")
 
 
-@admin_mcp.tool("agent.leases.terminate")
+@admin_mcp.tool(
+    "agent.leases.terminate",
+    annotations={
+        "title": "Terminate Lease",
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_leases_terminate(
     lease_id: int,
     reason: str,
-    jwt: Optional[str] = None,
     termination_date: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Terminate an active lease.
@@ -605,9 +698,13 @@ async def agent_leases_terminate(
                 return invalid_input_response("termination_date must be in ISO-8601 format")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.leases.terminate",
+                    message="Please log in to terminate a lease.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -650,6 +747,8 @@ async def agent_leases_terminate(
                 "lease_id": lease_id,
                 "termination_date": term_date.isoformat(),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.leases.terminate: {e}", exc_info=True)
         return internal_error_response(f"Failed to terminate lease: {str(e)}")
@@ -660,9 +759,15 @@ async def agent_leases_terminate(
 # ============================================================================
 
 
-@admin_mcp.tool("agent.rent.list_due")
+@admin_mcp.tool(
+    "agent.rent.list_due",
+    annotations={
+        "title": "List Overdue Rent",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_rent_list_due(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
     property_id: Optional[int] = None,
     overdue_only: bool = False,
@@ -686,9 +791,13 @@ async def agent_rent_list_due(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.rent.list_due",
+                    message="Please log in to view overdue rent.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -758,18 +867,26 @@ async def agent_rent_list_due(
                 "limit": limit,
                 "items": paginated,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.rent.list_due: {e}", exc_info=True)
         return internal_error_response(f"Failed to list due rent: {str(e)}")
 
 
-@admin_mcp.tool("agent.rent.record_payment")
+@admin_mcp.tool(
+    "agent.rent.record_payment",
+    annotations={
+        "title": "Record Rent Payment",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_rent_record_payment(
     lease_id: int,
     amount: float,
     payment_date: str,
     payment_method: str,
-    jwt: Optional[str] = None,
     transaction_reference: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -796,9 +913,13 @@ async def agent_rent_record_payment(
             return invalid_input_response(f"payment_method must be one of: {', '.join(valid_methods)}")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.rent.record_payment",
+                    message="Please log in to record a rent payment.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -850,6 +971,8 @@ async def agent_rent_record_payment(
                     "status": payment.status,
                 },
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.rent.record_payment: {e}", exc_info=True)
         return internal_error_response(f"Failed to record payment: {str(e)}")
@@ -860,9 +983,15 @@ async def agent_rent_record_payment(
 # ============================================================================
 
 
-@admin_mcp.tool("agent.maintenance.list")
+@admin_mcp.tool(
+    "agent.maintenance.list",
+    annotations={
+        "title": "List Maintenance Requests",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_maintenance_list(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
     property_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -882,14 +1011,18 @@ async def agent_maintenance_list(
         from sqlalchemy import select
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
-        from app.models.enums import MaintenanceStatus
+        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
 
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.maintenance.list",
+                    message="Please log in to view maintenance requests.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -916,10 +1049,18 @@ async def agent_maintenance_list(
             if property_id:
                 stmt = stmt.where(MaintenanceRequest.property_id == property_id)
             if status:
-                try:
-                    status_enum = MaintenanceStatus(status.lower())
-                    stmt = stmt.where(MaintenanceRequest.status == status_enum)
-                except ValueError:
+                status_norm = status.lower().strip()
+                if status_norm == "open":
+                    stmt = stmt.where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
+                elif status_norm == "in_progress":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress)
+                elif status_norm == "scheduled":
+                    stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
+                elif status_norm == "completed":
+                    stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
+                elif status_norm == "cancelled":
+                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
+                else:
                     return invalid_input_response(f"Invalid status: {status}")
 
             offset = (page - 1) * limit
@@ -936,16 +1077,24 @@ async def agent_maintenance_list(
                 "limit": limit,
                 "requests": items,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.maintenance.list: {e}", exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
 
 
-@admin_mcp.tool("agent.maintenance.update_status")
+@admin_mcp.tool(
+    "agent.maintenance.update_status",
+    annotations={
+        "title": "Update Maintenance Status",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_maintenance_update_status(
     request_id: int,
     status: str,
-    jwt: Optional[str] = None,
     notes: Optional[str] = None,
     scheduled_date: Optional[str] = None,
     vendor_name: Optional[str] = None,
@@ -968,22 +1117,22 @@ async def agent_maintenance_update_status(
     try:
         from sqlalchemy import select
         from app.models.pm_maintenance import MaintenanceRequest
-        from app.models.properties import Property
-        from app.models.enums import MaintenanceStatus
+        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
 
         valid_statuses = ['open', 'in_progress', 'scheduled', 'completed', 'cancelled']
         if status.lower() not in valid_statuses:
             return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
 
-        try:
-            new_status = MaintenanceStatus(status.lower())
-        except ValueError:
-            return invalid_input_response(f"Invalid status: {status}")
+        status_norm = status.lower().strip()
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.maintenance.update_status",
+                    message="Please log in to update maintenance status.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -1016,25 +1165,39 @@ async def agent_maintenance_update_status(
                 ).dict()
 
             # Update the request
-            request.status = new_status
             if notes:
-                request.notes = f"{request.notes or ''}\n[{datetime.utcnow().isoformat()}] {notes}".strip()
+                existing = getattr(request, "completion_notes", None) or ""
+                stamp = datetime.utcnow().isoformat()
+                request.completion_notes = f"{existing}\n[{stamp}] {notes}".strip()
             if scheduled_date:
                 try:
-                    request.scheduled_date = datetime.fromisoformat(scheduled_date)
+                    request.scheduled_for = datetime.fromisoformat(scheduled_date.replace("Z", "+00:00"))
                 except ValueError:
                     return invalid_input_response("scheduled_date must be in ISO-8601 format")
-            if vendor_name:
-                request.vendor_name = vendor_name
-            if vendor_contact:
-                request.vendor_contact = vendor_contact
             if estimated_cost is not None:
                 request.estimated_cost = estimated_cost
             if actual_cost is not None:
                 request.actual_cost = actual_cost
 
-            if new_status == MaintenanceStatus.completed:
-                request.completed_date = datetime.utcnow()
+            if status_norm == "open":
+                request.request_status = MaintenanceRequestStatus.open
+                request.work_order_status = None
+                request.scheduled_for = None
+                request.completed_at = None
+            elif status_norm == "scheduled":
+                request.request_status = MaintenanceRequestStatus.work_order_created
+                request.work_order_status = WorkOrderStatus.assigned
+            elif status_norm == "in_progress":
+                request.request_status = MaintenanceRequestStatus.work_order_created
+                request.work_order_status = WorkOrderStatus.in_progress
+            elif status_norm == "completed":
+                request.request_status = MaintenanceRequestStatus.resolved
+                request.work_order_status = WorkOrderStatus.completed
+                if request.completed_at is None:
+                    request.completed_at = datetime.utcnow()
+            elif status_norm == "cancelled":
+                request.request_status = MaintenanceRequestStatus.closed
+                request.work_order_status = WorkOrderStatus.cancelled
 
             await db.flush()
             await db.commit()
@@ -1043,6 +1206,8 @@ async def agent_maintenance_update_status(
                 "message": "Maintenance request updated successfully",
                 "request": serialize_maintenance_request(request),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.maintenance.update_status: {e}", exc_info=True)
         return internal_error_response(f"Failed to update maintenance request: {str(e)}")
@@ -1053,9 +1218,15 @@ async def agent_maintenance_update_status(
 # ============================================================================
 
 
-@admin_mcp.tool("agent.bookings.list_all")
+@admin_mcp.tool(
+    "agent.bookings.list_all",
+    annotations={
+        "title": "List All Bookings",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_bookings_list_all(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
     property_id: Optional[int] = None,
     status: Optional[str] = None,
@@ -1075,9 +1246,13 @@ async def agent_bookings_list_all(
         limit = min(max(1, limit), 100)
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.bookings.list_all",
+                    message="Please log in to view bookings.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -1115,16 +1290,24 @@ async def agent_bookings_list_all(
                 "limit": limit,
                 "bookings": items,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.bookings.list_all: {e}", exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
 
 
-@admin_mcp.tool("agent.bookings.update_status")
+@admin_mcp.tool(
+    "agent.bookings.update_status",
+    annotations={
+        "title": "Update Booking Status",
+        "readOnlyHint": False,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_bookings_update_status(
     booking_id: int,
     status: str,
-    jwt: Optional[str] = None,
     notes: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Update the status of a booking.
@@ -1140,9 +1323,13 @@ async def agent_bookings_update_status(
             return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.bookings.update_status",
+                    message="Please log in to update a booking status.",
+                    scope="mcp:write",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -1169,6 +1356,8 @@ async def agent_bookings_update_status(
                 "message": f"Booking status updated to {status}",
                 "booking": serialize_booking(updated) if updated else None,
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.bookings.update_status: {e}", exc_info=True)
         return internal_error_response(f"Failed to update booking status: {str(e)}")
@@ -1179,9 +1368,15 @@ async def agent_bookings_update_status(
 # ============================================================================
 
 
-@admin_mcp.tool("agent.dashboard.overview")
+@admin_mcp.tool(
+    "agent.dashboard.overview",
+    annotations={
+        "title": "Agent Dashboard Overview",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
 async def agent_dashboard_overview(
-    jwt: Optional[str] = None,
     owner_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Get dashboard overview with key metrics.
@@ -1195,12 +1390,16 @@ async def agent_dashboard_overview(
         from app.models.pm_leases import Lease
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.bookings import Booking
-        from app.models.enums import LeaseStatus, MaintenanceStatus
+        from app.models.enums import LeaseStatus, MaintenanceRequestStatus
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if not user:
-                return unauthorized_response("Authentication required")
+                _require_auth(
+                    action="agent.dashboard.overview",
+                    message="Please log in to view the agent dashboard.",
+                    scope="mcp:read",
+                )
 
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
@@ -1242,7 +1441,7 @@ async def agent_dashboard_overview(
             maint_stmt = (
                 select(func.count(MaintenanceRequest.id))
                 .join(Property, MaintenanceRequest.property_id == Property.id)
-                .where(MaintenanceRequest.status == MaintenanceStatus.open)
+                .where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
             )
             if owner_filter:
                 maint_stmt = maint_stmt.where(Property.owner_id.in_(owner_filter))
@@ -1283,6 +1482,8 @@ async def agent_dashboard_overview(
                 "user_role": user_role.value,
                 "scope": "owner" if owner_id else ("agent" if user_role == UserRole.agent else "all"),
             }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in agent.dashboard.overview: {e}", exc_info=True)
         return internal_error_response(f"Failed to get dashboard: {str(e)}")
@@ -1293,8 +1494,15 @@ async def agent_dashboard_overview(
 # ============================================================================
 
 
-@admin_mcp.tool("admin.system.status")
-async def admin_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
+@admin_mcp.tool(
+    "admin.system.status",
+    annotations={
+        "title": "Admin System Status",
+        "readOnlyHint": True,
+        "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
+    },
+)
+async def admin_system_status() -> Dict[str, Any]:
     """Get admin system status and available features."""
     try:
         auth_status = "unauthenticated"
@@ -1302,7 +1510,7 @@ async def admin_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
         is_authorized = False
 
         async for db in get_db():
-            user = await _get_user(db, jwt)
+            user = await _get_user(db)
             if user:
                 auth_status = "authenticated"
                 role = get_user_role(user)
@@ -1352,6 +1560,8 @@ async def admin_system_status(jwt: Optional[str] = None) -> Dict[str, Any]:
                 },
             },
         }).dict()
+    except AuthRequiredError:
+        raise
     except Exception as e:
         logger.error(f"Error in admin.system.status: {e}", exc_info=True)
         return internal_error_response(f"Failed to get system status: {str(e)}")
