@@ -205,3 +205,21 @@ class MessageThreadType(str, Enum):
     lease = "lease"
     maintenance = "maintenance"
     general = "general"
+
+
+# --------------------
+# 360 Virtual Tours
+# --------------------
+
+class TourStatus(str, Enum):
+    draft = "draft"
+    published = "published"
+    archived = "archived"
+
+
+class HotspotType(str, Enum):
+    navigation = "navigation"
+    info = "info"
+    audio = "audio"
+    video = "video"
+    custom = "custom"

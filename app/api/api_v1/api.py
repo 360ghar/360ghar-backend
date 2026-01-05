@@ -26,6 +26,13 @@ from app.api.api_v1.endpoints import (
     pm_inspections,
     pm_reports,
     vastu,
+    # 360 Virtual Tours
+    tours,
+    scenes,
+    hotspots,
+    dashboard,
+    public,
+    ai,
 )
 
 api_router = APIRouter()
@@ -64,3 +71,15 @@ api_router.include_router(pm_reports.router, prefix="/pm/reports", tags=["pm-rep
 
 # Vastu Checker - public endpoint (no auth required)
 api_router.include_router(vastu.router, prefix="/vastu", tags=["vastu"])
+
+# 360 Virtual Tours
+api_router.include_router(tours.router, prefix="/tours", tags=["tours"])
+api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
+api_router.include_router(hotspots.router, prefix="/hotspots", tags=["hotspots"])
+api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+
+# 360 Virtual Tours - Public endpoints (no auth required)
+api_router.include_router(public.router, prefix="/public", tags=["public-tours"])
+
+# 360 Virtual Tours - AI endpoints
+api_router.include_router(ai.router, prefix="/ai", tags=["ai"])

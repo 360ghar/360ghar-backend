@@ -38,6 +38,7 @@ class User(Base):
     swipes: Mapped[List["UserSwipe"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     visits: Mapped[List["Visit"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     bookings: Mapped[List["Booking"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    tours: Mapped[List["Tour"]] = relationship("Tour", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSearchHistory(Base):

@@ -12,30 +12,31 @@ from .pm_leases import Lease
 from .pm_finance import RentCharge, RentPayment, Expense
 from .pm_maintenance import MaintenanceRequest
 from .pm_inspections import InspectionChecklist
+from .tours import Tour, Scene, Hotspot, TourAnalyticsEvent
 from .enums import *
 
 __all__ = [
     # Users
     "User",
-    "UserSearchHistory", 
+    "UserSearchHistory",
     "UserSwipe",
-    
+
     # Agents
     "Agent",
-    
+
     # Bookings
     "Booking",
-    
+
     # Core
     "BugReport",
-    "Page", 
+    "Page",
     "AppVersion",
     "FAQ",
-    
+
     # Properties
     "Property",
     "PropertyImage",
-    "Amenity", 
+    "Amenity",
     "PropertyAmenity",
     "Visit",
 
@@ -49,4 +50,10 @@ __all__ = [
     "Expense",
     "MaintenanceRequest",
     "InspectionChecklist",
+
+    # 360 Virtual Tours
+    "Tour",
+    "Scene",
+    "Hotspot",
+    "TourAnalyticsEvent",
 ]
