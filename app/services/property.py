@@ -107,7 +107,8 @@ async def create_property(
             lon = property_dict['longitude']
             property_dict['location'] = f'SRID=4326;POINT({lon} {lat})'
 
-        db_property = await repo.create(Property(**property_dict))
+        # Use repository to create and return with relationships loaded
+        db_property = await repo.create_property_for_response(Property(**property_dict))
         await PropertyCacheManager.invalidate_property_caches(db_property.id)
         
         logger.info(f"Property created successfully with ID {db_property.id}")
@@ -207,7 +208,9 @@ async def update_property(
             setattr(property_obj, field, value)
         
         await db.flush()
-        await db.refresh(property_obj)
+        
+        # Re-fetch using repository for consistent loading
+        property_obj = await repo.get_property_for_response(property_id)
         await PropertyCacheManager.invalidate_property_caches(property_id)
         
         logger.info(f"Property {property_id} updated successfully")

@@ -31,6 +31,35 @@ class PropertyRepository(BaseRepository[Property]):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
     
+    async def get_property_for_response(self, property_id: int) -> Optional[Property]:
+        """Load property with all fields needed for API response.
+        
+        This method ensures all relationships required by PropertySchema are 
+        eagerly loaded, preventing lazy loading issues in async context.
+        """
+        stmt = (
+            select(Property)
+            .options(
+                selectinload(Property.images),
+                selectinload(Property.owner),
+                selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+            )
+            .where(Property.id == property_id)
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+    
+    async def create_property_for_response(self, entity: Property) -> Property:
+        """Create property and return with relationships loaded for API response.
+        
+        Use this method when the created property will be returned in an API response
+        to ensure all relationships are properly loaded.
+        """
+        self.session.add(entity)
+        await self.session.flush()
+        # Re-fetch with all relationships loaded
+        return await self.get_property_for_response(entity.id)
+    
     async def get_properties_filtered(
         self,
         filters: Dict[str, Any],

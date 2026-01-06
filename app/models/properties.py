@@ -138,7 +138,7 @@ class Property(Base):
         back_populates="owned_properties",
         foreign_keys=[owner_id],
     )
-    images: Mapped[List["PropertyImage"]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    images: Mapped[List["PropertyImage"]] = relationship(back_populates="property", cascade="all, delete-orphan", lazy="raise")
     property_amenities: Mapped[List["PropertyAmenity"]] = relationship(back_populates="property", cascade="all, delete-orphan")
     swipes: Mapped[List["UserSwipe"]] = relationship(back_populates="property")
     visits: Mapped[List["Visit"]] = relationship(back_populates="property")

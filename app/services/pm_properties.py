@@ -10,6 +10,7 @@ from app.core.exceptions import BadRequestException, InsufficientPermissionsErro
 from app.models.enums import LeaseStatus, ManagedPropertyStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.repositories.property_repository import PropertyRepository
 from app.schemas.property import PropertyCreate
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
@@ -48,11 +49,9 @@ async def create_managed_property(
         if lat is not None and lon is not None:
             property_dict["location"] = f"SRID=4326;POINT({lon} {lat})"
 
-    prop = Property(**property_dict)
-    db.add(prop)
-    await db.flush()
-    await db.refresh(prop)
-    return prop
+    # Use repository to create and return with relationships loaded
+    repo = PropertyRepository(db)
+    return await repo.create_property_for_response(Property(**property_dict))
 
 
 async def list_managed_properties(
@@ -150,6 +149,8 @@ async def update_managed_property(
 
     prop.is_managed = True
     await db.flush()
-    await db.refresh(prop)
-    return prop
+    
+    # Re-fetch using repository for consistent loading
+    repo = PropertyRepository(db)
+    return await repo.get_property_for_response(property_id)
 
