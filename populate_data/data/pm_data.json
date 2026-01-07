@@ -1,0 +1,391 @@
+{
+    "tenants": [
+        {
+            "name": "Rahul Verma",
+            "phone": "+91-9876543210",
+            "email": "rahul.verma@example.com"
+        },
+        {
+            "name": "Priya Singh",
+            "phone": "+91-9876543211",
+            "email": "priya.singh@example.com"
+        },
+        {
+            "name": "Amit Sharma",
+            "phone": "+91-9876543212",
+            "email": "amit.sharma@example.com"
+        },
+        {
+            "name": "Sneha Patel",
+            "phone": "+91-9876543213",
+            "email": "sneha.patel@example.com"
+        },
+        {
+            "name": "Vikram Reddy",
+            "phone": "+91-9876543214",
+            "email": "vikram.reddy@example.com"
+        },
+        {
+            "name": "Meera Iyer",
+            "phone": "+91-9876543215",
+            "email": "meera.iyer@example.com"
+        }
+    ],
+    "lease_templates": {
+        "monthly_rents": [
+            15000,
+            18000,
+            22000,
+            25000,
+            30000,
+            35000,
+            40000,
+            50000
+        ],
+        "security_deposit_months": 2,
+        "grace_period_days": [
+            3,
+            5,
+            7
+        ],
+        "payment_due_days": [
+            1,
+            5,
+            10
+        ],
+        "late_fee_amounts": [
+            500,
+            1000,
+            1500
+        ],
+        "late_fee_percentages": [
+            2.0,
+            5.0,
+            10.0
+        ],
+        "special_clauses": [
+            "No pets allowed. No modifications to the property without prior written consent.",
+            "Tenant is responsible for electricity and water bills. Maintenance charges included.",
+            "Property must be returned in original condition. Professional cleaning required at move-out.",
+            "Early termination requires 2 months notice. Security deposit refund within 30 days."
+        ]
+    },
+    "maintenance_templates": [
+        {
+            "category": "plumbing",
+            "title": "Leaking faucet in kitchen",
+            "description": "The kitchen faucet has been leaking for the past few days. Water is dripping continuously.",
+            "urgency": "medium"
+        },
+        {
+            "category": "electrical",
+            "title": "Power outlet not working",
+            "description": "The power outlet in the master bedroom has stopped working. Unable to charge devices.",
+            "urgency": "high"
+        },
+        {
+            "category": "hvac",
+            "title": "AC not cooling properly",
+            "description": "The air conditioner is running but not cooling the room adequately. Temperature remains high.",
+            "urgency": "high"
+        },
+        {
+            "category": "plumbing",
+            "title": "Clogged bathroom drain",
+            "description": "The bathroom drain is clogged and water is not draining properly. Please send someone to fix.",
+            "urgency": "medium"
+        },
+        {
+            "category": "appliance",
+            "title": "Washing machine making noise",
+            "description": "The washing machine is making loud grinding noise during spin cycle.",
+            "urgency": "low"
+        },
+        {
+            "category": "structural",
+            "title": "Wall crack in living room",
+            "description": "There is a visible crack on the wall near the window. It seems to be growing.",
+            "urgency": "medium"
+        },
+        {
+            "category": "pest_control",
+            "title": "Cockroach infestation",
+            "description": "Multiple cockroaches spotted in the kitchen area. Need pest control treatment.",
+            "urgency": "high"
+        },
+        {
+            "category": "electrical",
+            "title": "Ceiling fan not working",
+            "description": "The ceiling fan in the living room has stopped working completely.",
+            "urgency": "medium"
+        },
+        {
+            "category": "cleaning",
+            "title": "Deep cleaning required",
+            "description": "Request for professional deep cleaning of the entire apartment.",
+            "urgency": "low"
+        },
+        {
+            "category": "other",
+            "title": "Door lock replacement needed",
+            "description": "The main door lock is old and difficult to operate. Need replacement.",
+            "urgency": "medium"
+        }
+    ],
+    "expense_templates": [
+        {
+            "category": "maintenance",
+            "description": "Monthly maintenance fee",
+            "amount_range": [
+                2000,
+                5000
+            ]
+        },
+        {
+            "category": "repairs",
+            "description": "Plumbing repair work",
+            "amount_range": [
+                1500,
+                8000
+            ]
+        },
+        {
+            "category": "repairs",
+            "description": "Electrical repair work",
+            "amount_range": [
+                1000,
+                5000
+            ]
+        },
+        {
+            "category": "insurance",
+            "description": "Property insurance premium",
+            "amount_range": [
+                5000,
+                15000
+            ]
+        },
+        {
+            "category": "property_tax",
+            "description": "Annual property tax payment",
+            "amount_range": [
+                10000,
+                50000
+            ]
+        },
+        {
+            "category": "utilities",
+            "description": "Common area electricity bill",
+            "amount_range": [
+                500,
+                2000
+            ]
+        },
+        {
+            "category": "hoa",
+            "description": "Society maintenance charges",
+            "amount_range": [
+                3000,
+                8000
+            ]
+        },
+        {
+            "category": "legal",
+            "description": "Legal documentation fees",
+            "amount_range": [
+                2000,
+                10000
+            ]
+        },
+        {
+            "category": "marketing",
+            "description": "Property listing/advertising",
+            "amount_range": [
+                500,
+                3000
+            ]
+        },
+        {
+            "category": "other",
+            "description": "Miscellaneous expenses",
+            "amount_range": [
+                500,
+                5000
+            ]
+        }
+    ],
+    "document_templates": [
+        {
+            "document_type": "lease_agreement",
+            "title": "Lease Agreement - Signed Copy",
+            "file_url": "https://example.com/documents/lease_agreement_sample.pdf"
+        },
+        {
+            "document_type": "id_proof",
+            "title": "Tenant ID Proof - Aadhar Card",
+            "file_url": "https://example.com/documents/id_proof_sample.pdf"
+        },
+        {
+            "document_type": "address_proof",
+            "title": "Tenant Address Proof",
+            "file_url": "https://example.com/documents/address_proof_sample.pdf"
+        },
+        {
+            "document_type": "income_proof",
+            "title": "Tenant Salary Slip",
+            "file_url": "https://example.com/documents/income_proof_sample.pdf"
+        },
+        {
+            "document_type": "property_deed",
+            "title": "Property Ownership Document",
+            "file_url": "https://example.com/documents/property_deed_sample.pdf"
+        },
+        {
+            "document_type": "insurance_policy",
+            "title": "Property Insurance Policy",
+            "file_url": "https://example.com/documents/insurance_policy_sample.pdf"
+        }
+    ],
+    "inspection_rooms": [
+        {
+            "room_name": "Living Room",
+            "items": [
+                {
+                    "name": "Walls",
+                    "condition": "good",
+                    "notes": "Minor scuff marks near entrance"
+                },
+                {
+                    "name": "Flooring",
+                    "condition": "good",
+                    "notes": "Clean and well-maintained"
+                },
+                {
+                    "name": "Windows",
+                    "condition": "good",
+                    "notes": "All windows functioning properly"
+                },
+                {
+                    "name": "Lights",
+                    "condition": "good",
+                    "notes": "All fixtures working"
+                },
+                {
+                    "name": "Ceiling Fan",
+                    "condition": "good",
+                    "notes": "Operating normally"
+                }
+            ]
+        },
+        {
+            "room_name": "Master Bedroom",
+            "items": [
+                {
+                    "name": "Walls",
+                    "condition": "good",
+                    "notes": "Freshly painted"
+                },
+                {
+                    "name": "Flooring",
+                    "condition": "good",
+                    "notes": "No scratches or damage"
+                },
+                {
+                    "name": "Wardrobe",
+                    "condition": "good",
+                    "notes": "All doors functioning"
+                },
+                {
+                    "name": "AC",
+                    "condition": "good",
+                    "notes": "Cooling properly"
+                },
+                {
+                    "name": "Windows",
+                    "condition": "good",
+                    "notes": "Properly sealed"
+                }
+            ]
+        },
+        {
+            "room_name": "Kitchen",
+            "items": [
+                {
+                    "name": "Countertops",
+                    "condition": "good",
+                    "notes": "Clean, no stains"
+                },
+                {
+                    "name": "Sink",
+                    "condition": "good",
+                    "notes": "Drainage working properly"
+                },
+                {
+                    "name": "Cabinets",
+                    "condition": "good",
+                    "notes": "All doors intact"
+                },
+                {
+                    "name": "Exhaust",
+                    "condition": "fair",
+                    "notes": "Needs cleaning"
+                },
+                {
+                    "name": "Stove Connection",
+                    "condition": "good",
+                    "notes": "Gas connection verified"
+                }
+            ]
+        },
+        {
+            "room_name": "Bathroom",
+            "items": [
+                {
+                    "name": "Toilet",
+                    "condition": "good",
+                    "notes": "Flushing properly"
+                },
+                {
+                    "name": "Shower",
+                    "condition": "good",
+                    "notes": "Good water pressure"
+                },
+                {
+                    "name": "Tiles",
+                    "condition": "good",
+                    "notes": "No cracks or damage"
+                },
+                {
+                    "name": "Mirror",
+                    "condition": "good",
+                    "notes": "Clean and intact"
+                },
+                {
+                    "name": "Geyser",
+                    "condition": "good",
+                    "notes": "Heating working"
+                }
+            ]
+        },
+        {
+            "room_name": "Balcony",
+            "items": [
+                {
+                    "name": "Flooring",
+                    "condition": "good",
+                    "notes": "Tiles intact"
+                },
+                {
+                    "name": "Railing",
+                    "condition": "good",
+                    "notes": "Secure and stable"
+                },
+                {
+                    "name": "Drainage",
+                    "condition": "good",
+                    "notes": "No blockage"
+                }
+            ]
+        }
+    ]
+}
