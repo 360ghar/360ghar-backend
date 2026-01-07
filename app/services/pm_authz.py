@@ -70,7 +70,7 @@ async def assert_can_access_property(
     """
     stmt = (
         select(Property)
-        .options(selectinload(Property.owner))
+        .options(selectinload(Property.owner), selectinload(Property.images))
         .where(Property.id == property_id)
     )
     res = await db.execute(stmt)

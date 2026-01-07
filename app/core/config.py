@@ -138,6 +138,9 @@ class Settings(BaseSettings):
         "https://platform.openai.com",
     ]
     
+    # Public base URL for external access (e.g., ngrok, production domain)
+    PUBLIC_BASE_URL: Optional[str] = None
+    
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         case_sensitive=True,
