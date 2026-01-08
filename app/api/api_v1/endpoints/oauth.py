@@ -572,8 +572,8 @@ async def process_consent(
 
         if not auth_data.session or not auth_data.session.access_token:
             logger.warning("OAuth login failed - Supabase auth failed", extra={"phone_prefix": phone[:4] + "****" if len(phone) > 4 else "****"})
-            user_exists = await admin_find_user_by_phone(phone)
-            error_msg = "Invalid phone or password" if user_exists else "User not found"
+            # Use generic error message to prevent user enumeration attacks
+            error_msg = "Invalid phone number or password"
 
             return HTMLResponse(
                 f"""
@@ -635,14 +635,15 @@ async def process_consent(
         return RedirectResponse(url=redirect_url, status_code=303)
 
     except Exception as exc:
-        logger.error("OAuth consent error: %s", exc)
+        logger.error("OAuth consent error: %s", exc, exc_info=True)
+        # Use generic error message to avoid leaking internal details
         return HTMLResponse(
             f"""
             <!DOCTYPE html>
             <html>
             <body>
                 <div class="container">
-                    <div class="error">Authentication failed: {str(exc)}</div>
+                    <div class="error">Authentication failed. Please try again.</div>
                     <a href="/mcp/oauth/consent?session={session}">Try again</a>
                 </div>
             </body>

@@ -9,7 +9,7 @@ Mounted at: /mcp-admin
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.mcp.apps_sdk import (
@@ -19,6 +19,7 @@ from app.mcp.apps_sdk import (
     raise_auth_required,
 )
 
+from app.core.config import MCP_SERVER_VERSION
 from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
@@ -428,7 +429,7 @@ async def agent_properties_verify(
                 features = prop.features or {}
                 features["verification_notes"] = verification_notes
                 features["verified_by"] = user.id
-                features["verified_at"] = datetime.utcnow().isoformat()
+                features["verified_at"] = datetime.now(timezone.utc).isoformat()
                 prop.features = features
 
             await db.flush()
@@ -690,7 +691,7 @@ async def agent_leases_terminate(
     try:
         from app.models.enums import LeaseStatus
 
-        term_date = datetime.utcnow()
+        term_date = datetime.now(timezone.utc)
         if termination_date:
             try:
                 term_date = datetime.fromisoformat(termination_date)
@@ -826,7 +827,7 @@ async def agent_rent_list_due(
             leases = result.scalars().all()
 
             # Calculate due amounts for each lease
-            today = datetime.utcnow().date()
+            today = datetime.now(timezone.utc).date()
             due_items = []
 
             for lease in leases:
@@ -1167,7 +1168,7 @@ async def agent_maintenance_update_status(
             # Update the request
             if notes:
                 existing = getattr(request, "completion_notes", None) or ""
-                stamp = datetime.utcnow().isoformat()
+                stamp = datetime.now(timezone.utc).isoformat()
                 request.completion_notes = f"{existing}\n[{stamp}] {notes}".strip()
             if scheduled_date:
                 try:
@@ -1194,7 +1195,7 @@ async def agent_maintenance_update_status(
                 request.request_status = MaintenanceRequestStatus.resolved
                 request.work_order_status = WorkOrderStatus.completed
                 if request.completed_at is None:
-                    request.completed_at = datetime.utcnow()
+                    request.completed_at = datetime.now(timezone.utc)
             elif status_norm == "cancelled":
                 request.request_status = MaintenanceRequestStatus.closed
                 request.work_order_status = WorkOrderStatus.cancelled
@@ -1449,7 +1450,7 @@ async def agent_dashboard_overview(
             open_maintenance = maint_result.scalar() or 0
 
             # Count upcoming bookings
-            today = datetime.utcnow()
+            today = datetime.now(timezone.utc)
             booking_stmt = (
                 select(func.count(Booking.id))
                 .join(Property, Booking.property_id == Property.id)
@@ -1524,7 +1525,7 @@ async def admin_system_status() -> Dict[str, Any]:
 
         return MCPResponse.success({
             "status": "operational",
-            "version": "2.0.0",
+            "version": MCP_SERVER_VERSION,
             "server": "admin",
             "auth": {
                 "status": auth_status,

@@ -9,6 +9,8 @@ import { createRoot } from 'react-dom/client';
 import { useToolOutput, useTheme, useCallTool, useSendMessage, useWidgetState } from '../utils/bridge';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface Property {
   id: number;
@@ -209,20 +211,18 @@ function PropertySwipeWidget() {
               cursor: 'pointer',
             }}
           >
-            {currentProperty.main_image_url && (
-              <img
-                src={currentProperty.main_image_url}
-                alt={currentProperty.title}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                }}
-              />
-            )}
+            <ImageWithFallback
+              src={currentProperty.main_image_url}
+              alt={currentProperty.title}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
+            />
             {/* Swipe indicators */}
             <div style={{
               position: 'absolute',
@@ -374,6 +374,10 @@ function PropertySwipeWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<PropertySwipeWidget />);
+root.render(
+  <ErrorBoundary>
+    <PropertySwipeWidget />
+  </ErrorBoundary>
+);

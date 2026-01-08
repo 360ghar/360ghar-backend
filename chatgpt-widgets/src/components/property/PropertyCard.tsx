@@ -6,6 +6,7 @@ import React from 'react';
 import { useThemeColors } from '../../utils/theme';
 import { useCallTool, useSendMessage } from '../../utils/bridge';
 import { Card } from '../common/Card';
+import { ImageWithFallback } from '../common/ImageWithFallback';
 
 interface Property {
   id: number;
@@ -60,20 +61,18 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
     <Card padding="none" style={{ overflow: 'hidden' }}>
       {/* Image */}
       <div style={{ position: 'relative', paddingTop: '56.25%', backgroundColor: colors.backgroundSecondary }}>
-        {property.main_image_url && (
-          <img
-            src={property.main_image_url}
-            alt={property.title}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-            }}
-          />
-        )}
+        <ImageWithFallback
+          src={property.main_image_url}
+          alt={property.title}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+        />
         {/* Purpose badge */}
         <span
           style={{

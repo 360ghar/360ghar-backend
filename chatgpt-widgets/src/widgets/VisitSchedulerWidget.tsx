@@ -10,6 +10,8 @@ import { useToolOutput, useTheme, useCallTool, useSendMessage, useRequestClose }
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface PropertyData {
   id: number;
@@ -251,18 +253,16 @@ function VisitSchedulerWidget() {
       {property && (
         <Card padding="md" style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', gap: 12 }}>
-            {property.main_image_url && (
-              <img
-                src={property.main_image_url}
-                alt={property.title}
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 8,
-                  objectFit: 'cover',
-                }}
-              />
-            )}
+            <ImageWithFallback
+              src={property.main_image_url}
+              alt={property.title}
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 8,
+                objectFit: 'cover',
+              }}
+            />
             <div>
               <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{property.title}</h3>
               <p style={{ fontSize: 14, color: colors.textSecondary }}>
@@ -373,6 +373,10 @@ function VisitSchedulerWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<VisitSchedulerWidget />);
+root.render(
+  <ErrorBoundary>
+    <VisitSchedulerWidget />
+  </ErrorBoundary>
+);

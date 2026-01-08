@@ -10,6 +10,8 @@ import { useToolOutput, useTheme, useSendMessage, useCallTool } from '../utils/b
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface PropertyImage {
   id: number;
@@ -140,7 +142,7 @@ function PropertyDetailsWidget() {
       {/* Image Gallery */}
       {images.length > 0 && (
         <div style={{ position: 'relative', width: '100%', paddingTop: '56.25%', backgroundColor: colors.backgroundSecondary }}>
-          <img
+          <ImageWithFallback
             src={images[currentImageIndex].url}
             alt={images[currentImageIndex].caption || property.title}
             style={{
@@ -379,6 +381,10 @@ function PropertyDetailsWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<PropertyDetailsWidget />);
+root.render(
+  <ErrorBoundary>
+    <PropertyDetailsWidget />
+  </ErrorBoundary>
+);

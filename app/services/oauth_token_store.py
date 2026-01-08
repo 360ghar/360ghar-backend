@@ -101,15 +101,24 @@ class OAuthTokenStore:
             return False
     
     async def get_auth_code(self, code: str) -> Optional[Dict[str, Any]]:
-        """Retrieve and consume authorization code"""
+        """Retrieve and consume authorization code (atomic operation)."""
         logger.debug("Retrieving auth code")
         try:
             if self.use_redis:
                 key = self._make_key("auth_code", code)
-                data = self._redis_client.get(key)
+                # Use GETDEL for atomic get-and-delete operation to prevent race conditions
+                # GETDEL is available in Redis 6.2+, fall back to pipeline for older versions
+                try:
+                    data = self._redis_client.getdel(key)
+                except AttributeError:
+                    # Fallback for Redis < 6.2: use pipeline for near-atomic operation
+                    pipe = self._redis_client.pipeline()
+                    pipe.get(key)
+                    pipe.delete(key)
+                    results = pipe.execute()
+                    data = results[0]
+
                 if data:
-                    # Delete the code after retrieval (one-time use)
-                    self._redis_client.delete(key)
                     result = self._deserialize_data(data)
                     logger.debug("Auth code retrieved and consumed", extra={"user_id": result.get("user_id")})
                     return result

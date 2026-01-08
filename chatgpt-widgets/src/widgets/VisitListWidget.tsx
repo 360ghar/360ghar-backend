@@ -10,6 +10,8 @@ import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/b
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface PropertyData {
   id: number;
@@ -236,27 +238,25 @@ function VisitListWidget() {
             <Card key={visit.id} padding="none" style={{ overflow: 'hidden' }}>
               <div style={{ display: 'flex' }}>
                 {/* Property Image */}
-                {visit.property?.main_image_url && (
-                  <div
-                    onClick={() => visit.property && handleViewProperty(visit.property.id)}
+                <div
+                  onClick={() => visit.property && handleViewProperty(visit.property.id)}
+                  style={{
+                    width: 100,
+                    minHeight: 100,
+                    backgroundColor: colors.backgroundSecondary,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <ImageWithFallback
+                    src={visit.property?.main_image_url}
+                    alt={visit.property?.title || 'Property'}
                     style={{
-                      width: 100,
-                      minHeight: 100,
-                      backgroundColor: colors.backgroundSecondary,
-                      cursor: 'pointer',
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
                     }}
-                  >
-                    <img
-                      src={visit.property.main_image_url}
-                      alt={visit.property.title}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                    />
-                  </div>
-                )}
+                  />
+                </div>
 
                 {/* Content */}
                 <div style={{ flex: 1, padding: 12 }}>
@@ -360,6 +360,10 @@ function VisitListWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<VisitListWidget />);
+root.render(
+  <ErrorBoundary>
+    <VisitListWidget />
+  </ErrorBoundary>
+);

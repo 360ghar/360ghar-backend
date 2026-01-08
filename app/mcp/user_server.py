@@ -20,6 +20,7 @@ from app.mcp.apps_sdk import (
     raise_auth_required,
 )
 
+from app.core.config import MCP_SERVER_VERSION
 from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
@@ -213,10 +214,7 @@ async def owner_properties_list(
         raise
     except Exception as e:
         logger.error(f"Error in owner.properties.list: {e}", exc_info=True)
-        return {
-            "error": True,
-            "message": "Failed to list properties.",
-        }
+        return internal_error_response("Failed to list properties.")
 
 
 @user_mcp.tool(
@@ -628,10 +626,7 @@ async def tenant_lease_current() -> Dict[str, Any]:
         raise
     except Exception as e:
         logger.error(f"Error in tenant.lease.current: {e}", exc_info=True)
-        return {
-            "error": True,
-            "message": "Failed to get current lease.",
-        }
+        return internal_error_response("Failed to get current lease.")
 
 
 @user_mcp.tool(
@@ -715,10 +710,7 @@ async def tenant_rent_history(
         raise
     except Exception as e:
         logger.error(f"Error in tenant.rent.history: {e}", exc_info=True)
-        return {
-            "error": True,
-            "message": "Failed to get rent history.",
-        }
+        return internal_error_response("Failed to get rent history.")
 
 
 @user_mcp.tool(
@@ -762,11 +754,10 @@ async def tenant_maintenance_create(
             cat = MaintenanceCategory(category.lower())
         except ValueError:
             valid_categories = [c.value for c in MaintenanceCategory]
-            return {
-                "error": True,
-                "message": f"Invalid category: {category}.",
-                "valid_categories": valid_categories,
-            }
+            return invalid_input_response(
+                f"Invalid category: {category}.",
+                details={"valid_categories": valid_categories}
+            )
 
         priority_norm = priority.lower().strip()
         urgency_map = {
@@ -778,11 +769,10 @@ async def tenant_maintenance_create(
         }
         urgency = urgency_map.get(priority_norm)
         if urgency is None:
-            return {
-                "error": True,
-                "message": f"Invalid priority: {priority}.",
-                "valid_priorities": ["low", "medium", "high", "urgent"],
-            }
+            return invalid_input_response(
+                f"Invalid priority: {priority}.",
+                details={"valid_priorities": ["low", "medium", "high", "urgent"]}
+            )
 
         async for db in get_db():
             user = await _get_user(db)
@@ -803,11 +793,10 @@ async def tenant_maintenance_create(
             lease = lease_result.scalar_one_or_none()
 
             if not lease:
-                return {
-                    "error": True,
-                    "code": "INSUFFICIENT_PERMISSIONS",
-                    "message": "You do not have an active lease for this property.",
-                }
+                return MCPResponse.failure(
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                    "You do not have an active lease for this property."
+                ).dict()
 
             # Create maintenance request
             request = MaintenanceRequest(
@@ -834,10 +823,7 @@ async def tenant_maintenance_create(
         raise
     except Exception as e:
         logger.error(f"Error in tenant.maintenance.create: {e}", exc_info=True)
-        return {
-            "error": True,
-            "message": "Failed to create maintenance request.",
-        }
+        return internal_error_response("Failed to create maintenance request.")
 
 
 @user_mcp.tool(
@@ -877,6 +863,19 @@ async def tenant_maintenance_list(
                     scope="mcp:read",
                 )
 
+            # Get the user's current lease to provide property_id for creating new requests
+            from app.models.pm_leases import Lease
+            from app.models.enums import LeaseStatus
+            current_property_id = None
+            lease_stmt = select(Lease).where(
+                Lease.tenant_user_id == user.id,
+                Lease.status == LeaseStatus.active,
+            ).limit(1)
+            lease_result = await db.execute(lease_stmt)
+            active_lease = lease_result.scalar_one_or_none()
+            if active_lease:
+                current_property_id = active_lease.property_id
+
             stmt = select(MaintenanceRequest).where(
                 MaintenanceRequest.tenant_user_id == user.id
             )
@@ -894,17 +893,18 @@ async def tenant_maintenance_list(
                 elif status_norm == "cancelled":
                     stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
                 else:
-                    return {
-                        "error": True,
-                        "message": f"Invalid status: {status}.",
-                        "valid_statuses": [
-                            "open",
-                            "in_progress",
-                            "scheduled",
-                            "completed",
-                            "cancelled",
-                        ],
-                    }
+                    return invalid_input_response(
+                        f"Invalid status: {status}.",
+                        details={
+                            "valid_statuses": [
+                                "open",
+                                "in_progress",
+                                "scheduled",
+                                "completed",
+                                "cancelled",
+                            ]
+                        }
+                    )
 
             offset = (page - 1) * limit
             stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
@@ -921,15 +921,13 @@ async def tenant_maintenance_list(
                 "page": page,
                 "limit": limit,
                 "total_pages": (total + limit - 1) // limit if total else 0,
+                "current_property_id": current_property_id,
             }
     except AuthRequiredError:
         raise
     except Exception as e:
         logger.error(f"Error in tenant.maintenance.list: {e}", exc_info=True)
-        return {
-            "error": True,
-            "message": "Failed to list maintenance requests.",
-        }
+        return internal_error_response("Failed to list maintenance requests.")
 
 
 # ============================================================================
@@ -1321,7 +1319,7 @@ async def user_system_status() -> Dict[str, Any]:
 
         return MCPResponse.success({
             "status": "operational",
-            "version": "2.0.0",
+            "version": MCP_SERVER_VERSION,
             "server": "user",
             "auth": {
                 "status": auth_status,

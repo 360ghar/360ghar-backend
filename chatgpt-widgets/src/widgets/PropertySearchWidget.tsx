@@ -9,6 +9,7 @@ import { createRoot } from 'react-dom/client';
 import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/bridge';
 import { themeColors } from '../utils/theme';
 import { PropertyCard } from '../components/property/PropertyCard';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface Property {
   id: number;
@@ -177,6 +178,10 @@ function PropertySearchWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<PropertySearchWidget />);
+root.render(
+  <ErrorBoundary>
+    <PropertySearchWidget />
+  </ErrorBoundary>
+);

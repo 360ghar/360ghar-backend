@@ -10,6 +10,8 @@ import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/b
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface Property {
   id: number;
@@ -224,17 +226,15 @@ function OwnerDashboardWidget() {
                   backgroundColor: colors.backgroundSecondary,
                   flexShrink: 0,
                 }}>
-                  {property.main_image_url && (
-                    <img
-                      src={property.main_image_url}
-                      alt={property.title}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                    />
-                  )}
+                  <ImageWithFallback
+                    src={property.main_image_url}
+                    alt={property.title}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                    }}
+                  />
                 </div>
 
                 {/* Content */}
@@ -339,6 +339,10 @@ function OwnerDashboardWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<OwnerDashboardWidget />);
+root.render(
+  <ErrorBoundary>
+    <OwnerDashboardWidget />
+  </ErrorBoundary>
+);

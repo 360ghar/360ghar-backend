@@ -10,6 +10,8 @@ import { useToolOutput, useTheme, useSendMessage } from '../utils/bridge';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ImageWithFallback } from '../components/common/ImageWithFallback';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface PropertyData {
   id: number;
@@ -193,17 +195,15 @@ function LeaseDetailsWidget() {
       {lease.property && (
         <Card padding="none" style={{ marginBottom: 16, overflow: 'hidden' }}>
           <div style={{ display: 'flex' }}>
-            {lease.property.main_image_url && (
-              <img
-                src={lease.property.main_image_url}
-                alt={lease.property.title}
-                style={{
-                  width: 100,
-                  height: 100,
-                  objectFit: 'cover',
-                }}
-              />
-            )}
+            <ImageWithFallback
+              src={lease.property.main_image_url}
+              alt={lease.property.title}
+              style={{
+                width: 100,
+                height: 100,
+                objectFit: 'cover',
+              }}
+            />
             <div style={{ padding: 12, flex: 1 }}>
               <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
                 {lease.property.title}
@@ -288,6 +288,10 @@ function LeaseDetailsWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<LeaseDetailsWidget />);
+root.render(
+  <ErrorBoundary>
+    <LeaseDetailsWidget />
+  </ErrorBoundary>
+);

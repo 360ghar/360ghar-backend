@@ -5,6 +5,9 @@ from typing import Optional
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 
+# MCP Server version - centralized to ensure consistency across servers
+MCP_SERVER_VERSION = "2.0.0"
+
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"

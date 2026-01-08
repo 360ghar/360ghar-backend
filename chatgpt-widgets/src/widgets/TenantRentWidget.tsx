@@ -10,6 +10,7 @@ import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/b
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface RentCharge {
   id: number;
@@ -347,6 +348,10 @@ function TenantRentWidget() {
   );
 }
 
-// Mount the widget
+// Mount the widget with ErrorBoundary
 const root = createRoot(document.getElementById('root')!);
-root.render(<TenantRentWidget />);
+root.render(
+  <ErrorBoundary>
+    <TenantRentWidget />
+  </ErrorBoundary>
+);

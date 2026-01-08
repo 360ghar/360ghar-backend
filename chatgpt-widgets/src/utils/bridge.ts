@@ -16,6 +16,29 @@ interface SetGlobalsEvent extends Event {
 }
 
 /**
+ * Check if window.openai API is available.
+ * Returns false when running outside of ChatGPT environment.
+ */
+function isOpenAiAvailable(): boolean {
+  return typeof window !== 'undefined' && window.openai !== undefined;
+}
+
+/**
+ * Get a default value for OpenAI globals when API is not available.
+ */
+function getDefaultGlobal<K extends keyof OpenAiGlobals>(key: K): OpenAiGlobals[K] {
+  const defaults: Partial<OpenAiGlobals> = {
+    theme: 'light',
+    displayMode: 'inline',
+    toolOutput: null,
+    toolInput: null,
+    toolResponseMetadata: null,
+    widgetState: null,
+  };
+  return defaults[key] as OpenAiGlobals[K];
+}
+
+/**
  * Hook to subscribe to a specific window.openai global value.
  * Re-renders when the value changes.
  */
@@ -33,7 +56,7 @@ export function useOpenAiGlobal<K extends keyof OpenAiGlobals>(
       window.addEventListener(SET_GLOBALS_EVENT_TYPE, handleSetGlobal);
       return () => window.removeEventListener(SET_GLOBALS_EVENT_TYPE, handleSetGlobal);
     },
-    () => window.openai[key]
+    () => isOpenAiAvailable() ? window.openai[key] : getDefaultGlobal(key)
   );
 }
 
@@ -61,7 +84,9 @@ export function useWidgetState<T extends Record<string, unknown>>(): [
   const state = useOpenAiGlobal('widgetState') as T | null;
 
   const setState = useCallback((newState: T) => {
-    window.openai.setWidgetState(newState);
+    if (isOpenAiAvailable()) {
+      window.openai.setWidgetState(newState);
+    }
   }, []);
 
   return [state, setState];
@@ -75,15 +100,64 @@ export function useTheme(): 'light' | 'dark' {
 }
 
 /**
+ * MCP error response structure.
+ */
+export interface MCPError {
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/**
+ * MCP response structure for tool calls.
+ */
+export interface MCPToolResponse<T = unknown> {
+  ok: boolean;
+  data?: T;
+  error?: MCPError;
+}
+
+/**
+ * Error thrown when an MCP tool call fails.
+ */
+export class MCPToolError extends Error {
+  code: string;
+  details?: Record<string, unknown>;
+
+  constructor(error: MCPError) {
+    super(error.message);
+    this.name = 'MCPToolError';
+    this.code = error.code;
+    this.details = error.details;
+  }
+}
+
+/**
  * Hook to call an MCP tool.
+ * Throws MCPToolError if the tool returns an error response.
  */
 export function useCallTool() {
   return useCallback(async <T = unknown>(
     name: string,
     args: Record<string, unknown>
   ): Promise<T> => {
-    const result = await window.openai.callTool<T>(name, args);
-    return result.structuredContent;
+    if (!isOpenAiAvailable()) {
+      throw new Error('OpenAI API is not available. This widget must run inside ChatGPT.');
+    }
+    const result = await window.openai.callTool<MCPToolResponse<T>>(name, args);
+    const response = result.structuredContent;
+
+    // Check if the response indicates an error
+    if (response && typeof response === 'object' && 'ok' in response) {
+      if (!response.ok && response.error) {
+        throw new MCPToolError(response.error);
+      }
+      // Return just the data for successful responses
+      return response.data as T;
+    }
+
+    // Fallback for tools that don't use MCPResponse format
+    return response as T;
   }, []);
 }
 
@@ -92,7 +166,9 @@ export function useCallTool() {
  */
 export function useSendMessage() {
   return useCallback((prompt: string) => {
-    window.openai.sendFollowUpMessage({ prompt });
+    if (isOpenAiAvailable()) {
+      window.openai.sendFollowUpMessage({ prompt });
+    }
   }, []);
 }
 
@@ -101,6 +177,8 @@ export function useSendMessage() {
  */
 export function useRequestClose() {
   return useCallback(() => {
-    window.openai.requestClose();
+    if (isOpenAiAvailable()) {
+      window.openai.requestClose();
+    }
   }, []);
 }

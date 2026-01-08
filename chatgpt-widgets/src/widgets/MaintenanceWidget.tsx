@@ -10,6 +10,7 @@ import { useToolOutput, useTheme, useCallTool, useSendMessage, useWidgetState } 
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { ErrorBoundary } from '../components/common/ErrorBoundary';
 
 interface MaintenanceRequest {
   id: number;
@@ -36,6 +37,8 @@ interface MaintenanceListOutput {
   error?: boolean;
   message?: string;
   requires_auth?: boolean;
+  // Current lease property ID for creating maintenance requests
+  current_property_id?: number;
 }
 
 interface MaintenanceCreateOutput {
@@ -232,9 +235,16 @@ function MaintenanceWidget() {
       setError(null);
 
       try {
-        // We need to get property_id from the user's lease
+        // Get property_id from the data context (current lease)
+        const propertyId = data.current_property_id;
+        if (!propertyId) {
+          setError('No active lease found. Please contact support.');
+          setIsSubmitting(false);
+          return;
+        }
+
         const result = await callTool('tenant.maintenance.create', {
-          property_id: 1, // This would come from context
+          property_id: propertyId,
           title,
           description,
           category,
@@ -511,6 +521,13 @@ function MaintenanceWidget() {
   );
 }
 
-// Mount the widget
-const root = createRoot(document.getElementById('root')!);
-root.render(<MaintenanceWidget />);
+// Mount the widget with ErrorBoundary
+const rootElement = document.getElementById('root');
+if (rootElement) {
+  const root = createRoot(rootElement);
+  root.render(
+    <ErrorBoundary>
+      <MaintenanceWidget />
+    </ErrorBoundary>
+  );
+}
