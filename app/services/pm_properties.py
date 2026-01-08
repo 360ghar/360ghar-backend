@@ -51,13 +51,8 @@ async def create_managed_property(
     prop = Property(**property_dict)
     db.add(prop)
     await db.flush()
-    await db.refresh(prop)
-    
-    # Eagerly load images to avoid lazy-loading issues in async context
-    stmt = select(Property).options(selectinload(Property.images)).where(Property.id == prop.id)
-    result = await db.execute(stmt)
-    prop = result.scalar_one()
-    
+    await db.refresh(prop, ["images"])
+
     return prop
 
 
@@ -156,12 +151,7 @@ async def update_managed_property(
 
     prop.is_managed = True
     await db.flush()
-    await db.refresh(prop)
-    
-    # Eagerly load images to avoid lazy-loading issues in async context
-    stmt = select(Property).options(selectinload(Property.images)).where(Property.id == prop.id)
-    result = await db.execute(stmt)
-    prop = result.scalar_one()
-    
+    await db.refresh(prop, ["images"])
+
     return prop
 

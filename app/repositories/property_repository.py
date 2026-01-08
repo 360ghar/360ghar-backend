@@ -1,36 +1,37 @@
 """
 Repository for property data access
 """
-from typing import Optional, List, Dict, Any
-from sqlalchemy import select, func, and_, or_, desc
-from sqlalchemy.orm import selectinload
+
+from typing import Any, Dict, List, Optional
+
+from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.repositories.base import BaseRepository
+from sqlalchemy.orm import selectinload
+
+from app.core.logging import get_logger
 from app.models.properties import Property, PropertyAmenity
 from app.models.users import User
+from app.repositories.base import BaseRepository
 from app.schemas.property import SortBy
-from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 class PropertyRepository(BaseRepository[Property]):
     """Property repository with query helpers"""
-    
+
     def __init__(self, session: AsyncSession):
         super().__init__(Property, session)
-    
+
     async def get_property_with_owner(self, property_id: int) -> Optional[Property]:
         stmt = (
             select(Property)
-            .options(
-                selectinload(Property.images),
-                selectinload(Property.owner)
-            )
+            .options(selectinload(Property.images), selectinload(Property.owner))
             .where(Property.id == property_id)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
-    
+
     async def get_properties_filtered(
         self,
         filters: Dict[str, Any],
@@ -39,7 +40,7 @@ class PropertyRepository(BaseRepository[Property]):
         sort_by: SortBy,
         sort_order: str,
         include_owner: bool = False,
-        include_images: bool = False
+        include_images: bool = False,
     ) -> List[Property]:
         stmt = select(Property)
 
@@ -66,15 +67,15 @@ class PropertyRepository(BaseRepository[Property]):
                         radius_km * 1000,  # Convert km to meters
                     )
                 )
-        
+
         if include_owner:
             stmt = stmt.options(selectinload(Property.owner))
         if include_images:
             stmt = stmt.options(selectinload(Property.images))
-        
+
         # Apply filters
         stmt = self._apply_filters(stmt, filters)
-        
+
         # Sorting
         stmt = self._apply_sorting(
             stmt,
@@ -82,13 +83,13 @@ class PropertyRepository(BaseRepository[Property]):
             sort_order,
             distance_expr=distance_expr,
         )
-        
+
         # Pagination
         stmt = stmt.offset(skip).limit(limit)
-        
+
         result = await self.session.execute(stmt)
         return result.scalars().all()
-    
+
     async def get_properties_within_radius(
         self,
         latitude: float,
@@ -96,7 +97,7 @@ class PropertyRepository(BaseRepository[Property]):
         radius_km: int,
         filters: Dict[str, Any],
         skip: int,
-        limit: int
+        limit: int,
     ) -> List[Property]:
         center_point = func.ST_SetSRID(func.ST_MakePoint(longitude, latitude), 4326)
         stmt = select(Property)
@@ -104,32 +105,32 @@ class PropertyRepository(BaseRepository[Property]):
             func.ST_DWithin(
                 Property.location,
                 center_point,
-                radius_km * 1000  # Convert km to meters
+                radius_km * 1000,  # Convert km to meters
             )
         )
-        
+
         stmt = self._apply_filters(stmt, filters)
         stmt = stmt.order_by(func.ST_Distance(Property.location, center_point))
         stmt = stmt.offset(skip).limit(limit)
-        
+
         result = await self.session.execute(stmt)
         return result.scalars().all()
-    
+
     async def count_filtered(self, filters: Dict[str, Any]) -> int:
         stmt = select(func.count(Property.id))
         stmt = self._apply_filters(stmt, filters)
         result = await self.session.execute(stmt)
         return result.scalar_one()
-    
+
     def _apply_filters(self, stmt, filters: Dict[str, Any]):
         """Apply dynamic filters to a SQLAlchemy statement"""
         if not filters:
             return stmt
-        
+
         for field, value in filters.items():
             if value is None:
                 continue
-            
+
             if field == "price_range":
                 min_price, max_price = value
                 if min_price is not None:
@@ -143,7 +144,7 @@ class PropertyRepository(BaseRepository[Property]):
             elif hasattr(Property, field):
                 stmt = stmt.where(getattr(Property, field) == value)
         return stmt
-    
+
     def _apply_sorting(
         self,
         stmt,
