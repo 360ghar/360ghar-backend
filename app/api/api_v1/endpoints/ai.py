@@ -7,7 +7,7 @@ This module provides REST API endpoints for AI-powered features:
 - Description generation
 - AI job management
 """
-from typing import Optional, List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,14 +17,16 @@ from app.core.logging import get_logger
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.schemas.user import User as UserSchema
 from app.schemas.tour import (
-    AIJobBase,
+    AIJobListResponse,
     AIJobResponse,
     AIJobStatusResponse,
-    AIJobListResponse,
-    DescriptionOptions,
-    ApplySceneAnalysis,
     ApplyHotspotSuggestions,
-    Hotspot,
+    ApplySceneAnalysis,
+    DescriptionOptions,
+    TourGenerationRequest,
+    TourGenerationResponse,
+    TourOptimizationRequest,
+    TourOptimizationResponse,
 )
 from app.services import tour_ai
 
@@ -52,6 +54,46 @@ async def analyze_tour_scenes(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
+    )
+    return {"job": job}
+
+
+# ====================
+# Tour Generation & Optimization
+# ====================
+
+@router.post("/tours/generate", response_model=TourGenerationResponse)
+async def generate_tour(
+    payload: TourGenerationRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Generate a new tour from uploaded scenes using AI.
+    """
+    job, tour, scene_ids = await tour_ai.generate_tour(
+        db=db,
+        user_id=current_user.id,
+        data=payload,
+    )
+    return {"job": job, "tour_id": tour.id, "scene_ids": scene_ids}
+
+
+@router.post("/tours/{tour_id}/optimize", response_model=TourOptimizationResponse)
+async def optimize_tour(
+    tour_id: str,
+    payload: Optional[TourOptimizationRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Optimize an existing tour using AI suggestions.
+    """
+    job = await tour_ai.optimize_tour(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+        options=payload.model_dump(exclude_unset=True) if payload else None,
     )
     return {"job": job}
 

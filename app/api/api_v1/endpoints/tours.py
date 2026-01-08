@@ -5,27 +5,27 @@ This module provides REST API endpoints for managing virtual tours,
 including CRUD operations, publishing, duplication, and analytics.
 """
 from datetime import date
-from typing import Optional, List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.schemas.user import User as UserSchema
 from app.models.enums import TourStatus
 from app.schemas.tour import (
-    Tour,
-    TourCreate,
-    TourUpdate,
-    TourWithScenes,
-    TourAnalytics,
     PaginatedTourResponse,
     Scene,
     SceneCreate,
     SceneReorder,
+    Tour,
+    TourCreate,
+    TourAnalytics,
+    TourUpdate,
+    TourWithScenes,
 )
+from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
 
 router = APIRouter()
@@ -51,7 +51,7 @@ async def list_tours(
         user_id=current_user.id,
         page=page,
         page_size=page_size,
-        status=status,
+        status_filter=status,
         search=search,
     )
     return result
@@ -71,7 +71,7 @@ async def create_tour(
     tour = await tour_service.create_tour(
         db=db,
         user_id=current_user.id,
-        tour_data=tour_data,
+        data=tour_data,
     )
     return tour
 
@@ -87,7 +87,11 @@ async def get_tour(
 
     Returns the complete tour structure including nested scenes and their hotspots.
     """
-    tour = await tour_service.get_tour(db=db, tour_id=tour_id)
+    tour = await tour_service.get_tour(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+    )
     if not tour:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -120,7 +124,7 @@ async def update_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
-        tour_data=tour_data,
+        data=tour_data,
     )
     if not tour:
         raise HTTPException(
@@ -241,7 +245,11 @@ async def get_tour_analytics(
     Returns view counts, engagement metrics, device breakdown, and daily views.
     """
     # First verify ownership
-    tour = await tour_service.get_tour(db=db, tour_id=tour_id)
+    tour = await tour_service.get_tour(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+    )
     if not tour:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -256,6 +264,7 @@ async def get_tour_analytics(
     analytics = await tour_service.get_tour_analytics(
         db=db,
         tour_id=tour_id,
+        user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
     )
@@ -275,7 +284,11 @@ async def list_scenes(
     Returns scenes ordered by their order_index.
     """
     # Verify tour ownership
-    tour = await tour_service.get_tour(db=db, tour_id=tour_id)
+    tour = await tour_service.get_tour(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+    )
     if not tour:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -287,7 +300,7 @@ async def list_scenes(
             detail="Not authorized to access this tour"
         )
 
-    scenes = await tour_service.get_scenes(db=db, tour_id=tour_id)
+    scenes = await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
     return scenes
 
 
@@ -307,7 +320,7 @@ async def create_scene(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
-        scene_data=scene_data,
+        data=scene_data,
     )
     if not scene:
         raise HTTPException(

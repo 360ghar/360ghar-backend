@@ -7,15 +7,15 @@ including CRUD operations and position updates.
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.schemas.user import User as UserSchema
 from app.schemas.tour import (
     Hotspot,
-    HotspotUpdate,
     HotspotPositionUpdate,
+    HotspotUpdate,
 )
+from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
 
 router = APIRouter()
@@ -39,14 +39,14 @@ async def get_hotspot(
         )
 
     # Verify ownership through scene -> tour chain
-    scene = await tour_service.get_scene(db=db, scene_id=hotspot.scene_id)
+    scene = await tour_service.get_scene(db=db, scene_id=hotspot.scene_id, user_id=current_user.id)
     if not scene:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Scene not found"
         )
 
-    tour = await tour_service.get_tour(db=db, tour_id=scene.tour_id)
+    tour = await tour_service.get_tour(db=db, tour_id=scene.tour_id, user_id=current_user.id)
     if not tour or tour.user_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -72,7 +72,7 @@ async def update_hotspot(
         db=db,
         hotspot_id=hotspot_id,
         user_id=current_user.id,
-        hotspot_data=hotspot_data,
+        data=hotspot_data,
     )
     if not hotspot:
         raise HTTPException(

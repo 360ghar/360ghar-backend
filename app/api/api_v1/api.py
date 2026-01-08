@@ -30,6 +30,7 @@ from app.api.api_v1.endpoints import (
     tours,
     scenes,
     hotspots,
+    floor_plans,
     dashboard,
     public,
     ai,
@@ -76,6 +77,7 @@ api_router.include_router(vastu.router, prefix="/vastu", tags=["vastu"])
 api_router.include_router(tours.router, prefix="/tours", tags=["tours"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(hotspots.router, prefix="/hotspots", tags=["hotspots"])
+api_router.include_router(floor_plans.router, tags=["floor-plans"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 # 360 Virtual Tours - Public endpoints (no auth required)

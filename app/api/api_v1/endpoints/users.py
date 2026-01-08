@@ -1,31 +1,53 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+
 from app.api.api_v1.dependencies.auth import (
     get_current_active_user,
     get_current_admin,
     get_current_agent,
 )
+from app.core.database import get_db
 from app.models.enums import UserRole
-from app.schemas.user import UserUpdate, User as UserSchema, UserPreferences, LocationUpdate
 from app.schemas.common import (
     MessageResponse,
-    PaginatedResponse,
     NotificationSettings,
+    PaginatedResponse,
     PrivacySettings,
 )
+from app.schemas.user import LocationUpdate, User as UserSchema, UserPreferences, UserUpdate
+from app.services.agent import assign_agent_to_user
 from app.services.user import (
-    update_user,
-    update_user_location,
-    update_user_preferences,
-    update_user_notification_settings,
-    update_user_privacy_settings,
     get_all_users,
     get_user_by_id,
+    update_user,
+    update_user_location,
+    update_user_notification_settings,
+    update_user_preferences,
+    update_user_privacy_settings,
 )
-from app.services.agent import assign_agent_to_user
 
 router = APIRouter()
+
+@router.get("/me", response_model=UserSchema)
+async def get_user_me(current_user: UserSchema = Depends(get_current_active_user)):
+    """Get current user profile (alias for /profile)."""
+    return current_user
+
+
+@router.put("/me", response_model=UserSchema)
+async def update_user_me(
+    user_update: UserUpdate,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update current user profile (alias for /profile)."""
+    updated_user = await update_user(db, current_user.id, user_update, actor=current_user)
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    from app.schemas.user import User as UserSchemaModel
+
+    return UserSchemaModel.model_validate(updated_user)
+
 
 @router.get("/profile/", response_model=UserSchema)
 async def get_user_profile(current_user: UserSchema = Depends(get_current_active_user)):

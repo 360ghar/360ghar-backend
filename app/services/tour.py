@@ -3,25 +3,40 @@ Service layer for 360 Virtual Tour operations.
 
 This module contains business logic for tour, scene, and hotspot management.
 """
+import asyncio
 from datetime import datetime
-from typing import Optional, List
+from typing import List, Optional
 from uuid import uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
-from app.models.tours import Tour, Scene, Hotspot, TourAnalyticsEvent
-from app.models.enums import TourStatus, HotspotType
+from app.models.enums import TourStatus
+from app.models.tours import FloorPlan, Hotspot, Scene, Tour, TourAnalyticsEvent
 from app.schemas.tour import (
-    TourCreate, TourUpdate, SceneCreate, SceneUpdate,
-    HotspotCreate, HotspotUpdate, HotspotPositionUpdate,
-    TourAnalytics, DashboardStats, DeviceBreakdown, DailyView
+    DailyView,
+    DashboardStats,
+    DeviceBreakdown,
+    FloorPlanCreate,
+    FloorPlanUpdate,
+    HotspotCreate,
+    HotspotPositionUpdate,
+    HotspotUpdate,
+    SceneCreate,
+    SceneUpdate,
+    TourAnalytics,
+    TourCreate,
+    TourUpdate,
 )
 
 logger = get_logger(__name__)
+
+
+# Background task registry for scene processing
+_scene_processing_tasks: dict = {}
 
 
 # ====================
@@ -178,7 +193,7 @@ async def delete_tour(
     db: AsyncSession,
     tour_id: str,
     user_id: int
-) -> None:
+) -> bool:
     """Soft delete a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
 
@@ -193,6 +208,7 @@ async def delete_tour(
     await db.commit()
 
     logger.info(f"Tour deleted: {tour_id}")
+    return True
 
 
 async def publish_tour(
@@ -317,8 +333,10 @@ async def duplicate_tour(
                 title=hotspot.title,
                 description=hotspot.description,
                 icon=hotspot.icon,
+                icon_name=hotspot.icon_name,
                 icon_color=hotspot.icon_color,
                 icon_size=hotspot.icon_size,
+                content=hotspot.content,
                 custom_data=hotspot.custom_data,
                 order_index=hotspot.order_index,
                 is_active=hotspot.is_active
@@ -411,12 +429,25 @@ async def create_scene(
         image_url=data.image_url,
         thumbnail_url=data.thumbnail_url,
         order_index=data.order_index if data.order_index is not None else max_order + 1,
-        scene_metadata=data.metadata.model_dump() if data.metadata else None
+        scene_metadata=data.metadata.model_dump() if data.metadata else None,
+        is_processed=False,  # Will be set to True after background processing
     )
 
     db.add(scene)
     await db.commit()
     await db.refresh(scene)
+
+    # Schedule background processing for thumbnail generation
+    if data.image_url and not data.thumbnail_url:
+        schedule_scene_processing(
+            scene_id=scene.id,
+            tour_id=tour_id,
+            image_url=data.image_url,
+        )
+    else:
+        # Mark as processed if thumbnail already provided
+        scene.is_processed = True
+        await db.commit()
 
     logger.info(f"Scene created: {scene.id} in tour {tour_id}")
     return scene
@@ -456,7 +487,7 @@ async def delete_scene(
     db: AsyncSession,
     scene_id: str,
     user_id: int
-) -> None:
+) -> bool:
     """Delete a scene."""
     scene = await get_scene(db, scene_id, user_id)
 
@@ -470,6 +501,7 @@ async def delete_scene(
     await db.commit()
 
     logger.info(f"Scene deleted: {scene_id}")
+    return True
 
 
 async def reorder_scenes(
@@ -573,8 +605,10 @@ async def create_hotspot(
         title=data.title,
         description=data.description,
         icon=data.icon,
+        icon_name=data.icon_name,
         icon_color=data.icon_color,
         icon_size=data.icon_size or 32,
+        content=data.content,
         custom_data=data.custom_data,
         order_index=max_order + 1
     )
@@ -621,7 +655,7 @@ async def delete_hotspot(
     db: AsyncSession,
     hotspot_id: str,
     user_id: int
-) -> None:
+) -> bool:
     """Delete a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
 
@@ -636,6 +670,7 @@ async def delete_hotspot(
     await db.commit()
 
     logger.info(f"Hotspot deleted: {hotspot_id}")
+    return True
 
 
 async def update_hotspot_position(
@@ -707,8 +742,14 @@ async def get_tour_analytics(
     country_counts: dict = {}
     daily_views_map: dict = {}
     unique_sessions: set = set()
+    heatmap_points: List[dict] = []
+    share_breakdown: dict = {}
+    session_starts: dict = {}
+    session_durations: List[float] = []
 
     for event in events:
+        event_payload = event.event_data or {}
+
         if event.session_id:
             unique_sessions.add(event.session_id)
 
@@ -717,6 +758,36 @@ async def get_tour_analytics(
 
         if event.event_type == "hotspot_click" and event.hotspot_id:
             hotspot_clicks[event.hotspot_id] = hotspot_clicks.get(event.hotspot_id, 0) + 1
+
+        if event.event_type == "heatmap":
+            heatmap_points.append(
+                {
+                    "scene_id": event.scene_id,
+                    "yaw": event_payload.get("yaw"),
+                    "pitch": event_payload.get("pitch"),
+                    "x": event_payload.get("x"),
+                    "y": event_payload.get("y"),
+                    "intensity": event_payload.get("intensity", 1.0),
+                }
+            )
+
+        if event.event_type == "share":
+            platform = event_payload.get("platform") or event_payload.get("channel") or "unknown"
+            share_breakdown[platform] = share_breakdown.get(platform, 0) + 1
+
+        if event.event_type == "session_start" and event.session_id:
+            session_starts[event.session_id] = event.created_at
+
+        if event.event_type in {"session_end", "session_duration"}:
+            duration = event_payload.get("duration_seconds")
+            if duration is None and event_payload.get("duration_ms") is not None:
+                duration = event_payload.get("duration_ms") / 1000
+            if duration is None and event_payload.get("duration") is not None:
+                duration = event_payload.get("duration")
+            if duration is None and event.session_id and event.session_id in session_starts:
+                duration = (event.created_at - session_starts[event.session_id]).total_seconds()
+            if duration is not None:
+                session_durations.append(float(duration))
 
         if event.device_type and event.device_type in device_counts:
             device_counts[event.device_type] += 1
@@ -733,15 +804,22 @@ async def get_tour_analytics(
         for date, views in sorted(daily_views_map.items())
     ]
 
+    avg_session_duration = (
+        sum(session_durations) / len(session_durations) if session_durations else 0.0
+    )
+
     return TourAnalytics(
         tour_id=tour_id,
         total_views=tour.view_count,
         unique_views=len(unique_sessions),
         total_likes=tour.like_count,
         total_shares=tour.share_count,
-        avg_session_duration=0.0,  # Would need session tracking to calculate
+        avg_session_duration=avg_session_duration,
         scene_views=scene_views,
         hotspot_clicks=hotspot_clicks,
+        heatmap_points=heatmap_points,
+        share_breakdown=share_breakdown,
+        session_durations=session_durations,
         device_breakdown=DeviceBreakdown(**device_counts),
         country_breakdown=country_counts,
         daily_views=daily_views
@@ -810,7 +888,9 @@ async def record_analytics_event(
     ip_address: Optional[str] = None,
     device_type: Optional[str] = None,
     session_id: Optional[str] = None,
-    country: Optional[str] = None
+    country: Optional[str] = None,
+    event_data: Optional[dict] = None,
+    increment_counts: bool = True,
 ) -> None:
     """Record an analytics event for a tour."""
     event = TourAnalyticsEvent(
@@ -822,17 +902,381 @@ async def record_analytics_event(
         ip_address=ip_address,
         device_type=device_type,
         session_id=session_id,
-        country=country
+        country=country,
+        event_data=event_data,
     )
 
     db.add(event)
 
-    # Also increment tour view count if it's a view event
-    if event_type == "view":
+    # Also increment tour counters when requested
+    if increment_counts and event_type in {"view", "like", "unlike", "share"}:
         tour_query = select(Tour).where(Tour.id == tour_id)
         result = await db.execute(tour_query)
         tour = result.scalar_one_or_none()
         if tour:
-            tour.view_count += 1
+            if event_type == "view":
+                tour.view_count += 1
+            elif event_type == "like":
+                tour.like_count += 1
+            elif event_type == "unlike":
+                tour.like_count = max(tour.like_count - 1, 0)
+            elif event_type == "share":
+                tour.share_count += 1
 
     await db.commit()
+
+
+async def get_dashboard_realtime_stats(
+    db: AsyncSession,
+    user_id: int,
+) -> dict:
+    """Get realtime dashboard metrics for tours."""
+    from datetime import datetime, timedelta
+
+    now = datetime.utcnow()
+    last_hour = now - timedelta(hours=1)
+    active_window = now - timedelta(minutes=5)
+
+    tour_ids_query = select(Tour.id).where(
+        and_(Tour.user_id == user_id, Tour.deleted_at.is_(None))
+    )
+    tour_ids_result = await db.execute(tour_ids_query)
+    tour_ids = [row[0] for row in tour_ids_result.fetchall()]
+    if not tour_ids:
+        return {
+            "active_sessions": 0,
+            "views_last_hour": 0,
+            "likes_last_hour": 0,
+            "shares_last_hour": 0,
+            "avg_session_duration": 0.0,
+            "recent_views": [],
+        }
+
+    events_query = select(TourAnalyticsEvent).where(
+        and_(
+            TourAnalyticsEvent.tour_id.in_(tour_ids),
+            TourAnalyticsEvent.created_at >= last_hour,
+        )
+    )
+    events_result = await db.execute(events_query)
+    events = list(events_result.scalars().all())
+
+    active_sessions = {
+        event.session_id
+        for event in events
+        if event.session_id and event.created_at >= active_window
+    }
+
+    views_last_hour = sum(1 for event in events if event.event_type == "view")
+    likes_last_hour = sum(1 for event in events if event.event_type == "like")
+    shares_last_hour = sum(1 for event in events if event.event_type == "share")
+
+    session_starts: dict = {}
+    session_durations: List[float] = []
+    for event in events:
+        payload = event.event_data or {}
+        if event.event_type == "session_start" and event.session_id:
+            session_starts[event.session_id] = event.created_at
+        if event.event_type in {"session_end", "session_duration"}:
+            duration = payload.get("duration_seconds")
+            if duration is None and payload.get("duration_ms") is not None:
+                duration = payload.get("duration_ms") / 1000
+            if duration is None and payload.get("duration") is not None:
+                duration = payload.get("duration")
+            if duration is None and event.session_id and event.session_id in session_starts:
+                duration = (event.created_at - session_starts[event.session_id]).total_seconds()
+            if duration is not None:
+                session_durations.append(float(duration))
+
+    avg_session_duration = (
+        sum(session_durations) / len(session_durations) if session_durations else 0.0
+    )
+
+    bucket_minutes = 5
+    buckets: dict = {}
+    for event in events:
+        if event.event_type != "view":
+            continue
+        bucket_start = event.created_at.replace(
+            minute=(event.created_at.minute // bucket_minutes) * bucket_minutes,
+            second=0,
+            microsecond=0,
+        )
+        key = bucket_start.isoformat()
+        buckets[key] = buckets.get(key, 0) + 1
+
+    recent_views = [
+        DailyView(date=ts, views=count)
+        for ts, count in sorted(buckets.items())
+    ]
+
+    return {
+        "active_sessions": len(active_sessions),
+        "views_last_hour": views_last_hour,
+        "likes_last_hour": likes_last_hour,
+        "shares_last_hour": shares_last_hour,
+        "avg_session_duration": avg_session_duration,
+        "recent_views": recent_views,
+    }
+
+
+# ====================
+# Scene Image Processing
+# ====================
+
+async def process_scene_image_background(
+    scene_id: str,
+    tour_id: str,
+    image_url: str,
+    db_url: str,
+) -> None:
+    """
+    Background task to process a scene image and generate thumbnails.
+
+    This function runs asynchronously after scene creation to generate
+    thumbnails and extract metadata without blocking the API response.
+
+    Args:
+        scene_id: The scene ID
+        tour_id: The tour ID
+        image_url: URL of the scene image
+        db_url: Database URL for creating a new session
+    """
+    from app.core.database import get_async_session_factory
+    from app.services.storage import storage_service
+
+    try:
+        logger.info(f"Starting background processing for scene {scene_id}")
+
+        # Process the image
+        result = await storage_service.process_existing_scene_image(
+            image_url=image_url,
+            tour_id=tour_id,
+            scene_id=scene_id,
+        )
+
+        # Create a new database session for the background task
+        session_factory = get_async_session_factory()
+        async with session_factory() as db:
+            # Update the scene with the processed data
+            query = select(Scene).where(Scene.id == scene_id)
+            db_result = await db.execute(query)
+            scene = db_result.scalar_one_or_none()
+
+            if scene:
+                if result.get("thumbnail_url"):
+                    scene.thumbnail_url = result["thumbnail_url"]
+
+                # Update metadata with EXIF info
+                current_metadata = scene.scene_metadata or {}
+                if result.get("exif"):
+                    current_metadata["exif"] = result["exif"]
+                if result.get("width") and result.get("height"):
+                    current_metadata["dimensions"] = {
+                        "width": result["width"],
+                        "height": result["height"],
+                    }
+                if result.get("is_panorama") is not None:
+                    current_metadata["is_panorama"] = result["is_panorama"]
+
+                scene.scene_metadata = current_metadata
+                scene.is_processed = True
+
+                await db.commit()
+                logger.info(f"Scene {scene_id} processed successfully")
+            else:
+                logger.warning(f"Scene {scene_id} not found during processing")
+
+    except Exception as e:
+        logger.error(f"Failed to process scene {scene_id}: {str(e)}")
+        # Mark scene as failed
+        try:
+            session_factory = get_async_session_factory()
+            async with session_factory() as db:
+                query = select(Scene).where(Scene.id == scene_id)
+                db_result = await db.execute(query)
+                scene = db_result.scalar_one_or_none()
+                if scene:
+                    scene.is_processed = True
+                    scene.processing_error = str(e)
+                    await db.commit()
+        except Exception as inner_e:
+            logger.error(f"Failed to update scene processing error: {str(inner_e)}")
+    finally:
+        # Clean up task registry
+        _scene_processing_tasks.pop(scene_id, None)
+
+
+def schedule_scene_processing(
+    scene_id: str,
+    tour_id: str,
+    image_url: str,
+) -> None:
+    """
+    Schedule a scene for background processing.
+
+    Args:
+        scene_id: The scene ID
+        tour_id: The tour ID
+        image_url: URL of the scene image
+    """
+    from app.core.config import settings
+
+    if not image_url:
+        logger.warning(f"No image URL provided for scene {scene_id}")
+        return
+
+    # Avoid duplicate processing
+    if scene_id in _scene_processing_tasks:
+        logger.info(f"Scene {scene_id} already being processed")
+        return
+
+    # Schedule the background task
+    task = asyncio.create_task(
+        process_scene_image_background(
+            scene_id=scene_id,
+            tour_id=tour_id,
+            image_url=image_url,
+            db_url=settings.ASYNC_DATABASE_URL,
+        )
+    )
+    _scene_processing_tasks[scene_id] = task
+    logger.info(f"Scheduled processing for scene {scene_id}")
+
+
+# ====================
+# Floor Plan Services
+# ====================
+
+async def get_floor_plans(
+    db: AsyncSession,
+    tour_id: str,
+    user_id: int
+) -> List[FloorPlan]:
+    """Get all floor plans for a tour."""
+    # Verify tour access
+    await get_tour(db, tour_id, user_id, include_scenes=False)
+
+    query = select(FloorPlan).where(
+        FloorPlan.tour_id == tour_id
+    ).order_by(FloorPlan.floor_number)
+
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_floor_plan(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int
+) -> FloorPlan:
+    """Get a floor plan by ID."""
+    query = select(FloorPlan).where(FloorPlan.id == floor_plan_id)
+    result = await db.execute(query)
+    floor_plan = result.scalar_one_or_none()
+
+    if not floor_plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Floor plan not found"
+        )
+
+    # Verify tour ownership
+    tour = await get_tour(db, floor_plan.tour_id, user_id, include_scenes=False)
+    if tour.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to access this floor plan"
+        )
+
+    return floor_plan
+
+
+async def create_floor_plan(
+    db: AsyncSession,
+    tour_id: str,
+    user_id: int,
+    data: FloorPlanCreate
+) -> FloorPlan:
+    """Create a new floor plan for a tour."""
+    tour = await get_tour(db, tour_id, user_id, include_scenes=False)
+
+    if tour.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have permission to add floor plans to this tour"
+        )
+
+    # Convert markers to list of dicts
+    markers_data = [m.model_dump() for m in data.markers] if data.markers else []
+
+    floor_plan = FloorPlan(
+        id=str(uuid4()),
+        tour_id=tour_id,
+        name=data.name,
+        image_url=data.image_url,
+        floor_number=data.floor_number,
+        markers=markers_data,
+    )
+
+    db.add(floor_plan)
+    await db.commit()
+    await db.refresh(floor_plan)
+
+    logger.info(f"Floor plan created: {floor_plan.id} in tour {tour_id}")
+    return floor_plan
+
+
+async def update_floor_plan(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    data: FloorPlanUpdate
+) -> FloorPlan:
+    """Update a floor plan."""
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if field == "markers" and value is not None:
+            # Convert markers to list of dicts
+            value = [m if isinstance(m, dict) else m.model_dump() for m in value]
+        setattr(floor_plan, field, value)
+
+    await db.commit()
+    await db.refresh(floor_plan)
+
+    logger.info(f"Floor plan updated: {floor_plan_id}")
+    return floor_plan
+
+
+async def update_floor_plan_markers(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    markers: List[dict]
+) -> FloorPlan:
+    """Update only the markers of a floor plan."""
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+
+    floor_plan.markers = markers
+    await db.commit()
+    await db.refresh(floor_plan)
+
+    logger.info(f"Floor plan markers updated: {floor_plan_id}")
+    return floor_plan
+
+
+async def delete_floor_plan(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int
+) -> bool:
+    """Delete a floor plan."""
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+
+    await db.delete(floor_plan)
+    await db.commit()
+
+    logger.info(f"Floor plan deleted: {floor_plan_id}")
+    return True

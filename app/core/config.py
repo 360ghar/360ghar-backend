@@ -28,8 +28,9 @@ class Settings(BaseSettings):
     SERPAPI_API_KEY: Optional[str] = None
     SERPAPI_SEARCH_ENDPOINT: str = "https://serpapi.com/search.json"
     
-    # Gemini embeddings
+    # Gemini AI settings
     GOOGLE_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-3-flash-preview"
     GEMINI_EMBED_MODEL: str = "text-embedding-004"
 
     # GLM (ZhipuAI) API settings for Vastu and other AI features

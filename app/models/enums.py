@@ -222,4 +222,5 @@ class HotspotType(str, Enum):
     info = "info"
     audio = "audio"
     video = "video"
+    link = "link"
     custom = "custom"

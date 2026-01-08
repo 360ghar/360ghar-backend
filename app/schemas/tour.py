@@ -4,10 +4,11 @@ Pydantic schemas for 360 Virtual Tour API.
 These schemas define the request/response models for the tour management endpoints.
 """
 from datetime import datetime
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from typing import Any, Dict, List, Optional
 
-from app.models.enums import TourStatus, HotspotType
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.enums import HotspotType, TourStatus
 
 
 # ====================
@@ -18,7 +19,66 @@ class TourBrandingSettings(BaseModel):
     """Branding settings for a tour."""
     logo_url: Optional[str] = None
     primary_color: Optional[str] = None
+    secondary_color: Optional[str] = None
+    accent_color: Optional[str] = None
+    text_color: Optional[str] = None
+    background_color: Optional[str] = None
+    font_family: Optional[str] = None
+    button_style: Optional[str] = None  # rounded | square | pill
     show_watermark: Optional[bool] = True
+    watermark_position: Optional[str] = None  # bottom-left, bottom-right, top-left, top-right
+    custom_css: Optional[str] = None
+
+
+class FloorPlanMarker(BaseModel):
+    """Marker data for floor plan hotspots."""
+    scene_id: str
+    x: float = Field(..., ge=0, le=100)
+    y: float = Field(..., ge=0, le=100)
+    label: Optional[str] = None
+
+
+class FloorPlan(BaseModel):
+    """Floor plan configuration stored in tour settings."""
+    id: str
+    name: str
+    image_url: str
+    floor_number: int = 1
+    markers: List[FloorPlanMarker] = Field(default_factory=list)
+
+
+# ====================
+# Floor Plan CRUD Schemas (for dedicated table)
+# ====================
+
+class FloorPlanCreate(BaseModel):
+    """Schema for creating a floor plan."""
+    name: str = Field(..., min_length=1, max_length=255)
+    image_url: str = Field(..., min_length=1)
+    floor_number: int = Field(default=1, ge=1)
+    markers: List[FloorPlanMarker] = Field(default_factory=list)
+
+
+class FloorPlanUpdate(BaseModel):
+    """Schema for updating a floor plan."""
+    name: Optional[str] = Field(default=None, min_length=1, max_length=255)
+    image_url: Optional[str] = None
+    floor_number: Optional[int] = Field(default=None, ge=1)
+    markers: Optional[List[FloorPlanMarker]] = None
+
+
+class FloorPlanResponse(BaseModel):
+    """Response schema for floor plan."""
+    id: str
+    tour_id: str
+    name: str
+    image_url: str
+    floor_number: int
+    markers: List[FloorPlanMarker]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TourSettings(BaseModel):
@@ -30,7 +90,10 @@ class TourSettings(BaseModel):
     show_navbar: Optional[bool] = True
     enable_fullscreen: Optional[bool] = True
     enable_vr: Optional[bool] = True
+    enable_gyroscope: Optional[bool] = True
+    gyroscope_auto_start: Optional[bool] = False
     branding: Optional[TourBrandingSettings] = None
+    floor_plans: Optional[List[FloorPlan]] = None
 
 
 # ====================
@@ -52,8 +115,10 @@ class HotspotBase(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
     icon: Optional[str] = Field(default=None, max_length=50)
+    icon_name: Optional[str] = Field(default=None, max_length=100)
     icon_color: Optional[str] = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     icon_size: Optional[int] = Field(default=32, ge=16, le=100)
+    content: Optional[Dict[str, Any]] = None
     custom_data: Optional[Dict[str, Any]] = None
 
 
@@ -70,8 +135,10 @@ class HotspotUpdate(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
     icon: Optional[str] = Field(default=None, max_length=50)
+    icon_name: Optional[str] = Field(default=None, max_length=100)
     icon_color: Optional[str] = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
     icon_size: Optional[int] = Field(default=None, ge=16, le=100)
+    content: Optional[Dict[str, Any]] = None
     custom_data: Optional[Dict[str, Any]] = None
     is_active: Optional[bool] = None
 
@@ -129,7 +196,13 @@ class SceneBase(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
     order_index: Optional[int] = Field(default=0, ge=0)
-    metadata: Optional[SceneMetadata] = None
+    metadata: Optional[SceneMetadata] = Field(
+        default=None,
+        alias="scene_metadata",
+        serialization_alias="scene_metadata",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SceneCreate(SceneBase):
@@ -162,7 +235,7 @@ class Scene(SceneBase):
     updated_at: datetime
     hotspots: Optional[List[Hotspot]] = None
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 # ====================
@@ -237,6 +310,25 @@ class DailyView(BaseModel):
     views: int
 
 
+class TourEventPayload(BaseModel):
+    """Payload for tracking tour analytics events."""
+    event_type: str
+    scene_id: Optional[str] = None
+    hotspot_id: Optional[str] = None
+    session_id: Optional[str] = None
+    event_data: Optional[Dict[str, Any]] = None
+
+
+class HeatmapPoint(BaseModel):
+    """Heatmap point for viewer analytics."""
+    scene_id: Optional[str] = None
+    yaw: Optional[float] = None
+    pitch: Optional[float] = None
+    x: Optional[float] = None
+    y: Optional[float] = None
+    intensity: float = 1.0
+
+
 class TourAnalytics(BaseModel):
     """Analytics data for a tour."""
     tour_id: str
@@ -247,6 +339,9 @@ class TourAnalytics(BaseModel):
     avg_session_duration: float = 0.0
     scene_views: Dict[str, int] = {}
     hotspot_clicks: Dict[str, int] = {}
+    heatmap_points: List[HeatmapPoint] = []
+    share_breakdown: Dict[str, int] = {}
+    session_durations: List[float] = []
     device_breakdown: DeviceBreakdown = DeviceBreakdown()
     country_breakdown: Dict[str, int] = {}
     daily_views: List[DailyView] = []
@@ -260,6 +355,16 @@ class DashboardStats(BaseModel):
     total_scenes: int = 0
     storage_used: int = 0  # bytes
     storage_limit: int = 0  # bytes
+
+
+class DashboardRealtimeStats(BaseModel):
+    """Realtime dashboard metrics."""
+    active_sessions: int = 0
+    views_last_hour: int = 0
+    likes_last_hour: int = 0
+    shares_last_hour: int = 0
+    avg_session_duration: float = 0.0
+    recent_views: List[DailyView] = []
 
 
 # ====================
@@ -362,3 +467,61 @@ class AIJobListResponse(BaseModel):
     """Response containing list of AI jobs."""
     jobs: List[AIJobBase]
     total: int
+
+
+class TourGenerationSceneInput(BaseModel):
+    """Scene input for AI-driven tour generation."""
+    image_url: str = Field(..., max_length=500)
+    thumbnail_url: Optional[str] = Field(default=None, max_length=500)
+    title: Optional[str] = Field(default=None, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    order_index: Optional[int] = Field(default=None, ge=0)
+    metadata: Optional[SceneMetadata] = Field(
+        default=None,
+        alias="scene_metadata",
+        serialization_alias="scene_metadata",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TourGenerationRequest(BaseModel):
+    """Request payload for AI tour generation."""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(default=None, max_length=5000)
+    status: Optional[TourStatus] = TourStatus.draft
+    is_public: Optional[bool] = False
+    settings: Optional[TourSettings] = None
+    scenes: Optional[List[TourGenerationSceneInput]] = None
+    image_urls: Optional[List[str]] = None
+    generate_titles: Optional[bool] = True
+    generate_descriptions: Optional[bool] = True
+    suggest_hotspots: Optional[bool] = False
+    apply_to_scenes: Optional[bool] = True
+    language: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TourGenerationResponse(BaseModel):
+    """Response for AI tour generation."""
+    job: AIJobBase
+    tour_id: str
+    scene_ids: List[str]
+
+
+class TourOptimizationRequest(BaseModel):
+    """Request payload for AI tour optimization."""
+    goals: Optional[List[str]] = None
+    focus_areas: Optional[List[str]] = None
+    update_titles: Optional[bool] = False
+    update_descriptions: Optional[bool] = False
+    suggest_hotspots: Optional[bool] = False
+    language: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow")
+
+
+class TourOptimizationResponse(BaseModel):
+    """Response for AI tour optimization."""
+    job: AIJobBase

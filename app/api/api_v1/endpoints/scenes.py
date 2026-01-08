@@ -9,16 +9,16 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.schemas.user import User as UserSchema
 from app.schemas.tour import (
-    Scene,
-    SceneUpdate,
     Hotspot,
     HotspotCreate,
+    Scene,
+    SceneUpdate,
 )
+from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
 
 router = APIRouter()
@@ -34,7 +34,7 @@ async def get_scene(
     """
     Get a scene by ID with all its hotspots.
     """
-    scene = await tour_service.get_scene(db=db, scene_id=scene_id)
+    scene = await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
     if not scene:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -68,7 +68,7 @@ async def update_scene(
         db=db,
         scene_id=scene_id,
         user_id=current_user.id,
-        scene_data=scene_data,
+        data=scene_data,
     )
     if not scene:
         raise HTTPException(
@@ -115,7 +115,7 @@ async def list_hotspots(
     Returns hotspots ordered by their order_index.
     """
     # Verify scene ownership
-    scene = await tour_service.get_scene(db=db, scene_id=scene_id)
+    scene = await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
     if not scene:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -149,7 +149,7 @@ async def create_hotspot(
         db=db,
         scene_id=scene_id,
         user_id=current_user.id,
-        hotspot_data=hotspot_data,
+        data=hotspot_data,
     )
     if not hotspot:
         raise HTTPException(

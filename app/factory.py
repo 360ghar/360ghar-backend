@@ -20,6 +20,7 @@ from starlette.middleware.authentication import AuthenticationMiddleware
 
 from app.api.api_v1.api import api_router
 from app.api.api_v1.endpoints.oauth import oauth_wellknown_router, oauth_mcp_router
+from app.api.api_v1.endpoints.websocket import router as ws_router
 from app.core.cache import initialize_cache, shutdown_cache
 from app.core.config import settings
 from app.core.database import engine
@@ -299,6 +300,9 @@ def create_app(testing: bool = False) -> FastAPI:
         )
 
     app.include_router(api_router, prefix=settings.API_V1_STR)
+
+    # WebSocket endpoints (no prefix, mounted at root level)
+    app.include_router(ws_router, tags=["websocket"])
 
     app.include_router(oauth_wellknown_router)
     app.include_router(oauth_mcp_router)

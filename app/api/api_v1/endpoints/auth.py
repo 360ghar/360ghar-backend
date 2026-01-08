@@ -2,17 +2,22 @@ import re
 import time
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, field_validator
-
-from app.core.database import get_db
-from app.core.auth import get_supabase_auth_client, verify_supabase_token, admin_find_user_by_phone
-from app.core.cache import get_cache_manager
-from app.core.logging import get_logger
-from app.schemas.user import UserCreate, UserLogin, User as UserSchema
-from app.services.user import get_or_create_user_from_supabase
 import anyio
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel, EmailStr, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.auth import (
+    admin_find_user_by_phone,
+    get_supabase_auth_client,
+    get_supabase_service_client,
+    verify_supabase_token,
+)
+from app.core.cache import get_cache_manager
+from app.core.database import get_db
+from app.core.logging import get_logger
+from app.schemas.user import UserCreate, UserLogin
+from app.services.user import get_or_create_user_from_supabase
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -34,6 +39,40 @@ def _validate_phone_format(phone: str) -> str:
             "Phone must be in E.164 format (e.g., +919876543210)"
         )
     return phone
+
+
+def _extract_bearer_token(authorization: str | None) -> str:
+    """Extract bearer token from Authorization header."""
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "AUTH_HEADER_MISSING",
+                "message": "Authorization header missing",
+            },
+        )
+
+    try:
+        scheme, token = authorization.split()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_AUTH_HEADER",
+                "message": "Invalid authorization header format",
+            },
+        ) from exc
+
+    if scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_AUTH_SCHEME",
+                "message": "Invalid authentication scheme. Use Bearer.",
+            },
+        )
+
+    return token
 
 
 async def _check_otp_rate_limit(phone: str, request: Request) -> None:
@@ -135,6 +174,8 @@ async def login(user_login: UserLogin, db: AsyncSession = Depends(get_db)):
 
         return {
             "access_token": data.session.access_token,
+            "refresh_token": data.session.refresh_token,
+            "expires_in": data.session.expires_in,
             "token_type": "bearer",
             "user": db_user,
         }
@@ -220,7 +261,10 @@ async def register(user_data: UserCreate, db: AsyncSession = Depends(get_db)):
             return {
                 "message": "User registered successfully",
                 "user": db_user,
-                "access_token": data.session.access_token if data.session else None
+                "access_token": data.session.access_token if data.session else None,
+                "refresh_token": data.session.refresh_token if data.session else None,
+                "expires_in": data.session.expires_in if data.session else None,
+                "token_type": "bearer" if data.session else None,
             }
         else:
             raise HTTPException(
@@ -363,6 +407,8 @@ async def verify_otp(payload: OTPVerify, db: AsyncSession = Depends(get_db)):
 
         return {
             "access_token": access_token,
+            "refresh_token": session.refresh_token if session else None,
+            "expires_in": session.expires_in if session else None,
             "token_type": "bearer",
             "user": db_user,
         }
@@ -375,5 +421,228 @@ async def verify_otp(payload: OTPVerify, db: AsyncSession = Depends(get_db)):
             detail={
                 "code": "OTP_VERIFY_FAILED",
                 "message": "OTP verification failed",
+            },
+        )
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/refresh/")
+async def refresh_token(payload: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
+    """Refresh a Supabase session using a refresh token."""
+    try:
+        supabase = get_supabase_auth_client()
+        auth_resp = await anyio.to_thread.run_sync(
+            lambda: supabase.auth.refresh_session(payload.refresh_token)
+        )
+
+        session = getattr(auth_resp, "session", None)
+        if not session or not getattr(session, "access_token", None):
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "REFRESH_INVALID",
+                    "message": "Invalid or expired refresh token",
+                },
+            )
+
+        supabase_user_data = await verify_supabase_token(session.access_token)
+        if not supabase_user_data:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "TOKEN_INVALID",
+                    "message": "Invalid or expired token",
+                },
+            )
+
+        db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+
+        return {
+            "access_token": session.access_token,
+            "refresh_token": session.refresh_token,
+            "expires_in": session.expires_in,
+            "token_type": "bearer",
+            "user": db_user,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Refresh token failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "REFRESH_FAILED",
+                "message": "Failed to refresh session",
+            },
+        )
+
+
+class LogoutRequest(BaseModel):
+    scope: Literal["global", "local", "others"] = "global"
+    access_token: Optional[str] = None
+
+
+@router.post("/logout/")
+async def logout(
+    payload: LogoutRequest | None = None,
+    authorization: Optional[str] = Header(None),
+):
+    """Logout by revoking the refresh token(s) for the current session."""
+    try:
+        payload = payload or LogoutRequest()
+        token = payload.access_token or _extract_bearer_token(authorization)
+        supabase = get_supabase_service_client()
+        await anyio.to_thread.run_sync(
+            lambda: supabase.auth.admin.sign_out(token, payload.scope)
+        )
+        return {"message": "Logged out"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Logout failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "LOGOUT_FAILED",
+                "message": "Logout failed",
+            },
+        )
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    redirect_to: Optional[str] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            return _validate_phone_format(v)
+        return v
+
+
+@router.post("/forgot-password/")
+async def forgot_password(payload: ForgotPasswordRequest, request: Request):
+    """Trigger password recovery via email or OTP to phone."""
+    if not payload.email and not payload.phone:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MISSING_IDENTIFIER",
+                "message": "Email or phone is required",
+            },
+        )
+
+    try:
+        supabase = get_supabase_auth_client()
+
+        if payload.email:
+            options = {"redirect_to": payload.redirect_to} if payload.redirect_to else None
+            await anyio.to_thread.run_sync(
+                lambda: supabase.auth.reset_password_for_email(payload.email, options)
+            )
+            return {"message": "Password reset email sent"}
+
+        if payload.phone:
+            await _check_otp_rate_limit(payload.phone, request)
+            await anyio.to_thread.run_sync(
+                lambda: supabase.auth.sign_in_with_otp({"phone": payload.phone})
+            )
+            return {"message": "OTP sent"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Password recovery failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "PASSWORD_RESET_FAILED",
+                "message": "Password recovery failed",
+            },
+        )
+
+
+class VerifyRequest(BaseModel):
+    token: str
+    type: Literal["sms", "phone_change", "signup", "recovery", "email_change", "email"] = "sms"
+    phone: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            return _validate_phone_format(v)
+        return v
+
+
+@router.post("/verify/")
+async def verify_account(payload: VerifyRequest, db: AsyncSession = Depends(get_db)):
+    """Verify OTP for email or phone and return a session."""
+    if not payload.phone and not payload.email:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "MISSING_IDENTIFIER",
+                "message": "Email or phone is required",
+            },
+        )
+
+    try:
+        supabase = get_supabase_auth_client()
+        verify_payload: dict = {"token": payload.token, "type": payload.type}
+        if payload.phone:
+            verify_payload["phone"] = payload.phone
+        if payload.email:
+            verify_payload["email"] = payload.email
+
+        auth_resp = await anyio.to_thread.run_sync(
+            lambda: supabase.auth.verify_otp(verify_payload)
+        )
+
+        session = getattr(auth_resp, "session", None)
+        access_token = getattr(session, "access_token", None) if session else None
+        if not access_token:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "VERIFY_INVALID",
+                    "message": "Invalid or expired verification token",
+                },
+            )
+
+        supabase_user_data = await verify_supabase_token(access_token)
+        if not supabase_user_data:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "TOKEN_INVALID",
+                    "message": "Invalid or expired token",
+                },
+            )
+
+        db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+
+        return {
+            "access_token": access_token,
+            "refresh_token": session.refresh_token if session else None,
+            "expires_in": session.expires_in if session else None,
+            "token_type": "bearer",
+            "user": db_user,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Verification failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "VERIFY_FAILED",
+                "message": "Verification failed",
             },
         )

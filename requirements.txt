@@ -29,6 +29,7 @@ google-auth>=2.23.0
 APScheduler>=3.10.4
 google-generativeai>=0.7.0
 pgvector>=0.2.5
+Pillow>=10.0.0
 
 # Testing
 pytest>=8.0.0

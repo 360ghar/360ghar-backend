@@ -67,7 +67,7 @@ def get_ai_provider(
 
         config = AIProviderConfig(
             api_key=api_key,
-            model=config_overrides.pop("model", "gemini-2.0-flash"),
+            model=config_overrides.pop("model", settings.GEMINI_MODEL),
             max_tokens=config_overrides.pop("max_tokens", 8000),
             temperature=config_overrides.pop("temperature", 0.7),
             timeout=config_overrides.pop("timeout", 120),

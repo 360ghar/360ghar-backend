@@ -6,16 +6,16 @@ These endpoints are used by the public viewer and embed page.
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, and_
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.tours import Tour, Scene
 from app.models.enums import TourStatus
-from app.schemas.tour import TourWithScenes
+from app.models.tours import Scene, Tour
+from app.schemas.tour import TourEventPayload, TourWithScenes
 from app.services import tour as tour_service
 
 router = APIRouter()
@@ -115,6 +115,7 @@ async def get_public_tour(
                 ip_address=client_ip,
                 device_type=device_type,
                 session_id=session_id,
+                event_data={"referrer": request.headers.get("referer")},
             )
             logger.info(f"Tracked view for tour {tour_id} from {device_type}")
         except Exception as e:
@@ -169,8 +170,9 @@ async def get_public_tour_scenes(
 @router.post("/tours/{tour_id}/events")
 async def track_tour_event(
     tour_id: str,
-    event_type: str,
     request: Request,
+    payload: Optional[TourEventPayload] = Body(default=None),
+    event_type: Optional[str] = None,
     scene_id: Optional[str] = None,
     hotspot_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
@@ -189,8 +191,26 @@ async def track_tour_event(
     This endpoint does not require authentication.
     """
     # Validate event type
-    allowed_events = {"view", "scene_view", "hotspot_click", "share", "fullscreen", "vr_enter"}
-    if event_type not in allowed_events:
+    if payload:
+        event_type = payload.event_type
+        scene_id = payload.scene_id or scene_id
+        hotspot_id = payload.hotspot_id or hotspot_id
+
+    allowed_events = {
+        "view",
+        "scene_view",
+        "hotspot_click",
+        "share",
+        "fullscreen",
+        "vr_enter",
+        "heatmap",
+        "session_start",
+        "session_end",
+        "session_duration",
+        "like",
+        "unlike",
+    }
+    if not event_type or event_type not in allowed_events:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid event type. Must be one of: {', '.join(allowed_events)}"
@@ -219,7 +239,14 @@ async def track_tour_event(
         user_agent = request.headers.get("user-agent", "")
         client_ip = get_client_ip(request)
         device_type = get_device_type(user_agent)
-        session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
+        session_id = (
+            payload.session_id
+            if payload and payload.session_id
+            else request.cookies.get("session_id") or request.headers.get("x-session-id")
+        )
+        event_data = payload.event_data.copy() if payload and payload.event_data else {}
+        if "referrer" not in event_data:
+            event_data["referrer"] = request.headers.get("referer")
 
         await tour_service.record_analytics_event(
             db=db,
@@ -231,12 +258,8 @@ async def track_tour_event(
             ip_address=client_ip,
             device_type=device_type,
             session_id=session_id,
+            event_data=event_data,
         )
-
-        # Update share count if it's a share event
-        if event_type == "share":
-            tour.share_count = (tour.share_count or 0) + 1
-            await db.commit()
 
         return {"status": "ok"}
     except Exception as e:
@@ -250,6 +273,7 @@ async def track_tour_event(
 @router.post("/tours/{tour_id}/like")
 async def like_tour(
     tour_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -279,12 +303,31 @@ async def like_tour(
     tour.like_count = (tour.like_count or 0) + 1
     await db.commit()
 
+    try:
+        user_agent = request.headers.get("user-agent", "")
+        client_ip = get_client_ip(request)
+        device_type = get_device_type(user_agent)
+        session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
+        await tour_service.record_analytics_event(
+            db=db,
+            tour_id=tour_id,
+            event_type="like",
+            user_agent=user_agent,
+            ip_address=client_ip,
+            device_type=device_type,
+            session_id=session_id,
+            increment_counts=False,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to track like event for tour {tour_id}: {e}")
+
     return {"like_count": tour.like_count}
 
 
 @router.delete("/tours/{tour_id}/like")
 async def unlike_tour(
     tour_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -310,5 +353,23 @@ async def unlike_tour(
 
     tour.like_count = max((tour.like_count or 0) - 1, 0)
     await db.commit()
+
+    try:
+        user_agent = request.headers.get("user-agent", "")
+        client_ip = get_client_ip(request)
+        device_type = get_device_type(user_agent)
+        session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
+        await tour_service.record_analytics_event(
+            db=db,
+            tour_id=tour_id,
+            event_type="unlike",
+            user_agent=user_agent,
+            ip_address=client_ip,
+            device_type=device_type,
+            session_id=session_id,
+            increment_counts=False,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to track unlike event for tour {tour_id}: {e}")
 
     return {"like_count": tour.like_count}

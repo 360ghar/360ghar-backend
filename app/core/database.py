@@ -54,3 +54,16 @@ async def get_db() -> AsyncSession:
         else:
             # Commit only if no exception occurred during the request
             await session.commit()
+
+
+def get_async_session_factory():
+    """
+    Get the async session factory for use in background tasks.
+
+    This allows background tasks to create their own database sessions
+    independent of the FastAPI request lifecycle.
+
+    Returns:
+        async_sessionmaker: The session factory
+    """
+    return AsyncSessionLocal
