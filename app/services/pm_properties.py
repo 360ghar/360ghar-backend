@@ -51,7 +51,8 @@ async def create_managed_property(
     prop = Property(**property_dict)
     db.add(prop)
     await db.flush()
-    await db.refresh(prop)
+    await db.refresh(prop, ["images"])
+
     return prop
 
 
@@ -150,6 +151,7 @@ async def update_managed_property(
 
     prop.is_managed = True
     await db.flush()
-    await db.refresh(prop)
+    await db.refresh(prop, ["images"])
+
     return prop
 

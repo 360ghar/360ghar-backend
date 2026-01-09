@@ -106,7 +106,6 @@ async def create_blog_post(db: AsyncSession, data, actor) -> "app.schemas.blog.B
     )
     db.add(post)
     await db.flush()
-    await db.refresh(post)
 
     # Link categories and tags
     if categories:
@@ -116,15 +115,9 @@ async def create_blog_post(db: AsyncSession, data, actor) -> "app.schemas.blog.B
         for t in tags:
             db.add(BlogPostTag(post_id=post.id, tag_id=t.id))
     await db.flush()
+    await db.refresh(post, ["categories", "tags"])
 
-    # Reload with relationships
-    result = await db.execute(
-        select(BlogPost)
-        .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
-        .where(BlogPost.id == post.id)
-    )
-    created = result.scalar_one()
-    return BlogPostSchema.model_validate(created)
+    return BlogPostSchema.model_validate(post)
 
 
 async def get_blog_post(
@@ -484,16 +477,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> "a
             db.add(BlogPostTag(post_id=post.id, tag_id=t.id))
 
     await db.commit()
-    await db.refresh(post)
+    await db.refresh(post, ["categories", "tags"])
 
-    # Reload with relationships
-    result = await db.execute(
-        select(BlogPost)
-        .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
-        .where(BlogPost.id == post.id)
-    )
-    updated = result.scalar_one()
-    return BlogPostSchema.model_validate(updated)
+    return BlogPostSchema.model_validate(post)
 
 
 async def delete_blog_post(db: AsyncSession, identifier: str, actor) -> bool:

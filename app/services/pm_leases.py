@@ -5,6 +5,7 @@ from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
 from app.models.enums import LeaseStatus, UserRole
@@ -112,7 +113,10 @@ async def list_leases(
     if owner_id is not None:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
-    stmt = select(Lease)
+    stmt = select(Lease).options(
+        selectinload(Lease.property).selectinload(Property.images),
+        selectinload(Lease.tenant_user),
+    )
     if owner_id is not None:
         stmt = stmt.where(Lease.owner_id == owner_id)
     if property_id is not None:

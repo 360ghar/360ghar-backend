@@ -70,7 +70,7 @@ async def assert_can_access_property(
     """
     stmt = (
         select(Property)
-        .options(selectinload(Property.owner))
+        .options(selectinload(Property.owner), selectinload(Property.images))
         .where(Property.id == property_id)
     )
     res = await db.execute(stmt)
@@ -114,7 +114,14 @@ async def assert_can_access_lease(
     lease_id: int,
 ) -> Lease:
     """Assert the actor can access a lease."""
-    stmt = select(Lease).where(Lease.id == lease_id)
+    stmt = (
+        select(Lease)
+        .options(
+            selectinload(Lease.property).selectinload(Property.images),
+            selectinload(Lease.tenant_user),
+        )
+        .where(Lease.id == lease_id)
+    )
     res = await db.execute(stmt)
     lease = res.scalar_one_or_none()
     if not lease:
