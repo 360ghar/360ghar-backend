@@ -91,6 +91,7 @@ class ImageCategory(str, Enum):
     exterior = "exterior"
     interior = "interior"
     others = "others"
+    floor_plan = "floor_plan"
 
 class UserRole(str, Enum):
     user = "user"

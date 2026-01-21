@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError
-from app.models.enums import LeaseStatus, ManagedPropertyStatus, UserRole
+from app.models.enums import ImageCategory, LeaseStatus, ManagedPropertyStatus, UserRole
 from app.models.pm_leases import Lease
-from app.models.properties import Property
+from app.models.properties import Property, PropertyImage
 from app.schemas.property import PropertyCreate
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
@@ -133,6 +133,8 @@ async def update_managed_property(
     payment_due_day: Optional[int] = None,
     grace_period_days: Optional[int] = None,
     late_fee_policy: Optional[dict] = None,
+    images: Optional[List[str]] = None,
+    floor_plans: Optional[List[str]] = None,
 ) -> Property:
     prop = await assert_can_access_property(db, actor=actor, property_id=property_id)
 
@@ -148,6 +150,56 @@ async def update_managed_property(
         prop.grace_period_days = grace_period_days
     if late_fee_policy is not None:
         prop.late_fee_policy = late_fee_policy
+
+    # Handle images: delete existing and create new ones
+    if images is not None:
+        # Delete existing property images (except floor plans)
+        await db.execute(
+            delete(PropertyImage).where(
+                and_(
+                    PropertyImage.property_id == property_id,
+                    PropertyImage.image_category != ImageCategory.floor_plan,
+                )
+            )
+        )
+        # Create new image records
+        for idx, url in enumerate(images):
+            if url and url.strip():
+                img = PropertyImage(
+                    property_id=property_id,
+                    image_url=url.strip(),
+                    image_category=ImageCategory.others,
+                    display_order=idx,
+                    is_main_image=(idx == 0),  # First image is main
+                )
+                db.add(img)
+
+    # Handle floor plans
+    if floor_plans is not None:
+        # Delete existing floor plan images
+        await db.execute(
+            delete(PropertyImage).where(
+                and_(
+                    PropertyImage.property_id == property_id,
+                    PropertyImage.image_category == ImageCategory.floor_plan,
+                )
+            )
+        )
+        # Create new floor plan records
+        for idx, url in enumerate(floor_plans):
+            if url and url.strip():
+                img = PropertyImage(
+                    property_id=property_id,
+                    image_url=url.strip(),
+                    image_category=ImageCategory.floor_plan,
+                    display_order=idx,
+                    is_main_image=False,
+                )
+                db.add(img)
+
+    # Update main_image_url on property if images provided
+    if images is not None and len(images) > 0:
+        prop.main_image_url = images[0]
 
     prop.is_managed = True
     await db.flush()

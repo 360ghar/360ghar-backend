@@ -102,6 +102,8 @@ async def update_pm_property(
         payment_due_day=payload.payment_due_day,
         grace_period_days=payload.grace_period_days,
         late_fee_policy=payload.late_fee_policy,
+        images=payload.images,
+        floor_plans=payload.floor_plans,
     )
     return PropertySchema.model_validate(prop)
 
