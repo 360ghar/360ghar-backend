@@ -1,24 +1,46 @@
 -- ================================================================
 -- 001_floor_plans.sql
 -- Creates the floor_plans table for 360 Virtual Tour Platform
--- Run this migration directly on Supabase SQL Editor
+--
+-- IMPORTANT:
+-- This file intentionally avoids hard dependencies on other migrations so it
+-- can be executed standalone. The canonical/complete schema is finalized in
+-- `20260112000000_fix_360_viewer_schema.sql`.
 -- ================================================================
 
 -- Floor Plans Table
 -- Stores floor plan images and scene markers for virtual tours
-CREATE TABLE IF NOT EXISTS floor_plans (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    tour_id UUID NOT NULL REFERENCES tours(id) ON DELETE CASCADE,
-    name VARCHAR(255) NOT NULL DEFAULT 'Floor Plan',
-    image_url TEXT NOT NULL,
-    floor_number INTEGER DEFAULT 1,
-    markers JSONB DEFAULT '[]'::jsonb,
-    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
+DO $$ BEGIN
+    IF to_regclass('public.floor_plans') IS NULL THEN
+        CREATE TABLE floor_plans (
+            id VARCHAR(36) PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            tour_id VARCHAR(36) NOT NULL,
+            name VARCHAR(255) NOT NULL DEFAULT 'Floor Plan',
+            image_url TEXT NOT NULL,
+            floor_number INTEGER DEFAULT 1,
+            markers JSONB DEFAULT '[]'::jsonb,
+            created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+            updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+        );
+    END IF;
+END $$;
+
+-- Add FK only when `tours` exists (avoids ordering failures on fresh DBs).
+DO $$ BEGIN
+    IF to_regclass('public.tours') IS NOT NULL THEN
+        BEGIN
+            ALTER TABLE floor_plans
+                ADD CONSTRAINT floor_plans_tour_id_fkey
+                FOREIGN KEY (tour_id) REFERENCES tours(id) ON DELETE CASCADE;
+        EXCEPTION
+            WHEN duplicate_object THEN NULL;
+        END;
+    END IF;
+END $$;
 
 -- Index for efficient tour lookups
 CREATE INDEX IF NOT EXISTS idx_floor_plans_tour_id ON floor_plans(tour_id);
+
 
 -- Ensure the update_updated_at_column function exists
 CREATE OR REPLACE FUNCTION update_updated_at_column()

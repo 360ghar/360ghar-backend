@@ -1,0 +1,1712 @@
+{
+  "info": {
+    "_postman_id": "360ghar-virtual-tours",
+    "name": "360Ghar Virtual Tours & AI API",
+    "description": "Complete API collection for 360Ghar Virtual Tours and AI-powered features.\n\n## Overview\nThis collection provides endpoints for creating and managing immersive 360 virtual tours with AI-powered enhancements.\n\n## Features\n- **Virtual Tours**: Create, manage, and publish 360 virtual tours\n- **Scenes**: Add panoramic scenes to tours with customizable settings\n- **Hotspots**: Add interactive navigation and info hotspots\n- **Floor Plans**: Upload floor plans with scene markers\n- **AI Services**: Automated scene analysis, hotspot suggestions, and description generation\n- **Analytics**: Track tour views, engagement, and heatmaps\n- **Public Access**: Share tours publicly with QR codes and embed options\n\n## Authentication\nAll endpoints (except Public Access) require a Bearer token from Supabase Auth.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Import the environment variables\n3. Obtain a Supabase access token and set `access_token` in environment\n4. Set `test_tour_id`, `test_scene_id`, `test_hotspot_id`, `test_floor_plan_id`, and `test_ai_job_id` as you create resources\n\n## API Modules:\n- **Tours**: CRUD operations, publishing, duplication, analytics\n- **Scenes**: Scene management within tours\n- **Hotspots**: Interactive hotspot management\n- **Floor Plans**: Floor plan upload and marker management\n- **Dashboard**: User statistics and realtime metrics\n- **Public Access**: Unauthenticated endpoints for viewing published tours\n- **AI Services**: AI-powered analysis, generation, and optimization",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "360ghar"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global Pre-request Script",
+          "// Set request ID for tracking",
+          "pm.variables.set('request_id', pm.variables.replaceIn('{{$guid}}'));",
+          "",
+          "// Set timestamp",
+          "pm.variables.set('timestamp', new Date().toISOString());",
+          "",
+          "// Check if token exists and is not expired",
+          "const tokenExpiry = pm.environment.get('token_expiry');",
+          "if (tokenExpiry) {",
+          "    const now = new Date().getTime();",
+          "    const expiry = new Date(tokenExpiry).getTime();",
+          "    ",
+          "    if (now >= expiry) {",
+          "        console.log('Token expired, please login again');",
+          "        pm.environment.unset('access_token');",
+          "        pm.environment.unset('token_expiry');",
+          "    }",
+          "}",
+          "",
+          "// Set common headers",
+          "pm.request.headers.add({",
+          "    key: 'X-Request-ID',",
+          "    value: pm.variables.get('request_id')",
+          "});",
+          "",
+          "// Log request details",
+          "console.log(`Making ${pm.request.method} request to ${pm.request.url}`);",
+          "",
+          "// Generate sample data helpers",
+          "pm.variables.set('randomEmail', pm.variables.replaceIn('{{$randomEmail}}'));",
+          "pm.variables.set('randomPhone', '+91' + Math.floor(Math.random() * 9000000000 + 1000000000));",
+          "pm.variables.set('randomName', pm.variables.replaceIn('{{$randomFullName}}'));"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global Test Script",
+          "// Log response time",
+          "console.log(`Response time: ${pm.response.responseTime}ms`);",
+          "",
+          "// Check for performance issues",
+          "if (pm.response.responseTime > 2000) {",
+          "    console.warn(`Slow response detected: ${pm.response.responseTime}ms`);",
+          "}",
+          "",
+          "// Parse response if JSON",
+          "let jsonResponse = null;",
+          "try {",
+          "    jsonResponse = pm.response.json();",
+          "    pm.environment.set('last_response', JSON.stringify(jsonResponse));",
+          "} catch (e) {",
+          "    // Not JSON response",
+          "}",
+          "",
+          "// Common test for all endpoints",
+          "pm.test('Response has correct content type', function() {",
+          "    const contentType = pm.response.headers.get('Content-Type');",
+          "    if (contentType) {",
+          "        pm.expect(contentType).to.include('application/json');",
+          "    }",
+          "});",
+          "",
+          "// Check for common error patterns",
+          "if (pm.response.code >= 400) {",
+          "    pm.test('Error response has proper structure', function() {",
+          "        if (jsonResponse) {",
+          "            pm.expect(jsonResponse).to.have.property('detail');",
+          "        }",
+          "    });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Tours",
+      "item": [
+        {
+          "name": "List Tours",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours?page=1&page_size=20",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "page_size",
+                  "value": "20",
+                  "description": "Items per page (1-100)"
+                },
+                {
+                  "key": "status",
+                  "value": "draft",
+                  "description": "Filter by status: draft | published | archived",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "luxury apartment",
+                  "description": "Search in title/description",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List all tours for the current user with optional filtering by status and search."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Tour",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('test_tour_id', response.id);",
+                  "    console.log('Tour created with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Luxury Apartment Virtual Tour\",\n  \"description\": \"An immersive 360 tour of a premium 3BHK apartment in Gurgaon\",\n  \"status\": \"draft\",\n  \"visibility\": \"private\",\n  \"settings\": {\n    \"auto_rotate\": false,\n    \"auto_rotate_speed\": 1.0,\n    \"show_navbar\": true,\n    \"enable_fullscreen\": true,\n    \"enable_vr\": true,\n    \"enable_gyroscope\": true,\n    \"branding\": {\n      \"primary_color\": \"#2563eb\",\n      \"secondary_color\": \"#1e40af\",\n      \"show_watermark\": true\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours"
+              ]
+            },
+            "description": "Create a new virtual tour in draft status. Add scenes and hotspots before publishing."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tour with Scenes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}"
+              ]
+            },
+            "description": "Get a tour by ID with all scenes and hotspots. Returns the complete tour structure."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Tour",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Luxury Apartment Tour\",\n  \"description\": \"Updated description with more details about the property\",\n  \"settings\": {\n    \"auto_rotate\": true,\n    \"auto_rotate_speed\": 2.0,\n    \"enable_vr\": true\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}"
+              ]
+            },
+            "description": "Update a tour's details including title, description, settings, and other properties."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Tour",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}"
+              ]
+            },
+            "description": "Delete a tour (soft delete). The tour is marked as deleted but not permanently removed."
+          },
+          "response": []
+        },
+        {
+          "name": "Publish Tour",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    pm.expect(response.status).to.eql('published');",
+                  "    console.log('Tour published successfully');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/publish",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "publish"
+              ]
+            },
+            "description": "Publish a tour to make it publicly accessible. Sets the tour status to 'published'."
+          },
+          "response": []
+        },
+        {
+          "name": "Unpublish Tour",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/unpublish",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "unpublish"
+              ]
+            },
+            "description": "Unpublish a tour to make it private again. Sets the tour status back to 'draft'."
+          },
+          "response": []
+        },
+        {
+          "name": "Duplicate Tour",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('duplicated_tour_id', response.id);",
+                  "    console.log('Tour duplicated with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/duplicate",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "duplicate"
+              ]
+            },
+            "description": "Duplicate an existing tour including all scenes and hotspots. The new tour will be in draft status."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tour Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/analytics?start_date=2024-01-01&end_date=2024-12-31",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "analytics"
+              ],
+              "query": [
+                {
+                  "key": "start_date",
+                  "value": "2024-01-01",
+                  "description": "Analytics start date (YYYY-MM-DD)",
+                  "disabled": true
+                },
+                {
+                  "key": "end_date",
+                  "value": "2024-12-31",
+                  "description": "Analytics end date (YYYY-MM-DD)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get analytics data for a tour including view counts, engagement metrics, device breakdown, and daily views."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tour QR Code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/qr-code?size=512",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "qr-code"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "512",
+                  "description": "QR code size in pixels (64-1024)"
+                }
+              ]
+            },
+            "description": "Generate a QR code for the tour URL. Returns a PNG image that links to the public tour page."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Tour Heatmap",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/heatmap?scene_id={{test_scene_id}}&start_date=2024-01-01&end_date=2024-12-31",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "heatmap"
+              ],
+              "query": [
+                {
+                  "key": "scene_id",
+                  "value": "{{test_scene_id}}",
+                  "description": "Filter by specific scene",
+                  "disabled": true
+                },
+                {
+                  "key": "start_date",
+                  "value": "2024-01-01",
+                  "description": "Start date for filtering",
+                  "disabled": true
+                },
+                {
+                  "key": "end_date",
+                  "value": "2024-12-31",
+                  "description": "End date for filtering",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get aggregated heatmap data for a tour. Returns heatmap points grouped by scene for visualization of user interaction patterns."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Scenes",
+      "item": [
+        {
+          "name": "List Scenes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/scenes",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "scenes"
+              ]
+            },
+            "description": "List all scenes for a tour. Returns scenes ordered by their order_index."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Scene",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('test_scene_id', response.id);",
+                  "    console.log('Scene created with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Living Room\",\n  \"description\": \"Spacious living room with modern furnishings and natural lighting\",\n  \"image_url\": \"https://example.com/360-images/living-room.jpg\",\n  \"thumbnail_url\": \"https://example.com/360-images/living-room-thumb.jpg\",\n  \"order_index\": 0,\n  \"metadata\": {\n    \"initial_view\": {\n      \"yaw\": 0,\n      \"pitch\": 0,\n      \"zoom\": 50\n    },\n    \"camera\": {\n      \"fov\": 70,\n      \"min_fov\": 30,\n      \"max_fov\": 90\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/scenes",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "scenes"
+              ]
+            },
+            "description": "Add a new scene to a tour. The scene will be added at the end of the tour's scene list."
+          },
+          "response": []
+        },
+        {
+          "name": "Reorder Scenes",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"scene_ids\": [\"scene-2\", \"scene-1\", \"scene-3\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/scenes/reorder",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "scenes",
+                "reorder"
+              ]
+            },
+            "description": "Reorder scenes within a tour. Provide the scene IDs in the desired order."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Scene",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scenes/{{test_scene_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scenes",
+                "{{test_scene_id}}"
+              ]
+            },
+            "description": "Get a scene by ID with all its hotspots."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Scene",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Living Room\",\n  \"description\": \"Updated description with more details\",\n  \"metadata\": {\n    \"initial_view\": {\n      \"yaw\": 45,\n      \"pitch\": -10,\n      \"zoom\": 60\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scenes/{{test_scene_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scenes",
+                "{{test_scene_id}}"
+              ]
+            },
+            "description": "Update a scene's details including title, description, image URLs, and metadata."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Scene",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scenes/{{test_scene_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scenes",
+                "{{test_scene_id}}"
+              ]
+            },
+            "description": "Delete a scene from a tour. This will also delete all hotspots associated with the scene."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Hotspots",
+      "item": [
+        {
+          "name": "List Hotspots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scenes/{{test_scene_id}}/hotspots",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scenes",
+                "{{test_scene_id}}",
+                "hotspots"
+              ]
+            },
+            "description": "List all hotspots for a scene. Returns hotspots ordered by their order_index."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Hotspot",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('test_hotspot_id', response.id);",
+                  "    console.log('Hotspot created with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"navigation\",\n  \"position\": {\n    \"yaw\": 45.5,\n    \"pitch\": -5.0,\n    \"radius\": 2.0\n  },\n  \"target_scene_id\": \"scene-2\",\n  \"title\": \"Go to Bedroom\",\n  \"description\": \"Click to navigate to the master bedroom\",\n  \"icon\": \"arrow\",\n  \"icon_name\": \"navigation_arrow\",\n  \"icon_color\": \"#2563eb\",\n  \"icon_size\": 32\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/scenes/{{test_scene_id}}/hotspots",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "scenes",
+                "{{test_scene_id}}",
+                "hotspots"
+              ]
+            },
+            "description": "Add a new hotspot to a scene. Hotspots can be navigation links, info popups, or media elements."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Hotspot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/hotspots/{{test_hotspot_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "hotspots",
+                "{{test_hotspot_id}}"
+              ]
+            },
+            "description": "Get a hotspot by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Hotspot",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"info\",\n  \"title\": \"Updated Hotspot Title\",\n  \"description\": \"Updated description with more information\",\n  \"icon\": \"info\",\n  \"icon_color\": \"#10b981\",\n  \"content\": {\n    \"text\": \"Additional content for the hotspot\",\n    \"image_url\": \"https://example.com/image.jpg\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/hotspots/{{test_hotspot_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "hotspots",
+                "{{test_hotspot_id}}"
+              ]
+            },
+            "description": "Update a hotspot's properties. Can update type, position, target scene, title, description, icon, and custom data."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Hotspot",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/hotspots/{{test_hotspot_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "hotspots",
+                "{{test_hotspot_id}}"
+              ]
+            },
+            "description": "Delete a hotspot from a scene."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Hotspot Position",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"yaw\": 90.0,\n  \"pitch\": -15.0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/hotspots/{{test_hotspot_id}}/position",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "hotspots",
+                "{{test_hotspot_id}}",
+                "position"
+              ]
+            },
+            "description": "Update only the position of a hotspot. This is a convenience endpoint for drag-and-drop positioning in the editor."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Floor Plans",
+      "item": [
+        {
+          "name": "List Floor Plans",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans"
+              ]
+            },
+            "description": "List all floor plans for a tour. Returns floor plans ordered by floor number."
+          },
+          "response": []
+        },
+        {
+          "name": "Create Floor Plan",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('test_floor_plan_id', response.id);",
+                  "    console.log('Floor plan created with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Ground Floor Plan\",\n  \"image_url\": \"https://example.com/floor-plans/ground-floor.png\",\n  \"floor_number\": 1,\n  \"markers\": [\n    {\n      \"scene_id\": \"scene-1\",\n      \"x\": 25.5,\n      \"y\": 40.0,\n      \"label\": \"Living Room\"\n    },\n    {\n      \"scene_id\": \"scene-2\",\n      \"x\": 75.0,\n      \"y\": 60.5,\n      \"label\": \"Kitchen\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans"
+              ]
+            },
+            "description": "Create a new floor plan for a tour. Floor plans can include an image and markers that link to scenes."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Floor Plan",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans/{{test_floor_plan_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans",
+                "{{test_floor_plan_id}}"
+              ]
+            },
+            "description": "Get a floor plan by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Floor Plan",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Floor Plan\",\n  \"image_url\": \"https://example.com/floor-plans/updated.png\",\n  \"floor_number\": 1,\n  \"markers\": [\n    {\n      \"scene_id\": \"scene-1\",\n      \"x\": 30.0,\n      \"y\": 45.0,\n      \"label\": \"Living Room\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans/{{test_floor_plan_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans",
+                "{{test_floor_plan_id}}"
+              ]
+            },
+            "description": "Update a floor plan's properties including name, image URL, floor number, and markers."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Floor Plan Markers",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"scene_id\": \"scene-1\",\n    \"x\": 50.0,\n    \"y\": 50.0,\n    \"label\": \"Entry Point\"\n  },\n  {\n    \"scene_id\": \"scene-2\",\n    \"x\": 75.0,\n    \"y\": 25.0,\n    \"label\": \"Master Bedroom\"\n  }\n]",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans/{{test_floor_plan_id}}/markers",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans",
+                "{{test_floor_plan_id}}",
+                "markers"
+              ]
+            },
+            "description": "Update only the markers on a floor plan. This is a convenience endpoint for marker placement in the editor."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Floor Plan",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/tours/{{test_tour_id}}/floor-plans/{{test_floor_plan_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "tours",
+                "{{test_tour_id}}",
+                "floor-plans",
+                "{{test_floor_plan_id}}"
+              ]
+            },
+            "description": "Delete a floor plan from a tour."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Dashboard",
+      "item": [
+        {
+          "name": "Get Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/dashboard/stats",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "stats"
+              ]
+            },
+            "description": "Get dashboard statistics for the current user including total tours, published tours, total views, total scenes, and storage usage."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Realtime Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/dashboard/realtime",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "dashboard",
+                "realtime"
+              ]
+            },
+            "description": "Get realtime analytics metrics for the current user's tours including active sessions, views/likes/shares in the last hour, and average session duration."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Public Access",
+      "item": [
+        {
+          "name": "Get Public Tour",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/public/tours/{{test_tour_id}}?track=true",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "public",
+                "tours",
+                "{{test_tour_id}}"
+              ],
+              "query": [
+                {
+                  "key": "track",
+                  "value": "true",
+                  "description": "Enable view analytics tracking"
+                }
+              ]
+            },
+            "description": "Get a publicly accessible tour by ID. This endpoint is used by the public viewer and embed page. The tour must be published and public."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Public Tour Scenes",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/public/tours/{{test_tour_id}}/scenes",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "public",
+                "tours",
+                "{{test_tour_id}}",
+                "scenes"
+              ]
+            },
+            "description": "Get all scenes for a publicly accessible tour. Returns scenes ordered by order_index with their hotspots."
+          },
+          "response": []
+        },
+        {
+          "name": "Track Tour Event",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"scene_view\",\n  \"scene_id\": \"{{test_scene_id}}\",\n  \"session_id\": \"session-123\",\n  \"event_data\": {\n    \"duration\": 15.5,\n    \"referrer\": \"https://example.com\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/public/tours/{{test_tour_id}}/events",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "public",
+                "tours",
+                "{{test_tour_id}}",
+                "events"
+              ]
+            },
+            "description": "Track an analytics event for a public tour. Event types: view, scene_view, hotspot_click, share, fullscreen_enter, fullscreen_exit, vr_enter, vr_exit, heatmap, session_start, session_end, like, unlike."
+          },
+          "response": []
+        },
+        {
+          "name": "Like Tour",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/public/tours/{{test_tour_id}}/like",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "public",
+                "tours",
+                "{{test_tour_id}}",
+                "like"
+              ]
+            },
+            "description": "Increment the like count for a public tour."
+          },
+          "response": []
+        },
+        {
+          "name": "Unlike Tour",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/public/tours/{{test_tour_id}}/like",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "public",
+                "tours",
+                "{{test_tour_id}}",
+                "like"
+              ]
+            },
+            "description": "Decrement the like count for a public tour."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "AI Services",
+      "item": [
+        {
+          "name": "Analyze Tour Scenes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.job && response.job.id) {",
+                  "        pm.environment.set('test_ai_job_id', response.job.id);",
+                  "        console.log('AI Job created with ID:', response.job.id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/{{test_tour_id}}/analyze",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "{{test_tour_id}}",
+                "analyze"
+              ]
+            },
+            "description": "Analyze all scenes in a tour using AI. Detects room types, suggests titles/descriptions, and evaluates image quality. Returns a job ID for tracking progress."
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Tour from Images",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const response = pm.response.json();",
+                  "    if (response.job && response.job.id) {",
+                  "        pm.environment.set('test_ai_job_id', response.job.id);",
+                  "        pm.environment.set('generated_tour_id', response.tour_id);",
+                  "        console.log('AI Tour Generation started. Job ID:', response.job.id, 'Tour ID:', response.tour_id);",
+                  "    }",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "images",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "title",
+                  "value": "AI Generated Tour",
+                  "type": "text"
+                },
+                {
+                  "key": "description",
+                  "value": "Tour automatically generated from uploaded 360 images",
+                  "type": "text"
+                },
+                {
+                  "key": "auto_detect_rooms",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "auto_place_hotspots",
+                  "value": "false",
+                  "type": "text"
+                },
+                {
+                  "key": "auto_generate_descriptions",
+                  "value": "true",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/generate",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "generate"
+              ]
+            },
+            "description": "Generate a new tour from uploaded 360 images using AI. Accepts multipart/form-data with image files. Images are processed to detect room types, generate titles/descriptions, and optionally suggest hotspot placements."
+          },
+          "response": []
+        },
+        {
+          "name": "Optimize Tour",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"goals\": [\"improve_engagement\", \"better_navigation\"],\n  \"focus_areas\": [\"hotspot_placement\", \"scene_order\"],\n  \"update_titles\": true,\n  \"update_descriptions\": true,\n  \"suggest_hotspots\": true,\n  \"language\": \"en\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/{{test_tour_id}}/optimize",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "{{test_tour_id}}",
+                "optimize"
+              ]
+            },
+            "description": "Optimize an existing tour using AI suggestions."
+          },
+          "response": []
+        },
+        {
+          "name": "Analyze Scene",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/scenes/{{test_scene_id}}/analyze",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "scenes",
+                "{{test_scene_id}}",
+                "analyze"
+              ]
+            },
+            "description": "Analyze a single scene using AI. Returns room type, suggested title/description, and quality assessment."
+          },
+          "response": []
+        },
+        {
+          "name": "Suggest Scene Hotspots",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/scenes/{{test_scene_id}}/hotspots",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "scenes",
+                "{{test_scene_id}}",
+                "hotspots"
+              ]
+            },
+            "description": "Get AI-suggested hotspots for a scene. Analyzes the panorama to suggest optimal navigation and info hotspot placements."
+          },
+          "response": []
+        },
+        {
+          "name": "Suggest Tour Hotspots",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/{{test_tour_id}}/hotspots",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "{{test_tour_id}}",
+                "hotspots"
+              ]
+            },
+            "description": "Get AI-suggested hotspots for all scenes in a tour. Analyzes all panoramas and suggests navigation hotspots to connect scenes."
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Scene Description",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tone\": \"professional\",\n  \"length\": \"medium\",\n  \"include_features\": true,\n  \"target_audience\": \"home buyers\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/scenes/{{test_scene_id}}/description",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "scenes",
+                "{{test_scene_id}}",
+                "description"
+              ]
+            },
+            "description": "Generate AI description for a scene. Creates a compelling description based on the panorama content. Options: tone (professional/casual/luxury/friendly), length (short/medium/long)."
+          },
+          "response": []
+        },
+        {
+          "name": "Generate Tour Descriptions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tone\": \"professional\",\n  \"length\": \"medium\",\n  \"include_features\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/{{test_tour_id}}/descriptions",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "{{test_tour_id}}",
+                "descriptions"
+              ]
+            },
+            "description": "Generate AI descriptions for all scenes in a tour. Creates descriptions for each scene based on panorama content."
+          },
+          "response": []
+        },
+        {
+          "name": "List AI Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/jobs?status=pending&limit=20&offset=0",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "jobs"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Filter by status: pending | processing | completed | failed | cancelled",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Items to return (1-100)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Items to skip"
+                }
+              ]
+            },
+            "description": "List AI processing jobs for the current user. Returns jobs with optional status filtering and pagination."
+          },
+          "response": []
+        },
+        {
+          "name": "Get AI Job Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/jobs/{{test_ai_job_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "jobs",
+                "{{test_ai_job_id}}"
+              ]
+            },
+            "description": "Get the status and result of an AI processing job. Returns the job details including progress and results if completed."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel AI Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/jobs/{{test_ai_job_id}}/cancel",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "jobs",
+                "{{test_ai_job_id}}",
+                "cancel"
+              ]
+            },
+            "description": "Cancel a running AI processing job. Only pending or processing jobs can be cancelled."
+          },
+          "response": []
+        },
+        {
+          "name": "Apply Scene Analysis",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"suggestions\": [\n    {\n      \"scene_id\": \"{{test_scene_id}}\",\n      \"title\": \"Modern Living Room\",\n      \"description\": \"Spacious living area with contemporary design\",\n      \"room_type\": \"living_room\"\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/tours/{{test_tour_id}}/apply-analysis",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "tours",
+                "{{test_tour_id}}",
+                "apply-analysis"
+              ]
+            },
+            "description": "Apply AI scene analysis suggestions to scenes. Updates scene titles and descriptions based on selected suggestions."
+          },
+          "response": []
+        },
+        {
+          "name": "Apply Hotspot Suggestions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"suggestion_ids\": [\"suggestion-1\", \"suggestion-2\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/ai/scenes/{{test_scene_id}}/apply-hotspots?job_id={{test_ai_job_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "scenes",
+                "{{test_scene_id}}",
+                "apply-hotspots"
+              ],
+              "query": [
+                {
+                  "key": "job_id",
+                  "value": "{{test_ai_job_id}}",
+                  "description": "Job ID containing suggestions"
+                }
+              ]
+            },
+            "description": "Apply AI hotspot suggestions to a scene. Creates hotspots based on the selected suggestion IDs."
+          },
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "BASE_URL",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "test_tour_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_scene_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_hotspot_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_floor_plan_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_ai_job_id",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

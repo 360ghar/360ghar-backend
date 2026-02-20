@@ -63,6 +63,7 @@ class VisitScheduleInput(BaseModel):
     special_requirements: Optional[str] = Field(None, max_length=1000)
     
     @field_validator('scheduled_date_iso')
+    @classmethod
     def validate_datetime(cls, v):
         """Validate ISO-8601 datetime format."""
         try:

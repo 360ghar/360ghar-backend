@@ -121,12 +121,9 @@ Body: { "full_name": "John Doe", "email": "john@example.com" }
 #### Screen: Login
 **Purpose:** Existing user login
 
-**API Options:**
-1. **Password Login:**
-```
-POST /api/v1/auth/login/
-Body: { "phone": "+919876543210", "password": "password123" }
-```
+**Auth Options (Client-side Supabase SDK):**
+1. **Password Login:** `supabase.auth.signInWithPassword({ phone, password })`
+2. **Phone OTP Login:** `supabase.auth.signInWithOtp()` + `supabase.auth.verifyOtp()`
 
 ### 3.4 Token Management
 - Store `access_token` securely (Keychain/Keystore)

@@ -22,7 +22,7 @@ from app.services.pm_assignments import set_owner_relationship_manager
 router = APIRouter()
 
 
-@router.post("/", response_model=OwnerRMAssignmentResponse)
+@router.post("", response_model=OwnerRMAssignmentResponse)
 async def create_rm_assignment(
     payload: OwnerRMAssignmentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -55,7 +55,7 @@ async def create_rm_assignment(
     )
 
 
-@router.get("/", response_model=list[OwnerRMAssignmentResponse])
+@router.get("", response_model=list[OwnerRMAssignmentResponse])
 async def list_rm_assignments(
     owner_id: Optional[int] = Query(None, description="Owner id (admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),

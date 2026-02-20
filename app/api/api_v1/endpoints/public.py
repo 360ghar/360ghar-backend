@@ -13,8 +13,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.enums import TourStatus
-from app.models.tours import Scene, Tour
+from app.models.enums import TourStatus, TourVisibility
+from app.models.tours import FloorPlan, Scene, Tour
 from app.schemas.tour import TourEventPayload, TourWithScenes
 from app.services import tour as tour_service
 
@@ -48,6 +48,33 @@ def get_client_ip(request: Request) -> str:
         return real_ip
 
     return request.client.host if request.client else "unknown"
+
+
+def normalize_event_type(event_type: str, event_data: dict) -> str:
+    """Normalize incoming event types to the backend canonical set."""
+    mapping = {
+        "tour_view": "view",
+        "tour_share": "share",
+        "tour_like": "like",
+    }
+
+    normalized = mapping.get(event_type, event_type)
+
+    # Back-compat: accept a generic "fullscreen" event with a state flag.
+    if normalized == "fullscreen":
+        is_fullscreen = event_data.get("is_fullscreen")
+        if is_fullscreen is None:
+            is_fullscreen = event_data.get("isFullscreen")
+
+        if is_fullscreen is True:
+            return "fullscreen_enter"
+        if is_fullscreen is False:
+            return "fullscreen_exit"
+
+        # Fallback when the state is not provided.
+        return "fullscreen_enter"
+
+    return normalized
 
 
 @router.get("/tours/{tour_id}", response_model=TourWithScenes)
@@ -90,8 +117,17 @@ async def get_public_tour(
             detail="Tour not found"
         )
 
-    # Check if tour is published and public
-    if tour.status != TourStatus.published or not tour.is_public:
+    # Check if tour is published and publicly accessible (public or unlisted)
+    # Private tours require authentication and are handled by authenticated endpoints
+    if tour.status != TourStatus.published:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tour not found or is not publicly accessible"
+        )
+
+    # Check visibility: both 'public' and 'unlisted' tours are accessible via direct link
+    # 'private' tours are not accessible without authentication
+    if tour.visibility == TourVisibility.private:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tour not found or is not publicly accessible"
@@ -122,7 +158,26 @@ async def get_public_tour(
             # Don't fail the request if analytics tracking fails
             logger.warning(f"Failed to track analytics for tour {tour_id}: {e}")
 
-    return tour
+    # Hydrate floor plans into tour.settings for the viewer (floor plans are stored in a dedicated table).
+    floor_plans_query = select(FloorPlan).where(FloorPlan.tour_id == tour_id).order_by(FloorPlan.floor_number)
+    floor_plans_result = await db.execute(floor_plans_query)
+    floor_plans = list(floor_plans_result.scalars().all())
+
+    payload = TourWithScenes.model_validate(tour).model_dump()
+    settings_payload = payload.get("settings") or {}
+    settings_payload["floor_plans"] = [
+        {
+            "id": fp.id,
+            "name": fp.name,
+            "floor_number": fp.floor_number,
+            "image_url": fp.image_url,
+            "markers": fp.markers or [],
+        }
+        for fp in floor_plans
+    ]
+    payload["settings"] = settings_payload
+
+    return payload
 
 
 @router.get("/tours/{tour_id}/scenes")
@@ -135,13 +190,13 @@ async def get_public_tour_scenes(
 
     Returns scenes ordered by order_index with their hotspots.
     """
-    # Verify tour exists and is public
+    # Verify tour exists and is public (public or unlisted visibility)
     query = select(Tour).where(
         and_(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.is_public == True
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
         )
     )
 
@@ -196,13 +251,27 @@ async def track_tour_event(
         scene_id = payload.scene_id or scene_id
         hotspot_id = payload.hotspot_id or hotspot_id
 
+    event_data = payload.event_data.copy() if payload and payload.event_data else {}
+    if "referrer" not in event_data:
+        event_data["referrer"] = request.headers.get("referer")
+
+    if not event_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing event_type",
+        )
+
+    event_type = normalize_event_type(event_type, event_data)
+
     allowed_events = {
         "view",
         "scene_view",
         "hotspot_click",
         "share",
-        "fullscreen",
+        "fullscreen_enter",
+        "fullscreen_exit",
         "vr_enter",
+        "vr_exit",
         "heatmap",
         "session_start",
         "session_end",
@@ -210,19 +279,19 @@ async def track_tour_event(
         "like",
         "unlike",
     }
-    if not event_type or event_type not in allowed_events:
+    if event_type not in allowed_events:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid event type. Must be one of: {', '.join(allowed_events)}"
+            detail=f"Invalid event type. Must be one of: {', '.join(sorted(allowed_events))}",
         )
 
-    # Verify tour exists and is public
+    # Verify tour exists and is public (public or unlisted visibility)
     query = select(Tour).where(
         and_(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.is_public == True
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
         )
     )
 
@@ -244,9 +313,6 @@ async def track_tour_event(
             if payload and payload.session_id
             else request.cookies.get("session_id") or request.headers.get("x-session-id")
         )
-        event_data = payload.event_data.copy() if payload and payload.event_data else {}
-        if "referrer" not in event_data:
-            event_data["referrer"] = request.headers.get("referer")
 
         await tour_service.record_analytics_event(
             db=db,
@@ -287,7 +353,7 @@ async def like_tour(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.is_public == True
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
         )
     )
 
@@ -338,7 +404,7 @@ async def unlike_tour(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.is_public == True
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
         )
     )
 

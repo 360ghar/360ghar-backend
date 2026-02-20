@@ -14,7 +14,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-@router.post("/", response_model=MessageResponse)
+@router.post("", response_model=MessageResponse)
 async def swipe_property(
     swipe: PropertySwipe,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -33,7 +33,7 @@ async def swipe_property(
     logger.debug("Property swipe recorded", extra={"user_id": current_user.id, "property_id": swipe.property_id, "action": action})
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("/", response_model=SwipeHistoryResponse)
+@router.get("", response_model=SwipeHistoryResponse)
 async def get_user_swipe_history(
     # Location-based search
     lat: Optional[float] = Query(None, description="Latitude for location-based search"),
@@ -163,7 +163,7 @@ async def get_user_swipe_history(
         logger.error(f"Swipe history search failed for user {current_user.id}: {str(e)}")
         raise
 
-@router.delete("/undo/", response_model=MessageResponse)
+@router.delete("/undo", response_model=MessageResponse)
 async def undo_last_swipe_endpoint(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -176,7 +176,7 @@ async def undo_last_swipe_endpoint(
     
     return MessageResponse(message="Last swipe undone successfully")
 
-@router.put("/{swipe_id}/toggle/", response_model=MessageResponse)
+@router.put("/{swipe_id}/toggle", response_model=MessageResponse)
 async def toggle_swipe_like(
     swipe_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -191,7 +191,7 @@ async def toggle_swipe_like(
     action = "liked" if result["new_status"] else "unliked"
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("/stats/")
+@router.get("/stats")
 async def get_user_swipe_statistics(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)

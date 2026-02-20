@@ -28,7 +28,7 @@ from sqlalchemy.sql import func
 from sqlalchemy.types import Enum as SQLEnum
 
 from app.core.database import Base
-from app.models.enums import TourStatus, HotspotType
+from app.models.enums import TourStatus, TourVisibility, HotspotType
 
 if TYPE_CHECKING:
     from app.models.users import User
@@ -63,6 +63,11 @@ class Tour(Base):
         nullable=False
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    visibility: Mapped[TourVisibility] = mapped_column(
+        SQLEnum(TourVisibility, name="tour_visibility"),
+        default=TourVisibility.private,
+        nullable=False
+    )
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -236,7 +241,7 @@ class TourAnalyticsEvent(Base):
     browser: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     os: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     screen_resolution: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    session_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -265,6 +270,7 @@ class AIJob(Base):
     job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # analyze_scenes, suggest_hotspots, generate_descriptions
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed, cancelled
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)  # Number of retry attempts
     result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -318,6 +324,11 @@ class MediaFile(Base):
     processing_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Upload tracking fields
+    upload_status: Mapped[str] = mapped_column(String(20), default="complete")
+    bucket_name: Mapped[Optional[str]] = mapped_column(String(100), default="360ghar-storage")
+    storage_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
 
 class UserSession(Base):

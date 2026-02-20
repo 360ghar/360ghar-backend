@@ -14,8 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.websocket import manager
-from app.core.security import decode_access_token
+from app.core.auth import verify_supabase_token
 from app.services import tour_ai
+from app.services.user import get_or_create_user_from_supabase
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -24,24 +25,26 @@ logger = get_logger(__name__)
 HEARTBEAT_INTERVAL = 30
 
 
-async def verify_websocket_token(token: str) -> Optional[int]:
+async def resolve_websocket_user_id(token: str, db: AsyncSession) -> Optional[int]:
     """
-    Verify the JWT token and return user_id if valid.
+    Verify Supabase access token and resolve the local user id.
 
     Args:
         token: JWT access token
 
     Returns:
-        User ID if valid, None otherwise
+        Local user ID if valid, None otherwise
     """
     try:
-        payload = decode_access_token(token)
-        if payload is None:
+        supabase_user_data = await verify_supabase_token(token)
+        if supabase_user_data is None:
             return None
-        user_id = payload.get("sub")
-        if user_id is None:
+
+        user = await get_or_create_user_from_supabase(db, supabase_user_data)
+        if not user or getattr(user, "id", None) is None:
             return None
-        return int(user_id)
+
+        return int(user.id)
     except Exception as e:
         logger.warning(f"Token verification failed: {e}")
         return None
@@ -75,38 +78,34 @@ async def websocket_job_updates(
             }
         }
     """
-    # Verify token
-    user_id = await verify_websocket_token(token)
-    if user_id is None:
-        await websocket.close(code=4001, reason="Invalid or expired token")
-        return
+    async for db in get_db():
+        user_id = await resolve_websocket_user_id(token, db)
+        if user_id is None:
+            await websocket.close(code=4001, reason="Invalid or expired token")
+            return
 
-    # Connect to job updates
-    await manager.connect_job(websocket, job_id)
+        try:
+            job = await tour_ai.get_ai_job(db, job_id, user_id)
+        except HTTPException:
+            await websocket.close(code=4004, reason="Job not found or not authorized")
+            return
+
+        # Connect to job updates (accept websocket)
+        await manager.connect_job(websocket, job_id)
+
+        await websocket.send_json({
+            "type": "job_update",
+            "job_id": job_id,
+            "data": {
+                "status": job.status,
+                "progress": job.progress,
+                "result": job.result if hasattr(job, "result") else None,
+                "error_message": job.error_message,
+            },
+        })
+        break
 
     try:
-        # Send initial job status
-        async for db in get_db():
-            try:
-                job = await tour_ai.get_ai_job(db, job_id, user_id)
-                await websocket.send_json({
-                    "type": "job_update",
-                    "job_id": job_id,
-                    "data": {
-                        "status": job.status,
-                        "progress": job.progress,
-                        "result": job.result if hasattr(job, 'result') else None,
-                        "error_message": job.error_message,
-                    }
-                })
-            except HTTPException:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Job not found or not authorized"
-                })
-                await websocket.close(code=4004, reason="Job not found")
-                return
-            break
 
         # Keep connection alive and handle incoming messages
         while True:
@@ -162,14 +161,14 @@ async def websocket_user_updates(
             }
         }
     """
-    # Verify token
-    user_id = await verify_websocket_token(token)
-    if user_id is None:
-        await websocket.close(code=4001, reason="Invalid or expired token")
-        return
+    async for db in get_db():
+        user_id = await resolve_websocket_user_id(token, db)
+        if user_id is None:
+            await websocket.close(code=4001, reason="Invalid or expired token")
+            return
 
-    # Connect to user updates
-    await manager.connect_user(websocket, user_id)
+        await manager.connect_user(websocket, user_id)
+        break
 
     try:
         # Send welcome message
@@ -220,11 +219,12 @@ async def websocket_tour_updates(
     Query Parameters:
         token: JWT access token for authentication
     """
-    # Verify token
-    user_id = await verify_websocket_token(token)
-    if user_id is None:
-        await websocket.close(code=4001, reason="Invalid or expired token")
-        return
+    async for db in get_db():
+        user_id = await resolve_websocket_user_id(token, db)
+        if user_id is None:
+            await websocket.close(code=4001, reason="Invalid or expired token")
+            return
+        break
 
     # Use tour_id as a "job_id" for connection management
     connection_key = f"tour:{tour_id}"

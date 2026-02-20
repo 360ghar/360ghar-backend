@@ -130,12 +130,12 @@ Each screen below includes: purpose, key UI, and APIs used.
 **Screen: Enter Phone**
 - Input: phone
 - CTA: Send OTP
-- API: `POST /api/v1/auth/otp/request`
+- API: Supabase client SDK `auth.signInWithOtp({ phone })`
 
 **Screen: Verify OTP**
 - 6-digit OTP
 - CTA: Verify
-- API: `POST /api/v1/auth/otp/verify`
+- API: Supabase client SDK `auth.verifyOtp({ phone, token, type: 'sms' })`
 
 **Post-login**
 - Route to Profile Setup if `full_name` missing; else Home.
@@ -520,4 +520,3 @@ More → Reports → select report + date range → view → export (client-side
 - Agent app (RM mode) + owner switching
 - In-app notifications feed for the current user (backend currently has admin-only listing)
 - Messaging hub (owner ↔ tenant ↔ agent) with attachments
-

@@ -21,7 +21,7 @@ from app.services.pm_properties import (
 router = APIRouter()
 
 
-@router.post("/", response_model=PropertySchema)
+@router.post("", response_model=PropertySchema)
 async def create_pm_property(
     property_data: PropertyCreate,
     owner_id: Optional[int] = Query(None, description="Owner id (admin/agent only)"),
@@ -52,7 +52,7 @@ async def create_pm_property(
     return PropertySchema.model_validate(prop)
 
 
-@router.get("/", response_model=list[PropertySchema])
+@router.get("", response_model=list[PropertySchema])
 async def list_pm_properties(
     owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
     occupancy: Optional[str] = Query(None, description="occupied|vacant"),

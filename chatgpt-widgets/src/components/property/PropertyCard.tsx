@@ -57,9 +57,9 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
   const price = property.purpose === 'rent' ? property.monthly_rent : property.base_price;
 
   return (
-    <Card padding="none" style={{ overflow: 'hidden' }}>
+    <Card padding="none" style={{ overflow: 'hidden', borderRadius: 16 }}>
       {/* Image */}
-      <div style={{ position: 'relative', paddingTop: '56.25%', backgroundColor: colors.backgroundSecondary }}>
+      <div style={{ position: 'relative', paddingTop: '58%', backgroundColor: colors.surfaceTint }}>
         {property.main_image_url && (
           <img
             src={property.main_image_url}
@@ -78,14 +78,16 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
         <span
           style={{
             position: 'absolute',
-            top: 8,
-            left: 8,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            color: '#fff',
-            padding: '4px 8px',
-            borderRadius: 4,
-            fontSize: 12,
+            top: 10,
+            left: 10,
+            backgroundColor: 'rgba(28, 26, 22, 0.85)',
+            color: '#F2EDE0',
+            padding: '4px 10px',
+            borderRadius: 999,
+            fontSize: 11,
+            letterSpacing: '0.03em',
             textTransform: 'uppercase',
+            fontWeight: 600,
           }}
         >
           {property.purpose || 'For Sale'}
@@ -93,7 +95,7 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
       </div>
 
       {/* Content */}
-      <div style={{ padding: 12 }}>
+      <div style={{ padding: 14 }}>
         <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4, color: colors.text }}>
           {property.title}
         </h3>
@@ -109,7 +111,7 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
         </div>
 
         {/* Price */}
-        <p style={{ fontSize: 18, fontWeight: 700, color: colors.primary, marginBottom: 12 }}>
+        <p style={{ fontSize: 19, fontWeight: 700, color: colors.primary, marginBottom: 12 }}>
           {formatPrice(price, property.purpose)}
         </p>
 
@@ -120,13 +122,13 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
               onClick={handleViewDetails}
               style={{
                 flex: 1,
-                padding: '8px 12px',
+                padding: '9px 12px',
                 backgroundColor: colors.primary,
-                color: '#fff',
+                color: '#F2EDE0',
                 border: 'none',
-                borderRadius: 6,
+                borderRadius: 8,
                 fontSize: 14,
-                fontWeight: 500,
+                fontWeight: 600,
                 cursor: 'pointer',
               }}
             >
@@ -135,11 +137,11 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
             <button
               onClick={handleLike}
               style={{
-                padding: '8px 12px',
-                backgroundColor: 'transparent',
-                color: colors.error,
+                padding: '8px 11px',
+                backgroundColor: colors.surfaceTint,
+                color: colors.primary,
                 border: `1px solid ${colors.border}`,
-                borderRadius: 6,
+                borderRadius: 8,
                 fontSize: 18,
                 cursor: 'pointer',
               }}

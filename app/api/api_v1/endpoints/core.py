@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -64,7 +64,7 @@ async def check_for_updates_cached(
 # BUG REPORT ENDPOINTS
 # ============================================================================
 
-@router.post("/bugs/", response_model=BugReportResponse)
+@router.post("/bugs", response_model=BugReportResponse)
 async def create_bug_report(
     bug_data: BugReportCreate,
     current_user: Optional[UserSchema] = Depends(get_current_active_user),
@@ -74,19 +74,19 @@ async def create_bug_report(
     user_id = current_user.id if current_user else None
     return await core_service.create_bug_report(bug_data, user_id)
 
-@router.post("/bugs/with-media/", response_model=BugReportResponse)
+@router.post("/bugs/with-media", response_model=BugReportResponse)
 async def create_bug_report_with_media(
-    source: str,
-    bug_type: str,
-    severity: str,
-    title: str,
-    description: str,
-    steps_to_reproduce: Optional[str] = None,
-    expected_behavior: Optional[str] = None,
-    actual_behavior: Optional[str] = None,
-    device_info: Optional[str] = None,  # JSON string
-    app_version: Optional[str] = None,
-    tags: Optional[str] = None,  # JSON string
+    source: str = Form(...),
+    bug_type: str = Form(...),
+    severity: str = Form(...),
+    title: str = Form(...),
+    description: str = Form(...),
+    steps_to_reproduce: Optional[str] = Form(None),
+    expected_behavior: Optional[str] = Form(None),
+    actual_behavior: Optional[str] = Form(None),
+    device_info: Optional[str] = Form(None),  # JSON string
+    app_version: Optional[str] = Form(None),
+    tags: Optional[str] = Form(None),  # JSON string
     files: List[UploadFile] = File(...),
     current_user: Optional[UserSchema] = Depends(get_current_active_user),
     core_service: CoreService = Depends(get_core_service)
@@ -100,9 +100,11 @@ async def create_bug_report_with_media(
 
     # Upload media files
     media_urls = []
+    # Use current user's ID for user-scoped paths (or skip scoping for anonymous)
+    uploader_id = current_user.id if current_user else None
     for file in files:
         try:
-            upload_result = await storage_service.upload_generic(file)
+            upload_result = await storage_service.upload_generic(file, user_id=uploader_id)
             # Storage service returns 'public_url'
             media_urls.append(upload_result["public_url"])
         except Exception as e:
@@ -129,7 +131,7 @@ async def create_bug_report_with_media(
     user_id = current_user.id if current_user else None
     return await core_service.create_bug_report(bug_data, user_id)
 
-@router.get("/bugs/", response_model=List[BugReportResponse])
+@router.get("/bugs", response_model=List[BugReportResponse])
 async def get_bug_reports(
     status: Optional[str] = Query(None, description="Filter by bug status"),
     bug_type: Optional[str] = Query(None, description="Filter by bug type"),
@@ -208,7 +210,7 @@ async def update_bug_report(
 # PAGE ENDPOINTS
 # ============================================================================
 
-@router.post("/pages/", response_model=PageResponse)
+@router.post("/pages", response_model=PageResponse)
 async def create_page(
     page_data: PageCreate,
     current_user: UserSchema = Depends(get_current_admin),
@@ -217,7 +219,7 @@ async def create_page(
     """Create a new page (admin only)"""
     return await core_service.create_page(page_data, current_user.id)
 
-@router.get("/pages/", response_model=List[PageResponse])
+@router.get("/pages", response_model=List[PageResponse])
 async def get_pages(
     is_active: Optional[bool] = Query(None, description="Filter by active status"),
     is_draft: Optional[bool] = Query(None, description="Filter by draft status"),
@@ -281,7 +283,7 @@ async def delete_page(
 # APP VERSION ENDPOINTS
 # ============================================================================
 
-@router.post("/versions/", response_model=AppVersionResponse)
+@router.post("/versions", response_model=AppVersionResponse)
 @invalidate_cache([CacheKeyPatterns.VERSIONS])
 async def create_app_version(
     version_data: AppVersionCreate,
@@ -304,7 +306,7 @@ async def check_for_updates(
         check_data.current_version
     )
 
-@router.get("/versions/", response_model=List[AppVersionResponse])
+@router.get("/versions", response_model=List[AppVersionResponse])
 async def get_app_versions(
     app: Optional[str] = Query(None, description="Filter by app identifier"),
     platform: Optional[str] = Query(None, description="Filter by platform"),
@@ -338,7 +340,7 @@ async def update_app_version(
 # FAQ ENDPOINTS
 # ============================================================================
 
-@router.post("/faqs/", response_model=FAQResponse)
+@router.post("/faqs", response_model=FAQResponse)
 @invalidate_cache([CacheKeyPatterns.FAQS])
 async def create_faq(
     faq_data: FAQCreate,
@@ -348,7 +350,7 @@ async def create_faq(
     """Create a new FAQ (admin only). Invalidates FAQ cache."""
     return await core_service.create_faq(faq_data)
 
-@router.get("/faqs/", response_model=List[FAQResponse])
+@router.get("/faqs", response_model=List[FAQResponse])
 async def get_faqs_admin(
     category: Optional[str] = Query(None, description="Filter by category/platform"),
     is_active: Optional[bool] = Query(None, description="Filter by active status"),

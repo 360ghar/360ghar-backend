@@ -161,8 +161,8 @@ function PropertyDetailsWidget() {
                   left: 12,
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  backgroundColor: 'rgba(0,0,0,0.5)',
-                  color: '#fff',
+                  backgroundColor: 'rgba(28, 26, 22, 0.70)',
+                  color: '#F2EDE0',
                   border: 'none',
                   borderRadius: '50%',
                   width: 40,
@@ -180,8 +180,8 @@ function PropertyDetailsWidget() {
                   right: 12,
                   top: '50%',
                   transform: 'translateY(-50%)',
-                  backgroundColor: 'rgba(0,0,0,0.5)',
-                  color: '#fff',
+                  backgroundColor: 'rgba(28, 26, 22, 0.70)',
+                  color: '#F2EDE0',
                   border: 'none',
                   borderRadius: '50%',
                   width: 40,
@@ -207,7 +207,7 @@ function PropertyDetailsWidget() {
                       width: 8,
                       height: 8,
                       borderRadius: '50%',
-                      backgroundColor: idx === currentImageIndex ? '#fff' : 'rgba(255,255,255,0.5)',
+                      backgroundColor: idx === currentImageIndex ? '#F2EDE0' : 'rgba(242, 237, 224, 0.50)',
                     }}
                   />
                 ))}
@@ -217,8 +217,8 @@ function PropertyDetailsWidget() {
           {/* Badges */}
           <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8 }}>
             <span style={{
-              backgroundColor: 'rgba(0,0,0,0.7)',
-              color: '#fff',
+              backgroundColor: 'rgba(28, 26, 22, 0.85)',
+              color: '#F2EDE0',
               padding: '6px 12px',
               borderRadius: 6,
               fontSize: 12,
@@ -230,7 +230,7 @@ function PropertyDetailsWidget() {
             {property.is_available === false && (
               <span style={{
                 backgroundColor: colors.error,
-                color: '#fff',
+                color: '#F2EDE0',
                 padding: '6px 12px',
                 borderRadius: 6,
                 fontSize: 12,

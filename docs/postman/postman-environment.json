@@ -15,8 +15,8 @@
 			"type": "default"
 		},
 		{
-			"key": "SUPABASE_KEY",
-			"value": "your-supabase-anon-key",
+			"key": "SUPABASE_PUBLISHABLE_KEY",
+			"value": "your-supabase-publishable-key",
 			"enabled": true,
 			"type": "default"
 		},
@@ -124,6 +124,42 @@
 		},
 		{
 			"key": "new_user_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_tour_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_scene_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_hotspot_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_floor_plan_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_ai_job_id",
+			"value": "",
+			"enabled": true,
+			"type": "default"
+		},
+		{
+			"key": "test_custom_domain_id",
 			"value": "",
 			"enabled": true,
 			"type": "default"

@@ -128,6 +128,41 @@ class TestUpdatePreferencesEndpoint:
             assert response.status_code == 200
 
     @pytest.mark.asyncio
+    async def test_update_preferences_with_typed_values(
+        self, authenticated_client: AsyncClient
+    ):
+        """Test updating preferences with strict enum values."""
+        with patch(
+            "app.api.api_v1.endpoints.users.update_user_preferences",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            mock_update.return_value = True
+
+            response = await authenticated_client.put(
+                "/api/v1/users/preferences/",
+                json={
+                    "property_type": ["condo", "studio"],
+                    "purpose": "short_stay",
+                    "budget_min": 10000,
+                    "budget_max": 50000,
+                },
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_update_preferences_rejects_invalid_enum(
+        self, authenticated_client: AsyncClient
+    ):
+        """Test invalid enum values are rejected."""
+        response = await authenticated_client.put(
+            "/api/v1/users/preferences/",
+            json={"purpose": "investment"},
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.asyncio
     async def test_update_preferences_unauthorized(self, client: AsyncClient):
         """Test preferences update requires auth."""
         response = await client.put(

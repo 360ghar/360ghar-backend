@@ -220,3 +220,30 @@ class TestBookingReferenceGeneration:
         """Test each booking has unique reference."""
         references = [b.booking_reference for b in test_bookings]
         assert len(references) == len(set(references))
+
+
+class TestAddReview:
+    """Tests for add_review function."""
+
+    @pytest.mark.asyncio
+    async def test_add_review_maps_guest_fields_correctly(
+        self,
+        db_session: AsyncSession,
+        test_booking,
+    ):
+        """Review payload should persist guest_rating/guest_review fields."""
+        from app.schemas.booking import BookingReview
+        from app.services.booking import add_review
+
+        review_data = BookingReview(
+            booking_id=test_booking.id,
+            guest_rating=5,
+            guest_review="Great stay and smooth check-in.",
+        )
+
+        result = await add_review(db_session, review_data)
+
+        assert result is True
+        await db_session.refresh(test_booking)
+        assert test_booking.guest_rating == 5
+        assert test_booking.guest_review == "Great stay and smooth check-in."

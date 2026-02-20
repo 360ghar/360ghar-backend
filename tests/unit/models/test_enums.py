@@ -43,10 +43,16 @@ class TestPropertyType:
         assert PropertyType.apartment.value == "apartment"
         assert PropertyType.builder_floor.value == "builder_floor"
         assert PropertyType.room.value == "room"
+        assert PropertyType.villa.value == "villa"
+        assert PropertyType.plot.value == "plot"
+        assert PropertyType.condo.value == "condo"
+        assert PropertyType.penthouse.value == "penthouse"
+        assert PropertyType.studio.value == "studio"
+        assert PropertyType.loft.value == "loft"
 
     def test_property_type_count(self):
         """Test correct number of property types."""
-        assert len(PropertyType) == 4
+        assert len(PropertyType) == 10
 
     def test_property_type_is_str_enum(self):
         """Test PropertyType inherits from str."""

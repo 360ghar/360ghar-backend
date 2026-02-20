@@ -353,6 +353,11 @@ async def get_unified_properties_optimized(
                 text_filter_applied = True
             text_rank_expr = func.ts_rank(search_vector, search_query_obj)
         
+        # Property IDs filter
+        if filters.property_ids:
+            logger.debug(f"Adding property IDs filter: {filters.property_ids}")
+            conditions.append(Property.id.in_(filters.property_ids))
+        
         # Property type filter - handle list of property types
         if filters.property_type:
             logger.debug(f"Adding property type filter: {filters.property_type}")
@@ -457,20 +462,59 @@ async def get_unified_properties_optimized(
                 )
                 conditions.append(Property.id.in_(amenity_subquery))
         
-        # Features filter - TODO: Implement proper JSON filtering once schema is clarified
+        # Features filter - use PostgreSQL JSONB containment operator
         if filters.features:
-            logger.debug(f"Features filter requested but not yet implemented: {filters.features}")
-            # Features are stored as JSON dict, need to determine proper filtering logic
-            # For now, skip this filter to avoid errors
-            pass
+            from sqlalchemy.dialects.postgresql import JSONB
+            from sqlalchemy import cast, literal
+            logger.debug(f"Adding features filter: {filters.features}")
+            for feature in filters.features:
+                # Check if feature exists as a key with truthy value in JSONB
+                # This handles formats like {"pool": true, "gym": true}
+                conditions.append(
+                    Property.features.op('@>')(cast(f'{{"{feature}": true}}', JSONB))
+                )
         
         # Short stay filters
         if filters.guests is not None:
             logger.debug(f"Adding max occupancy filter for guests: {filters.guests}")
             conditions.append(Property.max_occupancy >= filters.guests)
-        
-        # TODO: Implement check-in/check-out date availability filtering
-        # This would require checking against booking calendar
+
+        # Booking availability filtering - exclude properties with conflicting bookings
+        if getattr(filters, 'check_in_date', None) and getattr(filters, 'check_out_date', None):
+            from app.models.bookings import Booking
+            from datetime import datetime
+            from app.models.enums import BookingStatus
+
+            logger.debug(f"Adding availability filter: {filters.check_in_date} to {filters.check_out_date}")
+
+            # Parse date strings if needed
+            check_in = (
+                datetime.fromisoformat(filters.check_in_date)
+                if isinstance(filters.check_in_date, str)
+                else filters.check_in_date
+            )
+            check_out = (
+                datetime.fromisoformat(filters.check_out_date)
+                if isinstance(filters.check_out_date, str)
+                else filters.check_out_date
+            )
+
+            # Subquery to find properties with conflicting confirmed/checked-in bookings
+            # Overlap logic: existing.check_in < requested.check_out AND existing.check_out > requested.check_in
+            booked_properties_subquery = (
+                select(Booking.property_id)
+                .where(
+                    and_(
+                        Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.checked_in]),
+                        Booking.check_in_date < check_out,
+                        Booking.check_out_date > check_in
+                    )
+                )
+                .distinct()
+            )
+
+            # Exclude properties that have conflicting bookings
+            conditions.append(~Property.id.in_(booked_properties_subquery))
         
         # Optionally exclude properties already swiped by the user if authenticated
         if user_id and getattr(filters, "exclude_swiped", False):

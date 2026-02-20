@@ -14,12 +14,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Running the API
 ```bash
-python run.py                                      # Simple start
-fastapi dev app/main.py --host 0.0.0.0 --port 8000 # Hot reload (recommended)
+uv run python run.py                               # Using uv (recommended)
+python run.py                                      # Direct Python
+fastapi dev app/main.py --host 0.0.0.0 --port 8000 # Hot reload (FastAPI CLI)
 ```
+
+> **Note:** This project uses `uv` for dependency management. The `pyproject.toml` includes `[tool.setuptools.packages.find]` configuration to prevent "Multiple top-level packages discovered" errors during the build.
 
 ### Testing
 ```bash
+uv run pytest tests/ -v                      # All tests (using uv)
 pytest tests/ -v                              # All tests
 pytest tests/test_user_service.py -v         # Specific file
 pytest tests/ -k "user" -v                   # By keyword
@@ -29,6 +33,12 @@ pytest tests/ --cov=app --cov-report=html    # With coverage
 
 ### Data Population
 ```bash
+# Using uv (recommended)
+uv run python populate_data/load_comprehensive_data.py          # Full dataset (~300 properties)
+uv run python populate_data/load_comprehensive_data.py --quick  # Quick load (~51 properties)
+uv run python populate_data/load_comprehensive_data.py --clear  # Clear first, then load
+
+# Or with PYTHONPATH
 PYTHONPATH=$(pwd) python populate_data/load_comprehensive_data.py          # Full dataset (~300 properties)
 PYTHONPATH=$(pwd) python populate_data/load_comprehensive_data.py --quick  # Quick load (~51 properties)
 PYTHONPATH=$(pwd) python populate_data/load_comprehensive_data.py --clear  # Clear first, then load
@@ -59,7 +69,7 @@ app/
 
 **Async-First**: All database operations and services use `async/await`. Services inject `AsyncSession` via FastAPI dependencies.
 
-**Authentication Flow**: Supabase Auth (phone + password) → JWT token → `get_current_user` dependency → local user sync
+**Authentication Flow**: Client authenticates directly with Supabase Auth → bearer access token → `get_current_user` dependency verifies JWT → local user sync
 
 **Geospatial Search**: PostGIS `ST_DWithin` for radius-based property search, `ST_Distance` for sorting by proximity.
 
@@ -133,7 +143,8 @@ async def get_properties(
 - Supabase JWT auth via `get_current_user` dependency
 - Phone as primary identifier
 - Role-based access: user, agent, admin
-- Rate limiting: 100 req/min global, 5 req/min for auth endpoints
+- Backend does not provide `/api/v1/auth/*` user-session endpoints; clients own login/refresh/logout via Supabase SDK
+- Rate limiting: 100 req/min global
 - Input validation via Pydantic schemas
 
 ## API Documentation
@@ -155,49 +166,51 @@ When running locally:
 | `/mcp` | User MCP | End-user tools for owners, tenants, and regular users |
 | `/mcp-admin` | Admin MCP | Administrative tools for agents and platform admins |
 
+Both servers use OAuth 2.1 authentication (Supabase JWT) and share the same authorization endpoints at `/mcp/oauth/*`.
+
 ### User MCP Tools (`/mcp`)
 
-**Owner Tools** (prefix: `owner.*`):
-- `owner.properties.list` - List owned properties
-- `owner.properties.create` - Create new property listing
-- `owner.properties.get` - Get property details
-- `owner.properties.update` - Update property
-- `owner.properties.toggle_availability` - Toggle availability status
+**Owner Tools** (prefix: `owner_*`):
+- `owner_properties_list` - List owned properties
+- `owner_properties_create` - Create new property listing
+- `owner_properties_get` - Get property details
+- `owner_properties_update` - Update property
+- `owner_properties_toggle_availability` - Toggle availability status
 
-**Tenant Tools** (prefix: `tenant.*`):
-- `tenant.lease.current` - View current lease
-- `tenant.rent.history` - View rent payment history
-- `tenant.maintenance.create` - Submit maintenance request
-- `tenant.maintenance.list` - List maintenance requests
+**Tenant Tools** (prefix: `tenant_*`):
+- `tenant_lease_current` - View current lease
+- `tenant_rent_history` - View rent payment history
+- `tenant_maintenance_create` - Submit maintenance request
+- `tenant_maintenance_list` - List maintenance requests
 
-**Booking Tools** (prefix: `bookings.*`):
-- `bookings.create` - Book a property
-- `bookings.list` - List user bookings
-- `bookings.get` - Get booking details
-- `bookings.cancel` - Cancel a booking
-- `bookings.check_availability` - Check property availability
-- `bookings.get_pricing` - Get pricing information
+**Booking Tools** (prefix: `bookings_*`):
+- `bookings_create` - Book a property
+- `bookings_list` - List user bookings
+- `bookings_get` - Get booking details
+- `bookings_cancel` - Cancel a booking
+- `bookings_check_availability` - Check property availability
+- `bookings_get_pricing` - Get pricing information
 
 ### Admin MCP Tools (`/mcp-admin`)
 
-**Agent Tools** (prefix: `agent.*`):
-- `agent.properties.list` - List properties in agent's portfolio
-- `agent.properties.get` - Get detailed property info
-- `agent.properties.create_for_owner` - Create property for an owner
-- `agent.properties.verify` - Verify/approve property listing
-- `agent.leases.list` - List all leases
-- `agent.leases.create` - Create new lease agreement
-- `agent.leases.terminate` - Terminate a lease
-- `agent.rent.list_due` - List overdue rent payments
-- `agent.rent.record_payment` - Record rent payment
-- `agent.maintenance.list` - List maintenance requests
-- `agent.maintenance.update_status` - Update maintenance status
-- `agent.bookings.list_all` - List all bookings
-- `agent.bookings.update_status` - Update booking status
-- `agent.dashboard.overview` - Get dashboard metrics
+**Agent Tools** (prefix: `agent_*`):
+- `agent_properties_list` - List properties in agent's portfolio
+- `agent_properties_get` - Get detailed property info
+- `agent_properties_create_for_owner` - Create property for an owner
+- `agent_properties_verify` - Verify/approve property listing
+- `agent_leases_list` - List all leases
+- `agent_leases_create` - Create new lease agreement
+- `agent_leases_terminate` - Terminate a lease
+- `agent_rent_list_due` - List overdue rent payments
+- `agent_rent_record_payment` - Record rent payment
+- `agent_maintenance_list` - List maintenance requests
+- `agent_maintenance_update_status` - Update maintenance status
+- `agent_bookings_list_all` - List all bookings
+- `agent_bookings_update_status` - Update booking status
+- `agent_dashboard_overview` - Get dashboard metrics
 
-**Admin Tools** (prefix: `admin.*`):
-- `admin.system.status` - System health and statistics
+**Admin Tools** (prefix: `admin_*`):
+- `admin_system_status` - System health and statistics
 
 ### MCP Client Configuration
 

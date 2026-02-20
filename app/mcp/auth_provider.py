@@ -76,6 +76,14 @@ class SupabaseTokenVerifier(TokenVerifier):
                     token_resource = token_data.get("resource")
                     logger.debug("Token found in store", extra={"user_id": user_id, "resource": token_resource})
 
+                    # Expiration check
+                    if expires_at and time.time() > expires_at:
+                        logger.warning(
+                            "Token has expired",
+                            extra={"user_id": user_id, "expires_at": expires_at}
+                        )
+                        return None
+
                     # Audience validation (RFC 8707)
                     # If the token was issued for a specific resource, validate it
                     if token_resource and self.expected_resources:
@@ -103,12 +111,29 @@ class SupabaseTokenVerifier(TokenVerifier):
                     if "phone" in token_data:
                         claims["phone"] = token_data["phone"]
 
+                    token_scopes = claims["scope"].split()
+
+                    # Scope validation
+                    if self.required_scopes:
+                        missing_scopes = set(self.required_scopes) - set(token_scopes)
+                        if missing_scopes:
+                            logger.warning(
+                                "Token missing required scopes",
+                                extra={
+                                    "user_id": user_id,
+                                    "required": self.required_scopes,
+                                    "got": token_scopes,
+                                    "missing": list(missing_scopes),
+                                }
+                            )
+                            return None
+
                     logger.info("OAuth token verified", extra={"user_id": user_id, "scope": claims["scope"]})
 
                     return AccessToken(
                         token=token,
                         client_id=token_data.get("client_id", "ghar360-mcp"),
-                        scopes=claims["scope"].split(),
+                        scopes=token_scopes,
                         expires_at=expires_at,
                         resource=token_resource,
                         claims=claims,

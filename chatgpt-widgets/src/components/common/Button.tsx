@@ -26,27 +26,29 @@ export function Button({
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '8px',
-    fontWeight: 500,
-    transition: 'all 0.15s ease',
+    borderRadius: '10px',
+    fontWeight: 600,
+    letterSpacing: '0.01em',
+    transition: 'transform 0.12s ease, background-color 0.12s ease, border-color 0.12s ease',
     border: 'none',
     cursor: disabled || loading ? 'not-allowed' : 'pointer',
     opacity: disabled || loading ? 0.6 : 1,
+    boxShadow: disabled || loading ? 'none' : colors.shadow,
   };
 
   const sizeStyles: Record<string, React.CSSProperties> = {
     sm: { padding: '6px 12px', fontSize: '13px' },
     md: { padding: '10px 16px', fontSize: '14px' },
-    lg: { padding: '14px 24px', fontSize: '16px' },
+    lg: { padding: '13px 22px', fontSize: '15px' },
   };
 
   const variantStyles: Record<string, React.CSSProperties> = {
     primary: {
       backgroundColor: colors.primary,
-      color: '#ffffff',
+      color: '#3D3829',
     },
     secondary: {
-      backgroundColor: colors.backgroundSecondary,
+      backgroundColor: colors.surfaceTint,
       color: colors.text,
       border: `1px solid ${colors.border}`,
     },

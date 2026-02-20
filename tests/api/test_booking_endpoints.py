@@ -282,3 +282,54 @@ class TestGetPricingEndpoint:
             assert response.status_code == 200
             data = response.json()
             assert "total_amount" in data
+
+
+class TestAddReviewEndpoint:
+    """Tests for POST /api/v1/bookings/review/ endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_add_review_success(self, authenticated_client: AsyncClient, test_user):
+        """Test successful booking review submission with canonical guest_* fields."""
+        mock_booking = create_mock_booking(booking_id=42, user_id=test_user.id)
+
+        with patch(
+            "app.api.api_v1.endpoints.bookings.get_booking",
+            new_callable=AsyncMock,
+        ) as mock_get, patch(
+            "app.api.api_v1.endpoints.bookings.add_review",
+            new_callable=AsyncMock,
+        ) as mock_add_review:
+            mock_get.return_value = mock_booking
+            mock_add_review.return_value = True
+
+            response = await authenticated_client.post(
+                "/api/v1/bookings/review/",
+                json={
+                    "booking_id": 42,
+                    "guest_rating": 5,
+                    "guest_review": "Excellent stay",
+                },
+            )
+
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["message"] == "Review added successfully"
+
+            review_input = mock_add_review.await_args.args[1]
+            assert review_input.booking_id == 42
+            assert review_input.guest_rating == 5
+            assert review_input.guest_review == "Excellent stay"
+
+    @pytest.mark.asyncio
+    async def test_add_review_rejects_legacy_fields(self, authenticated_client: AsyncClient):
+        """Legacy rating/review keys must be rejected by schema validation."""
+        response = await authenticated_client.post(
+            "/api/v1/bookings/review/",
+            json={
+                "booking_id": 42,
+                "rating": 5,
+                "review": "Legacy payload",
+            },
+        )
+
+        assert response.status_code == 422

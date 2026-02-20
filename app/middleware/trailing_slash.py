@@ -1,32 +1,33 @@
 """
-Trailing slash normalization middleware for MCP/SSE endpoints.
+Trailing slash normalization middleware.
 
-Starlette's Mount requires trailing slashes for proper routing.
-This middleware adds trailing slashes to MCP mount points to prevent
-307 redirects.
+This middleware handles two cases:
+1. MCP mount paths: Adds trailing slashes (Starlette Mount requires them)
+2. API routes: Strips trailing slashes to prevent 307 redirects that lose
+   Authorization headers
 
-Mount points:
+Mount points that need trailing slash:
 - /mcp -> /mcp/
 - /mcp-admin -> /mcp-admin/
-- /sse -> /sse/
 
-Note: Paths like /mcp/oauth/authorize should NOT be modified as they are
-regular FastAPI routes, not mounted app endpoints.
+API routes that need trailing slash stripped:
+- /api/v1/tours/ -> /api/v1/tours
+- /api/v1/users/profile/ -> /api/v1/users/profile
 """
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 # Exact mount paths that need trailing slash normalization
-MCP_MOUNT_PATHS = {"/mcp", "/mcp-admin", "/sse"}
+MCP_MOUNT_PATHS = {"/mcp", "/mcp-admin"}
 
 
 class StripTrailingSlashMiddleware:
     """
-    Pure ASGI middleware to add trailing slashes for MCP mount paths.
+    Pure ASGI middleware for path normalization.
 
-    This prevents Starlette's Mount from issuing 307 redirects when
-    clients POST to /mcp instead of /mcp/.
+    - Adds trailing slashes to MCP mount paths (prevents Starlette Mount 307s)
+    - Strips trailing slashes from API routes (prevents auth header loss on redirect)
     """
 
     def __init__(self, app: ASGIApp):
@@ -36,9 +37,13 @@ class StripTrailingSlashMiddleware:
         if scope["type"] == "http":
             path = scope.get("path", "")
 
-            # Add trailing slash for exact mount paths
+            # Add trailing slash for exact MCP mount paths
             if path in MCP_MOUNT_PATHS:
                 scope = dict(scope)
                 scope["path"] = path + "/"
+            # Strip trailing slash from API routes (except root "/api/")
+            elif path.startswith("/api/") and path.endswith("/") and len(path) > 5:
+                scope = dict(scope)
+                scope["path"] = path.rstrip("/")
 
         await self.app(scope, receive, send)

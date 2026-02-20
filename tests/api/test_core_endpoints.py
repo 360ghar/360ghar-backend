@@ -2,10 +2,40 @@
 Tests for core endpoints (health, config, etc.).
 """
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+
+from app.models.enums import BugSeverity, BugStatus, BugType
+from app.schemas.core import BugReportResponse
+
+
+def create_mock_bug_report_response() -> BugReportResponse:
+    """Build a valid BugReportResponse payload for endpoint tests."""
+    return BugReportResponse(
+        id=1,
+        user_id=1,
+        source="web",
+        bug_type=BugType.ui_bug,
+        severity=BugSeverity.medium,
+        status=BugStatus.open,
+        title="UI issue",
+        description="Buttons overlap on mobile layout.",
+        steps_to_reproduce="Open page on iPhone width.",
+        expected_behavior="Buttons should stack correctly.",
+        actual_behavior="Buttons overlap each other.",
+        device_info={"os": "iOS"},
+        app_version="1.0.0",
+        media_urls=["https://cdn.example.com/uploads/bug.png"],
+        tags=["ui", "mobile"],
+        assigned_to=None,
+        resolution=None,
+        resolved_at=None,
+        created_at=datetime.now(timezone.utc),
+        updated_at=None,
+    )
 
 
 class TestHealthEndpoint:
@@ -102,3 +132,56 @@ class TestVersionEndpoints:
             )
 
             assert response.status_code == 200
+
+
+class TestBugEndpoints:
+    """Tests for bug report endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_create_bug_report_with_media_uses_form_fields(
+        self,
+        authenticated_client: AsyncClient,
+    ):
+        """Multipart fields should be parsed from form body and forwarded as typed schema."""
+        with patch(
+            "app.api.api_v1.endpoints.core.storage_service.upload_generic",
+            new_callable=AsyncMock,
+        ) as mock_upload, patch(
+            "app.services.core.CoreService.create_bug_report",
+            new_callable=AsyncMock,
+        ) as mock_create:
+            mock_upload.return_value = {"public_url": "https://cdn.example.com/uploads/bug.png"}
+            mock_create.return_value = create_mock_bug_report_response()
+
+            response = await authenticated_client.post(
+                "/api/v1/bugs/with-media/",
+                data={
+                    "source": "web",
+                    "bug_type": "ui_bug",
+                    "severity": "medium",
+                    "title": "UI issue",
+                    "description": "Buttons overlap on mobile layout.",
+                    "steps_to_reproduce": "Open page on iPhone width.",
+                    "expected_behavior": "Buttons should stack correctly.",
+                    "actual_behavior": "Buttons overlap each other.",
+                    "device_info": "{\"os\":\"iOS\"}",
+                    "app_version": "1.0.0",
+                    "tags": "[\"ui\",\"mobile\"]",
+                },
+                files=[
+                    ("files", ("bug.png", b"fake-image-content", "image/png")),
+                ],
+            )
+
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["bug_type"] == "ui_bug"
+            assert payload["media_urls"] == ["https://cdn.example.com/uploads/bug.png"]
+
+            create_args = mock_create.await_args.args
+            bug_data = create_args[1]
+            assert bug_data.source == "web"
+            assert bug_data.bug_type == BugType.ui_bug
+            assert bug_data.device_info == {"os": "iOS"}
+            assert bug_data.tags == ["ui", "mobile"]
+            assert bug_data.media_urls == ["https://cdn.example.com/uploads/bug.png"]

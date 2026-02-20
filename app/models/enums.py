@@ -8,6 +8,12 @@ class PropertyType(str, Enum):
     apartment = "apartment"
     builder_floor = "builder_floor"
     room = "room"
+    villa = "villa"
+    plot = "plot"
+    condo = "condo"
+    penthouse = "penthouse"
+    studio = "studio"
+    loft = "loft"
 
 class PropertyPurpose(str, Enum):
     buy = "buy"
@@ -215,6 +221,18 @@ class TourStatus(str, Enum):
     draft = "draft"
     published = "published"
     archived = "archived"
+
+
+class TourVisibility(str, Enum):
+    """Tour visibility controls access permissions.
+
+    - private: Only the owner can view the tour (requires authentication)
+    - unlisted: Anyone with the link can view, but not indexed in public listings
+    - public: Visible in public listings and searchable
+    """
+    private = "private"
+    unlisted = "unlisted"
+    public = "public"
 
 
 class HotspotType(str, Enum):

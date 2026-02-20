@@ -70,6 +70,31 @@ class TestRegisterDeviceEndpoint:
             assert response.status_code == 200
 
 
+class TestUnregisterDeviceEndpoint:
+    """Tests for DELETE /api/v1/notifications/devices/unregister endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_unregister_device_token(self, authenticated_client: AsyncClient):
+        with patch(
+            "app.api.api_v1.endpoints.notifications.unregister_device_token",
+            new_callable=AsyncMock,
+        ) as mock_unregister:
+            mock_unregister.return_value = {"ok": True}
+
+            response = await authenticated_client.delete(
+                "/api/v1/notifications/devices/unregister",
+                params={"token": "fcm_device_token_123"},
+            )
+
+            assert response.status_code == 200
+            mock_unregister.assert_awaited_once_with(token="fcm_device_token_123")
+
+    @pytest.mark.asyncio
+    async def test_unregister_requires_token(self, authenticated_client: AsyncClient):
+        response = await authenticated_client.delete("/api/v1/notifications/devices/unregister")
+        assert response.status_code == 422
+
+
 class TestSendNotificationEndpoint:
     """Tests for admin notification sending."""
 

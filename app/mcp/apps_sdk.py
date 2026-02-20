@@ -51,7 +51,6 @@ class AppsSDKToolResult(ToolResult):
         self.is_error = is_error
 
 
-@dataclass(frozen=True)
 class AuthRequiredError(ToolError):
     """
     Raised by tool handlers to signal OAuth is required.
@@ -61,9 +60,16 @@ class AuthRequiredError(ToolError):
     - _meta["mcp/www_authenticate"] set to a WWW-Authenticate challenge string
     """
 
-    message: str
-    www_authenticate: str
-    structured_content: Optional[Dict[str, Any]] = None
+    def __init__(
+        self,
+        message: str,
+        www_authenticate: str,
+        structured_content: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.www_authenticate = www_authenticate
+        self.structured_content = structured_content
 
 
 def _public_base_url() -> str:
@@ -82,8 +88,8 @@ def _resource_metadata_url_for_current_request() -> str:
     """
     Determine the correct protected-resource metadata URL for this request.
 
-    We key off the mount root_path so the same server mounted at /mcp and /sse
-    can emit the correct resource metadata URL.
+    We key off the mount root_path so mounted servers emit the correct
+    protected-resource metadata URL.
     """
     base_url = _public_base_url()
     try:
@@ -94,8 +100,6 @@ def _resource_metadata_url_for_current_request() -> str:
 
     if root_path.startswith("/mcp-admin"):
         return f"{base_url}/.well-known/oauth-protected-resource/mcp-admin"
-    if root_path.startswith("/sse"):
-        return f"{base_url}/.well-known/oauth-protected-resource/sse"
     # Default to /mcp
     return f"{base_url}/.well-known/oauth-protected-resource/mcp"
 
@@ -117,6 +121,34 @@ def build_www_authenticate(
         f'error_description="{error_description}", '
         f'scope="{scope}"'
     )
+
+
+def build_widget_tool_meta(
+    *,
+    widget_uri: str,
+    invoking: str,
+    invoked: str,
+    visibility: str = "host",
+    widget_accessible: bool = True,
+) -> Dict[str, Any]:
+    """
+    Build tool-level metadata that is standards-first and ChatGPT-compatible.
+
+    Standards keys (`ui.*`) are primary. OpenAI keys are kept as aliases to
+    preserve existing ChatGPT behavior.
+    """
+    return {
+        "ui": {
+            "resourceUri": widget_uri,
+            "visibility": visibility,
+        },
+        "ui/resourceUri": widget_uri,
+        "ui/visibility": visibility,
+        "openai/outputTemplate": widget_uri,
+        "openai/widgetAccessible": widget_accessible,
+        "openai/toolInvocation/invoking": invoking,
+        "openai/toolInvocation/invoked": invoked,
+    }
 
 
 def raise_auth_required(
@@ -202,8 +234,27 @@ class AppsSDKFastMCP(FastMCP):
     """
     FastMCP server variant that can emit CallToolResult with result-level `_meta`.
 
-    This is required for ChatGPT Apps tool-level OAuth triggering.
+    Supports both ChatGPT Apps (OpenAI) and MCP Apps (SEP-1865) from a single
+    server URL by advertising the ``io.modelcontextprotocol/ui`` extension
+    capability and emitting standard + OpenAI-compatible metadata.
     """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # Advertise MCP Apps UI extension so Claude, VS Code, MCPJam, etc.
+        # know this server can return interactive HTML resources.
+        original_create_init = self._mcp_server.create_initialization_options
+        def _patched_create_init(
+            notification_options: Any = None,
+            experimental_capabilities: Optional[Dict[str, Any]] = None,
+        ) -> Any:
+            caps = experimental_capabilities or {}
+            caps["io.modelcontextprotocol/ui"] = {}
+            return original_create_init(
+                notification_options=notification_options,
+                experimental_capabilities=caps,
+            )
+        self._mcp_server.create_initialization_options = _patched_create_init
 
     async def _mcp_call_tool(  # type: ignore[override]
         self, key: str, arguments: dict[str, Any]
@@ -227,7 +278,7 @@ class AppsSDKFastMCP(FastMCP):
                     _meta=result_meta,
                 )
             except AuthRequiredError as exc:
-                logger.info("MCP tool requires auth", extra={"tool": key, "message": exc.message})
+                logger.info("MCP tool requires auth", extra={"tool": key, "auth_message": exc.message})
                 return mcp_types.CallToolResult(
                     content=[
                         mcp_types.TextContent(

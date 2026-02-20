@@ -62,10 +62,10 @@ const CATEGORIES = [
 ];
 
 const PRIORITIES = [
-  { value: 'low', label: 'Low', color: '#6b7280' },
-  { value: 'medium', label: 'Medium', color: '#f59e0b' },
-  { value: 'high', label: 'High', color: '#ef4444' },
-  { value: 'urgent', label: 'Urgent', color: '#dc2626' },
+  { value: 'low', label: 'Low', color: '#9E9888' },
+  { value: 'medium', label: 'Medium', color: '#D4B56A' },
+  { value: 'high', label: 'High', color: '#C99898' },
+  { value: 'urgent', label: 'Urgent', color: '#B87878' },
 ];
 
 function formatDate(dateStr: string): string {
@@ -94,7 +94,7 @@ function getStatusColor(status: string, colors: typeof themeColors.light): strin
 
 function getPriorityColor(priority: string): string {
   const p = PRIORITIES.find((pr) => pr.value === priority);
-  return p?.color || '#6b7280';
+  return p?.color || '#9E9888';
 }
 
 function MaintenanceWidget() {

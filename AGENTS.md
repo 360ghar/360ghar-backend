@@ -6,7 +6,10 @@ This repository contains the 360 Ghar unified real estate platform backend, serv
 
 ### Setup
 ```bash
-python -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies and run
 docker-compose up -d db redis
 ```
 
@@ -78,9 +81,10 @@ from app.services import UserService
 - Use repositories in `app/repositories/` for complex queries
 
 ### Security
-- Supabase JWT authentication via `get_current_user` dependency
+- Supabase JWT authentication via `get_current_user` dependency (clients authenticate directly with Supabase)
 - Phone as primary identifier, role-based access (user/agent/admin)
-- Rate limiting: 100 req/min global, 5 req/min for auth endpoints
+- Backend no longer exposes `/api/v1/auth/*` user-session endpoints; backend only verifies bearer access tokens and authorizes business routes
+- Rate limiting: 100 req/min global
 
 ## Project Structure
 ```

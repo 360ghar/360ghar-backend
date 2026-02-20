@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
 
-from app.mcp.apps_sdk import AppsSDKToolResult, raise_auth_required
+from app.mcp.apps_sdk import AppsSDKToolResult
 
 
 def format_chatgpt_response(
@@ -58,6 +58,8 @@ def format_auth_required_response(
     Returns:
         None (always raises).
     """
+    from app.mcp.apps_sdk import AuthRequiredError
+
     if message is None:
         message = (
             "To use this feature, please log in to your 360Ghar account. "
@@ -71,9 +73,9 @@ def format_auth_required_response(
     if context:
         data.update(context)
 
-    raise_auth_required(
+    raise AuthRequiredError(
         message=message,
-        error_description=message,
+        www_authenticate='Bearer error="invalid_token"',
         structured_content=data,
     )
 

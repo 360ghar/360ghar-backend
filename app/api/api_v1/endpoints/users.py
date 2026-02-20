@@ -49,12 +49,12 @@ async def update_user_me(
     return UserSchemaModel.model_validate(updated_user)
 
 
-@router.get("/profile/", response_model=UserSchema)
+@router.get("/profile", response_model=UserSchema)
 async def get_user_profile(current_user: UserSchema = Depends(get_current_active_user)):
     """Get current user profile"""
     return current_user
 
-@router.put("/profile/", response_model=UserSchema)
+@router.put("/profile", response_model=UserSchema)
 async def update_user_profile(
     user_update: UserUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -66,17 +66,21 @@ async def update_user_profile(
         raise HTTPException(status_code=404, detail="User not found")
     return updated_user
 
-@router.put("/preferences/", response_model=MessageResponse)
+@router.put("/preferences", response_model=MessageResponse)
 async def update_preferences(
     preferences: UserPreferences,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user preferences"""
-    await update_user_preferences(db, current_user.id, preferences.dict())
+    await update_user_preferences(
+        db,
+        current_user.id,
+        preferences.model_dump(mode="json", exclude_none=True),
+    )
     return MessageResponse(message="Preferences updated successfully")
 
-@router.put("/location/", response_model=MessageResponse)
+@router.put("/location", response_model=MessageResponse)
 async def update_location(
     location_update: LocationUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -123,7 +127,7 @@ async def update_notification_settings(
     return MessageResponse(message="Notification settings updated successfully")
 
 
-@router.put("/notifications/", response_model=UserSchema)
+@router.put("/notifications", response_model=UserSchema)
 async def update_notifications_compat(
     settings: dict,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -163,7 +167,7 @@ async def update_privacy_settings(
     return MessageResponse(message="Privacy settings updated successfully")
 
 
-@router.put("/privacy/", response_model=UserSchema)
+@router.put("/privacy", response_model=UserSchema)
 async def update_privacy_compat(
     settings: dict,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -179,7 +183,7 @@ async def update_privacy_compat(
 
 
 # Admin/Agent management endpoints
-@router.get("/", response_model=PaginatedResponse)
+@router.get("", response_model=PaginatedResponse)
 async def list_users(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -225,7 +229,7 @@ async def list_users(
     }
 
 
-@router.get("/{user_id}/", response_model=UserSchema)
+@router.get("/{user_id}", response_model=UserSchema)
 async def get_user_details(
     user_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -246,7 +250,7 @@ async def get_user_details(
     return UserSchemaModel.model_validate(user)
 
 
-@router.put("/{user_id}/", response_model=UserSchema)
+@router.put("/{user_id}", response_model=UserSchema)
 async def update_user_details(
     user_id: int,
     user_update: UserUpdate,
@@ -261,7 +265,7 @@ async def update_user_details(
     return UserSchemaModel.model_validate(updated_user)
 
 
-@router.post("/{user_id}/assign-agent/", response_model=MessageResponse)
+@router.post("/{user_id}/assign-agent", response_model=MessageResponse)
 async def assign_agent_to_specific_user(
     user_id: int,
     payload: dict,

@@ -184,6 +184,24 @@ class TestListProperties:
 
             assert response.status_code == 200
 
+    @pytest.mark.asyncio
+    async def test_list_properties_with_ids_filter(self, client: AsyncClient):
+        """Test property listing with repeated ids query params."""
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
+            mock_list.return_value = {"items": [], "total": 0, "total_pages": 0}
+
+            response = await client.get(
+                "/api/v1/properties",
+                params=[("ids", "1"), ("ids", "2"), ("ids", "5")],
+            )
+
+            assert response.status_code == 200
+            filters = mock_list.await_args.args[1]
+            assert filters.property_ids == [1, 2, 5]
+
 
 class TestGetProperty:
     """Tests for GET /api/v1/properties/{property_id}."""
@@ -321,6 +339,22 @@ class TestPropertyFilters:
             response = await client.get(
                 "/api/v1/properties/",
                 params={"property_type": ["apartment", "house"]},
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_valid_expanded_property_type_filter(self, client: AsyncClient):
+        """Test expanded property type filter values."""
+        with patch(
+            "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_list:
+            mock_list.return_value = {"items": [], "total": 0, "total_pages": 0}
+
+            response = await client.get(
+                "/api/v1/properties/",
+                params=[("property_type", "condo"), ("property_type", "studio")],
             )
 
             assert response.status_code == 200

@@ -63,7 +63,8 @@ async def get_current_user(
     try:
         supabase_user_data = await verify_supabase_token(token)
         if not supabase_user_data:
-            logger.warning("Invalid or expired token")
+            token_suffix = token[-8:] if len(token) > 8 else token
+            logger.warning("Invalid or expired token (suffix=%s)", token_suffix)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={

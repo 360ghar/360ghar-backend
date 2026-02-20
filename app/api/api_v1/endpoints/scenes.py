@@ -34,22 +34,7 @@ async def get_scene(
     """
     Get a scene by ID with all its hotspots.
     """
-    scene = await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
-        )
-
-    # Verify ownership through tour
-    tour = await tour_service.get_tour(db=db, tour_id=scene.tour_id)
-    if not tour or tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this scene"
-        )
-
-    return scene
+    return await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
 
 
 @router.put("/{scene_id}", response_model=Scene)
@@ -114,20 +99,8 @@ async def list_hotspots(
 
     Returns hotspots ordered by their order_index.
     """
-    # Verify scene ownership
-    scene = await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
-        )
-
-    tour = await tour_service.get_tour(db=db, tour_id=scene.tour_id)
-    if not tour or tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this scene"
-        )
+    # Ensures the current user owns the scene's tour.
+    await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
 
     hotspots = await tour_service.get_hotspots(db=db, scene_id=scene_id)
     return hotspots

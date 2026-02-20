@@ -1,6 +1,5 @@
 from fastapi import APIRouter
 from app.api.api_v1.endpoints import (
-    auth,
     users,
     properties,
     visits,
@@ -34,11 +33,11 @@ from app.api.api_v1.endpoints import (
     dashboard,
     public,
     ai,
+    custom_domains,
 )
 
 api_router = APIRouter()
 
-api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
@@ -85,3 +84,6 @@ api_router.include_router(public.router, prefix="/public", tags=["public-tours"]
 
 # 360 Virtual Tours - AI endpoints
 api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+
+# 360 Virtual Tours - Custom Domains
+api_router.include_router(custom_domains.router, prefix="/custom-domains", tags=["custom-domains"])

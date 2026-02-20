@@ -6,9 +6,9 @@ These schemas define the request/response models for the tour management endpoin
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from app.models.enums import HotspotType, TourStatus
+from app.models.enums import HotspotType, TourStatus, TourVisibility
 
 
 # ====================
@@ -117,7 +117,7 @@ class HotspotBase(BaseModel):
     icon: Optional[str] = Field(default=None, max_length=50)
     icon_name: Optional[str] = Field(default=None, max_length=100)
     icon_color: Optional[str] = Field(default=None, pattern=r"^#[0-9A-Fa-f]{6}$")
-    icon_size: Optional[int] = Field(default=32, ge=16, le=100)
+    icon_size: Optional[int] = Field(default=None, ge=16, le=100)
     content: Optional[Dict[str, Any]] = None
     custom_data: Optional[Dict[str, Any]] = None
 
@@ -195,11 +195,12 @@ class SceneBase(BaseModel):
     """Base scene schema with common fields."""
     title: Optional[str] = Field(default=None, max_length=255)
     description: Optional[str] = Field(default=None, max_length=2000)
-    order_index: Optional[int] = Field(default=0, ge=0)
+    order_index: Optional[int] = Field(default=None, ge=0)
     metadata: Optional[SceneMetadata] = Field(
         default=None,
         alias="scene_metadata",
-        serialization_alias="scene_metadata",
+        validation_alias=AliasChoices("metadata", "scene_metadata"),
+        serialization_alias="metadata",
     )
 
     model_config = ConfigDict(populate_by_name=True)
@@ -247,7 +248,8 @@ class TourBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=5000)
     status: Optional[TourStatus] = TourStatus.draft
-    is_public: Optional[bool] = False
+    is_public: Optional[bool] = False  # Deprecated: Use visibility instead
+    visibility: Optional[TourVisibility] = TourVisibility.private
     settings: Optional[TourSettings] = None
 
 
@@ -261,7 +263,8 @@ class TourUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=5000)
     status: Optional[TourStatus] = None
-    is_public: Optional[bool] = None
+    is_public: Optional[bool] = None  # Deprecated: Use visibility instead
+    visibility: Optional[TourVisibility] = None
     is_featured: Optional[bool] = None
     settings: Optional[TourSettings] = None
     thumbnail_url: Optional[str] = Field(default=None, max_length=500)
@@ -272,6 +275,7 @@ class Tour(TourBase):
     id: str
     user_id: int
     is_featured: bool
+    visibility: TourVisibility
     view_count: int
     like_count: int
     share_count: int
@@ -479,7 +483,8 @@ class TourGenerationSceneInput(BaseModel):
     metadata: Optional[SceneMetadata] = Field(
         default=None,
         alias="scene_metadata",
-        serialization_alias="scene_metadata",
+        validation_alias=AliasChoices("metadata", "scene_metadata"),
+        serialization_alias="metadata",
     )
 
     model_config = ConfigDict(populate_by_name=True)
@@ -490,7 +495,8 @@ class TourGenerationRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: Optional[str] = Field(default=None, max_length=5000)
     status: Optional[TourStatus] = TourStatus.draft
-    is_public: Optional[bool] = False
+    is_public: Optional[bool] = False  # Deprecated: Use visibility instead
+    visibility: Optional[TourVisibility] = TourVisibility.private
     settings: Optional[TourSettings] = None
     scenes: Optional[List[TourGenerationSceneInput]] = None
     image_urls: Optional[List[str]] = None

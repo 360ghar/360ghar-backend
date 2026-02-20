@@ -16,7 +16,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://user:pass@localhost:5432/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -32,7 +32,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgres://user:pass@localhost:5432/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -48,7 +48,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql+psycopg://user:pass@localhost:5432/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -64,7 +64,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://localhost/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -84,7 +84,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://localhost/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -104,7 +104,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://localhost/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -123,7 +123,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://localhost/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
             "VECTOR_SYNC_ENABLED": "true",  # Explicitly set to ensure default is tested
@@ -143,7 +143,7 @@ class TestSettings:
         with patch.dict(os.environ, {
             "DATABASE_URL": "postgresql://localhost/db",
             "SUPABASE_URL": "https://test.supabase.co",
-            "SUPABASE_KEY": "test_key",
+            "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_test",
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
@@ -154,3 +154,24 @@ class TestSettings:
             settings = config.Settings()
 
             assert settings.VASTU_DEFAULT_PROVIDER == "glm"
+
+    def test_supabase_client_key_returns_publishable_key(self):
+        """Test SUPABASE_CLIENT_KEY returns publishable key."""
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_URL": "postgresql://localhost/db",
+                "SUPABASE_URL": "https://test.supabase.co",
+                "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_key",
+                "SUPABASE_SECRET_KEY": "test_secret",
+                "SENTRY_DSN": "https://test@sentry.io/123",
+            },
+            clear=False,
+        ):
+            from importlib import reload
+            from app.core import config
+
+            reload(config)
+
+            settings = config.Settings()
+            assert settings.SUPABASE_CLIENT_KEY == "sb_publishable_key"

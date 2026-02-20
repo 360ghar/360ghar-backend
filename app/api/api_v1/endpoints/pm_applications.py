@@ -94,7 +94,7 @@ async def get_form(
     return RentalApplicationForm.model_validate(form)
 
 
-@router.get("/", response_model=list[RentalApplication])
+@router.get("", response_model=list[RentalApplication])
 async def list_inbox(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),

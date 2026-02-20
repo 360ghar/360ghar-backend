@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SUPABASE_URL: str
     SENTRY_DSN: str
-    SUPABASE_KEY: str
+    SUPABASE_PUBLISHABLE_KEY: str
     SUPABASE_SECRET_KEY: str
     # API Keys for middleware (comma-separated)
     VALID_API_KEYS: str = ""
@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     
     # Vector sync settings
     VECTOR_SYNC_ENABLED: bool = True
-    VECTOR_SYNC_CRON: Optional[str] = "*/10 * * * *"  # every 10 minutes by default
+    VECTOR_SYNC_CRON: Optional[str] = "0 9 * * *"  # once daily at 9:00 AM
     VECTOR_SYNC_INTERVAL_SECONDS: int = 300  # used when CRON not provided
     VECTOR_SYNC_BATCH_SIZE: int = 500
     VECTOR_SYNC_MAX_RETRIES: int = 3
@@ -58,6 +58,11 @@ class Settings(BaseSettings):
             url = url.replace("postgres://", "postgresql+psycopg://", 1)
         
         return url
+
+    @property
+    def SUPABASE_CLIENT_KEY(self) -> str:
+        """Return the key used for non-privileged Supabase auth flows."""
+        return self.SUPABASE_PUBLISHABLE_KEY.strip()
     
     REDIS_URL: str = "redis://localhost:6379"
     ENVIRONMENT: str = "development"
@@ -65,6 +70,9 @@ class Settings(BaseSettings):
 
     # Public base URL for OAuth/MCP (set when behind ngrok or reverse proxy)
     PUBLIC_BASE_URL: Optional[str] = None  # e.g., https://xyz.ngrok-free.app
+
+    # Public base URL for the frontend app (used for share preview redirects)
+    PUBLIC_APP_URL: Optional[str] = None  # e.g., https://360viewer.360ghar.com
 
     # Cache configuration
     CACHE_BACKEND: str = "memory"  # "memory" or "redis"
@@ -82,9 +90,11 @@ class Settings(BaseSettings):
     CACHE_TTL_FAQS: int = 86400  # 24 hours
     CACHE_TTL_VERSIONS: int = 86400  # 24 hours
     
-    # Additional Supabase settings
-    SUPABASE_STORAGE_BUCKET: str = "property-images"
-    SUPABASE_DOCUMENTS_BUCKET: str = "property-documents"
+    # Supabase Storage - Single unified bucket for all uploads
+    SUPABASE_STORAGE_BUCKET: str = "360ghar-storage"
+
+    # Upload limits (applies to presigned upload requests)
+    MAX_UPLOAD_SIZE_MB: int = 50
 
     # Firebase / FCM
     FIREBASE_PROJECT_ID: str | None = None
@@ -136,15 +146,12 @@ class Settings(BaseSettings):
         "https://360ghar.com",
         "https://www.360ghar.com",
         "https://admin.360ghar.com",
-        # ChatGPT App domains (for widget iframes and MCP calls)
-        "https://chatgpt.com",
-        "https://chat.openai.com",
-        "https://platform.openai.com",
+    # ChatGPT App domains (for widget iframes and MCP calls)
+    "https://chatgpt.com",
+    "https://chat.openai.com",
+    "https://platform.openai.com",
     ]
-    
-    # Public base URL for external access (e.g., ngrok, production domain)
-    PUBLIC_BASE_URL: Optional[str] = None
-    
+
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
         case_sensitive=True,

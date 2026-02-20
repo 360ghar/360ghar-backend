@@ -10,6 +10,7 @@ from app.api.api_v1.dependencies.auth import get_current_admin, get_current_acti
 from app.schemas.user import User as UserSchema
 from app.services.notifications import (
     register_device_token,
+    unregister_device_token,
     send_to_token as svc_send_to_token,
     send_to_user as svc_send_to_user,
     send_to_topic as svc_send_to_topic,
@@ -65,6 +66,14 @@ async def devices_register(
         app_version=payload.app_version,
         locale=payload.locale,
     )
+
+
+@router.delete("/devices/unregister")
+async def devices_unregister(
+    token: str = Query(..., min_length=1),
+    _: Optional[UserSchema] = Depends(get_current_user_optional),
+):
+    return await unregister_device_token(token=token)
 
 
 class SendToToken(BaseModel):
@@ -206,7 +215,7 @@ class NotificationLogEntry(BaseModel):
     created_at: Optional[str] = None
 
 
-@router.get("/users/{user_id}/", response_model=List[NotificationLogEntry])
+@router.get("/users/{user_id}", response_model=List[NotificationLogEntry])
 async def list_user_notifications(
     user_id: int,
     _: UserSchema = Depends(get_current_admin),

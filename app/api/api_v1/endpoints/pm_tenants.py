@@ -15,7 +15,7 @@ from app.services.pm_tenants import get_tenant_detail, list_tenants
 router = APIRouter()
 
 
-@router.get("/", response_model=list[TenantSummary])
+@router.get("", response_model=list[TenantSummary])
 async def list_owner_tenants(
     owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
     limit: int = Query(50, ge=1, le=200),

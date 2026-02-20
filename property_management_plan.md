@@ -46,10 +46,8 @@ It is written to be **backward-compatible** with the current marketplace/discove
 - Property management needs PDFs/docs; plan includes extending storage to support document MIME types and possibly a separate bucket.
 
 **Auth & onboarding additions (for the Property Management app)**
-- Keep existing password flows for backward compatibility, but add phone OTP flows (Supabase supports OTP).
-- Proposed new auth endpoints (no new 3rd-party; still Supabase):
-  - `POST /api/v1/auth/otp/request` → request OTP for a phone
-  - `POST /api/v1/auth/otp/verify` → verify OTP and return a bearer token + local `users` record
+- Clients authenticate directly with Supabase SDK (password and/or OTP), then call backend with bearer access tokens.
+- Backend does not expose `/api/v1/auth/*` session endpoints.
 - Profile setup remains `PUT /api/v1/users/profile/`; additional “owner/tenant profile” fields can live in:
   - `users.preferences` JSON (fastest), or
   - dedicated profile tables (cleaner; see section 3.3).

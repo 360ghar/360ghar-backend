@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED
+from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED, build_widget_tool_meta
 from app.mcp.chatgpt.response_formatter import (
     format_chatgpt_response,
     format_auth_required_response,
@@ -27,40 +27,35 @@ from app.mcp.user_server import user_mcp
 logger = get_logger(__name__)
 
 # ChatGPT tool metadata for widget linkage
-LEASE_MANAGEMENT_META = {
-    "openai/outputTemplate": "ui://widget/leasemanagementwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading lease information...",
-    "openai/toolInvocation/invoked": "Lease data loaded",
-}
+LEASE_MANAGEMENT_META = build_widget_tool_meta(
+    widget_uri="ui://widget/leasemanagementwidget.html",
+    invoking="Loading lease information...",
+    invoked="Lease data loaded",
+)
 
-RENT_COLLECTION_META = {
-    "openai/outputTemplate": "ui://widget/rentcollectionwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading rent data...",
-    "openai/toolInvocation/invoked": "Rent data loaded",
-}
+RENT_COLLECTION_META = build_widget_tool_meta(
+    widget_uri="ui://widget/rentcollectionwidget.html",
+    invoking="Loading rent data...",
+    invoked="Rent data loaded",
+)
 
-OWNER_DASHBOARD_META = {
-    "openai/outputTemplate": "ui://widget/ownerdashboardwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading dashboard...",
-    "openai/toolInvocation/invoked": "Dashboard ready",
-}
+OWNER_DASHBOARD_META = build_widget_tool_meta(
+    widget_uri="ui://widget/ownerdashboardwidget.html",
+    invoking="Loading dashboard...",
+    invoked="Dashboard ready",
+)
 
-MAINTENANCE_META = {
-    "openai/outputTemplate": "ui://widget/maintenancewidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading maintenance requests...",
-    "openai/toolInvocation/invoked": "Maintenance data loaded",
-}
+MAINTENANCE_META = build_widget_tool_meta(
+    widget_uri="ui://widget/maintenancewidget.html",
+    invoking="Loading maintenance requests...",
+    invoked="Maintenance data loaded",
+)
 
-TENANT_RENT_META = {
-    "openai/outputTemplate": "ui://widget/tenantrentwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading your rent status...",
-    "openai/toolInvocation/invoked": "Rent status loaded",
-}
+TENANT_RENT_META = build_widget_tool_meta(
+    widget_uri="ui://widget/tenantrentwidget.html",
+    invoking="Loading your rent status...",
+    invoked="Rent status loaded",
+)
 
 
 async def _get_optional_user(db):
@@ -170,7 +165,7 @@ def _format_rent_summary(charges: List[Dict], totals: Dict) -> str:
 
 
 @user_mcp.tool(
-    "owner.leases.list",
+    "owner_leases_list",
     annotations={
         "title": "List Property Leases",
         "readOnlyHint": True,
@@ -259,7 +254,7 @@ async def owner_leases_list(
 
 
 @user_mcp.tool(
-    "owner.leases.get",
+    "owner_leases_get",
     annotations={
         "title": "Get Lease Details",
         "readOnlyHint": True,
@@ -325,7 +320,7 @@ async def owner_leases_get(
 
 
 @user_mcp.tool(
-    "owner.leases.terminate",
+    "owner_leases_terminate",
     annotations={
         "title": "Terminate Lease",
         "readOnlyHint": False,
@@ -423,7 +418,7 @@ async def owner_leases_terminate(
 
 
 @user_mcp.tool(
-    "owner.rent.status",
+    "owner_rent_status",
     annotations={
         "title": "View Rent Collection Status",
         "readOnlyHint": True,
@@ -518,7 +513,7 @@ async def owner_rent_status(
 
 
 @user_mcp.tool(
-    "owner.rent.record_payment",
+    "owner_rent_record_payment",
     annotations={
         "title": "Record Rent Payment",
         "readOnlyHint": False,
@@ -625,7 +620,7 @@ async def owner_rent_record_payment(
 
 
 @user_mcp.tool(
-    "owner.rent.history",
+    "owner_rent_history",
     annotations={
         "title": "View Payment History",
         "readOnlyHint": True,
@@ -712,7 +707,7 @@ async def owner_rent_history(
 
 
 @user_mcp.tool(
-    "owner.dashboard.overview",
+    "owner_dashboard_overview",
     annotations={
         "title": "Property Owner Dashboard",
         "readOnlyHint": True,
@@ -778,7 +773,7 @@ async def owner_dashboard_overview(
 
 
 @user_mcp.tool(
-    "owner.maintenance.list",
+    "owner_maintenance_list",
     annotations={
         "title": "List Maintenance Requests",
         "readOnlyHint": True,
@@ -912,7 +907,7 @@ async def owner_maintenance_list(
 
 
 @user_mcp.tool(
-    "owner.maintenance.update",
+    "owner_maintenance_update",
     annotations={
         "title": "Update Maintenance Request",
         "readOnlyHint": False,
@@ -1058,7 +1053,7 @@ async def owner_maintenance_update(
 
 
 @user_mcp.tool(
-    "tenant.rent.dues",
+    "tenant_rent_dues",
     annotations={
         "title": "View My Rent Dues",
         "readOnlyHint": True,

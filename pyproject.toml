@@ -2,12 +2,65 @@
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["supabase*", "populate_data*", "tests*"]
+
 [project]
 name = "ghar360-backend"
 version = "1.0.0"
 description = "360Ghar Real Estate Platform Backend API"
 readme = "README.md"
 requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.37.0",
+    "watchfiles",
+    "fastapi-cli==0.0.8",
+    "hypercorn",
+    "pydantic>=2.5.2",
+    "pydantic-settings>=2.1.0",
+    "python-multipart>=0.0.20",
+    "python-jose[cryptography]==3.3.0",
+    "python-dotenv>=1.1.0",
+    "httpx==0.28.1",
+    "redis==5.0.1",
+    "celery==5.3.4",
+    "geojson==3.1.0",
+    "supabase==2.24.0",
+    "sqlalchemy[asyncio]==2.0.23",
+    "geoalchemy2==0.14.2",
+    "aiosqlite",
+    "faker==19.12.0",
+    "bleach",
+    "sentry-sdk[fastapi]",
+    "fastapi-debug-toolbar>=0.6.0",
+    "psycopg[binary]",
+    "aiohttp>=3.9.0,<4",
+    "email-validator",
+    "fastmcp==2.12.4",
+    "websockets==15.0.1",
+    "google-auth>=2.23.0",
+    "APScheduler>=3.10.4",
+    "google-generativeai>=0.7.0",
+    "pgvector>=0.2.5",
+    "Pillow>=10.0.0",
+    "tenacity>=8.2.0",
+    "qrcode[pil]>=7.4.2",
+    "dnspython>=2.4.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=4.1.0",
+    "pytest-xdist>=3.5.0",
+    "pytest-timeout>=2.2.0",
+    "factory-boy>=3.3.0",
+    "respx>=0.21.0",
+    "freezegun>=1.4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.8.0",
+    "PyYAML>=6.0.1",
+    "starlette>=0.45.0",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "360ghar-admin-dashboard",
     "name": "360Ghar Admin + Agent Dashboard API",
-    "description": "Complete Postman collection for Admin and Agent Dashboard functionality.\n\n## Overview\nThis collection provides comprehensive API endpoints for managing the 360Ghar real estate platform from both Admin and Agent perspectives.\n\n## User Roles\n- **Admin**: Full system access, user/agent/property management\n- **Agent**: Limited access to assigned users and properties\n- **User**: Standard user endpoints\n\n## Setup Instructions\n1. Import this collection into Postman\n2. Create/update environment with BASE_URL and credentials\n3. Login as Admin or Agent to get access token\n4. Use role-specific endpoints based on your access level\n\n## Environment Variables\n- `BASE_URL`: API base URL (e.g., http://localhost:8000)\n- `access_token`: JWT token (auto-set after login)\n- `current_user_id`: Current user ID\n- `current_user_role`: User role (admin/agent/user)\n\n## Key Features\n- Role-based access control enforcement\n- Comprehensive property filtering and management\n- User-agent assignment system\n- Visit and booking management\n- System statistics and workload monitoring\n- File upload capabilities",
+    "description": "Complete Postman collection for Admin and Agent Dashboard functionality.\n\n## Overview\nThis collection provides comprehensive API endpoints for managing the 360Ghar real estate platform from both Admin and Agent perspectives.\n\n## User Roles\n- **Admin**: Full system access, user/agent/property management\n- **Agent**: Limited access to assigned users and properties\n- **User**: Standard user endpoints\n\n## Setup Instructions\n1. Import this collection into Postman\n2. Create/update environment with BASE_URL and credentials\n3. Authenticate in Supabase and paste a valid access token into `access_token`\n4. Use role-specific endpoints based on your access level\n\n## Environment Variables\n- `BASE_URL`: API base URL (e.g., http://localhost:8000)\n- `access_token`: Supabase access token (set from a valid Supabase session)\n- `current_user_id`: Current user ID\n- `current_user_role`: User role (admin/agent/user)\n\n## Key Features\n- Role-based access control enforcement\n- Comprehensive property filtering and management\n- User-agent assignment system\n- Visit and booking management\n- System statistics and workload monitoring\n- File upload capabilities",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "360ghar-admin"
   },
@@ -84,105 +84,52 @@
   ],
   "item": [
     {
-      "name": "🔐 Authentication",
+      "name": "\ud83d\udd10 Authentication",
       "item": [
         {
-          "name": "Login as Admin",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Response has access token', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('access_token');",
-                  "    pm.expect(response).to.have.property('user');",
-                  "    pm.expect(response.user.role).to.equal('admin');",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    pm.environment.set('access_token', response.access_token);",
-                  "    pm.environment.set('current_user_id', response.user.id);",
-                  "    pm.environment.set('current_user_role', response.user.role);",
-                  "    pm.environment.set('token_expiry', new Date(Date.now() + 30 * 60 * 1000).toISOString());",
-                  "    console.log('✅ Logged in as Admin:', response.user.full_name);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Get Current User Profile (Supabase Token Required)",
           "request": {
             "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"+918178340031\",\n  \"password\": \"saksham123\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
                 }
-              }
+              ]
             },
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/login/",
+              "raw": "{{BASE_URL}}/api/v1/users/profile",
               "host": [
                 "{{BASE_URL}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "auth",
-                "login",
-                ""
+                "users",
+                "profile"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "Login as Agent",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    pm.environment.set('access_token', response.access_token);",
-                  "    pm.environment.set('current_user_id', response.user.id);",
-                  "    pm.environment.set('current_user_role', response.user.role);",
-                  "    pm.environment.set('agent_id', response.user.agent_id);",
-                  "    pm.environment.set('token_expiry', new Date(Date.now() + 30 * 60 * 1000).toISOString());",
-                  "    console.log('✅ Logged in as Agent:', response.user.full_name);",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Update Current User Profile (Supabase Token Required)",
           "request": {
             "auth": {
-              "type": "noauth"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
             },
-            "method": "POST",
+            "method": "PUT",
             "header": [
               {
                 "key": "Content-Type",
@@ -191,7 +138,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+919876543210\",\n  \"password\": \"agent123\"\n}",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"email\": \"updated@example.com\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -199,67 +146,58 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/login/",
+              "raw": "{{BASE_URL}}/api/v1/users/profile",
               "host": [
                 "{{BASE_URL}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "auth",
-                "login",
-                ""
+                "users",
+                "profile"
               ]
             }
           },
           "response": []
         },
         {
-          "name": "Register User (Public)",
+          "name": "Get Current User (/users/me Alias, Supabase Token Required)",
           "request": {
             "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"full_name\": \"{{randomName}}\",\n  \"email\": \"{{randomEmail}}\",\n  \"phone\": \"{{randomPhone}}\",\n  \"password\": \"ChangeMe123!\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
                 }
-              }
+              ]
             },
+            "method": "GET",
+            "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/register/",
+              "raw": "{{BASE_URL}}/api/v1/users/me",
               "host": [
                 "{{BASE_URL}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "auth",
-                "register",
-                ""
+                "users",
+                "me"
               ]
             },
-            "description": "Public registration with phone + password. Creates Supabase auth user and DB user."
+            "description": "Alias endpoint for current-user lookup. Use Supabase access token in Authorization bearer header."
           },
           "response": []
         }
       ]
     },
     {
-      "name": "👥 User Management",
+      "name": "\ud83d\udc65 User Management",
       "item": [
         {
-          "name": "📋 List Users (Admin/Agent)",
+          "name": "\ud83d\udccb List Users (Admin/Agent)",
           "request": {
             "method": "GET",
             "header": [],
@@ -304,7 +242,7 @@
           "response": []
         },
         {
-          "name": "👤 Get My Profile",
+          "name": "\ud83d\udc64 Get My Profile",
           "request": {
             "method": "GET",
             "header": [],
@@ -326,7 +264,7 @@
           "response": []
         },
         {
-          "name": "👤 Get User Details",
+          "name": "\ud83d\udc64 Get User Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -348,7 +286,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update User",
+          "name": "\u270f\ufe0f Update User",
           "request": {
             "method": "PUT",
             "header": [
@@ -384,7 +322,7 @@
           "response": []
         },
         {
-          "name": "🔗 Assign Agent to User (Admin Only)",
+          "name": "\ud83d\udd17 Assign Agent to User (Admin Only)",
           "request": {
             "method": "POST",
             "header": [
@@ -421,7 +359,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update My Profile",
+          "name": "\u270f\ufe0f Update My Profile",
           "request": {
             "method": "PUT",
             "header": [
@@ -457,7 +395,7 @@
           "response": []
         },
         {
-          "name": "⚙️ Update Preferences",
+          "name": "\u2699\ufe0f Update Preferences",
           "request": {
             "method": "PUT",
             "header": [
@@ -493,7 +431,7 @@
           "response": []
         },
         {
-          "name": "📍 Update Location",
+          "name": "\ud83d\udccd Update Location",
           "request": {
             "method": "PUT",
             "header": [
@@ -529,7 +467,7 @@
           "response": []
         },
         {
-          "name": "🔔 Get Notification Settings",
+          "name": "\ud83d\udd14 Get Notification Settings",
           "request": {
             "method": "GET",
             "header": [],
@@ -550,7 +488,7 @@
           "response": []
         },
         {
-          "name": "🔔 Update Notification Settings",
+          "name": "\ud83d\udd14 Update Notification Settings",
           "request": {
             "method": "PUT",
             "header": [
@@ -585,7 +523,7 @@
           "response": []
         },
         {
-          "name": "🔔 Update Notifications (Compat)",
+          "name": "\ud83d\udd14 Update Notifications (Compat)",
           "request": {
             "method": "PUT",
             "header": [
@@ -621,7 +559,7 @@
           "response": []
         },
         {
-          "name": "🔒 Get Privacy Settings",
+          "name": "\ud83d\udd12 Get Privacy Settings",
           "request": {
             "method": "GET",
             "header": [],
@@ -642,7 +580,7 @@
           "response": []
         },
         {
-          "name": "🔒 Update Privacy Settings",
+          "name": "\ud83d\udd12 Update Privacy Settings",
           "request": {
             "method": "PUT",
             "header": [
@@ -677,7 +615,7 @@
           "response": []
         },
         {
-          "name": "🔒 Update Privacy (Compat)",
+          "name": "\ud83d\udd12 Update Privacy (Compat)",
           "request": {
             "method": "PUT",
             "header": [
@@ -715,10 +653,10 @@
       ]
     },
     {
-      "name": "🏢 Agent Management",
+      "name": "\ud83c\udfe2 Agent Management",
       "item": [
         {
-          "name": "📋 List All Agents (Admin)",
+          "name": "\ud83d\udccb List All Agents (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -755,7 +693,7 @@
           "response": []
         },
         {
-          "name": "➕ Create New Agent (Admin)",
+          "name": "\u2795 Create New Agent (Admin)",
           "event": [
             {
               "listen": "test",
@@ -764,7 +702,7 @@
                   "if (pm.response.code === 200) {",
                   "    const response = pm.response.json();",
                   "    pm.environment.set('new_agent_id', response.id);",
-                  "    console.log('✅ Created Agent ID:', response.id);",
+                  "    console.log('\u2705 Created Agent ID:', response.id);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -805,7 +743,7 @@
           "response": []
         },
         {
-          "name": "🔄 Update Agent (Admin)",
+          "name": "\ud83d\udd04 Update Agent (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -840,7 +778,7 @@
           "response": []
         },
         {
-          "name": "🚫 Deactivate Agent (Admin)",
+          "name": "\ud83d\udeab Deactivate Agent (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -861,7 +799,7 @@
           "response": []
         },
         {
-          "name": "🔄 Toggle Agent Availability (Admin)",
+          "name": "\ud83d\udd04 Toggle Agent Availability (Admin)",
           "request": {
             "method": "PATCH",
             "header": [],
@@ -891,7 +829,7 @@
           "response": []
         },
         {
-          "name": "👤 My Agent Profile (Agent)",
+          "name": "\ud83d\udc64 My Agent Profile (Agent)",
           "request": {
             "method": "GET",
             "header": [],
@@ -913,7 +851,7 @@
           "response": []
         },
         {
-          "name": "📊 System Workload (Admin)",
+          "name": "\ud83d\udcca System Workload (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -936,7 +874,7 @@
           "response": []
         },
         {
-          "name": "📈 System Statistics (Admin)",
+          "name": "\ud83d\udcc8 System Statistics (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -959,7 +897,7 @@
           "response": []
         },
         {
-          "name": "👤 Get My Agent",
+          "name": "\ud83d\udc64 Get My Agent",
           "request": {
             "method": "GET",
             "header": [],
@@ -981,7 +919,7 @@
           "response": []
         },
         {
-          "name": "🔗 Assign Agent to Me",
+          "name": "\ud83d\udd17 Assign Agent to Me",
           "request": {
             "method": "POST",
             "header": [],
@@ -1011,7 +949,7 @@
           "response": []
         },
         {
-          "name": "📋 Get Available Agents",
+          "name": "\ud83d\udccb Get Available Agents",
           "request": {
             "method": "GET",
             "header": [],
@@ -1057,7 +995,7 @@
           "response": []
         },
         {
-          "name": "📋 Get Agents by Type",
+          "name": "\ud83d\udccb Get Agents by Type",
           "request": {
             "method": "GET",
             "header": [],
@@ -1092,7 +1030,7 @@
           "response": []
         },
         {
-          "name": "📋 Get Agents by Specialization",
+          "name": "\ud83d\udccb Get Agents by Specialization",
           "request": {
             "method": "GET",
             "header": [],
@@ -1127,7 +1065,7 @@
           "response": []
         },
         {
-          "name": "👤 Get Agent Details",
+          "name": "\ud83d\udc64 Get Agent Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -1148,7 +1086,7 @@
           "response": []
         },
         {
-          "name": "📊 Get Agent Statistics",
+          "name": "\ud83d\udcca Get Agent Statistics",
           "request": {
             "method": "GET",
             "header": [],
@@ -1171,7 +1109,7 @@
           "response": []
         },
         {
-          "name": "📅 Get Agent Visit History",
+          "name": "\ud83d\udcc5 Get Agent Visit History",
           "request": {
             "method": "GET",
             "header": [],
@@ -1208,10 +1146,10 @@
       ]
     },
     {
-      "name": "🏠 Property Management",
+      "name": "\ud83c\udfe0 Property Management",
       "item": [
         {
-          "name": "🔍 Search Properties",
+          "name": "\ud83d\udd0d Search Properties",
           "request": {
             "method": "GET",
             "header": [],
@@ -1389,7 +1327,7 @@
           "response": []
         },
         {
-          "name": "🏠 Get Property Details",
+          "name": "\ud83c\udfe0 Get Property Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -1410,7 +1348,7 @@
           "response": []
         },
         {
-          "name": "➕ Create Property",
+          "name": "\u2795 Create Property",
           "event": [
             {
               "listen": "test",
@@ -1419,7 +1357,7 @@
                   "if (pm.response.code === 200) {",
                   "    const response = pm.response.json();",
                   "    pm.environment.set('new_property_id', response.id);",
-                  "    console.log('✅ Created Property ID:', response.id);",
+                  "    console.log('\u2705 Created Property ID:', response.id);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1468,7 +1406,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Property",
+          "name": "\u270f\ufe0f Update Property",
           "request": {
             "method": "PUT",
             "header": [
@@ -1503,7 +1441,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete Property",
+          "name": "\ud83d\uddd1\ufe0f Delete Property",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -1525,7 +1463,7 @@
           "response": []
         },
         {
-          "name": "💡 Get Recommendations",
+          "name": "\ud83d\udca1 Get Recommendations",
           "request": {
             "method": "GET",
             "header": [],
@@ -1553,7 +1491,7 @@
           "response": []
         },
         {
-          "name": "🧠 Semantic Property Search",
+          "name": "\ud83e\udde0 Semantic Property Search",
           "request": {
             "method": "GET",
             "header": [],
@@ -1631,10 +1569,10 @@
       ]
     },
     {
-      "name": "👆 Swipe Management",
+      "name": "\ud83d\udc46 Swipe Management",
       "item": [
         {
-          "name": "👍 Record Swipe",
+          "name": "\ud83d\udc4d Record Swipe",
           "request": {
             "method": "POST",
             "header": [
@@ -1669,7 +1607,7 @@
           "response": []
         },
         {
-          "name": "🧾 Swipe History",
+          "name": "\ud83e\uddfe Swipe History",
           "request": {
             "method": "GET",
             "header": [],
@@ -1735,7 +1673,7 @@
           "response": []
         },
         {
-          "name": "↩️ Undo Last Swipe",
+          "name": "\u21a9\ufe0f Undo Last Swipe",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -1757,7 +1695,7 @@
           "response": []
         },
         {
-          "name": "🔁 Toggle Swipe Like",
+          "name": "\ud83d\udd01 Toggle Swipe Like",
           "request": {
             "method": "PUT",
             "header": [],
@@ -1780,7 +1718,7 @@
           "response": []
         },
         {
-          "name": "📊 Swipe Stats",
+          "name": "\ud83d\udcca Swipe Stats",
           "request": {
             "method": "GET",
             "header": [],
@@ -1804,10 +1742,10 @@
       ]
     },
     {
-      "name": "👀 Visit Management",
+      "name": "\ud83d\udc40 Visit Management",
       "item": [
         {
-          "name": "📅 Schedule Visit",
+          "name": "\ud83d\udcc5 Schedule Visit",
           "event": [
             {
               "listen": "test",
@@ -1816,7 +1754,7 @@
                   "if (pm.response.code === 200) {",
                   "    const response = pm.response.json();",
                   "    pm.environment.set('new_visit_id', response.id);",
-                  "    console.log('✅ Scheduled Visit ID:', response.id);",
+                  "    console.log('\u2705 Scheduled Visit ID:', response.id);",
                   "}"
                 ],
                 "type": "text/javascript"
@@ -1857,7 +1795,7 @@
           "response": []
         },
         {
-          "name": "📋 My Visits",
+          "name": "\ud83d\udccb My Visits",
           "request": {
             "method": "GET",
             "header": [],
@@ -1878,7 +1816,7 @@
           "response": []
         },
         {
-          "name": "📋 List All Visits (Admin/Agent)",
+          "name": "\ud83d\udccb List All Visits (Admin/Agent)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1931,7 +1869,7 @@
           "response": []
         },
         {
-          "name": "👁️ Get Visit Details",
+          "name": "\ud83d\udc41\ufe0f Get Visit Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -1952,7 +1890,7 @@
           "response": []
         },
         {
-          "name": "✅ Complete Visit (Admin/Agent)",
+          "name": "\u2705 Complete Visit (Admin/Agent)",
           "request": {
             "method": "POST",
             "header": [
@@ -1989,7 +1927,7 @@
           "response": []
         },
         {
-          "name": "🔄 Reschedule Visit",
+          "name": "\ud83d\udd04 Reschedule Visit",
           "request": {
             "method": "POST",
             "header": [
@@ -2025,7 +1963,7 @@
           "response": []
         },
         {
-          "name": "❌ Cancel Visit",
+          "name": "\u274c Cancel Visit",
           "request": {
             "method": "POST",
             "header": [
@@ -2061,7 +1999,7 @@
           "response": []
         },
         {
-          "name": "📆 My Upcoming Visits",
+          "name": "\ud83d\udcc6 My Upcoming Visits",
           "request": {
             "method": "GET",
             "header": [],
@@ -2083,7 +2021,7 @@
           "response": []
         },
         {
-          "name": "📜 My Past Visits",
+          "name": "\ud83d\udcdc My Past Visits",
           "request": {
             "method": "GET",
             "header": [],
@@ -2105,7 +2043,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Visit",
+          "name": "\u270f\ufe0f Update Visit",
           "request": {
             "method": "PUT",
             "header": [
@@ -2142,10 +2080,10 @@
       ]
     },
     {
-      "name": "📅 Booking Management",
+      "name": "\ud83d\udcc5 Booking Management",
       "item": [
         {
-          "name": "📋 My Bookings",
+          "name": "\ud83d\udccb My Bookings",
           "request": {
             "method": "GET",
             "header": [],
@@ -2166,7 +2104,7 @@
           "response": []
         },
         {
-          "name": "📋 List All Bookings (Admin/Agent)",
+          "name": "\ud83d\udccb List All Bookings (Admin/Agent)",
           "request": {
             "method": "GET",
             "header": [],
@@ -2219,7 +2157,7 @@
           "response": []
         },
         {
-          "name": "👁️ Get Booking Details",
+          "name": "\ud83d\udc41\ufe0f Get Booking Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -2240,7 +2178,7 @@
           "response": []
         },
         {
-          "name": "💳 Process Payment (Admin/Agent)",
+          "name": "\ud83d\udcb3 Process Payment (Admin/Agent)",
           "request": {
             "method": "POST",
             "header": [
@@ -2276,7 +2214,7 @@
           "response": []
         },
         {
-          "name": "⭐ Add Review (Admin/Agent)",
+          "name": "\u2b50 Add Review (Admin/Agent)",
           "request": {
             "method": "POST",
             "header": [
@@ -2312,7 +2250,7 @@
           "response": []
         },
         {
-          "name": "➕ Create Booking",
+          "name": "\u2795 Create Booking",
           "request": {
             "method": "POST",
             "header": [
@@ -2347,7 +2285,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Booking",
+          "name": "\u270f\ufe0f Update Booking",
           "request": {
             "method": "PUT",
             "header": [
@@ -2382,7 +2320,7 @@
           "response": []
         },
         {
-          "name": "❌ Cancel Booking",
+          "name": "\u274c Cancel Booking",
           "request": {
             "method": "POST",
             "header": [
@@ -2418,7 +2356,7 @@
           "response": []
         },
         {
-          "name": "📆 My Upcoming Bookings",
+          "name": "\ud83d\udcc6 My Upcoming Bookings",
           "request": {
             "method": "GET",
             "header": [],
@@ -2440,7 +2378,7 @@
           "response": []
         },
         {
-          "name": "📜 My Past Bookings",
+          "name": "\ud83d\udcdc My Past Bookings",
           "request": {
             "method": "GET",
             "header": [],
@@ -2462,7 +2400,7 @@
           "response": []
         },
         {
-          "name": "✅ Check Availability (Public)",
+          "name": "\u2705 Check Availability (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -2501,7 +2439,7 @@
           "response": []
         },
         {
-          "name": "🧮 Calculate Pricing (Public)",
+          "name": "\ud83e\uddee Calculate Pricing (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -2542,10 +2480,10 @@
       ]
     },
     {
-      "name": "🔔 Notifications",
+      "name": "\ud83d\udd14 Notifications",
       "item": [
         {
-          "name": "📱 Register Device Token",
+          "name": "\ud83d\udcf1 Register Device Token",
           "request": {
             "auth": {
               "type": "noauth"
@@ -2584,7 +2522,7 @@
           "response": []
         },
         {
-          "name": "📨 Send to Token (Admin)",
+          "name": "\ud83d\udce8 Send to Token (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2620,7 +2558,7 @@
           "response": []
         },
         {
-          "name": "👤 Send to User (Admin)",
+          "name": "\ud83d\udc64 Send to User (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2656,7 +2594,7 @@
           "response": []
         },
         {
-          "name": "📣 Send to Topic (Admin)",
+          "name": "\ud83d\udce3 Send to Topic (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2692,7 +2630,7 @@
           "response": []
         },
         {
-          "name": "📦 Send Bulk Tokens (Admin)",
+          "name": "\ud83d\udce6 Send Bulk Tokens (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2728,7 +2666,7 @@
           "response": []
         },
         {
-          "name": "✅ Mark Delivery Opened",
+          "name": "\u2705 Mark Delivery Opened",
           "request": {
             "method": "POST",
             "header": [],
@@ -2751,7 +2689,7 @@
           "response": []
         },
         {
-          "name": "📨 Send Typed Notification (Admin)",
+          "name": "\ud83d\udce8 Send Typed Notification (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2788,7 +2726,7 @@
           "response": []
         },
         {
-          "name": "📜 List User Notifications (Admin)",
+          "name": "\ud83d\udcdc List User Notifications (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -2821,7 +2759,7 @@
           "response": []
         },
         {
-          "name": "📣 Marketing Broadcast (Admin)",
+          "name": "\ud83d\udce3 Marketing Broadcast (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2857,7 +2795,7 @@
           "response": []
         },
         {
-          "name": "🎯 Marketing Segment (Admin)",
+          "name": "\ud83c\udfaf Marketing Segment (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -2895,10 +2833,10 @@
       ]
     },
     {
-      "name": "🐛 Bug Reports",
+      "name": "\ud83d\udc1b Bug Reports",
       "item": [
         {
-          "name": "📝 Create Bug Report",
+          "name": "\ud83d\udcdd Create Bug Report",
           "request": {
             "method": "POST",
             "header": [
@@ -2933,7 +2871,7 @@
           "response": []
         },
         {
-          "name": "📎 Create Bug Report with Media",
+          "name": "\ud83d\udcce Create Bug Report with Media",
           "request": {
             "method": "POST",
             "header": [],
@@ -2990,7 +2928,7 @@
           "response": []
         },
         {
-          "name": "📋 List Bug Reports",
+          "name": "\ud83d\udccb List Bug Reports",
           "request": {
             "method": "GET",
             "header": [],
@@ -3033,7 +2971,7 @@
           "response": []
         },
         {
-          "name": "👁️ Get Bug Report Details",
+          "name": "\ud83d\udc41\ufe0f Get Bug Report Details",
           "request": {
             "method": "GET",
             "header": [],
@@ -3054,7 +2992,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Bug Report",
+          "name": "\u270f\ufe0f Update Bug Report",
           "request": {
             "method": "PUT",
             "header": [
@@ -3091,10 +3029,10 @@
       ]
     },
     {
-      "name": "📄 Pages Management",
+      "name": "\ud83d\udcc4 Pages Management",
       "item": [
         {
-          "name": "📝 Create Page (Admin)",
+          "name": "\ud83d\udcdd Create Page (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3129,7 +3067,7 @@
           "response": []
         },
         {
-          "name": "📋 List Pages (Admin)",
+          "name": "\ud83d\udccb List Pages (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -3172,7 +3110,7 @@
           "response": []
         },
         {
-          "name": "👁️ Get Page Details (Admin)",
+          "name": "\ud83d\udc41\ufe0f Get Page Details (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -3193,7 +3131,7 @@
           "response": []
         },
         {
-          "name": "🌐 Get Page Public",
+          "name": "\ud83c\udf10 Get Page Public",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3218,7 +3156,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Page (Admin)",
+          "name": "\u270f\ufe0f Update Page (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -3253,7 +3191,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete Page (Admin)",
+          "name": "\ud83d\uddd1\ufe0f Delete Page (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -3276,10 +3214,10 @@
       ]
     },
     {
-      "name": "❓ FAQ Management",
+      "name": "\u2753 FAQ Management",
       "item": [
         {
-          "name": "➕ Create FAQ (Admin)",
+          "name": "\u2795 Create FAQ (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3314,7 +3252,7 @@
           "response": []
         },
         {
-          "name": "📋 List FAQs (Admin)",
+          "name": "\ud83d\udccb List FAQs (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -3355,7 +3293,7 @@
           "response": []
         },
         {
-          "name": "🌐 List FAQs (Public)",
+          "name": "\ud83c\udf10 List FAQs (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3394,7 +3332,7 @@
           "response": []
         },
         {
-          "name": "📄 Get FAQ (Admin)",
+          "name": "\ud83d\udcc4 Get FAQ (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -3415,7 +3353,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update FAQ (Admin)",
+          "name": "\u270f\ufe0f Update FAQ (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -3450,7 +3388,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete FAQ (Admin)",
+          "name": "\ud83d\uddd1\ufe0f Delete FAQ (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -3473,10 +3411,10 @@
       ]
     },
     {
-      "name": "📝 Blog Management",
+      "name": "\ud83d\udcdd Blog Management",
       "item": [
         {
-          "name": "➕ Create Blog Post (Admin)",
+          "name": "\u2795 Create Blog Post (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3511,7 +3449,7 @@
           "response": []
         },
         {
-          "name": "📋 List Blog Posts (Public)",
+          "name": "\ud83d\udccb List Blog Posts (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3565,7 +3503,7 @@
           "response": []
         },
         {
-          "name": "📄 Get Blog Post (Public)",
+          "name": "\ud83d\udcc4 Get Blog Post (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3590,7 +3528,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Blog Post (Admin)",
+          "name": "\u270f\ufe0f Update Blog Post (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -3626,7 +3564,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete Blog Post (Admin)",
+          "name": "\ud83d\uddd1\ufe0f Delete Blog Post (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -3648,7 +3586,7 @@
           "response": []
         },
         {
-          "name": "🧠 Generate Blog From Topic (Admin)",
+          "name": "\ud83e\udde0 Generate Blog From Topic (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3683,7 +3621,7 @@
           "response": []
         },
         {
-          "name": "🧠 Generate Bulk Blogs (Admin)",
+          "name": "\ud83e\udde0 Generate Bulk Blogs (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3718,7 +3656,7 @@
           "response": []
         },
         {
-          "name": "➕ Create Blog Category (Admin)",
+          "name": "\u2795 Create Blog Category (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3753,7 +3691,7 @@
           "response": []
         },
         {
-          "name": "📋 List Blog Categories (Public)",
+          "name": "\ud83d\udccb List Blog Categories (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3787,7 +3725,7 @@
           "response": []
         },
         {
-          "name": "📄 Get Blog Category (Public)",
+          "name": "\ud83d\udcc4 Get Blog Category (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3812,7 +3750,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Blog Category (Admin)",
+          "name": "\u270f\ufe0f Update Blog Category (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -3848,7 +3786,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete Blog Category (Admin)",
+          "name": "\ud83d\uddd1\ufe0f Delete Blog Category (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -3870,7 +3808,7 @@
           "response": []
         },
         {
-          "name": "➕ Create Blog Tag (Admin)",
+          "name": "\u2795 Create Blog Tag (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -3905,7 +3843,7 @@
           "response": []
         },
         {
-          "name": "📋 List Blog Tags (Public)",
+          "name": "\ud83d\udccb List Blog Tags (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3939,7 +3877,7 @@
           "response": []
         },
         {
-          "name": "📄 Get Blog Tag (Public)",
+          "name": "\ud83d\udcc4 Get Blog Tag (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -3964,7 +3902,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update Blog Tag (Admin)",
+          "name": "\u270f\ufe0f Update Blog Tag (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -4000,7 +3938,7 @@
           "response": []
         },
         {
-          "name": "🗑️ Delete Blog Tag (Admin)",
+          "name": "\ud83d\uddd1\ufe0f Delete Blog Tag (Admin)",
           "request": {
             "method": "DELETE",
             "header": [],
@@ -4024,10 +3962,10 @@
       ]
     },
     {
-      "name": "📱 App Versions",
+      "name": "\ud83d\udcf1 App Versions",
       "item": [
         {
-          "name": "➕ Create App Version (Admin)",
+          "name": "\u2795 Create App Version (Admin)",
           "request": {
             "method": "POST",
             "header": [
@@ -4062,7 +4000,7 @@
           "response": []
         },
         {
-          "name": "🔍 Check for Updates (Public)",
+          "name": "\ud83d\udd0d Check for Updates (Public)",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4100,7 +4038,7 @@
           "response": []
         },
         {
-          "name": "📋 List App Versions (Admin)",
+          "name": "\ud83d\udccb List App Versions (Admin)",
           "request": {
             "method": "GET",
             "header": [],
@@ -4149,7 +4087,7 @@
           "response": []
         },
         {
-          "name": "✏️ Update App Version (Admin)",
+          "name": "\u270f\ufe0f Update App Version (Admin)",
           "request": {
             "method": "PUT",
             "header": [
@@ -4186,10 +4124,10 @@
       ]
     },
     {
-      "name": "🛠️ Utilities",
+      "name": "\ud83d\udee0\ufe0f Utilities",
       "item": [
         {
-          "name": "📋 List Amenities",
+          "name": "\ud83d\udccb List Amenities",
           "request": {
             "method": "GET",
             "header": [],
@@ -4210,7 +4148,7 @@
           "response": []
         },
         {
-          "name": "📤 Upload File",
+          "name": "\ud83d\udce4 Upload File",
           "request": {
             "method": "POST",
             "header": [],
@@ -4244,10 +4182,10 @@
       ]
     },
     {
-      "name": "📊 System Health & Config",
+      "name": "\ud83d\udcca System Health & Config",
       "item": [
         {
-          "name": "💓 Core Health Check",
+          "name": "\ud83d\udc93 Core Health Check",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4268,7 +4206,7 @@
           "response": []
         },
         {
-          "name": "💓 General Health Check",
+          "name": "\ud83d\udc93 General Health Check",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4289,7 +4227,7 @@
           "response": []
         },
         {
-          "name": "⚙️ Get Config",
+          "name": "\u2699\ufe0f Get Config",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4310,7 +4248,7 @@
           "response": []
         },
         {
-          "name": "📖 API Documentation",
+          "name": "\ud83d\udcd6 API Documentation",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4333,7 +4271,7 @@
           "response": []
         },
         {
-          "name": "🏠 API Root",
+          "name": "\ud83c\udfe0 API Root",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4356,10 +4294,10 @@
       ]
     },
     {
-      "name": "🔗 MCP OAuth",
+      "name": "\ud83d\udd17 MCP OAuth",
       "item": [
         {
-          "name": "🔐 Authorization Endpoint",
+          "name": "\ud83d\udd10 Authorization Endpoint",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4417,7 +4355,7 @@
           "response": []
         },
         {
-          "name": "🧾 Consent Page",
+          "name": "\ud83e\uddfe Consent Page",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4446,7 +4384,7 @@
           "response": []
         },
         {
-          "name": "✅ Submit Consent",
+          "name": "\u2705 Submit Consent",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4499,7 +4437,7 @@
           "response": []
         },
         {
-          "name": "🎟️ Token Endpoint",
+          "name": "\ud83c\udf9f\ufe0f Token Endpoint",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4562,7 +4500,7 @@
           "response": []
         },
         {
-          "name": "📄 Authorization Server Metadata",
+          "name": "\ud83d\udcc4 Authorization Server Metadata",
           "request": {
             "auth": {
               "type": "noauth"
@@ -4599,7 +4537,7 @@
       "key": "access_token",
       "value": "",
       "type": "string",
-      "description": "JWT access token (auto-set after login)"
+      "description": "JWT access token (set from a valid Supabase session)"
     },
     {
       "key": "current_user_id",

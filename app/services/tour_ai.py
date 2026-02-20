@@ -14,7 +14,16 @@ import httpx
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+    RetryError,
+)
 
+from app.core.database import get_async_session_factory
 from app.core.logging import get_logger
 from app.core.websocket import manager as ws_manager
 from app.models.enums import HotspotType, TourStatus
@@ -23,6 +32,69 @@ from app.services.ai import AIMessage, AIProviderError, AIRole, VisionInput, get
 
 logger = get_logger(__name__)
 
+# Retry configuration
+MAX_RETRIES = 3
+MIN_WAIT_SECONDS = 2
+MAX_WAIT_SECONDS = 30
+
+
+def _create_retry_decorator():
+    """Create a retry decorator for AI provider calls."""
+    return retry(
+        stop=stop_after_attempt(MAX_RETRIES),
+        wait=wait_exponential(multiplier=1, min=MIN_WAIT_SECONDS, max=MAX_WAIT_SECONDS),
+        retry=retry_if_exception_type(AIProviderError),
+        before_sleep=before_sleep_log(logger, log_level=30),  # WARNING level
+        reraise=True,
+    )
+
+
+@_create_retry_decorator()
+async def _call_ai_with_retry(
+    ai_provider,
+    messages: List[AIMessage],
+    vision_inputs: Optional[List[VisionInput]] = None,
+) -> str:
+    """
+    Call AI provider with automatic retry on AIProviderError.
+
+    Args:
+        ai_provider: The AI provider instance
+        messages: List of AI messages
+        vision_inputs: Optional vision inputs for image analysis
+
+    Returns:
+        The AI response content
+
+    Raises:
+        AIProviderError: After all retries are exhausted
+    """
+    return await ai_provider.generate(messages=messages, vision_inputs=vision_inputs)
+
+
+@_create_retry_decorator()
+async def _complete_json_with_retry(
+    ai_provider,
+    messages: List[AIMessage],
+    vision_input: Optional[VisionInput] = None,
+) -> Dict[str, Any]:
+    """
+    Call AI provider's complete_json with automatic retry on AIProviderError.
+
+    Args:
+        ai_provider: The AI provider instance
+        messages: List of AI messages
+        vision_input: Optional vision input for image analysis
+
+    Returns:
+        The parsed JSON response
+
+    Raises:
+        AIProviderError: After all retries are exhausted
+    """
+    return await ai_provider.complete_json(messages, vision_input)
+
+
 # Room type mappings for scene analysis
 ROOM_TYPES = [
     "living_room", "bedroom", "bathroom", "kitchen", "dining_room",
@@ -30,6 +102,72 @@ ROOM_TYPES = [
     "garden", "garage", "basement", "attic", "pool_area",
     "gym", "laundry_room", "storage", "exterior", "other"
 ]
+
+# Scene analysis prompt template
+SCENE_ANALYSIS_PROMPT = """You are an expert real estate photographer and interior designer.
+Analyze this 360° panorama image and provide detailed information about the room.
+Respond in JSON format with the following structure:
+{
+    "room_type": "one of: living_room, bedroom, bathroom, kitchen, dining_room, home_office, hallway, entrance, balcony, terrace, garden, garage, basement, attic, pool_area, gym, laundry_room, storage, exterior, other",
+    "room_confidence": 0.0 to 1.0,
+    "suggested_title": "A descriptive title for this scene (e.g., 'Spacious Master Bedroom')",
+    "suggested_description": "A 2-3 sentence description highlighting key features",
+    "quality_score": 0 to 100 (integer, based on image quality, lighting, composition),
+    "quality_issues": ["list of any quality issues found"],
+    "features_detected": ["list of notable features like 'hardwood floors', 'large windows', 'fireplace']
+}"""
+
+
+def _build_hotspot_suggestion_prompt(scene_context: str, full_format: bool = True) -> str:
+    """Build the system prompt for hotspot suggestions."""
+    if full_format:
+        return f"""You are an expert virtual tour designer.
+Analyze this 360° panorama and suggest optimal hotspot placements.
+Hotspots can be navigation points to other rooms or information points for notable features.
+
+Available scenes to link to:
+{scene_context}
+
+Respond in JSON format with an array of hotspot suggestions:
+{{
+    "hotspots": [
+        {{
+            "type": "navigation" or "info",
+            "yaw": horizontal angle in degrees (-180 to 180, where 0 is center of view),
+            "pitch": vertical angle in degrees (-90 to 90, where 0 is horizon),
+            "target_scene_id": "scene ID if type is navigation, null otherwise",
+            "suggested_title": "title for the hotspot",
+            "reasoning": "brief explanation of why this hotspot is suggested",
+            "confidence": 0.0 to 1.0
+        }}
+    ]
+}}
+
+Focus on:
+1. Doorways and passages that likely lead to other rooms
+2. Notable features worth highlighting (fireplaces, views, art, furniture)
+3. Logical flow between connected spaces"""
+    else:
+        return f"""You are an expert virtual tour designer.
+Analyze this 360° panorama and suggest optimal hotspot placements.
+
+Available scenes to link to:
+{scene_context}
+
+Respond in JSON format:
+{{
+    "hotspots": [
+        {{
+            "type": "navigation" or "info",
+            "yaw": -180 to 180,
+            "pitch": -90 to 90,
+            "target_scene_id": "scene ID if navigation",
+            "suggested_title": "title",
+            "reasoning": "why this hotspot",
+            "confidence": 0.0 to 1.0
+        }}
+    ]
+}}"""
 
 
 async def _ensure_navigation_hotspots(
@@ -140,7 +278,8 @@ async def update_job_status(
     status: str,
     progress: int = 0,
     result: Optional[Dict[str, Any]] = None,
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
+    increment_retry: bool = False
 ) -> AIJob:
     """Update an AI job's status and broadcast via WebSocket."""
     query = select(AIJob).where(AIJob.id == job_id)
@@ -152,6 +291,9 @@ async def update_job_status(
 
     job.status = status
     job.progress = progress
+
+    if increment_retry:
+        job.retry_count = (job.retry_count or 0) + 1
 
     if status == "processing" and not job.started_at:
         job.started_at = datetime.utcnow()
@@ -275,8 +417,8 @@ async def analyze_scene(
     # Create job
     job = await create_ai_job(db, user_id, "analyze_scene", scene_id=scene_id)
 
-    # Run analysis in background
-    asyncio.create_task(_run_scene_analysis(db, job.id, scene))
+    # Run analysis in background - pass only IDs, not ORM objects
+    asyncio.create_task(_run_scene_analysis(job.id, scene_id, scene.image_url))
 
     return job
 
@@ -300,119 +442,122 @@ async def analyze_tour_scenes(
     # Create job
     job = await create_ai_job(db, user_id, "analyze_scenes", tour_id=tour_id)
 
-    # Run analysis in background
-    asyncio.create_task(_run_tour_analysis(db, job.id, tour))
+    # Run analysis in background - pass only tour_id
+    asyncio.create_task(_run_tour_analysis(job.id, tour_id))
 
     return job
 
 
-async def _run_scene_analysis(db: AsyncSession, job_id: str, scene: Scene):
-    """Run AI analysis on a single scene."""
-    try:
-        await update_job_status(db, job_id, "processing", 10)
+async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
+    """Run AI analysis on a single scene.
 
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 10)
 
-        # Download and encode image
-        image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-        vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            provider = await _get_ai_provider_safe()
 
-        await update_job_status(db, job_id, "processing", 30)
+            # Download and encode image
+            image_base64, mime_type = await _download_image_as_base64(image_url)
+            vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-        # Create analysis prompt
-        system_prompt = """You are an expert real estate photographer and interior designer.
-Analyze this 360° panorama image and provide detailed information about the room.
-Respond in JSON format with the following structure:
-{
-    "room_type": "one of: living_room, bedroom, bathroom, kitchen, dining_room, home_office, hallway, entrance, balcony, terrace, garden, garage, basement, attic, pool_area, gym, laundry_room, storage, exterior, other",
-    "room_confidence": 0.0 to 1.0,
-    "suggested_title": "A descriptive title for this scene (e.g., 'Spacious Master Bedroom')",
-    "suggested_description": "A 2-3 sentence description highlighting key features",
-    "quality_score": 0 to 100 (integer, based on image quality, lighting, composition),
-    "quality_issues": ["list of any quality issues found"],
-    "features_detected": ["list of notable features like 'hardwood floors', 'large windows', 'fireplace']
-}"""
+            await update_job_status(db, job_id, "processing", 30)
 
-        messages = [
-            AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-            AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
-        ]
+            messages = [
+                AIMessage(role=AIRole.SYSTEM, content=SCENE_ANALYSIS_PROMPT),
+                AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
+            ]
 
-        await update_job_status(db, job_id, "processing", 50)
+            await update_job_status(db, job_id, "processing", 50)
 
-        result = await provider.complete_json(messages, vision_input)
+            # Use retry wrapper for AI call
+            result = await _complete_json_with_retry(provider, messages, vision_input)
 
-        # Add scene_id to result
-        result["scene_id"] = scene.id
+            # Add scene_id to result
+            result["scene_id"] = scene_id
 
-        await update_job_status(db, job_id, "completed", 100, result={"analysis": [result]})
-        logger.info(f"Scene analysis completed for scene {scene.id}")
+            await update_job_status(db, job_id, "completed", 100, result={"analysis": [result]})
+            await db.commit()
+            logger.info(f"Scene analysis completed for scene {scene_id}")
 
-    except AIProviderError as e:
-        logger.error(f"AI provider error during scene analysis: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
-    except Exception as e:
-        logger.error(f"Error during scene analysis: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except AIProviderError as e:
+            logger.error(f"AI provider error during scene analysis after retries: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e), increment_retry=True)
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error during scene analysis: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
-async def _run_tour_analysis(db: AsyncSession, job_id: str, tour: Tour):
-    """Run AI analysis on all scenes in a tour."""
-    try:
-        await update_job_status(db, job_id, "processing", 5)
+async def _run_tour_analysis(job_id: str, tour_id: str):
+    """Run AI analysis on all scenes in a tour.
 
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 5)
 
-        scenes = tour.scenes or []
-        total_scenes = len(scenes)
-        analysis_results = []
+            # Re-fetch tour with scenes in this session
+            result = await db.execute(
+                select(Tour).where(Tour.id == tour_id)
+            )
+            tour = result.scalar_one_or_none()
+            if not tour:
+                await update_job_status(db, job_id, "failed", error_message="Tour not found")
+                await db.commit()
+                return
 
-        for i, scene in enumerate(scenes):
-            progress = int(5 + (90 * (i + 1) / total_scenes))
+            # Fetch scenes
+            scenes_result = await db.execute(
+                select(Scene).where(Scene.tour_id == tour_id).order_by(Scene.order_index)
+            )
+            scenes = list(scenes_result.scalars().all())
 
-            try:
-                # Download and encode image
-                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-                vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            provider = await _get_ai_provider_safe()
 
-                # Create analysis prompt
-                system_prompt = """You are an expert real estate photographer and interior designer.
-Analyze this 360° panorama image and provide detailed information about the room.
-Respond in JSON format with the following structure:
-{
-    "room_type": "one of: living_room, bedroom, bathroom, kitchen, dining_room, home_office, hallway, entrance, balcony, terrace, garden, garage, basement, attic, pool_area, gym, laundry_room, storage, exterior, other",
-    "room_confidence": 0.0 to 1.0,
-    "suggested_title": "A descriptive title for this scene (e.g., 'Spacious Master Bedroom')",
-    "suggested_description": "A 2-3 sentence description highlighting key features",
-    "quality_score": 0 to 100 (integer, based on image quality, lighting, composition),
-    "quality_issues": ["list of any quality issues found"],
-    "features_detected": ["list of notable features like 'hardwood floors', 'large windows', 'fireplace']
-}"""
+            total_scenes = len(scenes)
+            analysis_results = []
 
-                messages = [
-                    AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                    AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
-                ]
+            for i, scene in enumerate(scenes):
+                progress = int(5 + (90 * (i + 1) / total_scenes))
 
-                result = await provider.complete_json(messages, vision_input)
-                result["scene_id"] = scene.id
-                analysis_results.append(result)
+                try:
+                    # Download and encode image
+                    image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                    vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-            except Exception as e:
-                logger.error(f"Error analyzing scene {scene.id}: {e}")
-                analysis_results.append({
-                    "scene_id": scene.id,
-                    "error": str(e)
-                })
+                    messages = [
+                        AIMessage(role=AIRole.SYSTEM, content=SCENE_ANALYSIS_PROMPT),
+                        AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
+                    ]
 
-            await update_job_status(db, job_id, "processing", progress)
+                    result = await _complete_json_with_retry(provider, messages, vision_input)
+                    result["scene_id"] = scene.id
+                    analysis_results.append(result)
 
-        await update_job_status(db, job_id, "completed", 100, result={"analysis": analysis_results})
-        logger.info(f"Tour analysis completed for tour {tour.id}")
+                except Exception as e:
+                    logger.error(f"Error analyzing scene {scene.id}: {e}")
+                    analysis_results.append({
+                        "scene_id": scene.id,
+                        "error": str(e)
+                    })
 
-    except Exception as e:
-        logger.error(f"Error during tour analysis: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+                await update_job_status(db, job_id, "processing", progress)
+
+            await update_job_status(db, job_id, "completed", 100, result={"analysis": analysis_results})
+            await db.commit()
+            logger.info(f"Tour analysis completed for tour {tour_id}")
+
+        except Exception as e:
+            logger.error(f"Error during tour analysis: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
 # ====================
@@ -438,8 +583,8 @@ async def suggest_scene_hotspots(
     # Create job
     job = await create_ai_job(db, user_id, "suggest_hotspots", scene_id=scene_id)
 
-    # Run suggestion in background
-    asyncio.create_task(_run_hotspot_suggestions(db, job.id, scene, scenes))
+    # Run suggestion in background - pass only IDs and required data
+    asyncio.create_task(_run_hotspot_suggestions(job.id, scene_id, scene.tour_id))
 
     return job
 
@@ -463,163 +608,154 @@ async def suggest_tour_hotspots(
     # Create job
     job = await create_ai_job(db, user_id, "suggest_tour_hotspots", tour_id=tour_id)
 
-    # Run suggestion in background
-    asyncio.create_task(_run_tour_hotspot_suggestions(db, job.id, tour))
+    # Run suggestion in background - pass only tour_id
+    asyncio.create_task(_run_tour_hotspot_suggestions(job.id, tour_id))
 
     return job
 
 
-async def _run_hotspot_suggestions(db: AsyncSession, job_id: str, scene: Scene, all_scenes: List[Scene]):
-    """Generate hotspot suggestions for a scene."""
-    try:
-        await update_job_status(db, job_id, "processing", 10)
+async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
+    """Generate hotspot suggestions for a scene.
 
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 10)
 
-        # Download and encode image
-        image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-        vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            # Re-fetch scene in this session
+            scene_result = await db.execute(
+                select(Scene).where(Scene.id == scene_id)
+            )
+            scene = scene_result.scalar_one_or_none()
+            if not scene:
+                await update_job_status(db, job_id, "failed", error_message="Scene not found")
+                await db.commit()
+                return
 
-        await update_job_status(db, job_id, "processing", 30)
+            # Fetch all scenes in the tour
+            scenes_result = await db.execute(
+                select(Scene).where(Scene.tour_id == tour_id).order_by(Scene.order_index)
+            )
+            all_scenes = list(scenes_result.scalars().all())
 
-        # Build scene context
-        other_scenes = [s for s in all_scenes if s.id != scene.id]
-        scene_context = "\n".join([
-            f"- {s.title or f'Scene {i+1}'} (ID: {s.id})"
-            for i, s in enumerate(other_scenes)
-        ])
+            provider = await _get_ai_provider_safe()
 
-        # Create prompt
-        system_prompt = f"""You are an expert virtual tour designer.
-Analyze this 360° panorama and suggest optimal hotspot placements.
-Hotspots can be navigation points to other rooms or information points for notable features.
+            # Download and encode image
+            image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+            vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-Available scenes to link to:
-{scene_context}
+            await update_job_status(db, job_id, "processing", 30)
 
-Respond in JSON format with an array of hotspot suggestions:
-{{
-    "hotspots": [
-        {{
-            "type": "navigation" or "info",
-            "yaw": horizontal angle in degrees (-180 to 180, where 0 is center of view),
-            "pitch": vertical angle in degrees (-90 to 90, where 0 is horizon),
-            "target_scene_id": "scene ID if type is navigation, null otherwise",
-            "suggested_title": "title for the hotspot",
-            "reasoning": "brief explanation of why this hotspot is suggested",
-            "confidence": 0.0 to 1.0
-        }}
-    ]
-}}
+            # Build scene context
+            other_scenes = [s for s in all_scenes if s.id != scene.id]
+            scene_context = "\n".join([
+                f"- {s.title or f'Scene {i+1}'} (ID: {s.id})"
+                for i, s in enumerate(other_scenes)
+            ])
 
-Focus on:
-1. Doorways and passages that likely lead to other rooms
-2. Notable features worth highlighting (fireplaces, views, art, furniture)
-3. Logical flow between connected spaces"""
+            system_prompt = _build_hotspot_suggestion_prompt(scene_context, full_format=True)
 
-        messages = [
-            AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-            AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
-        ]
+            messages = [
+                AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
+            ]
 
-        await update_job_status(db, job_id, "processing", 60)
+            await update_job_status(db, job_id, "processing", 60)
 
-        result = await provider.complete_json(messages, vision_input)
+            result = await _complete_json_with_retry(provider, messages, vision_input)
 
-        # Process hotspots and add IDs
-        hotspots = result.get("hotspots", [])
-        for hotspot in hotspots:
-            hotspot["id"] = str(uuid4())
-            hotspot["position"] = {
-                "yaw": hotspot.pop("yaw", 0),
-                "pitch": hotspot.pop("pitch", 0)
-            }
+            # Process hotspots and add IDs
+            hotspots = result.get("hotspots", [])
+            for hotspot in hotspots:
+                hotspot["id"] = str(uuid4())
+                hotspot["position"] = {
+                    "yaw": hotspot.pop("yaw", 0),
+                    "pitch": hotspot.pop("pitch", 0)
+                }
 
-        await update_job_status(db, job_id, "completed", 100, result={"hotspots": hotspots})
-        logger.info(f"Hotspot suggestions completed for scene {scene.id}")
+            await update_job_status(db, job_id, "completed", 100, result={"hotspots": hotspots})
+            await db.commit()
+            logger.info(f"Hotspot suggestions completed for scene {scene_id}")
 
-    except AIProviderError as e:
-        logger.error(f"AI provider error during hotspot suggestions: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
-    except Exception as e:
-        logger.error(f"Error during hotspot suggestions: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except AIProviderError as e:
+            logger.error(f"AI provider error during hotspot suggestions: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error during hotspot suggestions: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
-async def _run_tour_hotspot_suggestions(db: AsyncSession, job_id: str, tour: Tour):
-    """Generate hotspot suggestions for all scenes in a tour."""
-    try:
-        await update_job_status(db, job_id, "processing", 5)
+async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
+    """Generate hotspot suggestions for all scenes in a tour.
 
-        scenes = tour.scenes or []
-        all_hotspots = []
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 5)
 
-        for i, scene in enumerate(scenes):
-            progress = int(5 + (90 * (i + 1) / len(scenes)))
+            # Fetch scenes in this session
+            scenes_result = await db.execute(
+                select(Scene).where(Scene.tour_id == tour_id).order_by(Scene.order_index)
+            )
+            scenes = list(scenes_result.scalars().all())
 
-            try:
-                provider = await _get_ai_provider_safe()
+            all_hotspots = []
 
-                # Download and encode image
-                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-                vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            for i, scene in enumerate(scenes):
+                progress = int(5 + (90 * (i + 1) / len(scenes)))
 
-                # Build scene context
-                other_scenes = [s for s in scenes if s.id != scene.id]
-                scene_context = "\n".join([
-                    f"- {s.title or f'Scene {j+1}'} (ID: {s.id})"
-                    for j, s in enumerate(other_scenes)
-                ])
+                try:
+                    provider = await _get_ai_provider_safe()
 
-                system_prompt = f"""You are an expert virtual tour designer.
-Analyze this 360° panorama and suggest optimal hotspot placements.
+                    # Download and encode image
+                    image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                    vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-Available scenes to link to:
-{scene_context}
+                    # Build scene context
+                    other_scenes = [s for s in scenes if s.id != scene.id]
+                    scene_context = "\n".join([
+                        f"- {s.title or f'Scene {j+1}'} (ID: {s.id})"
+                        for j, s in enumerate(other_scenes)
+                    ])
 
-Respond in JSON format:
-{{
-    "hotspots": [
-        {{
-            "type": "navigation" or "info",
-            "yaw": -180 to 180,
-            "pitch": -90 to 90,
-            "target_scene_id": "scene ID if navigation",
-            "suggested_title": "title",
-            "reasoning": "why this hotspot",
-            "confidence": 0.0 to 1.0
-        }}
-    ]
-}}"""
+                    system_prompt = _build_hotspot_suggestion_prompt(scene_context, full_format=False)
 
-                messages = [
-                    AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                    AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
-                ]
+                    messages = [
+                        AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                        AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
+                    ]
 
-                result = await provider.complete_json(messages, vision_input)
+                    result = await _complete_json_with_retry(provider, messages, vision_input)
 
-                hotspots = result.get("hotspots", [])
-                for hotspot in hotspots:
-                    hotspot["id"] = str(uuid4())
-                    hotspot["scene_id"] = scene.id
-                    hotspot["position"] = {
-                        "yaw": hotspot.pop("yaw", 0),
-                        "pitch": hotspot.pop("pitch", 0)
-                    }
-                    all_hotspots.append(hotspot)
+                    hotspots = result.get("hotspots", [])
+                    for hotspot in hotspots:
+                        hotspot["id"] = str(uuid4())
+                        hotspot["scene_id"] = scene.id
+                        hotspot["position"] = {
+                            "yaw": hotspot.pop("yaw", 0),
+                            "pitch": hotspot.pop("pitch", 0)
+                        }
+                        all_hotspots.append(hotspot)
 
-            except Exception as e:
-                logger.error(f"Error suggesting hotspots for scene {scene.id}: {e}")
+                except Exception as e:
+                    logger.error(f"Error suggesting hotspots for scene {scene.id}: {e}")
 
-            await update_job_status(db, job_id, "processing", progress)
+                await update_job_status(db, job_id, "processing", progress)
 
-        await update_job_status(db, job_id, "completed", 100, result={"hotspots": all_hotspots})
-        logger.info(f"Tour hotspot suggestions completed for tour {tour.id}")
+            await update_job_status(db, job_id, "completed", 100, result={"hotspots": all_hotspots})
+            await db.commit()
+            logger.info(f"Tour hotspot suggestions completed for tour {tour_id}")
 
-    except Exception as e:
-        logger.error(f"Error during tour hotspot suggestions: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except Exception as e:
+            logger.error(f"Error during tour hotspot suggestions: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
 # ====================
@@ -643,8 +779,8 @@ async def generate_scene_description(
     # Create job
     job = await create_ai_job(db, user_id, "generate_description", scene_id=scene_id)
 
-    # Run generation in background
-    asyncio.create_task(_run_description_generation(db, job.id, scene, options or {}))
+    # Run generation in background - pass only IDs and options
+    asyncio.create_task(_run_description_generation(job.id, scene_id, scene.image_url, options or {}))
 
     return job
 
@@ -669,38 +805,43 @@ async def generate_tour_descriptions(
     # Create job
     job = await create_ai_job(db, user_id, "generate_descriptions", tour_id=tour_id)
 
-    # Run generation in background
-    asyncio.create_task(_run_tour_description_generation(db, job.id, tour, options or {}))
+    # Run generation in background - pass only tour_id
+    asyncio.create_task(_run_tour_description_generation(job.id, tour_id, options or {}))
 
     return job
 
 
-async def _run_description_generation(db: AsyncSession, job_id: str, scene: Scene, options: Dict[str, Any]):
-    """Generate description for a scene."""
-    try:
-        await update_job_status(db, job_id, "processing", 10)
+async def _run_description_generation(job_id: str, scene_id: str, image_url: str, options: Dict[str, Any]):
+    """Generate description for a scene.
 
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 10)
 
-        # Download and encode image
-        image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-        vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            provider = await _get_ai_provider_safe()
 
-        await update_job_status(db, job_id, "processing", 30)
+            # Download and encode image
+            image_base64, mime_type = await _download_image_as_base64(image_url)
+            vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-        # Build prompt based on options
-        tone = options.get("tone", "professional")
-        length = options.get("length", "medium")
-        include_features = options.get("include_features", True)
-        target_audience = options.get("target_audience", "home buyers")
+            await update_job_status(db, job_id, "processing", 30)
 
-        length_guide = {
-            "short": "1-2 sentences",
-            "medium": "2-4 sentences",
-            "long": "4-6 sentences"
-        }
+            # Build prompt based on options
+            tone = options.get("tone", "professional")
+            length = options.get("length", "medium")
+            include_features = options.get("include_features", True)
+            target_audience = options.get("target_audience", "home buyers")
 
-        system_prompt = f"""You are a professional real estate copywriter.
+            length_guide = {
+                "short": "1-2 sentences",
+                "medium": "2-4 sentences",
+                "long": "4-6 sentences"
+            }
+
+            system_prompt = f"""You are a professional real estate copywriter.
 Write a compelling description for this room/space in a {tone} tone.
 Target audience: {target_audience}
 Length: {length_guide.get(length, "2-4 sentences")}
@@ -711,52 +852,65 @@ Respond in JSON format:
     "description": "your description here"
 }}"""
 
-        messages = [
-            AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-            AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
-        ]
+            messages = [
+                AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
+            ]
 
-        await update_job_status(db, job_id, "processing", 60)
+            await update_job_status(db, job_id, "processing", 60)
 
-        result = await provider.complete_json(messages, vision_input)
+            result = await _complete_json_with_retry(provider, messages, vision_input)
 
-        descriptions = {scene.id: result.get("description", "")}
+            descriptions = {scene_id: result.get("description", "")}
 
-        await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
-        logger.info(f"Description generated for scene {scene.id}")
+            await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
+            await db.commit()
+            logger.info(f"Description generated for scene {scene_id}")
 
-    except AIProviderError as e:
-        logger.error(f"AI provider error during description generation: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
-    except Exception as e:
-        logger.error(f"Error during description generation: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except AIProviderError as e:
+            logger.error(f"AI provider error during description generation: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error during description generation: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
-async def _run_tour_description_generation(db: AsyncSession, job_id: str, tour: Tour, options: Dict[str, Any]):
-    """Generate descriptions for all scenes in a tour."""
-    try:
-        await update_job_status(db, job_id, "processing", 5)
+async def _run_tour_description_generation(job_id: str, tour_id: str, options: Dict[str, Any]):
+    """Generate descriptions for all scenes in a tour.
 
-        scenes = tour.scenes or []
-        descriptions = {}
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 5)
 
-        for i, scene in enumerate(scenes):
-            progress = int(5 + (90 * (i + 1) / len(scenes)))
+            # Fetch scenes in this session
+            scenes_result = await db.execute(
+                select(Scene).where(Scene.tour_id == tour_id).order_by(Scene.order_index)
+            )
+            scenes = list(scenes_result.scalars().all())
 
-            try:
-                provider = await _get_ai_provider_safe()
+            descriptions = {}
 
-                # Download and encode image
-                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-                vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            for i, scene in enumerate(scenes):
+                progress = int(5 + (90 * (i + 1) / len(scenes)))
 
-                tone = options.get("tone", "professional")
-                length = options.get("length", "medium")
+                try:
+                    provider = await _get_ai_provider_safe()
 
-                length_guide = {"short": "1-2 sentences", "medium": "2-4 sentences", "long": "4-6 sentences"}
+                    # Download and encode image
+                    image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                    vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
 
-                system_prompt = f"""You are a professional real estate copywriter.
+                    tone = options.get("tone", "professional")
+                    length = options.get("length", "medium")
+
+                    length_guide = {"short": "1-2 sentences", "medium": "2-4 sentences", "long": "4-6 sentences"}
+
+                    system_prompt = f"""You are a professional real estate copywriter.
 Write a compelling description in a {tone} tone.
 Length: {length_guide.get(length, "2-4 sentences")}
 
@@ -765,26 +919,28 @@ Respond in JSON format:
     "description": "your description here"
 }}"""
 
-                messages = [
-                    AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                    AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
-                ]
+                    messages = [
+                        AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                        AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
+                    ]
 
-                result = await provider.complete_json(messages, vision_input)
-                descriptions[scene.id] = result.get("description", "")
+                    result = await _complete_json_with_retry(provider, messages, vision_input)
+                    descriptions[scene.id] = result.get("description", "")
 
-            except Exception as e:
-                logger.error(f"Error generating description for scene {scene.id}: {e}")
-                descriptions[scene.id] = ""
+                except Exception as e:
+                    logger.error(f"Error generating description for scene {scene.id}: {e}")
+                    descriptions[scene.id] = ""
 
-            await update_job_status(db, job_id, "processing", progress)
+                await update_job_status(db, job_id, "processing", progress)
 
-        await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
-        logger.info(f"Tour descriptions generated for tour {tour.id}")
+            await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
+            await db.commit()
+            logger.info(f"Tour descriptions generated for tour {tour_id}")
 
-    except Exception as e:
-        logger.error(f"Error during tour description generation: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except Exception as e:
+            logger.error(f"Error during tour description generation: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
 # ====================
@@ -962,7 +1118,6 @@ async def generate_tour(
     job = await create_ai_job(db, user_id, "generate_tour", tour_id=tour.id)
     asyncio.create_task(
         _run_tour_generation(
-            db,
             job.id,
             tour.id,
             user_id,
@@ -980,36 +1135,40 @@ async def generate_tour(
 
 
 async def _run_tour_generation(
-    db: AsyncSession,
     job_id: str,
     tour_id: str,
     user_id: int,
     options: Dict[str, Any],
 ) -> None:
-    """Run AI-driven enhancements for a generated tour."""
-    try:
-        await update_job_status(db, job_id, "processing", 5, result={"tour_id": tour_id})
-        from app.services.tour import get_tour
+    """Run AI-driven enhancements for a generated tour.
 
-        tour = await get_tour(db, tour_id, user_id, include_scenes=True)
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 5, result={"tour_id": tour_id})
+            from app.services.tour import get_tour
 
-        scenes = tour.scenes or []
-        total_scenes = len(scenes)
-        generated: List[Dict[str, Any]] = []
-        apply_to_scenes = bool(options.get("apply_to_scenes", True))
-        generate_titles = bool(options.get("generate_titles", True))
-        generate_descriptions = bool(options.get("generate_descriptions", True))
-        language = options.get("language") or "English"
+            tour = await get_tour(db, tour_id, user_id, include_scenes=True)
+            provider = await _get_ai_provider_safe()
 
-        for index, scene in enumerate(scenes):
-            progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
+            scenes = tour.scenes or []
+            total_scenes = len(scenes)
+            generated: List[Dict[str, Any]] = []
+            apply_to_scenes = bool(options.get("apply_to_scenes", True))
+            generate_titles = bool(options.get("generate_titles", True))
+            generate_descriptions = bool(options.get("generate_descriptions", True))
+            language = options.get("language") or "English"
 
-            if generate_titles or generate_descriptions:
-                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-                vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            for index, scene in enumerate(scenes):
+                progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
 
-                system_prompt = f"""You are a virtual tour creator.
+                if generate_titles or generate_descriptions:
+                    image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                    vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+
+                    system_prompt = f"""You are a virtual tour creator.
 Generate a concise scene title and description in {language} for the provided panorama.
 Respond in JSON with:
 {{
@@ -1018,47 +1177,50 @@ Respond in JSON with:
   "room_type": "one of: {', '.join(ROOM_TYPES)}"
 }}"""
 
-                messages = [
-                    AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                    AIMessage(role=AIRole.USER, content="Create a scene title and description."),
-                ]
+                    messages = [
+                        AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                        AIMessage(role=AIRole.USER, content="Create a scene title and description."),
+                    ]
 
-                result = await provider.complete_json(messages, vision_input)
-                generated.append({"scene_id": scene.id, **result})
+                    result = await _complete_json_with_retry(provider, messages, vision_input)
+                    generated.append({"scene_id": scene.id, **result})
 
-                if apply_to_scenes:
-                    if generate_titles and result.get("title") and not scene.title:
-                        scene.title = result["title"]
-                    if generate_descriptions and result.get("description") and not scene.description:
-                        scene.description = result["description"]
+                    if apply_to_scenes:
+                        if generate_titles and result.get("title") and not scene.title:
+                            scene.title = result["title"]
+                        if generate_descriptions and result.get("description") and not scene.description:
+                            scene.description = result["description"]
 
-            await update_job_status(db, job_id, "processing", progress)
+                await update_job_status(db, job_id, "processing", progress)
 
-        created_hotspots: List[str] = []
-        if options.get("suggest_hotspots"):
-            created = await _ensure_navigation_hotspots(db, tour)
-            created_hotspots = [hotspot.id for hotspot in created]
+            created_hotspots: List[str] = []
+            if options.get("suggest_hotspots"):
+                created = await _ensure_navigation_hotspots(db, tour)
+                created_hotspots = [hotspot.id for hotspot in created]
 
-        await db.commit()
-        await update_job_status(
-            db,
-            job_id,
-            "completed",
-            100,
-            result={
-                "tour_id": tour_id,
-                "generated": generated,
-                "created_hotspots": created_hotspots,
-            },
-        )
-        logger.info(f"Tour generation completed for tour {tour_id}")
+            await db.commit()
+            await update_job_status(
+                db,
+                job_id,
+                "completed",
+                100,
+                result={
+                    "tour_id": tour_id,
+                    "generated": generated,
+                    "created_hotspots": created_hotspots,
+                },
+            )
+            await db.commit()
+            logger.info(f"Tour generation completed for tour {tour_id}")
 
-    except AIProviderError as e:
-        logger.error(f"AI provider error during tour generation: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
-    except Exception as e:
-        logger.error(f"Error during tour generation: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+        except AIProviderError as e:
+            logger.error(f"AI provider error during tour generation: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
+        except Exception as e:
+            logger.error(f"Error during tour generation: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
 
 
 # ====================
@@ -1083,7 +1245,6 @@ async def optimize_tour(
 
     asyncio.create_task(
         _run_tour_optimization(
-            db,
             job.id,
             tour.id,
             user_id,
@@ -1094,34 +1255,38 @@ async def optimize_tour(
 
 
 async def _run_tour_optimization(
-    db: AsyncSession,
     job_id: str,
     tour_id: str,
     user_id: int,
     options: Dict[str, Any],
 ) -> None:
-    """Run AI optimization for a tour."""
-    try:
-        await update_job_status(db, job_id, "processing", 5, result={"tour_id": tour_id})
-        from app.services.tour import get_tour
+    """Run AI optimization for a tour.
 
-        tour = await get_tour(db, tour_id, user_id, include_scenes=True)
-        provider = await _get_ai_provider_safe()
+    Creates its own database session for the background task.
+    """
+    session_factory = get_async_session_factory()
+    async with session_factory() as db:
+        try:
+            await update_job_status(db, job_id, "processing", 5, result={"tour_id": tour_id})
+            from app.services.tour import get_tour
 
-        scenes = tour.scenes or []
-        total_scenes = len(scenes)
-        suggestions: List[Dict[str, Any]] = []
-        update_titles = bool(options.get("update_titles"))
-        update_descriptions = bool(options.get("update_descriptions"))
-        language = options.get("language") or "English"
+            tour = await get_tour(db, tour_id, user_id, include_scenes=True)
+            provider = await _get_ai_provider_safe()
 
-        for index, scene in enumerate(scenes):
-            progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
+            scenes = tour.scenes or []
+            total_scenes = len(scenes)
+            suggestions: List[Dict[str, Any]] = []
+            update_titles = bool(options.get("update_titles"))
+            update_descriptions = bool(options.get("update_descriptions"))
+            language = options.get("language") or "English"
 
-            image_base64, mime_type = await _download_image_as_base64(scene.image_url)
-            vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+            for index, scene in enumerate(scenes):
+                progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
 
-            system_prompt = f"""You are a virtual tour optimization assistant.
+                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
+
+                system_prompt = f"""You are a virtual tour optimization assistant.
 Analyze this panorama and suggest improvements. Respond in JSON:
 {{
   "scene_id": "{scene.id}",
@@ -1132,69 +1297,72 @@ Analyze this panorama and suggest improvements. Respond in JSON:
   "recommendations": ["list of optimization ideas"]
 }}"""
 
-            messages = [
-                AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                AIMessage(role=AIRole.USER, content="Optimize this tour scene."),
-            ]
+                messages = [
+                    AIMessage(role=AIRole.SYSTEM, content=system_prompt),
+                    AIMessage(role=AIRole.USER, content="Optimize this tour scene."),
+                ]
 
-            result = await provider.complete_json(messages, vision_input)
-            suggestions.append(result)
+                result = await _complete_json_with_retry(provider, messages, vision_input)
+                suggestions.append(result)
 
-            if update_titles and result.get("suggested_title"):
-                scene.title = result["suggested_title"]
-            if update_descriptions and result.get("suggested_description"):
-                scene.description = result["suggested_description"]
+                if update_titles and result.get("suggested_title"):
+                    scene.title = result["suggested_title"]
+                if update_descriptions and result.get("suggested_description"):
+                    scene.description = result["suggested_description"]
 
-            await update_job_status(db, job_id, "processing", progress)
+                await update_job_status(db, job_id, "processing", progress)
 
-        created_hotspots: List[str] = []
-        if options.get("suggest_hotspots"):
-            created = await _ensure_navigation_hotspots(db, tour)
-            created_hotspots = [hotspot.id for hotspot in created]
+            created_hotspots: List[str] = []
+            if options.get("suggest_hotspots"):
+                created = await _ensure_navigation_hotspots(db, tour)
+                created_hotspots = [hotspot.id for hotspot in created]
 
-        overview = {
-            "scene_count": len(scenes),
-            "missing_titles": sum(1 for scene in scenes if not scene.title),
-            "missing_descriptions": sum(1 for scene in scenes if not scene.description),
-            "hotspot_count": sum(len(scene.hotspots or []) for scene in scenes),
-        }
+            overview = {
+                "scene_count": len(scenes),
+                "missing_titles": sum(1 for scene in scenes if not scene.title),
+                "missing_descriptions": sum(1 for scene in scenes if not scene.description),
+                "hotspot_count": sum(len(scene.hotspots or []) for scene in scenes),
+            }
 
-        try:
-            prompt = (
-                "Provide concise optimization recommendations for this tour summary in JSON: "
-                '{"recommendations": ["..."]}'
+            try:
+                prompt = (
+                    "Provide concise optimization recommendations for this tour summary in JSON: "
+                    '{"recommendations": ["..."]}'
+                )
+                messages = [
+                    AIMessage(role=AIRole.SYSTEM, content=prompt),
+                    AIMessage(
+                        role=AIRole.USER,
+                        content=f"Tour summary: {overview}. Focus areas: {options.get('focus_areas')}.",
+                    ),
+                ]
+                overview_result = await _complete_json_with_retry(provider, messages)
+            except Exception as e:
+                logger.warning(f"Failed to generate overview recommendations: {e}")
+                overview_result = {"recommendations": []}
+
+            await db.commit()
+            await update_job_status(
+                db,
+                job_id,
+                "completed",
+                100,
+                result={
+                    "tour_id": tour_id,
+                    "overview": overview,
+                    "overview_recommendations": overview_result.get("recommendations", []),
+                    "scene_suggestions": suggestions,
+                    "created_hotspots": created_hotspots,
+                },
             )
-            messages = [
-                AIMessage(role=AIRole.SYSTEM, content=prompt),
-                AIMessage(
-                    role=AIRole.USER,
-                    content=f"Tour summary: {overview}. Focus areas: {options.get('focus_areas')}.",
-                ),
-            ]
-            overview_result = await provider.complete_json(messages)
+            await db.commit()
+            logger.info(f"Tour optimization completed for tour {tour_id}")
+
+        except AIProviderError as e:
+            logger.error(f"AI provider error during tour optimization: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()
         except Exception as e:
-            logger.warning(f"Failed to generate overview recommendations: {e}")
-            overview_result = {"recommendations": []}
-
-        await db.commit()
-        await update_job_status(
-            db,
-            job_id,
-            "completed",
-            100,
-            result={
-                "tour_id": tour_id,
-                "overview": overview,
-                "overview_recommendations": overview_result.get("recommendations", []),
-                "scene_suggestions": suggestions,
-                "created_hotspots": created_hotspots,
-            },
-        )
-        logger.info(f"Tour optimization completed for tour {tour_id}")
-
-    except AIProviderError as e:
-        logger.error(f"AI provider error during tour optimization: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
-    except Exception as e:
-        logger.error(f"Error during tour optimization: {e}")
-        await update_job_status(db, job_id, "failed", error_message=str(e))
+            logger.error(f"Error during tour optimization: {e}")
+            await update_job_status(db, job_id, "failed", error_message=str(e))
+            await db.commit()

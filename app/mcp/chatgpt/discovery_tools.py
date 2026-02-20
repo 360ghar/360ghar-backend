@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED
+from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED, build_widget_tool_meta
 from app.mcp.chatgpt.response_formatter import (
     format_chatgpt_response,
     format_auth_required_response,
@@ -36,33 +36,29 @@ from app.mcp.user_server import user_mcp
 logger = get_logger(__name__)
 
 # ChatGPT tool metadata for widget linkage
-DISCOVERY_SEARCH_META = {
-    "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Searching for properties...",
-    "openai/toolInvocation/invoked": "Found properties",
-}
+DISCOVERY_SEARCH_META = build_widget_tool_meta(
+    widget_uri="ui://widget/propertysearchwidget.html",
+    invoking="Searching for properties...",
+    invoked="Found properties",
+)
 
-PROPERTY_DETAILS_META = {
-    "openai/outputTemplate": "ui://widget/propertydetailswidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading property details...",
-    "openai/toolInvocation/invoked": "Property details loaded",
-}
+PROPERTY_DETAILS_META = build_widget_tool_meta(
+    widget_uri="ui://widget/propertydetailswidget.html",
+    invoking="Loading property details...",
+    invoked="Property details loaded",
+)
 
-DISCOVERY_FEED_META = {
-    "openai/outputTemplate": "ui://widget/propertyswipewidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading discovery feed...",
-    "openai/toolInvocation/invoked": "Discovery feed ready",
-}
+DISCOVERY_FEED_META = build_widget_tool_meta(
+    widget_uri="ui://widget/propertyswipewidget.html",
+    invoking="Loading discovery feed...",
+    invoked="Discovery feed ready",
+)
 
-SHORTLIST_META = {
-    "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading your shortlist...",
-    "openai/toolInvocation/invoked": "Shortlist loaded",
-}
+SHORTLIST_META = build_widget_tool_meta(
+    widget_uri="ui://widget/propertysearchwidget.html",
+    invoking="Loading your shortlist...",
+    invoked="Shortlist loaded",
+)
 
 
 async def _get_db():
@@ -82,7 +78,7 @@ async def _get_optional_user(db):
 
 
 @user_mcp.tool(
-    "discovery.search",
+    "discovery_search",
     annotations={
         "title": "Search Properties",
         "readOnlyHint": True,
@@ -147,21 +143,25 @@ async def discovery_search(
             user_id = user.id if user else None
 
             # Build filter object
-            filters = UnifiedPropertyFilter(
-                search_query=query,
-                latitude=latitude,
-                longitude=longitude,
-                radius_km=radius_km if latitude and longitude else None,
-                property_type=property_type,
-                purpose=purpose,
-                price_min=price_min,
-                price_max=price_max,
-                bedrooms_min=bedrooms_min,
-                bedrooms_max=bedrooms_max,
-                amenities=amenities,
-                city=city,
-                locality=locality,
-            )
+            filter_data = {
+                "search_query": query,
+                "latitude": latitude,
+                "longitude": longitude,
+                "property_type": property_type,
+                "purpose": purpose,
+                "price_min": price_min,
+                "price_max": price_max,
+                "bedrooms_min": bedrooms_min,
+                "bedrooms_max": bedrooms_max,
+                "amenities": amenities,
+                "city": city,
+                "locality": locality,
+            }
+            # Only include radius_km when location search is active
+            if latitude and longitude:
+                filter_data["radius_km"] = radius_km
+
+            filters = UnifiedPropertyFilter(**filter_data)
 
             # Execute search
             result = await get_unified_properties_optimized(
@@ -208,7 +208,7 @@ async def discovery_search(
             )
 
     except Exception as e:
-        logger.error(f"Error in discovery.search: {e}", exc_info=True)
+        logger.error(f"Error in discovery_search: {e}", exc_info=True)
         return format_chatgpt_response(
             data={"error": True, "message": str(e)},
             content_summary=f"Sorry, there was an error searching properties: {str(e)}",
@@ -216,7 +216,7 @@ async def discovery_search(
 
 
 @user_mcp.tool(
-    "discovery.property.get",
+    "discovery_property_get",
     annotations={
         "title": "Get Property Details",
         "readOnlyHint": True,
@@ -276,7 +276,7 @@ async def discovery_property_get(
 
 
 @user_mcp.tool(
-    "discovery.feed",
+    "discovery_feed",
     annotations={
         "title": "Property Discovery Feed",
         "readOnlyHint": True,
@@ -354,7 +354,7 @@ async def discovery_feed(
 
 
 @user_mcp.tool(
-    "discovery.amenities",
+    "discovery_amenities",
     annotations={
         "title": "List Property Amenities",
         "readOnlyHint": True,
@@ -402,18 +402,17 @@ async def discovery_amenities() -> Dict[str, Any]:
 
 
 @user_mcp.tool(
-    "discovery.swipe",
+    "discovery_swipe",
     annotations={
         "title": "Like or Pass Property",
         "readOnlyHint": False,
         "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
     },
-    meta={
-        "openai/outputTemplate": "ui://widget/propertyswipewidget.html",
-        "openai/widgetAccessible": True,
-        "openai/toolInvocation/invoking": "Recording your preference...",
-        "openai/toolInvocation/invoked": "Preference saved",
-    },
+    meta=build_widget_tool_meta(
+        widget_uri="ui://widget/propertyswipewidget.html",
+        invoking="Recording your preference...",
+        invoked="Preference saved",
+    ),
 )
 async def discovery_swipe(
     property_id: int,
@@ -473,7 +472,7 @@ async def discovery_swipe(
 
 
 @user_mcp.tool(
-    "discovery.shortlist",
+    "discovery_shortlist",
     annotations={
         "title": "View Shortlisted Properties",
         "readOnlyHint": True,
@@ -557,18 +556,17 @@ async def discovery_shortlist(
 
 
 @user_mcp.tool(
-    "discovery.recommendations",
+    "discovery_recommendations",
     annotations={
         "title": "Get Property Recommendations",
         "readOnlyHint": True,
         "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
     },
-    meta={
-        "openai/outputTemplate": "ui://widget/propertysearchwidget.html",
-        "openai/widgetAccessible": True,
-        "openai/toolInvocation/invoking": "Finding recommended properties...",
-        "openai/toolInvocation/invoked": "Recommendations ready",
-    },
+    meta=build_widget_tool_meta(
+        widget_uri="ui://widget/propertysearchwidget.html",
+        invoking="Finding recommended properties...",
+        invoked="Recommendations ready",
+    ),
 )
 async def discovery_recommendations(
     latitude: Optional[float] = None,

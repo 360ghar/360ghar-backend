@@ -1,23 +1,48 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import Optional, List, Dict, Any
-from app.models.agents import Agent
+from app.models.agents import Agent, AgentInteraction
 from app.models.users import User
 from app.models.properties import Visit
 from app.schemas.agent import (
-    Agent as AgentSchema, 
+    Agent as AgentSchema,
     AgentCreate,
     AgentUpdate,
-    AgentAssignment, 
+    AgentAssignment,
     AgentStats,
     AgentWithStats,
     AgentWorkload,
     AgentSystemStats
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+async def get_daily_interactions(db: AsyncSession, agent_id: int) -> int:
+    """Get the count of interactions for an agent today."""
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    stmt = (
+        select(func.count(AgentInteraction.id))
+        .where(AgentInteraction.agent_id == agent_id)
+        .where(AgentInteraction.created_at >= today_start)
+    )
+    result = await db.execute(stmt)
+    return result.scalar() or 0
+
+
+async def get_weekly_interactions(db: AsyncSession, agent_id: int) -> int:
+    """Get the count of interactions for an agent in the last 7 days."""
+    week_start = datetime.utcnow() - timedelta(days=7)
+    stmt = (
+        select(func.count(AgentInteraction.id))
+        .where(AgentInteraction.agent_id == agent_id)
+        .where(AgentInteraction.created_at >= week_start)
+    )
+    result = await db.execute(stmt)
+    return result.scalar() or 0
+
 
 async def get_all_agents(db: AsyncSession) -> List[AgentSchema]:
     """Get all agents"""
@@ -292,13 +317,17 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> Optional[Agen
     stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
     result = await db.execute(stmt)
     total_visits = result.scalar() or 0
-    
+
+    # Get real interaction counts
+    daily_interactions = await get_daily_interactions(db, agent_id)
+    weekly_interactions = await get_weekly_interactions(db, agent_id)
+
     stats = AgentStats(
         total_users_assigned=agent.total_users_assigned or 0,
         user_satisfaction_rating=float(agent.user_satisfaction_rating or 0.0),
         active_conversations=current_users,
-        daily_interactions=0,  # TODO: Calculate from interaction logs
-        weekly_interactions=0,  # TODO: Calculate from interaction logs
+        daily_interactions=daily_interactions,
+        weekly_interactions=weekly_interactions,
         efficiency_score=_calculate_efficiency_score(agent, current_users)
     )
     

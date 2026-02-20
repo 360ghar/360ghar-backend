@@ -57,6 +57,7 @@ async def get_hotspot(
 
 
 @router.put("/{hotspot_id}", response_model=Hotspot)
+@router.patch("/{hotspot_id}", response_model=Hotspot)
 async def update_hotspot(
     hotspot_id: str,
     hotspot_data: HotspotUpdate,
@@ -64,9 +65,13 @@ async def update_hotspot(
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """
-    Update a hotspot's properties.
+    Update a hotspot's properties (partial update).
 
     Can update type, position, target scene, title, description, icon, and custom data.
+    Only the fields provided in the request body will be updated.
+
+    Note: Both PUT and PATCH are supported for backward compatibility.
+    PATCH is the recommended method for partial updates.
     """
     hotspot = await tour_service.update_hotspot(
         db=db,

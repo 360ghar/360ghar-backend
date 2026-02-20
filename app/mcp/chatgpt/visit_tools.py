@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED
+from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED, build_widget_tool_meta
 from app.mcp.chatgpt.response_formatter import (
     format_chatgpt_response,
     format_auth_required_response,
@@ -30,19 +30,17 @@ from app.mcp.user_server import user_mcp
 logger = get_logger(__name__)
 
 # ChatGPT tool metadata for widget linkage
-VISIT_SCHEDULER_META = {
-    "openai/outputTemplate": "ui://widget/visitschedulerwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Scheduling your visit...",
-    "openai/toolInvocation/invoked": "Visit scheduled",
-}
+VISIT_SCHEDULER_META = build_widget_tool_meta(
+    widget_uri="ui://widget/visitschedulerwidget.html",
+    invoking="Scheduling your visit...",
+    invoked="Visit scheduled",
+)
 
-VISIT_LIST_META = {
-    "openai/outputTemplate": "ui://widget/visitlistwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading your visits...",
-    "openai/toolInvocation/invoked": "Visits loaded",
-}
+VISIT_LIST_META = build_widget_tool_meta(
+    widget_uri="ui://widget/visitlistwidget.html",
+    invoking="Loading your visits...",
+    invoked="Visits loaded",
+)
 
 
 async def _get_optional_user(db):
@@ -79,7 +77,7 @@ def _serialize_visit(visit) -> Dict[str, Any]:
 
 
 @user_mcp.tool(
-    "visits.schedule",
+    "visits_schedule",
     annotations={
         "title": "Schedule Property Visit",
         "readOnlyHint": False,
@@ -175,7 +173,7 @@ async def visits_schedule(
 
 
 @user_mcp.tool(
-    "visits.list",
+    "visits_list",
     annotations={
         "title": "List My Visits",
         "readOnlyHint": True,
@@ -264,7 +262,7 @@ async def visits_list(
 
 
 @user_mcp.tool(
-    "visits.get",
+    "visits_get",
     annotations={
         "title": "Get Visit Details",
         "readOnlyHint": True,
@@ -333,7 +331,7 @@ async def visits_get(
 
 
 @user_mcp.tool(
-    "visits.cancel",
+    "visits_cancel",
     annotations={
         "title": "Cancel Visit",
         "readOnlyHint": False,

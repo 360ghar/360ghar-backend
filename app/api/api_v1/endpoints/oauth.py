@@ -7,6 +7,7 @@ import secrets
 import socket
 import time
 import uuid
+from html import escape
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode, urlparse
 
@@ -49,6 +50,7 @@ CHATGPT_REDIRECT_URIS = [
 # =============================================================================
 # Pydantic Schemas for OAuth
 # =============================================================================
+
 
 class OAuthAuthorizeRequest(BaseModel):
     response_type: str
@@ -98,6 +100,20 @@ class ClientRegistrationRequest(BaseModel):
                 raise ValueError(f"redirect_uri must be localhost or HTTPS: {uri}")
         return v
 
+    @field_validator("client_uri", "logo_uri", "scope")
+    @classmethod
+    def normalize_empty_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        return v
+
+    @field_validator("contacts", "grant_types", "response_types")
+    @classmethod
+    def normalize_empty_optional_lists(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None or v == []:
+            return None
+        return v
+
 
 # =============================================================================
 # Helper Functions
@@ -117,6 +133,292 @@ def generate_access_token() -> str:
 def generate_refresh_token() -> str:
     """Generate a secure refresh token."""
     return secrets.token_urlsafe(32)
+
+
+def is_loopback_redirect_uri(uri: str) -> bool:
+    """Return True for valid OAuth loopback redirect URIs."""
+    try:
+        parsed = urlparse(uri)
+    except Exception:
+        return False
+    if parsed.scheme != "http":
+        return False
+    host = (parsed.hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def is_redirect_uri_allowed_for_client(client: Dict[str, Any], redirect_uri: str) -> bool:
+    """Validate redirect_uri against client policy with ChatGPT compatibility."""
+    if redirect_uri in CHATGPT_REDIRECT_URIS:
+        return True
+
+    registered_uris = client.get("redirect_uris") or []
+    if redirect_uri in registered_uris:
+        return True
+
+    # First-party fallback for native loopback clients (Cursor/Claude/local inspectors).
+    if client.get("is_first_party") and is_loopback_redirect_uri(redirect_uri):
+        return True
+
+    return False
+
+
+def render_consent_html(
+    *,
+    session_id: str,
+    oauth_session: Optional[Dict[str, Any]] = None,
+    error_message: Optional[str] = None,
+) -> str:
+    """Render OAuth consent/login page with optional error state."""
+    client_name = escape((oauth_session or {}).get("client_name", "MCP client"))
+    client_id = escape((oauth_session or {}).get("client_id", "unknown-client"))
+    resource = escape((oauth_session or {}).get("resource", ""))
+    scopes = [
+        escape(s) for s in ((oauth_session or {}).get("scope", "mcp:read mcp:write")).split() if s
+    ]
+    scope_items = "".join(f"<li>{scope}</li>" for scope in scopes) or "<li>mcp:read</li>"
+    error_block = (
+        f'<div class="notice error">{escape(error_message)}</div>'
+        if error_message
+        else '<div class="notice">Sign in to continue securely.</div>'
+    )
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Sign in to 360Ghar</title>
+      <style>
+        :root {{
+          --bg: #f8f9fa;
+          --card: #ffffff;
+          --ink: #1a1a1a;
+          --muted: #475569;
+          --accent: #ff6b00;
+          --accent-hover: #e65c00;
+          --accent-ink: #ffffff;
+          --line: #dbe3f0;
+          --error: #b42318;
+          --error-bg: #fef3f2;
+          --radius: 16px;
+          --shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+          margin: 0;
+          min-height: 100vh;
+          display: grid;
+          place-items: center;
+          background: radial-gradient(circle at top right, #fff4ed 0%, var(--bg) 42%);
+          color: var(--ink);
+          font-family: "Avenir Next", "Segoe UI", sans-serif;
+          padding: 24px;
+        }}
+        .panel {{
+          width: min(720px, 100%);
+          background: var(--card);
+          border-radius: var(--radius);
+          border: 1px solid var(--line);
+          box-shadow: var(--shadow);
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          overflow: hidden;
+        }}
+        .aside {{
+          background: #ff6b00;
+          color: var(--accent-ink);
+          padding: 28px;
+        }}
+        .brand {{
+          letter-spacing: 0.08em;
+          font-size: 12px;
+          text-transform: uppercase;
+          opacity: 0.9;
+          font-weight: 600;
+        }}
+        .aside h1 {{
+          margin: 12px 0 10px;
+          line-height: 1.1;
+          font-size: 28px;
+        }}
+        .aside p {{
+          margin: 0;
+          line-height: 1.5;
+          opacity: 0.9;
+          font-size: 14px;
+        }}
+        .chips {{
+          margin-top: 16px;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }}
+        .chip {{
+          border: 1px solid rgba(255, 255, 255, 0.4);
+          border-radius: 999px;
+          padding: 6px 10px;
+          font-size: 12px;
+        }}
+        .main {{
+          padding: 28px;
+          display: grid;
+          gap: 14px;
+          align-content: start;
+        }}
+        h2 {{
+          margin: 0;
+          font-size: 22px;
+        }}
+        .notice {{
+          border: 1px solid var(--line);
+          background: #f8fafc;
+          border-radius: 12px;
+          padding: 10px 12px;
+          color: var(--muted);
+          font-size: 13px;
+        }}
+        .notice.error {{
+          border-color: #fecdca;
+          background: var(--error-bg);
+          color: var(--error);
+        }}
+        ul {{
+          margin: 0;
+          padding-left: 18px;
+          color: var(--muted);
+          font-size: 13px;
+        }}
+        form {{
+          display: grid;
+          gap: 12px;
+        }}
+        label {{
+          display: grid;
+          gap: 6px;
+          font-size: 13px;
+          color: var(--muted);
+        }}
+        input {{
+          width: 100%;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          padding: 10px 12px;
+          font-size: 14px;
+          outline: none;
+          transition: border-color 140ms ease, box-shadow 140ms ease;
+        }}
+        input:focus {{
+          border-color: #ff6b00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.2);
+        }}
+        button {{
+          margin-top: 4px;
+          border: 0;
+          border-radius: 12px;
+          background: var(--accent);
+          color: #ffffff;
+          font-weight: 600;
+          padding: 11px 14px;
+          cursor: pointer;
+          transition: background 140ms ease, transform 60ms ease;
+        }}
+        button:hover {{
+          background: var(--accent-hover);
+        }}
+        button:active {{
+          transform: translateY(1px);
+        }}
+        .hint {{
+          margin: 0;
+          color: var(--muted);
+          font-size: 12px;
+          line-height: 1.45;
+        }}
+        .phone-input-wrapper {{
+          display: flex;
+          align-items: center;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          overflow: hidden;
+          transition: border-color 140ms ease, box-shadow 140ms ease;
+        }}
+        .phone-input-wrapper:focus-within {{
+          border-color: #ff6b00;
+          box-shadow: 0 0 0 3px rgba(255, 107, 0, 0.2);
+        }}
+        .country-code {{
+          background: #f1f5f9;
+          color: #475569;
+          padding: 10px 12px;
+          font-size: 14px;
+          font-weight: 500;
+          border-right: 1px solid #cbd5e1;
+          user-select: none;
+        }}
+        .phone-input-wrapper input {{
+          border: none;
+          border-radius: 0;
+          flex: 1;
+          box-shadow: none;
+        }}
+        .phone-input-wrapper input:focus {{
+          box-shadow: none;
+        }}
+        @media (max-width: 760px) {{
+          .panel {{ grid-template-columns: 1fr; }}
+        }}
+      </style>
+    </head>
+    <body>
+      <section class="panel">
+        <aside class="aside">
+          <div class="brand">360Ghar</div>
+          <h1>Connect your account</h1>
+          <p>Sign in to allow <strong>{client_name}</strong> to access your account.</p>
+          <div class="chips">
+            <span class="chip">You can revoke this access at any time from your account settings.</span>
+          </div>
+        </aside>
+        <main class="main">
+          <h2>Sign in</h2>
+          {error_block}
+          <div class="notice">
+            This app is requesting access to:
+            <ul>{scope_items}</ul>
+          </div>
+          <form method="post" autocomplete="on" id="oauth-form">
+            <label for="phone">Phone number
+              <div class="phone-input-wrapper">
+                <span class="country-code">+91</span>
+                <input type="tel" id="phone" name="phone" required placeholder="XXXXXXXXXX" maxlength="10" inputmode="numeric" />
+              </div>
+            </label>
+            <label for="password">Password
+              <input type="password" id="password" name="password" required />
+            </label>
+            <input type="hidden" name="session" value="{escape(session_id)}" />
+            <button type="submit">Authorize and Continue</button>
+          </form>
+          <script>
+            (function() {{
+              const form = document.getElementById('oauth-form');
+              const phoneInput = document.getElementById('phone');
+              form.addEventListener('submit', function(e) {{
+                const phoneValue = phoneInput.value.trim();
+                if (phoneValue && !phoneValue.startsWith('+')) {{
+                  phoneInput.value = '+91' + phoneValue;
+                }}
+              }});
+            }})();
+          </script>
+          <p class="hint">By continuing, you authorize {client_name} to access the permissions listed above.</p>
+        </main>
+      </section>
+    </body>
+    </html>
+    """
 
 
 def verify_pkce(
@@ -187,7 +489,9 @@ async def fetch_client_metadata(client_id: str) -> Optional[Dict[str, Any]]:
                 or ip.is_reserved
                 or ip.is_unspecified
             ):
-                logger.warning("Rejected client_id resolving to non-public IP %s (%s)", ip_str, client_id)
+                logger.warning(
+                    "Rejected client_id resolving to non-public IP %s (%s)", ip_str, client_id
+                )
                 return None
 
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
@@ -214,7 +518,10 @@ async def validate_client(client_id: str) -> Optional[Dict[str, Any]]:
             "client_id": "ghar360-mcp",
             "client_name": "360Ghar MCP Client",
             "is_first_party": True,
-            "redirect_uris": [],
+            "redirect_uris": [
+                "http://localhost:3000/callback",
+                *CHATGPT_REDIRECT_URIS,
+            ],
             "grant_types": ["authorization_code", "refresh_token"],
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
@@ -251,8 +558,8 @@ async def register_client(
             "client_id": client_id,
             "client_name": registration.client_name,
             "redirect_uris": registration.redirect_uris,
-            "client_uri": registration.client_uri,
-            "logo_uri": registration.logo_uri,
+            "client_uri": registration.client_uri or "",
+            "logo_uri": registration.logo_uri or "",
             "contacts": registration.contacts or [],
             "grant_types": registration.grant_types or ["authorization_code"],
             "response_types": registration.response_types or ["code"],
@@ -324,13 +631,16 @@ async def authorize(
     db: AsyncSession = Depends(get_db),
 ):
     """OAuth 2.1 Authorization Endpoint."""
-    logger.info("OAuth authorize request", extra={
-        "client_id": client_id,
-        "response_type": response_type,
-        "has_pkce": bool(code_challenge),
-        "resource": resource,
-        "redirect_uri": redirect_uri,
-    })
+    logger.info(
+        "OAuth authorize request",
+        extra={
+            "client_id": client_id,
+            "response_type": response_type,
+            "has_pkce": bool(code_challenge),
+            "resource": resource,
+            "redirect_uri": redirect_uri,
+        },
+    )
     base_url = settings.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
 
     if response_type != "code":
@@ -371,31 +681,27 @@ async def authorize(
             },
         )
 
-    if client.get("redirect_uris"):
-        if not redirect_uri:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "invalid_request",
-                    "error_description": "redirect_uri is required for this client",
-                },
-            )
-        is_chatgpt_uri = redirect_uri in CHATGPT_REDIRECT_URIS
-        is_registered_uri = redirect_uri in client["redirect_uris"]
-        if not is_chatgpt_uri and not is_registered_uri:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": "invalid_request",
-                    "error_description": "redirect_uri not registered for this client",
-                },
-            )
+    if not redirect_uri:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_request",
+                "error_description": "redirect_uri is required",
+            },
+        )
+    if not is_redirect_uri_allowed_for_client(client, redirect_uri):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "invalid_request",
+                "error_description": "redirect_uri not allowed for this client",
+            },
+        )
 
     session_id = secrets.token_urlsafe(16)
 
     allowed_resources = {
         f"{base_url}/mcp",
-        f"{base_url}/sse",
         f"{base_url}/mcp-admin",
     }
     if resource and resource not in allowed_resources:
@@ -435,112 +741,18 @@ async def consent_page(
     """OAuth consent and login page."""
     oauth_session = await oauth_token_store.get_oauth_session(session)
     if not oauth_session:
-        raise HTTPException(status_code=400, detail="Invalid or expired session")
+        return HTMLResponse(
+            content=render_consent_html(
+                session_id=session,
+                oauth_session=None,
+                error_message="This login session is invalid or expired. Please restart authorization.",
+            ),
+            status_code=400,
+        )
 
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Authorize 360Ghar MCP Access</title>
-        <style>
-            body {{
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                max-width: 400px;
-                margin: 100px auto;
-                padding: 20px;
-                background-color: #f5f5f5;
-            }}
-            .container {{
-                background: white;
-                padding: 30px;
-                border-radius: 8px;
-                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }}
-            .logo {{
-                text-align: center;
-                margin-bottom: 30px;
-                color: #333;
-            }}
-            .form-group {{
-                margin-bottom: 20px;
-            }}
-            label {{
-                display: block;
-                margin-bottom: 5px;
-                font-weight: 500;
-            }}
-            input {{
-                width: 100%;
-                padding: 10px;
-                border: 1px solid #ddd;
-                border-radius: 4px;
-                box-sizing: border-box;
-            }}
-            button {{
-                width: 100%;
-                padding: 12px;
-                background-color: #007bff;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                cursor: pointer;
-                font-size: 16px;
-            }}
-            button:hover {{
-                background-color: #0056b3;
-            }}
-            .scopes {{
-                background-color: #f8f9fa;
-                padding: 15px;
-                border-radius: 4px;
-                margin-bottom: 20px;
-            }}
-            .error {{
-                color: #dc3545;
-                margin-bottom: 15px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="logo">
-                <h2>360Ghar</h2>
-            </div>
-
-            <h3>Authorize MCP Access</h3>
-            <p>This application wants to access your 360Ghar account via MCP.</p>
-
-            <div class="scopes">
-                <strong>Requested permissions:</strong><br>
-                {oauth_session.get('scope', 'mcp:read mcp:write').replace(' ', '<br>')}
-            </div>
-
-            <form id="loginForm" method="post">
-                <div class="form-group">
-                    <label for="phone">Phone Number:</label>
-                    <input type="tel" id="phone" name="phone" required placeholder="+91XXXXXXXXXX">
-                </div>
-
-                <div class="form-group">
-                    <label for="password">Password:</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-
-                <input type="hidden" name="session" value="{session}">
-                <input type="hidden" name="action" value="authorize">
-
-                <button type="submit">Authorize Access</button>
-            </form>
-
-            <p style="text-align: center; margin-top: 20px; color: #666; font-size: 14px;">
-                By authorizing, you allow this application to access your 360Ghar property data.
-            </p>
-        </div>
-    </body>
-    </html>
-    """
-
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(
+        content=render_consent_html(session_id=session, oauth_session=oauth_session)
+    )
 
 
 @router.post("/mcp/oauth/consent")
@@ -550,43 +762,53 @@ async def process_consent(
     phone: str = Form(...),
     password: str = Form(...),
     session: str = Form(...),
-    action: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Process OAuth consent and login."""
-    logger.info("OAuth login attempt", extra={"phone_prefix": phone[:4] + "****" if len(phone) > 4 else "****"})
+    # Auto-prepend +91 if user entered just 10 digits
+    phone = phone.strip()
+    if phone.isdigit() and len(phone) == 10:
+        phone = f"+91{phone}"
+
+    logger.info(
+        "OAuth login attempt",
+        extra={"phone_prefix": phone[:4] + "****" if len(phone) > 4 else "****"},
+    )
     oauth_session = await oauth_token_store.get_oauth_session(session)
     if not oauth_session:
-        logger.warning("OAuth consent - invalid session", extra={"session_prefix": session[:8] if session else None})
+        logger.warning(
+            "OAuth consent - invalid session",
+            extra={"session_prefix": session[:8] if session else None},
+        )
         raise HTTPException(status_code=400, detail="Invalid or expired session")
 
     try:
         supabase = get_supabase_auth_client()
 
         auth_data = await anyio.to_thread.run_sync(
-            lambda: supabase.auth.sign_in_with_password({
-                "phone": phone,
-                "password": password,
-            })
+            lambda: supabase.auth.sign_in_with_password(
+                {
+                    "phone": phone,
+                    "password": password,
+                }
+            )
         )
 
         if not auth_data.session or not auth_data.session.access_token:
-            logger.warning("OAuth login failed - Supabase auth failed", extra={"phone_prefix": phone[:4] + "****" if len(phone) > 4 else "****"})
+            logger.warning(
+                "OAuth login failed - Supabase auth failed",
+                extra={"phone_prefix": phone[:4] + "****" if len(phone) > 4 else "****"},
+            )
             user_exists = await admin_find_user_by_phone(phone)
             error_msg = "Invalid phone or password" if user_exists else "User not found"
 
             return HTMLResponse(
-                f"""
-                <!DOCTYPE html>
-                <html>
-                <body>
-                    <div class="container">
-                        <div class="error">Authentication failed: {error_msg}</div>
-                        <a href="/mcp/oauth/consent?session={session}">Try again</a>
-                    </div>
-                </body>
-                </html>
-            """
+                render_consent_html(
+                    session_id=session,
+                    oauth_session=oauth_session,
+                    error_message=f"Authentication failed: {error_msg}",
+                ),
+                status_code=401,
             )
 
         supabase_user_data = await verify_supabase_token(auth_data.session.access_token)
@@ -594,7 +816,10 @@ async def process_consent(
             logger.warning("OAuth login failed - token verification failed")
             raise HTTPException(status_code=401, detail="Authentication failed")
 
-        logger.info("OAuth login - Supabase auth successful", extra={"supabase_id": supabase_user_data.get("sub")})
+        logger.info(
+            "OAuth login - Supabase auth successful",
+            extra={"supabase_id": supabase_user_data.get("sub")},
+        )
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
 
         auth_code = generate_auth_code()
@@ -613,11 +838,14 @@ async def process_consent(
 
         await oauth_token_store.delete_session(session)
 
-        logger.info("OAuth auth code generated", extra={
-            "user_id": db_user.id,
-            "client_id": oauth_session["client_id"],
-            "has_resource": bool(oauth_session.get("resource")),
-        })
+        logger.info(
+            "OAuth auth code generated",
+            extra={
+                "user_id": db_user.id,
+                "client_id": oauth_session["client_id"],
+                "has_resource": bool(oauth_session.get("resource")),
+            },
+        )
 
         base_url = settings.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
         redirect_uri = oauth_session.get("redirect_uri", f"{base_url}/mcp/oauth/callback")
@@ -637,17 +865,12 @@ async def process_consent(
     except Exception as exc:
         logger.error("OAuth consent error: %s", exc)
         return HTMLResponse(
-            f"""
-            <!DOCTYPE html>
-            <html>
-            <body>
-                <div class="container">
-                    <div class="error">Authentication failed: {str(exc)}</div>
-                    <a href="/mcp/oauth/consent?session={session}">Try again</a>
-                </div>
-            </body>
-            </html>
-        """
+            render_consent_html(
+                session_id=session,
+                oauth_session=oauth_session,
+                error_message=f"Authentication failed: {str(exc)}",
+            ),
+            status_code=500,
         )
 
 
@@ -677,6 +900,25 @@ async def token_endpoint(
                     },
                 )
 
+            if not client_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_request",
+                        "error_description": "Missing client_id",
+                    },
+                )
+
+            client = await validate_client(client_id)
+            if not client:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_client",
+                        "error_description": "Invalid client_id",
+                    },
+                )
+
             auth_data = await oauth_token_store.get_auth_code(code)
             if not auth_data:
                 logger.warning("OAuth token - invalid auth code")
@@ -688,7 +930,9 @@ async def token_endpoint(
                     },
                 )
 
-            logger.debug("OAuth token - auth code valid", extra={"user_id": auth_data.get("user_id")})
+            logger.debug(
+                "OAuth token - auth code valid", extra={"user_id": auth_data.get("user_id")}
+            )
 
             if auth_data.get("code_challenge"):
                 pkce_valid = verify_pkce(
@@ -696,7 +940,10 @@ async def token_endpoint(
                     code_verifier,
                     auth_data.get("code_challenge_method"),
                 )
-                logger.debug("OAuth token - PKCE verification", extra={"result": "success" if pkce_valid else "failed"})
+                logger.debug(
+                    "OAuth token - PKCE verification",
+                    extra={"result": "success" if pkce_valid else "failed"},
+                )
                 if not pkce_valid:
                     logger.warning("OAuth token - PKCE verification failed")
                     raise HTTPException(
@@ -707,7 +954,7 @@ async def token_endpoint(
                         },
                     )
 
-            if client_id and client_id != auth_data["client_id"]:
+            if client_id != auth_data["client_id"]:
                 raise HTTPException(
                     status_code=400,
                     detail={
@@ -748,24 +995,25 @@ async def token_endpoint(
             access_token = generate_access_token()
             refresh_tok = generate_refresh_token()
 
-            # Delete auth code to prevent replay attacks (single-use code)
-            await oauth_token_store.delete_auth_code(code)
-
             await oauth_token_store.store_oauth_tokens(
                 access_token=access_token,
                 refresh_token=refresh_tok,
                 user_id=auth_data["user_id"],
                 scope=auth_data["scope"],
+                client_id=auth_data["client_id"],
                 resource=auth_data.get("resource"),
                 access_token_expires_in=OAUTH_ACCESS_TOKEN_LIFETIME,
                 refresh_token_expires_in=OAUTH_REFRESH_TOKEN_LIFETIME,
             )
 
-            logger.info("OAuth tokens issued", extra={
-                "user_id": auth_data["user_id"],
-                "grant_type": "authorization_code",
-                "scope": auth_data["scope"],
-            })
+            logger.info(
+                "OAuth tokens issued",
+                extra={
+                    "user_id": auth_data["user_id"],
+                    "grant_type": "authorization_code",
+                    "scope": auth_data["scope"],
+                },
+            )
 
             return {
                 "access_token": access_token,
@@ -795,22 +1043,64 @@ async def token_endpoint(
                     },
                 )
 
+            token_client_id = refresh_data.get("client_id")
+            if token_client_id:
+                if not client_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": "invalid_request",
+                            "error_description": "Missing client_id",
+                        },
+                    )
+                if client_id != token_client_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": "invalid_client",
+                            "error_description": "Invalid client_id",
+                        },
+                    )
+                client = await validate_client(client_id)
+                if not client:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": "invalid_client",
+                            "error_description": "Invalid client_id",
+                        },
+                    )
+
+            if resource and refresh_data.get("resource"):
+                if resource != refresh_data["resource"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "error": "invalid_target",
+                            "error_description": "Resource mismatch",
+                        },
+                    )
+
             new_access_token = generate_access_token()
+            new_refresh_token = generate_refresh_token()
 
             await oauth_token_store.store_oauth_tokens(
                 access_token=new_access_token,
-                refresh_token=refresh_token,
+                refresh_token=new_refresh_token,
                 user_id=refresh_data["user_id"],
                 scope=refresh_data["scope"],
+                client_id=token_client_id or client_id,
                 resource=refresh_data.get("resource"),
                 access_token_expires_in=OAUTH_ACCESS_TOKEN_LIFETIME,
                 refresh_token_expires_in=OAUTH_REFRESH_TOKEN_LIFETIME,
             )
+            await oauth_token_store.revoke_refresh_token(refresh_token)
 
             return {
                 "access_token": new_access_token,
                 "token_type": "Bearer",
                 "expires_in": OAUTH_ACCESS_TOKEN_LIFETIME,
+                "refresh_token": new_refresh_token,
                 "scope": refresh_data["scope"],
             }
 
@@ -835,6 +1125,100 @@ async def token_endpoint(
         )
 
 
+@router.post("/mcp/oauth/revoke")
+@oauth_mcp_router.post("/mcp/oauth/revoke")
+async def revoke_token(
+    token: str = Form(...),
+    token_type_hint: Optional[str] = Form(None),
+    client_id: Optional[str] = Form(None),
+):
+    """RFC 7009 OAuth token revocation endpoint."""
+    try:
+        if token_type_hint not in {None, "access_token", "refresh_token"}:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "unsupported_token_type",
+                    "error_description": "token_type_hint must be access_token or refresh_token",
+                },
+            )
+
+        async def _validate_client_binding(token_data: Optional[Dict[str, Any]]) -> bool:
+            if not token_data:
+                return True
+            token_client_id = token_data.get("client_id")
+            if not token_client_id:
+                return True
+            return client_id == token_client_id
+
+        if token_type_hint == "refresh_token":
+            refresh_data = await oauth_token_store.get_refresh_token(token)
+            if not await _validate_client_binding(refresh_data):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_client",
+                        "error_description": "Invalid client_id",
+                    },
+                )
+            if refresh_data:
+                await oauth_token_store.revoke_refresh_token(token)
+            return JSONResponse(status_code=200, content={})
+
+        if token_type_hint == "access_token":
+            access_data = await oauth_token_store.get_access_token(token)
+            if not await _validate_client_binding(access_data):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_client",
+                        "error_description": "Invalid client_id",
+                    },
+                )
+            if access_data:
+                await oauth_token_store.revoke_token_pair(access_token=token)
+            return JSONResponse(status_code=200, content={})
+
+        # No hint: try both types, but keep response idempotent and opaque.
+        access_data = await oauth_token_store.get_access_token(token)
+        if access_data:
+            if not await _validate_client_binding(access_data):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_client",
+                        "error_description": "Invalid client_id",
+                    },
+                )
+            await oauth_token_store.revoke_token_pair(access_token=token)
+            return JSONResponse(status_code=200, content={})
+
+        refresh_data = await oauth_token_store.get_refresh_token(token)
+        if refresh_data:
+            if not await _validate_client_binding(refresh_data):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "invalid_client",
+                        "error_description": "Invalid client_id",
+                    },
+                )
+            await oauth_token_store.revoke_refresh_token(token)
+
+        return JSONResponse(status_code=200, content={})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("OAuth revoke error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "server_error",
+                "error_description": "Internal server error",
+            },
+        )
+
+
 # =============================================================================
 # OAuth Discovery Endpoints
 # =============================================================================
@@ -848,20 +1232,6 @@ async def protected_resource_metadata(request: Request):
 
     return {
         "resource": f"{base_url}/mcp",
-        "authorization_servers": [f"{base_url}/mcp/oauth"],
-        "scopes_supported": ["mcp:read", "mcp:write", "offline_access"],
-        "bearer_methods_supported": ["header"],
-        "resource_documentation": f"{base_url}{settings.API_V1_STR}/docs",
-    }
-
-
-@oauth_wellknown_router.get("/.well-known/oauth-protected-resource/sse")
-async def protected_resource_metadata_sse(request: Request):
-    """Protected resource metadata for the /sse endpoint."""
-    base_url = settings.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
-
-    return {
-        "resource": f"{base_url}/sse",
         "authorization_servers": [f"{base_url}/mcp/oauth"],
         "scopes_supported": ["mcp:read", "mcp:write", "offline_access"],
         "bearer_methods_supported": ["header"],
@@ -894,11 +1264,13 @@ async def authorization_server_metadata(request: Request):
         "issuer": issuer,
         "authorization_endpoint": f"{issuer}/authorize",
         "token_endpoint": f"{issuer}/token",
+        "revocation_endpoint": f"{issuer}/revoke",
         "registration_endpoint": f"{issuer}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
         "scopes_supported": ["mcp:read", "mcp:write", "offline_access"],
         "token_endpoint_auth_methods_supported": ["none"],
+        "revocation_endpoint_auth_methods_supported": ["none"],
         "code_challenge_methods_supported": ["S256", "plain"],
         "authorization_response_iss_parameter_supported": True,
         "client_id_metadata_document_supported": True,

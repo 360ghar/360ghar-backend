@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 from app.core.database import get_db
 from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.api.api_v1.dependencies.auth import get_current_admin, get_current_agent
 from app.models.enums import UserRole
 from app.schemas.user import User as UserSchema
 from app.schemas.visit import (
@@ -17,7 +15,41 @@ from app.services.visit import (
 
 router = APIRouter()
 
-@router.post("/", response_model=Visit)
+
+async def _agent_can_access_visit(
+    current_user: UserSchema,
+    visit: Visit,
+    db: AsyncSession,
+) -> bool:
+    if current_user.role != UserRole.agent.value or current_user.agent_id is None:
+        return False
+
+    from app.models.properties import Property
+    from app.models.users import User as UserModel
+
+    visit_user = await db.get(UserModel, visit.user_id)
+    property_obj = await db.get(Property, visit.property_id)
+    owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
+
+    return bool(
+        (visit_user and visit_user.agent_id == current_user.agent_id)
+        or (owner and owner.agent_id == current_user.agent_id)
+    )
+
+
+async def _can_access_visit(
+    current_user: UserSchema,
+    visit: Visit,
+    db: AsyncSession,
+) -> bool:
+    if visit.user_id == current_user.id:
+        return True
+    if current_user.role == UserRole.admin.value:
+        return True
+    return await _agent_can_access_visit(current_user, visit, db)
+
+
+@router.post("", response_model=Visit)
 async def schedule_visit(
     visit: VisitCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -25,14 +57,14 @@ async def schedule_visit(
 ):
     return await create_visit(db, current_user.id, visit)
 
-@router.get("/", response_model=VisitList)
+@router.get("", response_model=VisitList)
 async def get_my_visits(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     return await get_user_visits(db, current_user.id)
 
-@router.get("/upcoming/", response_model=VisitSlice)
+@router.get("/upcoming", response_model=VisitSlice)
 async def get_upcoming_visits(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -40,7 +72,7 @@ async def get_upcoming_visits(
     from app.services.visit import get_user_upcoming_visits
     return await get_user_upcoming_visits(db, current_user.id)
 
-@router.get("/past/", response_model=VisitSlice)
+@router.get("/past", response_model=VisitSlice)
 async def get_past_visits(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -57,11 +89,10 @@ async def get_visit_details(
     visit = await get_visit(db, visit_id)
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
-    
-    # Check if visit belongs to current user
-    if visit.user_id != current_user.id:
+
+    if not await _can_access_visit(current_user, visit, db):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return visit
 
 @router.put("/{visit_id}", response_model=Visit)
@@ -122,7 +153,7 @@ async def cancel_visit_request(
     return updated
 
 
-@router.get("/all/", response_model=PaginatedResponse)
+@router.get("/all", response_model=PaginatedResponse)
 async def list_all_visits(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -155,7 +186,7 @@ async def list_all_visits(
     )
 
 
-@router.post("/{visit_id}/complete/", response_model=Visit)
+@router.post("/{visit_id}/complete", response_model=Visit)
 async def complete_visit(
     visit_id: int,
     payload: dict | None = None,
@@ -167,28 +198,7 @@ async def complete_visit(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    # Authorization: admin or agent managing the user/property
-    if current_user.role == UserRole.admin.value:
-        pass
-    elif current_user.role == UserRole.agent.value:
-        # Agent must manage either the visiting user or the property owner
-        # Need to check ownership
-        from app.models.properties import Property
-        from app.models.users import User
-        # Fetch property owner
-        stmt = select(Property).where(Property.id == visit.property_id)
-        prop_res = await db.execute(stmt)
-        prop = prop_res.scalar_one_or_none()
-        owner_agent_id = None
-        if prop:
-            # Load owner
-            owner = await db.get(User, prop.owner_id)
-            owner_agent_id = getattr(owner, 'agent_id', None) if owner else None
-        if current_user.agent_id is None or not (
-            visit.user.agent_id == current_user.agent_id or owner_agent_id == current_user.agent_id
-        ):
-            raise HTTPException(status_code=403, detail="Agent not authorized to complete this visit")
-    else:
+    if not await _can_access_visit(current_user, visit, db):
         raise HTTPException(status_code=403, detail="Access denied")
 
     notes = (payload or {}).get("notes") if payload else None

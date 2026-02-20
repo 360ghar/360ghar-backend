@@ -109,7 +109,7 @@ def mock_supabase_storage():
 
     Returns a mock client that simulates successful file uploads.
     """
-    with patch("app.services.storage.get_supabase_storage_client") as mock:
+    with patch("app.services.storage.get_supabase_service_client") as mock:
         mock_storage = MagicMock()
 
         # Mock upload method

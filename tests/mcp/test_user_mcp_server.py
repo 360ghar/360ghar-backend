@@ -60,7 +60,7 @@ class TestOwnerPropertyTools:
             with patch("app.mcp.user_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await user_mcp._mcp_call_tool("owner.properties.list", {})
+                result = await user_mcp._mcp_call_tool("owner_properties_list", {})
 
                 assert result.isError is True
                 assert result.meta is not None
@@ -74,7 +74,7 @@ class TestOwnerPropertyTools:
         from app.mcp.user_server import user_mcp
 
         tools = await user_mcp._mcp_list_tools()
-        owner_tool = next(tool for tool in tools if tool.name == "owner.properties.list")
+        owner_tool = next(tool for tool in tools if tool.name == "owner_properties_list")
 
         assert owner_tool.annotations is not None
         assert getattr(owner_tool.annotations, "securitySchemes", None) is not None

@@ -158,7 +158,7 @@ function PropertySearchWidget() {
                 style={{
                   padding: '12px 24px',
                   backgroundColor: colors.primary,
-                  color: '#fff',
+                  color: '#3D3829',
                   border: 'none',
                   borderRadius: 8,
                   fontSize: 14,

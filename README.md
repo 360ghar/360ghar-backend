@@ -107,9 +107,10 @@ tests/                   # Test files
 
 All endpoints are prefixed with `/api/v1`.
 
-### 🔑 Authentication (`/auth`)
-- `POST /login/`: Phone + password login via Supabase Auth
-- `POST /register/`: User registration with phone as primary identifier
+### 🔑 Authentication Model
+- Clients authenticate directly with Supabase Auth SDK (phone-first, email optional).
+- Backend expects `Authorization: Bearer <supabase_access_token>` for protected routes.
+- Backend no longer exposes `/api/v1/auth/*` user-session endpoints.
 
 ### 👤 Users (`/users`)  
 - `GET /profile/`: Get current user profile
@@ -183,16 +184,32 @@ All endpoints are prefixed with `/api/v1`.
    cd 360ghar-backend
    ```
 
-2. **Create and activate virtual environment:**
+2. **Install dependencies:**
+
+   **Option A: Using uv (Recommended)**
    ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   # Install uv if not already installed
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+
+   # Install dependencies (reads pyproject.toml)
+   uv sync
    ```
 
-3. **Install dependencies:**
+   **Option B: Using pip**
    ```bash
+   # Create virtual environment
+   python -m venv .venv
+
+   # Activate it (Linux/Mac)
+   source .venv/bin/activate
+   # Or on Windows:
+   # .venv\Scripts\activate
+
+   # Install dependencies
    pip install -r requirements.txt
    ```
+
+   > **Note:** This project uses `uv` for dependency management. Dependencies are defined in both `pyproject.toml` (for uv) and `requirements.txt` (for pip).
 
 4. **Set up environment variables:**
    ```bash
@@ -213,27 +230,30 @@ All endpoints are prefixed with `/api/v1`.
 7. **Load sample data (optional):**
    ```bash
    # Quick load (~51 properties)
-   PYTHONPATH=/Users/sakshammittal/Documents/360ghar/backend python populate_data/load_comprehensive_data.py --quick
-   
-   # Full load (~300 properties)  
-   PYTHONPATH=/Users/sakshammittal/Documents/360ghar/backend python populate_data/load_comprehensive_data.py
+   uv run python populate_data/load_comprehensive_data.py --quick
+
+   # Full load (~300 properties)
+   uv run python populate_data/load_comprehensive_data.py
    ```
 
 8. **Start the application:**
 
-   **Option 1: Using Python (Recommended for simple development)**
+   **If using uv (Recommended):**
    ```bash
+   # Run with uv (no need to activate virtual environment)
+   uv run python run.py
+
+   # Or using FastAPI CLI with hot reload (recommended for development)
+   uv run fastapi dev app/main.py --port 8000 --host 0.0.0.0
+   ```
+
+   **If using pip (with activated virtual environment):**
+   ```bash
+   # Run directly
    python run.py
-   ```
 
-   **Option 2: Using FastAPI CLI (Recommended for development with hot reload)**
-   ```bash
+   # Or using FastAPI CLI with hot reload (recommended for development)
    fastapi dev app/main.py --port 8000 --host 0.0.0.0
-   ```
-
-   **Option 3: Production-like environment**
-   ```bash
-   fastapi run app/main.py --port 8000 --host 0.0.0.0
    ```
 
 The API will be available at `http://localhost:8000`.
@@ -242,23 +262,42 @@ The API will be available at `http://localhost:8000`.
 
 ## MCP HTTP Server
 
-The backend exposes a Model Context Protocol (MCP) HTTP server for AI assistants and MCP‑aware clients.
+The backend exposes Model Context Protocol (MCP) HTTP servers for AI assistants and MCP‑aware clients.
 
-- **Endpoint:** `http://localhost:8000/mcp` (dev) and `https://api.360ghar.com/mcp` (production).
-- **Transport:** Streamable HTTP with OAuth 2.1 authentication (phone + password via Supabase).
-- **OAuth endpoints:**  
-  - Authorization: `GET /mcp/oauth/authorize` (browser-based login + consent page)  
-  - Token: `POST /mcp/oauth/token`  
-  - Authorization server metadata: `GET /.well-known/oauth-authorization-server/mcp/oauth`
+### Endpoints
 
-To connect from a compatible MCP client, configure:
+| Endpoint | Purpose |
+|----------|---------|
+| `/mcp` | User MCP server (owners, tenants, regular users) |
+| `/mcp-admin` | Admin MCP server (agents, administrators) |
 
+### Authentication
+Both servers use OAuth 2.1 authentication (phone + password via Supabase):
+- **Authorization:** `GET /mcp/oauth/authorize` (browser-based login + consent page)
+- **Token:** `POST /mcp/oauth/token`
+- **Authorization server metadata:** `GET /.well-known/oauth-authorization-server/mcp/oauth`
+
+### Client Configuration
+
+For end-user applications:
 ```json
 {
   "mcpServers": {
     "ghar360": {
       "transport": "http",
       "url": "https://api.360ghar.com/mcp"
+    }
+  }
+}
+```
+
+For agent/admin applications:
+```json
+{
+  "mcpServers": {
+    "ghar360-admin": {
+      "transport": "http",
+      "url": "https://api.360ghar.com/mcp-admin"
     }
   }
 }
@@ -288,9 +327,9 @@ DATABASE_URL=postgresql://username:password@localhost:5432/ghar360
 
 # Supabase Configuration
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_anon_key
+SUPABASE_PUBLISHABLE_KEY=your_publishable_key
 SUPABASE_SECRET_KEY=your_service_role_key
-SUPABASE_STORAGE_BUCKET=property-images
+SUPABASE_STORAGE_BUCKET=360ghar-storage
 
 # JWT Configuration
 SECRET_KEY=your_jwt_secret_key
@@ -323,8 +362,8 @@ VECTOR_SYNC_MAX_RETRIES=3
 ### One-time backfill
 Run a single incremental sync pass (first run will process all properties):
 
-```
-python -m app.vector.backfill
+```bash
+uv run python -m app.vector.backfill
 ```
 
 The service creates a `property_embeddings` table (pgvector) and tracks incremental progress in `vector_sync_state`.

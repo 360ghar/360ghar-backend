@@ -121,13 +121,28 @@ npm run build:watch
 
 3. Test with MCP Inspector:
    ```bash
-   npx @modelcontextprotocol/inspector@latest https://your-ngrok-url.ngrok.io/mcp
+   npx @mcpjam/inspector --url https://your-ngrok-url.ngrok.io/mcp --oauth --verbose
    ```
 
 4. Connect to ChatGPT:
    - Go to ChatGPT Settings → Apps & Connectors → Advanced settings
    - Enable developer mode
    - Add a new connector with your ngrok URL + `/mcp`
+
+## OAuth Compatibility
+
+The MCP server supports standards-based OAuth for multi-client compatibility:
+
+- Single user MCP endpoint: `/mcp`
+- Admin MCP endpoint: `/mcp-admin`
+- Dynamic client registration: `/mcp/oauth/register`
+- Authorization code + PKCE: `/mcp/oauth/authorize`, `/mcp/oauth/token`
+- Token revocation: `/mcp/oauth/revoke`
+- Discovery metadata:
+  - `/.well-known/oauth-protected-resource`
+  - `/.well-known/oauth-protected-resource/mcp`
+  - `/.well-known/oauth-protected-resource/mcp-admin`
+  - `/.well-known/oauth-authorization-server/mcp/oauth`
 
 ## Tool Reference
 

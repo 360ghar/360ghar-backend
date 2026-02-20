@@ -49,14 +49,14 @@ class InMemoryCacheBackend:
         self,
         max_size: int = 1000,
         default_ttl: int = 300,
-        cleanup_interval: int = 60,
+        cleanup_interval: int = 86400,  # once daily
     ):
         """Initialize in-memory cache.
 
         Args:
             max_size: Maximum number of entries before LRU eviction
             default_ttl: Default TTL in seconds for entries without explicit TTL
-            cleanup_interval: Interval in seconds for background cleanup of expired entries
+            cleanup_interval: Interval in seconds for background cleanup of expired entries (default: daily)
         """
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = asyncio.Lock()

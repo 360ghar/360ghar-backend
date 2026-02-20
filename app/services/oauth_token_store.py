@@ -156,6 +156,7 @@ class OAuthTokenStore:
         refresh_token: str,
         user_id: str,
         scope: str,
+        client_id: Optional[str] = None,
         resource: Optional[str] = None,
         access_token_expires_in: int = 3600,
         refresh_token_expires_in: int = 2592000  # 30 days
@@ -165,6 +166,7 @@ class OAuthTokenStore:
             access_token_data = {
                 "user_id": user_id,
                 "scope": scope,
+                "client_id": client_id,
                 "resource": resource,
                 "token_type": "Bearer",
                 "created_at": time.time(),
@@ -175,6 +177,7 @@ class OAuthTokenStore:
             refresh_token_data = {
                 "user_id": user_id,
                 "scope": scope,
+                "client_id": client_id,
                 "resource": resource,
                 "created_at": time.time(),
                 "expires_at": time.time() + refresh_token_expires_in,
@@ -205,6 +208,7 @@ class OAuthTokenStore:
                 tokens_list.append({
                     "access_token": access_token,
                     "refresh_token": refresh_token,
+                    "client_id": client_id,
                     "created_at": time.time()
                 })
                 self._redis_client.setex(
@@ -224,6 +228,7 @@ class OAuthTokenStore:
                 self._in_memory_store[user_tokens_key].append({
                     "access_token": access_token,
                     "refresh_token": refresh_token,
+                    "client_id": client_id,
                     "created_at": time.time()
                 })
             
@@ -316,6 +321,58 @@ class OAuthTokenStore:
             
         except Exception as e:
             logger.error(f"Failed to revoke token: {e}")
+            return False
+
+    async def delete_refresh_token(self, refresh_token: str) -> bool:
+        """Delete a refresh token."""
+        try:
+            if self.use_redis:
+                key = self._make_key("refresh_token", refresh_token)
+                self._redis_client.delete(key)
+            else:
+                key = f"refresh_token:{refresh_token}"
+                if key in self._in_memory_store:
+                    del self._in_memory_store[key]
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete refresh token: {e}")
+            return False
+
+    async def revoke_refresh_token(self, refresh_token: str) -> bool:
+        """Revoke a refresh token and any linked access token."""
+        try:
+            refresh_data = await self.get_refresh_token(refresh_token)
+            if refresh_data and refresh_data.get("access_token"):
+                await self.revoke_token(refresh_data["access_token"])
+            await self.delete_refresh_token(refresh_token)
+            return True
+        except Exception as e:
+            logger.error(f"Failed to revoke refresh token: {e}")
+            return False
+
+    async def revoke_token_pair(
+        self,
+        *,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+    ) -> bool:
+        """Revoke both sides of an OAuth token pair when available."""
+        try:
+            if refresh_token:
+                refresh_data = await self.get_refresh_token(refresh_token)
+                if refresh_data and refresh_data.get("access_token"):
+                    await self.revoke_token(refresh_data["access_token"])
+                await self.delete_refresh_token(refresh_token)
+
+            if access_token:
+                access_data = await self.get_access_token(access_token)
+                if access_data and access_data.get("refresh_token"):
+                    await self.delete_refresh_token(access_data["refresh_token"])
+                await self.revoke_token(access_token)
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to revoke token pair: {e}")
             return False
     
     async def store_oauth_session(
@@ -491,6 +548,7 @@ class OAuthTokenStore:
             Client metadata dict if found and valid, None otherwise
         """
         try:
+            client_data = None
             if self.use_redis:
                 key = self._make_key("client", client_id)
                 data = self._redis_client.get(key)
@@ -501,7 +559,6 @@ class OAuthTokenStore:
                         if time.time() > client_data["expires_at"]:
                             self._redis_client.delete(key)
                             return None
-                    return client_data
             else:
                 # In-memory storage
                 key = f"client:{client_id}"
@@ -512,7 +569,14 @@ class OAuthTokenStore:
                         if time.time() > client_data["expires_at"]:
                             del self._in_memory_store[key]
                             return None
-                    return client_data
+
+            if client_data:
+                # Sanitize optional string fields to ensure they are never None
+                # This prevents validation errors in consumers that expect string | ""
+                for field in ["client_uri", "logo_uri"]:
+                    if field in client_data and client_data[field] is None:
+                        client_data[field] = ""
+                return client_data
 
             return None
 

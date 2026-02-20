@@ -16,7 +16,7 @@ from app.services.pm_expenses import create_expense, list_expenses, update_expen
 router = APIRouter()
 
 
-@router.post("/", response_model=ExpenseSchema)
+@router.post("", response_model=ExpenseSchema)
 async def create_pm_expense(
     payload: ExpenseCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -49,7 +49,7 @@ async def create_pm_expense(
     return ExpenseSchema.model_validate(expense)
 
 
-@router.get("/", response_model=list[ExpenseSchema])
+@router.get("", response_model=list[ExpenseSchema])
 async def list_pm_expenses(
     owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
     property_id: Optional[int] = Query(None),

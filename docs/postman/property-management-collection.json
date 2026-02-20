@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "360ghar-property-management-collection",
     "name": "360Ghar Property Management (PM) API",
-    "description": "Postman collection for the **Property Management** flows built on top of the 360Ghar backend.\n\nBase Paths:\n- Auth: `/api/v1/auth/*`\n- Property Management: `/api/v1/pm/*`\n- Public rental applications: `/api/v1/pm/public/*`\n\n## Quick Start\n1) Import this collection.\n2) Import `docs/postman/property-management-environment.json` (or use your existing env and add the variables).\n3) Set `BASE_URL` (example: `http://localhost:8000`).\n4) Run **00 - Setup & Auth → Login (Phone+Password)** (or OTP verify).\n5) Follow the folders in order (properties → applications → lease → rent/expenses/maintenance/docs/inspections → reports).\n\n## Notes\n- MVP is **manual-first**: no payment gateway; rent payments are recorded manually (cash/transfer/check).\n- No vendor module: maintenance work orders are handled by Owner/RM.\n- Many endpoints have an optional `owner_id` scope for **agent/admin**. Owners should leave `owner_id` empty/disabled.\n- File upload requests (`/pm/documents/upload`) require selecting a local file in Postman.\n",
+    "description": "Postman collection for the **Property Management** flows built on top of the 360Ghar backend.\n\nBase Paths:\n- Property Management: `/api/v1/pm/*`\n- Public rental applications: `/api/v1/pm/public/*`\n- Authentication: direct Supabase Auth SDK; backend expects Bearer token\n\n## Quick Start\n1) Import this collection.\n2) Import `docs/postman/property-management-environment.json` (or use your existing env and add the variables).\n3) Set `BASE_URL` (example: `http://localhost:8000`).\n4) Set `access_token` from a Supabase session and run **00 - Setup & Token** to validate auth context.\n5) Follow the folders in order (properties \u2192 applications \u2192 lease \u2192 rent/expenses/maintenance/docs/inspections \u2192 reports).\n\n## Notes\n- MVP is **manual-first**: no payment gateway; rent payments are recorded manually (cash/transfer/check).\n- No vendor module: maintenance work orders are handled by Owner/RM.\n- Many endpoints have an optional `owner_id` scope for **agent/admin**. Owners should leave `owner_id` empty/disabled.\n- File upload requests (`/pm/documents/upload`) require selecting a local file in Postman.\n",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "360ghar"
   },
@@ -42,183 +42,9 @@
   ],
   "item": [
     {
-      "name": "00 - Setup & Auth",
-      "description": "Authenticate and initialize common variables.\n\nRecommended:\n- Use Login (phone+password) for local/dev\n- Use OTP only if Supabase OTP is configured for your project\n\nAfter successful auth, `access_token` and `current_user_id` are saved into the active environment.",
+      "name": "00 - Setup & Token",
+      "description": "Validate that `access_token` is set and usable. Set `access_token` from a Supabase client session before running.",
       "item": [
-        {
-          "name": "Login (Phone+Password)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "  const data = pm.response.json();",
-                  "  if (data.access_token) {",
-                  "    pm.environment.set('access_token', data.access_token);",
-                  "    const expiry = new Date(Date.now() + 30 * 60 * 1000);",
-                  "    pm.environment.set('token_expiry', expiry.toISOString());",
-                  "  }",
-                  "  if (data.user && data.user.id) {",
-                  "    pm.environment.set('current_user_id', data.user.id);",
-                  "    // Default PM owner id to current user if not already set (useful when logging in as owner)",
-                  "    if (!pm.environment.get('pm_owner_id')) {",
-                  "      pm.environment.set('pm_owner_id', data.user.id);",
-                  "    }",
-                  "  }",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"{{test_phone}}\",\n  \"password\": \"{{test_password}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/login/",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "login",
-                ""
-              ]
-            },
-            "description": "Logs in using Supabase password auth.\n\nSaves:\n- `access_token`\n- `current_user_id`\n- `pm_owner_id` (if unset)\n"
-          },
-          "response": []
-        },
-        {
-          "name": "OTP Request (Phone)",
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"{{test_phone}}\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/otp/request",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "otp",
-                "request"
-              ]
-            },
-            "description": "Requests an OTP for phone login.\n\nRequires Supabase OTP configuration."
-          },
-          "response": []
-        },
-        {
-          "name": "OTP Verify (Phone)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "  const data = pm.response.json();",
-                  "  if (data.access_token) {",
-                  "    pm.environment.set('access_token', data.access_token);",
-                  "    const expiry = new Date(Date.now() + 30 * 60 * 1000);",
-                  "    pm.environment.set('token_expiry', expiry.toISOString());",
-                  "  }",
-                  "  if (data.user && data.user.id) {",
-                  "    pm.environment.set('current_user_id', data.user.id);",
-                  "    if (!pm.environment.get('pm_owner_id')) {",
-                  "      pm.environment.set('pm_owner_id', data.user.id);",
-                  "    }",
-                  "  }",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"phone\": \"{{test_phone}}\",\n  \"token\": \"{{otp}}\",\n  \"type\": \"sms\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/otp/verify",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "otp",
-                "verify"
-              ]
-            },
-            "description": "Verifies OTP and returns a bearer token.\n\nSet `otp` in the environment before running."
-          },
-          "response": []
-        },
         {
           "name": "Get Current User Profile",
           "event": [
@@ -235,6 +61,9 @@
                   "  const user = pm.response.json();",
                   "  if (user && user.id) {",
                   "    pm.environment.set('current_user_id', user.id);",
+                  "    if (!pm.environment.get('pm_owner_id')) {",
+                  "      pm.environment.set('pm_owner_id', user.id);",
+                  "    }",
                   "  }",
                   "}"
                 ]
@@ -257,137 +86,7 @@
                 ""
               ]
             },
-            "description": "Validates the bearer token and returns the current user profile."
-          },
-          "response": []
-        },
-        {
-          "name": "Helper: List Available Agents (pick pm_agent_id)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "  const data = pm.response.json();",
-                  "  const items = data && data.items;",
-                  "  if (Array.isArray(items) && items.length > 0 && items[0].id) {",
-                  "    pm.environment.set('pm_agent_id', items[0].id);",
-                  "    console.log('pm_agent_id set to', items[0].id);",
-                  "  } else {",
-                  "    console.log('No agents returned. Ensure agents exist in DB and are active/available.');",
-                  "  }",
-                  "}"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/agents/available/?page=1&limit=20",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "agents",
-                "available",
-                ""
-              ],
-              "query": [
-                {
-                  "key": "page",
-                  "value": "1"
-                },
-                {
-                  "key": "limit",
-                  "value": "20"
-                }
-              ]
-            },
-            "description": "Lists available agents (existing 360Ghar endpoint) and saves `pm_agent_id` from the first result.\n\nIf you want a specific agent, pick the id from the response and set `pm_agent_id` manually."
-          },
-          "response": []
-        },
-        {
-          "name": "Tenant: List My Charges (as_tenant=true)",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/pm/rent/charges?as_tenant=true&limit=50&offset=0",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "pm",
-                "rent",
-                "charges"
-              ],
-              "query": [
-                {
-                  "key": "as_tenant",
-                  "value": "true"
-                },
-                {
-                  "key": "limit",
-                  "value": "50"
-                },
-                {
-                  "key": "offset",
-                  "value": "0"
-                }
-              ]
-            },
-            "description": "Tenant view: list charges for the logged-in tenant user.\n\nPre-req:\n- Login as tenant (or use a tenant token)\n- Lease must have `tenant_user_id` set to this user and be `active`"
-          },
-          "response": []
-        },
-        {
-          "name": "Tenant: Payment Intent (I Paid) + optional receipt",
-          "request": {
-            "method": "POST",
-            "header": [
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"charge_id\": {{pm_charge_id}},\n  \"amount_paid\": 30000,\n  \"paid_at\": null,\n  \"payment_method\": \"bank_transfer\",\n  \"reference\": \"UTR-TENANT-123\",\n  \"notes\": \"Paid via bank transfer\",\n  \"receipt_document_id\": null\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/pm/rent/charges/{{pm_charge_id}}/tenant-payment-intent",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "pm",
-                "rent",
-                "charges",
-                "{{pm_charge_id}}",
-                "tenant-payment-intent"
-              ]
-            },
-            "description": "Tenant flow: mark a charge as paid (manual intent) with optional receipt.\n\nImportant:\n- This endpoint currently validates a body that includes `charge_id` even though the path also includes it.\n\nPre-req:\n- Login as tenant\n- `pm_charge_id` must belong to this tenant user"
+            "description": "Validates bearer token and loads current user profile."
           },
           "response": []
         }
@@ -420,7 +119,7 @@
           "response": []
         },
         {
-          "name": "Dashboard Overview (Agent/Admin → owner_id)",
+          "name": "Dashboard Overview (Agent/Admin \u2192 owner_id)",
           "request": {
             "method": "GET",
             "header": [],
@@ -476,7 +175,7 @@
           "response": []
         },
         {
-          "name": "Recent Activity (Agent/Admin → owner_id)",
+          "name": "Recent Activity (Agent/Admin \u2192 owner_id)",
           "request": {
             "method": "GET",
             "header": [],
@@ -510,7 +209,7 @@
       ]
     },
     {
-      "name": "02 - RM Assignment (Owner ↔ Agent)",
+      "name": "02 - RM Assignment (Owner \u2194 Agent)",
       "description": "Relationship Manager assignment. Implementation reuses `users.agent_id` (no separate assignment table).",
       "item": [
         {
@@ -563,7 +262,7 @@
           "response": []
         },
         {
-          "name": "Assign RM (Admin → owner_user_id)",
+          "name": "Assign RM (Admin \u2192 owner_user_id)",
           "request": {
             "method": "POST",
             "header": [
@@ -621,7 +320,7 @@
           "response": []
         },
         {
-          "name": "List RM Assignments (Admin → owner_id optional)",
+          "name": "List RM Assignments (Admin \u2192 owner_id optional)",
           "request": {
             "method": "GET",
             "header": [],
@@ -761,7 +460,7 @@
           "response": []
         },
         {
-          "name": "Create Managed Property (Agent/Admin → owner_id)",
+          "name": "Create Managed Property (Agent/Admin \u2192 owner_id)",
           "request": {
             "method": "POST",
             "header": [
@@ -847,7 +546,7 @@
           "response": []
         },
         {
-          "name": "List Managed Properties (Agent/Admin → owner_id)",
+          "name": "List Managed Properties (Agent/Admin \u2192 owner_id)",
           "request": {
             "method": "GET",
             "header": [],
@@ -1385,7 +1084,7 @@
                 "upload-signed"
               ]
             },
-            "description": "Links an uploaded document (PDF) as the signed lease.\n\nRequires:\n- `pm_lease_id`\n- `pm_lease_document_id` (create via Documents → Upload Lease Agreement)"
+            "description": "Links an uploaded document (PDF) as the signed lease.\n\nRequires:\n- `pm_lease_id`\n- `pm_lease_document_id` (create via Documents \u2192 Upload Lease Agreement)"
           },
           "response": []
         },
@@ -2364,7 +2063,7 @@
           "response": []
         },
         {
-          "name": "List Tenants (Agent → owner_id required)",
+          "name": "List Tenants (Agent \u2192 owner_id required)",
           "request": {
             "method": "GET",
             "header": [],

@@ -153,7 +153,7 @@ class FAQCreate(BaseModel):
     answer: str = Field(..., min_length=1, description="FAQ answer")
     category: Optional[str] = Field(None, description="Category for filtering (e.g., platform, app segment)")
     tags: Optional[List[str]] = Field(None, description="Additional tags for filtering/search")
-    display_order: int = Field(0, description="Display order for sorting")
+    display_order: Optional[int] = Field(default=None, description="Display order for sorting")
     is_active: bool = Field(True, description="Whether the FAQ is active")
 
 class FAQUpdate(BaseModel):

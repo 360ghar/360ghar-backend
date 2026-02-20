@@ -41,7 +41,7 @@ class TestRateLimitMiddleware:
         app = FastAPI()
         middleware = RateLimitMiddleware(app)
 
-        non_exempt = ["/api/v1/properties/", "/api/v1/auth/login/", "/api/v1/users/"]
+        non_exempt = ["/api/v1/properties/", "/api/v1/users/profile/", "/api/v1/users/"]
         for path in non_exempt:
             assert middleware._is_exempt_path(path) is False
 

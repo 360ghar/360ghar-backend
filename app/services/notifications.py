@@ -200,6 +200,20 @@ async def register_device_token(
     return {"ok": True}
 
 
+async def unregister_device_token(*, token: str) -> Dict[str, Any]:
+    """Deactivate a device token in Supabase device_tokens."""
+    supa = _supa()
+    now_iso = datetime.utcnow().isoformat()
+    supa.table("device_tokens").update(
+        {
+            "is_active": False,
+            "last_seen": now_iso,
+        }
+    ).eq("token", token).execute()
+    logger.info("Deactivated device token", extra={"token_hash": hash(token)})
+    return {"ok": True}
+
+
 async def _record_notification(
     *,
     title: str,

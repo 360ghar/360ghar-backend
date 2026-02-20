@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 
 class RequestLoggingMiddleware:
     """
-    Pure ASGI middleware for logging ALL incoming requests, including MCP/SSE.
+    Pure ASGI middleware for logging all incoming requests, including MCP paths.
 
     Uses raw ASGI instead of BaseHTTPMiddleware to avoid issues with streaming responses.
     """
@@ -49,8 +49,8 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
     """Add unique request ID to each request for tracing"""
 
     async def dispatch(self, request: Request, call_next):
-        # Skip for SSE/MCP paths (streaming incompatible with BaseHTTPMiddleware)
-        if request.url.path.startswith(("/sse", "/mcp")):
+        # Skip for MCP paths (streaming incompatible with BaseHTTPMiddleware)
+        if request.url.path.startswith("/mcp"):
             return await call_next(request)
 
         # Generate or use existing request ID
@@ -71,8 +71,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses"""
 
     async def dispatch(self, request: Request, call_next):
-        # Skip for SSE/MCP paths (streaming incompatible with BaseHTTPMiddleware)
-        if request.url.path.startswith(("/sse", "/mcp")):
+        # Skip for MCP paths (streaming incompatible with BaseHTTPMiddleware)
+        if request.url.path.startswith("/mcp"):
             return await call_next(request)
 
         response = await call_next(request)

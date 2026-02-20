@@ -157,8 +157,8 @@ async def add_review(db: AsyncSession, review_data: BookingReview):
     booking = result.scalar_one_or_none()
     
     if booking:
-        booking.guest_rating = review_data.rating
-        booking.guest_review = review_data.review
+        booking.guest_rating = review_data.guest_rating
+        booking.guest_review = review_data.guest_review
         await db.flush()
         return True
     

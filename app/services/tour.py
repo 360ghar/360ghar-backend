@@ -3,18 +3,21 @@ Service layer for 360 Virtual Tour operations.
 
 This module contains business logic for tour, scene, and hotspot management.
 """
+
 import asyncio
-from datetime import datetime
-from typing import List, Optional
+from datetime import date, datetime, time, timedelta, timezone
+from typing import Any, Dict, List, Optional
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+import bleach
 from fastapi import HTTPException, status
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.logging import get_logger
-from app.models.enums import TourStatus
+from app.models.enums import HotspotType, TourStatus, TourVisibility
 from app.models.tours import FloorPlan, Hotspot, Scene, Tour, TourAnalyticsEvent
 from app.schemas.tour import (
     DailyView,
@@ -35,6 +38,273 @@ from app.schemas.tour import (
 logger = get_logger(__name__)
 
 
+_HOTSPOT_HTML_ALLOWED_TAGS = [
+    "p",
+    "br",
+    "strong",
+    "em",
+    "u",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "ul",
+    "ol",
+    "li",
+    "a",
+    "img",
+    "div",
+    "span",
+    "code",
+    "pre",
+]
+_HOTSPOT_HTML_ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "target", "rel"],
+    "img": ["src", "alt", "width", "height"],
+}
+_HOTSPOT_HTML_ALLOWED_PROTOCOLS = ["http", "https", "mailto", "tel"]
+
+
+def _ensure_tour_ownership(tour: Tour, user_id: int, action: str = "access") -> None:
+    """Raise 403 if user doesn't own the tour."""
+    if tour.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You don't have permission to {action} this tour",
+        )
+
+
+def _ensure_scene_ownership(scene: Scene, user_id: int, action: str = "access") -> None:
+    """Raise 403 if user doesn't own the scene's tour."""
+    if scene.tour.user_id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"You don't have permission to {action} this scene",
+        )
+
+
+def _extract_session_duration(event: TourAnalyticsEvent, session_starts: dict) -> Optional[float]:
+    """Extract session duration from an analytics event."""
+    payload = event.event_data or {}
+    duration = payload.get("duration_seconds")
+    if duration is None and payload.get("duration_ms") is not None:
+        duration = payload.get("duration_ms") / 1000
+    if duration is None and payload.get("duration") is not None:
+        duration = payload.get("duration")
+    if duration is None and event.session_id and event.session_id in session_starts:
+        duration = (event.created_at - session_starts[event.session_id]).total_seconds()
+    return float(duration) if duration is not None else None
+
+
+def _is_safe_http_url(url: str) -> bool:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def _sanitize_hotspot_html(value: str) -> str:
+    return bleach.clean(
+        value,
+        tags=_HOTSPOT_HTML_ALLOWED_TAGS,
+        attributes=_HOTSPOT_HTML_ALLOWED_ATTRIBUTES,
+        protocols=_HOTSPOT_HTML_ALLOWED_PROTOCOLS,
+        strip=True,
+    )
+
+
+def _extract_youtube_id(url: str) -> Optional[str]:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+
+    host = (parsed.hostname or "").lower()
+    if host in {"youtu.be"}:
+        video_id = parsed.path.lstrip("/")
+        return video_id or None
+
+    if host.endswith("youtube.com"):
+        if parsed.path == "/watch":
+            qs = parse_qs(parsed.query)
+            return (qs.get("v", [None])[0]) or None
+        if parsed.path.startswith("/embed/") or parsed.path.startswith("/shorts/"):
+            parts = parsed.path.strip("/").split("/")
+            if len(parts) >= 2:
+                return parts[1] or None
+
+    return None
+
+
+def _extract_vimeo_id(url: str) -> Optional[str]:
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return None
+
+    host = (parsed.hostname or "").lower()
+    if not host.endswith("vimeo.com"):
+        return None
+
+    parts = [p for p in parsed.path.split("/") if p]
+    if not parts:
+        return None
+
+    if parts[0] == "video" and len(parts) >= 2:
+        return parts[1] if parts[1].isdigit() else None
+
+    return parts[0] if parts[0].isdigit() else None
+
+
+def _normalize_hotspot_content(
+    hotspot_type: HotspotType,
+    content: Optional[dict],
+) -> Optional[dict]:
+    if content is None:
+        content = {}
+
+    if not isinstance(content, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Hotspot content must be an object",
+        )
+
+    normalized: dict = {"kind": hotspot_type.value}
+
+    if hotspot_type == HotspotType.link:
+        raw_url = content.get("url") or content.get("link_url")
+        if not raw_url or not isinstance(raw_url, str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Link hotspots require content.url",
+            )
+        if not _is_safe_http_url(raw_url):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Link hotspots require a valid http(s) URL",
+            )
+        normalized["url"] = raw_url
+        target = content.get("target")
+        if target not in {"_blank", "_self", None}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Link hotspot content.target must be _blank or _self",
+            )
+        if target is None:
+            link_new_tab = content.get("link_new_tab")
+            normalized["target"] = "_self" if link_new_tab is False else "_blank"
+        else:
+            normalized["target"] = target
+        label = content.get("label")
+        if isinstance(label, str) and label.strip():
+            normalized["label"] = label.strip()[:255]
+        return normalized
+
+    if hotspot_type == HotspotType.audio:
+        audio_url = content.get("audio_url") or content.get("url")
+        if not audio_url or not isinstance(audio_url, str):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Audio hotspots require content.audio_url",
+            )
+        if not _is_safe_http_url(audio_url):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Audio hotspots require a valid http(s) URL",
+            )
+        normalized["audio_url"] = audio_url
+        if "autoplay" in content:
+            normalized["autoplay"] = bool(content.get("autoplay"))
+        if "loop" in content:
+            normalized["loop"] = bool(content.get("loop"))
+        return normalized
+
+    if hotspot_type == HotspotType.video:
+        youtube_id = content.get("youtube_id")
+        vimeo_id = content.get("vimeo_id")
+        video_url = content.get("video_url") or content.get("url")
+
+        if isinstance(video_url, str) and (youtube_id is None and vimeo_id is None):
+            youtube_id = _extract_youtube_id(video_url)
+            vimeo_id = _extract_vimeo_id(video_url)
+
+        if isinstance(youtube_id, str) and youtube_id.strip():
+            normalized["youtube_id"] = youtube_id.strip()
+        elif isinstance(vimeo_id, str) and vimeo_id.strip():
+            normalized["vimeo_id"] = vimeo_id.strip()
+        elif isinstance(video_url, str) and video_url.strip():
+            if not _is_safe_http_url(video_url):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Video hotspots require a valid http(s) URL",
+                )
+            normalized["video_url"] = video_url.strip()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Video hotspots require content.video_url or content.youtube_id or content.vimeo_id",
+            )
+
+        for key in ("autoplay", "muted", "loop"):
+            if key in content:
+                normalized[key] = bool(content.get(key))
+
+        poster_url = content.get("poster_url") or content.get("poster")
+        if isinstance(poster_url, str) and poster_url.strip():
+            if not _is_safe_http_url(poster_url):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Video hotspot poster_url must be a valid http(s) URL",
+                )
+            normalized["poster_url"] = poster_url.strip()
+
+        return normalized
+
+    if hotspot_type == HotspotType.info:
+        text = content.get("text")
+        html = content.get("html")
+        image_url = content.get("image_url")
+
+        if isinstance(text, str) and text.strip():
+            normalized["text"] = text
+        if isinstance(html, str) and html.strip():
+            normalized["html"] = _sanitize_hotspot_html(html)
+        if isinstance(image_url, str) and image_url.strip():
+            if not _is_safe_http_url(image_url):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Info hotspot image_url must be a valid http(s) URL",
+                )
+            normalized["image_url"] = image_url.strip()
+
+        return normalized if len(normalized) > 1 else None
+
+    if hotspot_type == HotspotType.custom:
+        html = content.get("html") or content.get("custom_html")
+        if isinstance(html, str) and html.strip():
+            normalized["html"] = _sanitize_hotspot_html(html)
+
+        component_key = content.get("component_key") or content.get("component")
+        if isinstance(component_key, str) and component_key.strip():
+            normalized["component_key"] = component_key.strip()[:100]
+
+        props = content.get("props")
+        if isinstance(props, dict):
+            normalized["props"] = props
+
+        return normalized if len(normalized) > 1 else None
+
+    # Navigation hotspots typically rely on target_scene_id; content is optional.
+    if hotspot_type == HotspotType.navigation:
+        return normalized
+
+    return content or None
+
+
 # Background task registry for scene processing
 _scene_processing_tasks: dict = {}
 
@@ -43,33 +313,24 @@ _scene_processing_tasks: dict = {}
 # Tour Services
 # ====================
 
+
 async def get_tours(
     db: AsyncSession,
     user_id: int,
     page: int = 1,
     page_size: int = 20,
     status_filter: Optional[str] = None,
-    search: Optional[str] = None
+    search: Optional[str] = None,
 ) -> dict:
     """Get paginated list of tours for a user."""
-    query = select(Tour).where(
-        and_(
-            Tour.user_id == user_id,
-            Tour.deleted_at.is_(None)
-        )
-    )
+    query = select(Tour).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
 
     if status_filter:
         query = query.where(Tour.status == status_filter)
 
     if search:
         search_term = f"%{search}%"
-        query = query.where(
-            or_(
-                Tour.title.ilike(search_term),
-                Tour.description.ilike(search_term)
-            )
-        )
+        query = query.where(or_(Tour.title.ilike(search_term), Tour.description.ilike(search_term)))
 
     # Count total
     count_query = select(func.count()).select_from(query.subquery())
@@ -80,128 +341,156 @@ async def get_tours(
     total_pages = (total + page_size - 1) // page_size
     offset = (page - 1) * page_size
 
-    # Fetch tours with scene count
-    query = query.options(selectinload(Tour.scenes)).order_by(Tour.created_at.desc())
-    query = query.offset(offset).limit(page_size)
+    scene_counts = (
+        select(
+            Scene.tour_id.label("tour_id"),
+            func.count(Scene.id).label("scene_count"),
+        )
+        .group_by(Scene.tour_id)
+        .subquery()
+    )
+
+    query = (
+        query.outerjoin(scene_counts, scene_counts.c.tour_id == Tour.id)
+        .add_columns(
+            func.coalesce(scene_counts.c.scene_count, 0).label("scene_count"),
+        )
+        .order_by(Tour.created_at.desc())
+        .offset(offset)
+        .limit(page_size)
+    )
 
     result = await db.execute(query)
-    tours = result.scalars().all()
+    rows = result.all()
+
+    tours: List[dict] = []
+    for tour, scene_count in rows:
+        tours.append(
+            {
+                "id": tour.id,
+                "user_id": tour.user_id,
+                "title": tour.title,
+                "description": tour.description,
+                "status": tour.status,
+                "is_public": tour.is_public,
+                "settings": tour.settings,
+                "is_featured": tour.is_featured,
+                "view_count": tour.view_count,
+                "like_count": tour.like_count,
+                "share_count": tour.share_count,
+                "thumbnail_url": tour.thumbnail_url,
+                "published_at": tour.published_at,
+                "archived_at": tour.archived_at,
+                "created_at": tour.created_at,
+                "updated_at": tour.updated_at,
+                "deleted_at": tour.deleted_at,
+                "scene_count": int(scene_count or 0),
+                "scenes": None,
+            }
+        )
 
     return {
         "items": tours,
         "total": total,
         "page": page,
         "page_size": page_size,
-        "total_pages": total_pages
+        "total_pages": total_pages,
     }
 
 
 async def get_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: Optional[int] = None,
-    include_scenes: bool = True
+    db: AsyncSession, tour_id: str, user_id: Optional[int] = None, include_scenes: bool = True
 ) -> Tour:
     """Get a single tour by ID."""
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None)
-        )
-    )
+    query = select(Tour).where(and_(Tour.id == tour_id, Tour.deleted_at.is_(None)))
 
     if include_scenes:
-        query = query.options(
-            selectinload(Tour.scenes).selectinload(Scene.hotspots)
-        )
+        query = query.options(selectinload(Tour.scenes).selectinload(Scene.hotspots))
 
     result = await db.execute(query)
     tour = result.scalar_one_or_none()
 
     if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
-    # Check access for non-public tours
-    if not tour.is_public and tour.status != TourStatus.published:
-        if user_id is None or tour.user_id != user_id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this tour"
-            )
+    is_owner = user_id is not None and tour.user_id == user_id
+    is_publicly_accessible = tour.status == TourStatus.published and bool(tour.is_public)
+
+    if not is_owner and not is_publicly_accessible:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN
+            if user_id is not None
+            else status.HTTP_404_NOT_FOUND,
+            detail="You don't have access to this tour"
+            if user_id is not None
+            else "Tour not found",
+        )
 
     return tour
 
 
-async def create_tour(
-    db: AsyncSession,
-    user_id: int,
-    data: TourCreate
-) -> Tour:
+async def create_tour(db: AsyncSession, user_id: int, data: TourCreate) -> Tour:
     """Create a new tour."""
+    # Determine visibility - prefer explicit visibility, fall back to is_public for backward compat
+    visibility = (
+        data.visibility
+        if data.visibility
+        else (TourVisibility.public if data.is_public else TourVisibility.private)
+    )
+    # Keep is_public in sync for backward compatibility
+    is_public = visibility == TourVisibility.public
+
     tour = Tour(
         id=str(uuid4()),
         user_id=user_id,
         title=data.title,
         description=data.description,
         status=data.status or TourStatus.draft,
-        is_public=data.is_public or False,
-        settings=data.settings.model_dump() if data.settings else None
+        is_public=is_public,
+        visibility=visibility,
+        settings=data.settings.model_dump() if data.settings else None,
     )
 
     db.add(tour)
     await db.commit()
-    await db.refresh(tour)
 
     logger.info(f"Tour created: {tour.id} by user {user_id}")
-    return tour
+    return await get_tour(db=db, tour_id=tour.id, user_id=user_id, include_scenes=True)
 
 
-async def update_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    data: TourUpdate
-) -> Tour:
+async def update_tour(db: AsyncSession, tour_id: str, user_id: int, data: TourUpdate) -> Tour:
     """Update a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    # Check ownership
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to update this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "update")
 
     # Update fields
     update_data = data.model_dump(exclude_unset=True)
+
+    # Handle visibility/is_public sync for backward compatibility
+    if "visibility" in update_data:
+        # If visibility is set, sync is_public
+        update_data["is_public"] = update_data["visibility"] == TourVisibility.public
+    elif "is_public" in update_data:
+        # If only is_public is set (legacy), derive visibility
+        update_data["visibility"] = (
+            TourVisibility.public if update_data["is_public"] else TourVisibility.private
+        )
+
     for field, value in update_data.items():
         if field == "settings" and value is not None:
             value = value if isinstance(value, dict) else value.model_dump()
         setattr(tour, field, value)
 
     await db.commit()
-    await db.refresh(tour)
 
     logger.info(f"Tour updated: {tour_id}")
-    return tour
+    return await get_tour(db=db, tour_id=tour_id, user_id=user_id, include_scenes=True)
 
 
-async def delete_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> bool:
+async def delete_tour(db: AsyncSession, tour_id: str, user_id: int) -> bool:
     """Soft delete a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "delete")
 
     tour.deleted_at = datetime.utcnow()
     tour.status = TourStatus.archived
@@ -211,25 +500,15 @@ async def delete_tour(
     return True
 
 
-async def publish_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> Tour:
+async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     """Publish a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=True)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to publish this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "publish")
 
     # Check if tour has scenes
     if not tour.scenes:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot publish a tour without scenes"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot publish a tour without scenes"
         )
 
     tour.status = TourStatus.published
@@ -237,49 +516,29 @@ async def publish_tour(
     tour.is_public = True
 
     await db.commit()
-    await db.refresh(tour)
 
     logger.info(f"Tour published: {tour_id}")
-    return tour
+    return await get_tour(db=db, tour_id=tour_id, user_id=user_id, include_scenes=True)
 
 
-async def unpublish_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> Tour:
+async def unpublish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     """Unpublish a tour (set to draft)."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to unpublish this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "unpublish")
 
     tour.status = TourStatus.draft
     tour.is_public = False
 
     await db.commit()
-    await db.refresh(tour)
 
     logger.info(f"Tour unpublished: {tour_id}")
-    return tour
+    return await get_tour(db=db, tour_id=tour_id, user_id=user_id, include_scenes=True)
 
 
-async def duplicate_tour(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> Tour:
+async def duplicate_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     """Duplicate a tour with all its scenes and hotspots."""
     original = await get_tour(db, tour_id, user_id, include_scenes=True)
-
-    if original.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to duplicate this tour"
-        )
+    _ensure_tour_ownership(original, user_id, "duplicate")
 
     # Create new tour
     new_tour = Tour(
@@ -289,8 +548,9 @@ async def duplicate_tour(
         description=original.description,
         status=TourStatus.draft,
         is_public=False,
+        visibility=original.visibility,
         settings=original.settings,
-        thumbnail_url=original.thumbnail_url
+        thumbnail_url=original.thumbnail_url,
     )
     db.add(new_tour)
 
@@ -311,7 +571,7 @@ async def duplicate_tour(
             thumbnail_url=scene.thumbnail_url,
             order_index=scene.order_index,
             scene_metadata=scene.scene_metadata,
-            is_processed=scene.is_processed
+            is_processed=scene.is_processed,
         )
         db.add(new_scene)
 
@@ -339,7 +599,7 @@ async def duplicate_tour(
                 content=hotspot.content,
                 custom_data=hotspot.custom_data,
                 order_index=hotspot.order_index,
-                is_active=hotspot.is_active
+                is_active=hotspot.is_active,
             )
             db.add(new_hotspot)
 
@@ -353,68 +613,50 @@ async def duplicate_tour(
 # Scene Services
 # ====================
 
-async def get_scenes(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: Optional[int] = None
-) -> List[Scene]:
+
+async def get_scenes(db: AsyncSession, tour_id: str, user_id: Optional[int] = None) -> List[Scene]:
     """Get all scenes for a tour."""
     # Verify tour access
     await get_tour(db, tour_id, user_id, include_scenes=False)
 
-    query = select(Scene).where(Scene.tour_id == tour_id).options(
-        selectinload(Scene.hotspots)
-    ).order_by(Scene.order_index)
+    query = (
+        select(Scene)
+        .where(Scene.tour_id == tour_id)
+        .options(selectinload(Scene.hotspots))
+        .order_by(Scene.order_index)
+    )
 
     result = await db.execute(query)
     return list(result.scalars().all())
 
 
-async def get_scene(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: Optional[int] = None
-) -> Scene:
+async def get_scene(db: AsyncSession, scene_id: str, user_id: Optional[int] = None) -> Scene:
     """Get a single scene by ID."""
-    query = select(Scene).where(Scene.id == scene_id).options(
-        selectinload(Scene.hotspots),
-        selectinload(Scene.tour)
+    query = (
+        select(Scene)
+        .where(Scene.id == scene_id)
+        .options(selectinload(Scene.hotspots), selectinload(Scene.tour))
     )
 
     result = await db.execute(query)
     scene = result.scalar_one_or_none()
 
     if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found")
 
-    # Check tour access
     if user_id is not None and scene.tour.user_id != user_id:
-        if not scene.tour.is_public:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You don't have access to this scene"
-            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You don't have access to this scene",
+        )
 
     return scene
 
 
-async def create_scene(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    data: SceneCreate
-) -> Scene:
+async def create_scene(db: AsyncSession, tour_id: str, user_id: int, data: SceneCreate) -> Scene:
     """Create a new scene in a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to add scenes to this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "add scenes to")
 
     # Get max order_index
     max_order_query = select(func.max(Scene.order_index)).where(Scene.tour_id == tour_id)
@@ -435,7 +677,6 @@ async def create_scene(
 
     db.add(scene)
     await db.commit()
-    await db.refresh(scene)
 
     # Schedule background processing for thumbnail generation
     if data.image_url and not data.thumbnail_url:
@@ -443,6 +684,7 @@ async def create_scene(
             scene_id=scene.id,
             tour_id=tour_id,
             image_url=data.image_url,
+            user_id=user_id,
         )
     else:
         # Mark as processed if thumbnail already provided
@@ -450,23 +692,13 @@ async def create_scene(
         await db.commit()
 
     logger.info(f"Scene created: {scene.id} in tour {tour_id}")
-    return scene
+    return await get_scene(db=db, scene_id=scene.id, user_id=user_id)
 
 
-async def update_scene(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int,
-    data: SceneUpdate
-) -> Scene:
+async def update_scene(db: AsyncSession, scene_id: str, user_id: int, data: SceneUpdate) -> Scene:
     """Update a scene."""
     scene = await get_scene(db, scene_id, user_id)
-
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to update this scene"
-        )
+    _ensure_scene_ownership(scene, user_id, "update")
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -477,25 +709,15 @@ async def update_scene(
             setattr(scene, field, value)
 
     await db.commit()
-    await db.refresh(scene)
 
     logger.info(f"Scene updated: {scene_id}")
-    return scene
+    return await get_scene(db=db, scene_id=scene_id, user_id=user_id)
 
 
-async def delete_scene(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int
-) -> bool:
+async def delete_scene(db: AsyncSession, scene_id: str, user_id: int) -> bool:
     """Delete a scene."""
     scene = await get_scene(db, scene_id, user_id)
-
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this scene"
-        )
+    _ensure_scene_ownership(scene, user_id, "delete")
 
     await db.delete(scene)
     await db.commit()
@@ -505,25 +727,44 @@ async def delete_scene(
 
 
 async def reorder_scenes(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    scene_ids: List[str]
+    db: AsyncSession, tour_id: str, user_id: int, scene_ids: List[str]
 ) -> List[Scene]:
     """Reorder scenes in a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
+    _ensure_tour_ownership(tour, user_id, "reorder scenes in")
 
-    if tour.user_id != user_id:
+    # Validation: Check for duplicates
+    if len(scene_ids) != len(set(scene_ids)):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to reorder scenes"
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Duplicate scene_ids found in reorder request",
+        )
+
+    # Get all existing scenes for this tour
+    existing_scenes_query = select(Scene.id).where(Scene.tour_id == tour_id)
+    result = await db.execute(existing_scenes_query)
+    existing_scene_ids = set(result.scalars().all())
+
+    # Validation: Check all provided scene_ids exist and belong to this tour
+    provided_scene_ids = set(scene_ids)
+    invalid_scene_ids = provided_scene_ids - existing_scene_ids
+    if invalid_scene_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Invalid scene_ids: {list(invalid_scene_ids)}. Scenes must exist and belong to this tour.",
+        )
+
+    # Validation: Check all scenes in the tour are included
+    missing_scene_ids = existing_scene_ids - provided_scene_ids
+    if missing_scene_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Missing scene_ids: {list(missing_scene_ids)}. All tour scenes must be included in reorder request.",
         )
 
     # Update order_index for each scene
     for index, scene_id in enumerate(scene_ids):
-        query = select(Scene).where(
-            and_(Scene.id == scene_id, Scene.tour_id == tour_id)
-        )
+        query = select(Scene).where(and_(Scene.id == scene_id, Scene.tour_id == tour_id))
         result = await db.execute(query)
         scene = result.scalar_one_or_none()
 
@@ -540,10 +781,9 @@ async def reorder_scenes(
 # Hotspot Services
 # ====================
 
+
 async def get_hotspots(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: Optional[int] = None
+    db: AsyncSession, scene_id: str, user_id: Optional[int] = None
 ) -> List[Hotspot]:
     """Get all hotspots for a scene."""
     # Verify scene access
@@ -554,42 +794,44 @@ async def get_hotspots(
     return list(result.scalars().all())
 
 
-async def get_hotspot(
-    db: AsyncSession,
-    hotspot_id: str,
-    user_id: Optional[int] = None
-) -> Hotspot:
+async def get_hotspot(db: AsyncSession, hotspot_id: str, user_id: Optional[int] = None) -> Hotspot:
     """Get a single hotspot by ID."""
-    query = select(Hotspot).where(Hotspot.id == hotspot_id).options(
-        selectinload(Hotspot.scene).selectinload(Scene.tour)
+    query = (
+        select(Hotspot)
+        .where(Hotspot.id == hotspot_id)
+        .options(selectinload(Hotspot.scene).selectinload(Scene.tour))
     )
 
     result = await db.execute(query)
     hotspot = result.scalar_one_or_none()
 
     if not hotspot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotspot not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hotspot not found")
 
     return hotspot
 
 
 async def create_hotspot(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int,
-    data: HotspotCreate
+    db: AsyncSession, scene_id: str, user_id: int, data: HotspotCreate
 ) -> Hotspot:
     """Create a new hotspot in a scene."""
     scene = await get_scene(db, scene_id, user_id)
+    _ensure_scene_ownership(scene, user_id, "add hotspots to")
 
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to add hotspots to this scene"
-        )
+    if data.type == HotspotType.navigation:
+        if not data.target_scene_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Navigation hotspots require target_scene_id",
+            )
+        target_scene = await get_scene(db, data.target_scene_id, user_id)
+        if target_scene.tour_id != scene.tour_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Navigation hotspots must target a scene in the same tour",
+            )
+
+    normalized_content = _normalize_hotspot_content(data.type, data.content)
 
     # Get max order_index
     max_order_query = select(func.max(Hotspot.order_index)).where(Hotspot.scene_id == scene_id)
@@ -601,16 +843,16 @@ async def create_hotspot(
         scene_id=scene_id,
         type=data.type,
         position=data.position.model_dump(),
-        target_scene_id=data.target_scene_id,
+        target_scene_id=data.target_scene_id if data.type == HotspotType.navigation else None,
         title=data.title,
         description=data.description,
         icon=data.icon,
         icon_name=data.icon_name,
         icon_color=data.icon_color,
         icon_size=data.icon_size or 32,
-        content=data.content,
+        content=normalized_content,
         custom_data=data.custom_data,
-        order_index=max_order + 1
+        order_index=max_order + 1,
     )
 
     db.add(hotspot)
@@ -622,27 +864,53 @@ async def create_hotspot(
 
 
 async def update_hotspot(
-    db: AsyncSession,
-    hotspot_id: str,
-    user_id: int,
-    data: HotspotUpdate
+    db: AsyncSession, hotspot_id: str, user_id: int, data: HotspotUpdate
 ) -> Hotspot:
     """Update a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
 
-    # Get scene and tour for permission check
+    # Get scene for permission check
     scene = await get_scene(db, hotspot.scene_id, user_id)
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to update this hotspot"
-        )
+    _ensure_scene_ownership(scene, user_id, "update hotspots in")
 
     update_data = data.model_dump(exclude_unset=True)
+
+    next_type = data.type or hotspot.type
+    next_target_scene_id = (
+        data.target_scene_id if "target_scene_id" in update_data else hotspot.target_scene_id
+    )
+    next_content = data.content if "content" in update_data else hotspot.content
+
+    if next_type == HotspotType.navigation:
+        if not next_target_scene_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Navigation hotspots require target_scene_id",
+            )
+        target_scene = await get_scene(db, next_target_scene_id, user_id)
+        if target_scene.tour_id != scene.tour_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Navigation hotspots must target a scene in the same tour",
+            )
+    else:
+        next_target_scene_id = None
+
+    normalized_content = _normalize_hotspot_content(next_type, next_content)
+
     for field, value in update_data.items():
         if field == "position" and value is not None:
             value = value if isinstance(value, dict) else value.model_dump()
+        if field == "content":
+            value = normalized_content
+        if field == "target_scene_id":
+            value = next_target_scene_id
         setattr(hotspot, field, value)
+
+    if "content" not in update_data and normalized_content != hotspot.content:
+        hotspot.content = normalized_content
+    if "target_scene_id" not in update_data and next_target_scene_id != hotspot.target_scene_id:
+        hotspot.target_scene_id = next_target_scene_id
 
     await db.commit()
     await db.refresh(hotspot)
@@ -651,20 +919,12 @@ async def update_hotspot(
     return hotspot
 
 
-async def delete_hotspot(
-    db: AsyncSession,
-    hotspot_id: str,
-    user_id: int
-) -> bool:
+async def delete_hotspot(db: AsyncSession, hotspot_id: str, user_id: int) -> bool:
     """Delete a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
 
     scene = await get_scene(db, hotspot.scene_id, user_id)
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to delete this hotspot"
-        )
+    _ensure_scene_ownership(scene, user_id, "delete hotspots from")
 
     await db.delete(hotspot)
     await db.commit()
@@ -674,27 +934,20 @@ async def delete_hotspot(
 
 
 async def update_hotspot_position(
-    db: AsyncSession,
-    hotspot_id: str,
-    user_id: int,
-    position: HotspotPositionUpdate
+    db: AsyncSession, hotspot_id: str, user_id: int, position: HotspotPositionUpdate
 ) -> Hotspot:
     """Update only the position of a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
 
     scene = await get_scene(db, hotspot.scene_id, user_id)
-    if scene.tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to update this hotspot"
-        )
+    _ensure_scene_ownership(scene, user_id, "update hotspots in")
 
     # Update position while preserving radius if it exists
     current_position = hotspot.position or {}
     hotspot.position = {
         "yaw": position.yaw,
         "pitch": position.pitch,
-        "radius": current_position.get("radius")
+        "radius": current_position.get("radius"),
     }
 
     await db.commit()
@@ -708,29 +961,27 @@ async def update_hotspot_position(
 # Analytics Services
 # ====================
 
+
 async def get_tour_analytics(
     db: AsyncSession,
     tour_id: str,
     user_id: int,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
 ) -> TourAnalytics:
     """Get analytics for a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have access to analytics for this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "access analytics for")
 
     # Build query with date filters
     query = select(TourAnalyticsEvent).where(TourAnalyticsEvent.tour_id == tour_id)
 
     if start_date:
-        query = query.where(TourAnalyticsEvent.created_at >= start_date)
+        start_dt = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+        query = query.where(TourAnalyticsEvent.created_at >= start_dt)
     if end_date:
-        query = query.where(TourAnalyticsEvent.created_at <= end_date)
+        end_dt = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=timezone.utc)
+        query = query.where(TourAnalyticsEvent.created_at < end_dt)
 
     result = await db.execute(query)
     events = list(result.scalars().all())
@@ -779,15 +1030,9 @@ async def get_tour_analytics(
             session_starts[event.session_id] = event.created_at
 
         if event.event_type in {"session_end", "session_duration"}:
-            duration = event_payload.get("duration_seconds")
-            if duration is None and event_payload.get("duration_ms") is not None:
-                duration = event_payload.get("duration_ms") / 1000
-            if duration is None and event_payload.get("duration") is not None:
-                duration = event_payload.get("duration")
-            if duration is None and event.session_id and event.session_id in session_starts:
-                duration = (event.created_at - session_starts[event.session_id]).total_seconds()
+            duration = _extract_session_duration(event, session_starts)
             if duration is not None:
-                session_durations.append(float(duration))
+                session_durations.append(duration)
 
         if event.device_type and event.device_type in device_counts:
             device_counts[event.device_type] += 1
@@ -800,8 +1045,7 @@ async def get_tour_analytics(
             daily_views_map[date_str] = daily_views_map.get(date_str, 0) + 1
 
     daily_views = [
-        DailyView(date=date, views=views)
-        for date, views in sorted(daily_views_map.items())
+        DailyView(date=date, views=views) for date, views in sorted(daily_views_map.items())
     ]
 
     avg_session_duration = (
@@ -822,14 +1066,11 @@ async def get_tour_analytics(
         session_durations=session_durations,
         device_breakdown=DeviceBreakdown(**device_counts),
         country_breakdown=country_counts,
-        daily_views=daily_views
+        daily_views=daily_views,
     )
 
 
-async def get_dashboard_stats(
-    db: AsyncSession,
-    user_id: int
-) -> DashboardStats:
+async def get_dashboard_stats(db: AsyncSession, user_id: int) -> DashboardStats:
     """Get dashboard statistics for a user."""
     # Count tours
     total_tours_query = select(func.count(Tour.id)).where(
@@ -841,9 +1082,7 @@ async def get_dashboard_stats(
     # Count published tours
     published_query = select(func.count(Tour.id)).where(
         and_(
-            Tour.user_id == user_id,
-            Tour.status == TourStatus.published,
-            Tour.deleted_at.is_(None)
+            Tour.user_id == user_id, Tour.status == TourStatus.published, Tour.deleted_at.is_(None)
         )
     )
     published_result = await db.execute(published_query)
@@ -857,8 +1096,10 @@ async def get_dashboard_stats(
     total_views = views_result.scalar() or 0
 
     # Count scenes
-    scenes_query = select(func.count(Scene.id)).join(Tour).where(
-        and_(Tour.user_id == user_id, Tour.deleted_at.is_(None))
+    scenes_query = (
+        select(func.count(Scene.id))
+        .join(Tour)
+        .where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
     )
     scenes_result = await db.execute(scenes_query)
     total_scenes = scenes_result.scalar() or 0
@@ -874,8 +1115,98 @@ async def get_dashboard_stats(
         total_views=total_views,
         total_scenes=total_scenes,
         storage_used=storage_used,
-        storage_limit=storage_limit
+        storage_limit=storage_limit,
     )
+
+
+async def get_tour_heatmap(
+    db: AsyncSession,
+    tour_id: str,
+    scene_id: Optional[str] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
+) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    Get aggregated heatmap data for a tour.
+
+    Returns heatmap points grouped by scene with aggregated intensity values
+    for visualization of user interaction patterns.
+
+    Args:
+        db: Database session
+        tour_id: Tour ID to get heatmap for
+        scene_id: Optional scene ID to filter by
+        start_date: Optional start date for filtering
+        end_date: Optional end date for filtering
+
+    Returns:
+        Dictionary with scene_ids as keys and lists of heatmap points
+    """
+    from datetime import datetime
+
+    # Query heatmap events
+    conditions = [TourAnalyticsEvent.tour_id == tour_id, TourAnalyticsEvent.event_type == "heatmap"]
+
+    if scene_id:
+        conditions.append(TourAnalyticsEvent.scene_id == scene_id)
+
+    if start_date:
+        conditions.append(
+            TourAnalyticsEvent.created_at >= datetime.combine(start_date, datetime.min.time())
+        )
+
+    if end_date:
+        conditions.append(
+            TourAnalyticsEvent.created_at <= datetime.combine(end_date, datetime.max.time())
+        )
+
+    query = select(TourAnalyticsEvent).where(and_(*conditions))
+    result = await db.execute(query)
+    events = result.scalars().all()
+
+    # Group heatmap points by scene and aggregate by grid cells
+    scene_heatmaps: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    for event in events:
+        event_data = event.event_data or {}
+        scene_key = event.scene_id or "unknown"
+
+        if scene_key not in scene_heatmaps:
+            scene_heatmaps[scene_key] = {}
+
+        # Create grid cell key (rounded to nearest 5 degrees for aggregation)
+        yaw = event_data.get("yaw", 0)
+        pitch = event_data.get("pitch", 0)
+        grid_key = f"{round(yaw / 5) * 5}_{round(pitch / 5) * 5}"
+
+        if grid_key not in scene_heatmaps[scene_key]:
+            scene_heatmaps[scene_key][grid_key] = {
+                "yaw": round(yaw / 5) * 5,
+                "pitch": round(pitch / 5) * 5,
+                "intensity": 0,
+                "count": 0,
+            }
+
+        # Aggregate intensity
+        scene_heatmaps[scene_key][grid_key]["intensity"] += event_data.get("intensity", 1)
+        scene_heatmaps[scene_key][grid_key]["count"] += 1
+
+    # Convert to output format with normalized intensity
+    output: Dict[str, List[Dict[str, Any]]] = {}
+
+    for scene_key, grid_cells in scene_heatmaps.items():
+        points = list(grid_cells.values())
+
+        # Normalize intensity to 0-1 range
+        if points:
+            max_intensity = max(p["intensity"] for p in points)
+            if max_intensity > 0:
+                for p in points:
+                    p["intensity"] = p["intensity"] / max_intensity
+
+        output[scene_key] = points
+
+    return output
 
 
 async def record_analytics_event(
@@ -937,9 +1268,7 @@ async def get_dashboard_realtime_stats(
     last_hour = now - timedelta(hours=1)
     active_window = now - timedelta(minutes=5)
 
-    tour_ids_query = select(Tour.id).where(
-        and_(Tour.user_id == user_id, Tour.deleted_at.is_(None))
-    )
+    tour_ids_query = select(Tour.id).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
     tour_ids_result = await db.execute(tour_ids_query)
     tour_ids = [row[0] for row in tour_ids_result.fetchall()]
     if not tour_ids:
@@ -974,19 +1303,12 @@ async def get_dashboard_realtime_stats(
     session_starts: dict = {}
     session_durations: List[float] = []
     for event in events:
-        payload = event.event_data or {}
         if event.event_type == "session_start" and event.session_id:
             session_starts[event.session_id] = event.created_at
         if event.event_type in {"session_end", "session_duration"}:
-            duration = payload.get("duration_seconds")
-            if duration is None and payload.get("duration_ms") is not None:
-                duration = payload.get("duration_ms") / 1000
-            if duration is None and payload.get("duration") is not None:
-                duration = payload.get("duration")
-            if duration is None and event.session_id and event.session_id in session_starts:
-                duration = (event.created_at - session_starts[event.session_id]).total_seconds()
+            duration = _extract_session_duration(event, session_starts)
             if duration is not None:
-                session_durations.append(float(duration))
+                session_durations.append(duration)
 
     avg_session_duration = (
         sum(session_durations) / len(session_durations) if session_durations else 0.0
@@ -1005,10 +1327,7 @@ async def get_dashboard_realtime_stats(
         key = bucket_start.isoformat()
         buckets[key] = buckets.get(key, 0) + 1
 
-    recent_views = [
-        DailyView(date=ts, views=count)
-        for ts, count in sorted(buckets.items())
-    ]
+    recent_views = [DailyView(date=ts, views=count) for ts, count in sorted(buckets.items())]
 
     return {
         "active_sessions": len(active_sessions),
@@ -1024,11 +1343,13 @@ async def get_dashboard_realtime_stats(
 # Scene Image Processing
 # ====================
 
+
 async def process_scene_image_background(
     scene_id: str,
     tour_id: str,
     image_url: str,
     db_url: str,
+    user_id: int,
 ) -> None:
     """
     Background task to process a scene image and generate thumbnails.
@@ -1041,6 +1362,7 @@ async def process_scene_image_background(
         tour_id: The tour ID
         image_url: URL of the scene image
         db_url: Database URL for creating a new session
+        user_id: User ID for user-scoped storage paths
     """
     from app.core.database import get_async_session_factory
     from app.services.storage import storage_service
@@ -1048,11 +1370,12 @@ async def process_scene_image_background(
     try:
         logger.info(f"Starting background processing for scene {scene_id}")
 
-        # Process the image
+        # Process the image with user-scoped path
         result = await storage_service.process_existing_scene_image(
             image_url=image_url,
             tour_id=tour_id,
             scene_id=scene_id,
+            user_id=user_id,
         )
 
         # Create a new database session for the background task
@@ -1111,6 +1434,7 @@ def schedule_scene_processing(
     scene_id: str,
     tour_id: str,
     image_url: str,
+    user_id: int,
 ) -> None:
     """
     Schedule a scene for background processing.
@@ -1119,6 +1443,7 @@ def schedule_scene_processing(
         scene_id: The scene ID
         tour_id: The tour ID
         image_url: URL of the scene image
+        user_id: User ID for user-scoped storage paths
     """
     from app.core.config import settings
 
@@ -1138,6 +1463,7 @@ def schedule_scene_processing(
             tour_id=tour_id,
             image_url=image_url,
             db_url=settings.ASYNC_DATABASE_URL,
+            user_id=user_id,
         )
     )
     _scene_processing_tasks[scene_id] = task
@@ -1148,64 +1474,40 @@ def schedule_scene_processing(
 # Floor Plan Services
 # ====================
 
-async def get_floor_plans(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> List[FloorPlan]:
+
+async def get_floor_plans(db: AsyncSession, tour_id: str, user_id: int) -> List[FloorPlan]:
     """Get all floor plans for a tour."""
     # Verify tour access
     await get_tour(db, tour_id, user_id, include_scenes=False)
 
-    query = select(FloorPlan).where(
-        FloorPlan.tour_id == tour_id
-    ).order_by(FloorPlan.floor_number)
+    query = select(FloorPlan).where(FloorPlan.tour_id == tour_id).order_by(FloorPlan.floor_number)
 
     result = await db.execute(query)
     return list(result.scalars().all())
 
 
-async def get_floor_plan(
-    db: AsyncSession,
-    floor_plan_id: str,
-    user_id: int
-) -> FloorPlan:
+async def get_floor_plan(db: AsyncSession, floor_plan_id: str, user_id: int) -> FloorPlan:
     """Get a floor plan by ID."""
     query = select(FloorPlan).where(FloorPlan.id == floor_plan_id)
     result = await db.execute(query)
     floor_plan = result.scalar_one_or_none()
 
     if not floor_plan:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Floor plan not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Floor plan not found")
 
     # Verify tour ownership
     tour = await get_tour(db, floor_plan.tour_id, user_id, include_scenes=False)
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to access this floor plan"
-        )
+    _ensure_tour_ownership(tour, user_id, "access floor plans in")
 
     return floor_plan
 
 
 async def create_floor_plan(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    data: FloorPlanCreate
+    db: AsyncSession, tour_id: str, user_id: int, data: FloorPlanCreate
 ) -> FloorPlan:
     """Create a new floor plan for a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
-
-    if tour.user_id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You don't have permission to add floor plans to this tour"
-        )
+    _ensure_tour_ownership(tour, user_id, "add floor plans to")
 
     # Convert markers to list of dicts
     markers_data = [m.model_dump() for m in data.markers] if data.markers else []
@@ -1228,10 +1530,7 @@ async def create_floor_plan(
 
 
 async def update_floor_plan(
-    db: AsyncSession,
-    floor_plan_id: str,
-    user_id: int,
-    data: FloorPlanUpdate
+    db: AsyncSession, floor_plan_id: str, user_id: int, data: FloorPlanUpdate
 ) -> FloorPlan:
     """Update a floor plan."""
     floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
@@ -1251,10 +1550,7 @@ async def update_floor_plan(
 
 
 async def update_floor_plan_markers(
-    db: AsyncSession,
-    floor_plan_id: str,
-    user_id: int,
-    markers: List[dict]
+    db: AsyncSession, floor_plan_id: str, user_id: int, markers: List[dict]
 ) -> FloorPlan:
     """Update only the markers of a floor plan."""
     floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
@@ -1267,11 +1563,7 @@ async def update_floor_plan_markers(
     return floor_plan
 
 
-async def delete_floor_plan(
-    db: AsyncSession,
-    floor_plan_id: str,
-    user_id: int
-) -> bool:
+async def delete_floor_plan(db: AsyncSession, floor_plan_id: str, user_id: int) -> bool:
     """Delete a floor plan."""
     floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
 

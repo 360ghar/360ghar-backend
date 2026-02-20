@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "360ghar-api-collection",
     "name": "360Ghar Real Estate Platform API",
-    "description": "Complete API collection for 360Ghar - Tinder-like real estate platform with comprehensive property filtering, Supabase integration, and AI-powered agents.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_KEY in environment\n4. Start with Login endpoint to get access token\n5. Token will be automatically saved and used for subsequent requests\n\n## API Modules:\n- **Authentication**: User signup, login, and token management\n- **Users**: Profile management and preferences\n- **Properties**: Comprehensive property search with 25+ filters, discovery, and details\n- **Swipes**: Tinder-like property swiping functionality with enhanced history search and filtering\n- **Visits**: Property visit scheduling with agents\n- **Bookings**: Short-stay property bookings\n- **Agents**: 360Ghar employee agent management and assignment\n\n## Property Search Capabilities:\nThe Properties module includes 15 different search scenarios covering:\n- **Location-Based Search**: Radius filtering with lat/lng coordinates\n- **Property Types**: Single or multiple property types (apartment, house, builder_floor, room)\n- **Price Filtering**: Min/max price ranges with sorting\n- **Room Filters**: Bedroom and bathroom count filtering\n- **Text Search**: Full-text search across title, description, locality, city\n- **Area Filtering**: Property size in square feet\n- **Location Filters**: City, locality, and pincode filtering\n- **Amenities**: Multiple amenity requirements (Parking, Gym, etc.)\n- **Short Stay**: Guest capacity, check-in/out dates\n- **Sorting Options**: Distance, price (low/high), newest, popularity, relevance\n- **Additional Filters**: Parking spaces, floor number, property age\n- **Comprehensive Filtering**: All filters combined\n\n## Agent System:\nThe platform features 360Ghar employee agents who serve as relationship managers:\n- **Auto-assignment**: New users automatically get assigned agents\n- **Specializations**: Agents specialize in different property types and services\n- **Performance tracking**: Real-time monitoring of agent effectiveness\n- **Load balancing**: Intelligent distribution of users across agents\n\n## Features:\n- Automatic token management\n- Comprehensive response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling\n- Environment variable management\n- Property filter validation and testing",
+    "description": "Complete API collection for 360Ghar - Tinder-like real estate platform with comprehensive property filtering, Supabase integration, and AI-powered agents.\n\n## Setup Instructions:\n1. Import this collection into Postman\n2. Create/Import the environment variables\n3. Update SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY in environment\n4. Obtain a Supabase access token and set access_token in environment\n5. Set `access_token` from a Supabase client session before calling protected routes\n\n## API Modules:\n- **Authentication**: handled by Supabase Auth; backend expects Bearer Supabase access tokens\n- **Users**: Profile management and preferences\n- **Properties**: Comprehensive property search with 25+ filters, discovery, and details\n- **Swipes**: Tinder-like property swiping functionality with enhanced history search and filtering\n- **Visits**: Property visit scheduling with agents\n- **Bookings**: Short-stay property bookings\n- **Agents**: 360Ghar employee agent management and assignment\n\n## Property Search Capabilities:\nThe Properties module includes 15 different search scenarios covering:\n- **Location-Based Search**: Radius filtering with lat/lng coordinates\n- **Property Types**: Single or multiple property types (apartment, house, builder_floor, room)\n- **Price Filtering**: Min/max price ranges with sorting\n- **Room Filters**: Bedroom and bathroom count filtering\n- **Text Search**: Full-text search across title, description, locality, city\n- **Area Filtering**: Property size in square feet\n- **Location Filters**: City, locality, and pincode filtering\n- **Amenities**: Multiple amenity requirements (Parking, Gym, etc.)\n- **Short Stay**: Guest capacity, check-in/out dates\n- **Sorting Options**: Distance, price (low/high), newest, popularity, relevance\n- **Additional Filters**: Parking spaces, floor number, property age\n- **Comprehensive Filtering**: All filters combined\n\n## Agent System:\nThe platform features 360Ghar employee agents who serve as relationship managers:\n- **Auto-assignment**: New users automatically get assigned agents\n- **Specializations**: Agents specialize in different property types and services\n- **Performance tracking**: Real-time monitoring of agent effectiveness\n- **Load balancing**: Intelligent distribution of users across agents\n\n## Features:\n- Bearer token verification testing with explicit access_token variable\n- Comprehensive response validation tests\n- Example data for all requests\n- Performance monitoring\n- Error handling\n- Environment variable management\n- Property filter validation and testing",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "360ghar"
   },
@@ -271,47 +271,49 @@
       "name": "Authentication",
       "item": [
         {
-          "name": "Login (Phone/Password)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "pm.test('Response has access token', function() {",
-                  "    const response = pm.response.json();",
-                  "    pm.expect(response).to.have.property('access_token');",
-                  "    pm.expect(response).to.have.property('token_type');",
-                  "    pm.expect(response.token_type).to.equal('bearer');",
-                  "    pm.expect(response).to.have.property('user');",
-                  "});",
-                  "",
-                  "// Save token for future requests",
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    pm.environment.set('access_token', response.access_token);",
-                  "    pm.environment.set('current_user_id', response.user.id);",
-                  "    pm.environment.set('current_user_phone', response.user.phone);",
-                  "    ",
-                  "    // Set token expiry (30 minutes from now)",
-                  "    const expiry = new Date(Date.now() + 30 * 60 * 1000);",
-                  "    pm.environment.set('token_expiry', expiry.toISOString());",
-                  "    ",
-                  "    console.log('Token saved successfully');",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
+          "name": "Get Current User Profile (Supabase Token Required)",
           "request": {
             "auth": {
-              "type": "noauth"
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
             },
-            "method": "POST",
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/users/profile",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "users",
+                "profile"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Current User Profile (Supabase Token Required)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{access_token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
             "header": [
               {
                 "key": "Content-Type",
@@ -320,7 +322,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"phone\": \"+918178340031\",\n  \"password\": \"saksham123\"\n}",
+              "raw": "{\n  \"full_name\": \"Updated Name\",\n  \"email\": \"updated@example.com\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -328,73 +330,15 @@
               }
             },
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/login/",
+              "raw": "{{BASE_URL}}/api/v1/users/profile",
               "host": [
                 "{{BASE_URL}}"
               ],
               "path": [
                 "api",
                 "v1",
-                "auth",
-                "login",
-                ""
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Register",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "exec": [
-                  "pm.test('Status code is 200', function() {",
-                  "    pm.response.to.have.status(200);",
-                  "});",
-                  "",
-                  "if (pm.response.code === 200) {",
-                  "    const response = pm.response.json();",
-                  "    if (response.access_token) {",
-                  "        pm.environment.set('access_token', response.access_token);",
-                  "    }",
-                  "    if (response.user) {",
-                  "        pm.environment.set('new_user_id', response.user.id);",
-                  "    }",
-                  "    console.log('User registered successfully');",
-                  "}"
-                ],
-                "type": "text/javascript"
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "noauth"
-            },
-            "method": "POST",
-            "header": [],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n    \"email\": \"testuser1@360ghar.com\",\n    \"password\": \"Test@123456\",\n    \"full_name\": \"Test User\",\n    \"phone\": \"+917890123456\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/register/",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "register",
-                ""
+                "users",
+                "profile"
               ]
             }
           },
@@ -565,7 +509,6 @@
           },
           "response": []
         },
-        
         {
           "name": "Get Properties",
           "request": {
@@ -846,8 +789,6 @@
           },
           "response": []
         },
-        
-        
         {
           "name": "Get Property Details",
           "request": {
@@ -996,7 +937,6 @@
           },
           "response": []
         },
-        
         {
           "name": "Get Swipe History",
           "request": {
@@ -1214,10 +1154,6 @@
           },
           "response": []
         },
-        
-        
-        
-        
         {
           "name": "Get Swipe Stats",
           "request": {
@@ -1345,7 +1281,6 @@
           },
           "response": []
         },
-        
         {
           "name": "Schedule Visit",
           "event": [
@@ -1968,7 +1903,6 @@
           },
           "response": []
         },
-        
         {
           "name": "Get Agent Statistics",
           "request": {
@@ -2203,8 +2137,7 @@
           "response": []
         }
       ]
-    }
-  ,
+    },
     {
       "name": "Admin & Agent Portal",
       "item": [
@@ -2218,13 +2151,35 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/users/?page=1&limit=20",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","users",""],
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    ""
+                  ],
                   "query": [
-                    {"key":"page","value":"1"},
-                    {"key":"limit","value":"20"},
-                    {"key":"q","value":"","disabled": true},
-                    {"key":"agent_id","value":"","description":"Admin only","disabled": true}
+                    {
+                      "key": "page",
+                      "value": "1"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    },
+                    {
+                      "key": "q",
+                      "value": "",
+                      "disabled": true
+                    },
+                    {
+                      "key": "agent_id",
+                      "value": "",
+                      "description": "Admin only",
+                      "disabled": true
+                    }
                   ]
                 }
               },
@@ -2237,8 +2192,16 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/users/{{target_user_id}}/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","users","{{target_user_id}}",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    "{{target_user_id}}",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2248,7 +2211,10 @@
               "request": {
                 "method": "PUT",
                 "header": [
-                  {"key":"Content-Type","value":"application/json"}
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
                 ],
                 "body": {
                   "mode": "raw",
@@ -2256,8 +2222,16 @@
                 },
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/users/{{target_user_id}}/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","users","{{target_user_id}}",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    "{{target_user_id}}",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2267,7 +2241,10 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  {"key":"Content-Type","value":"application/json"}
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
                 ],
                 "body": {
                   "mode": "raw",
@@ -2275,8 +2252,17 @@
                 },
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/users/{{target_user_id}}/assign-agent/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","users","{{target_user_id}}","assign-agent",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "users",
+                    "{{target_user_id}}",
+                    "assign-agent",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2293,8 +2279,16 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/agents/me/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","agents","me",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "agents",
+                    "me",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2311,8 +2305,15 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/amenities/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","amenities",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "amenities",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2330,13 +2331,24 @@
                 "body": {
                   "mode": "formdata",
                   "formdata": [
-                    {"key":"file","type":"file","src":""}
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": ""
+                    }
                   ]
                 },
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/upload/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","upload",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "upload",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2353,8 +2365,16 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/visits/all/?page=1&limit=20",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","visits","all",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "visits",
+                    "all",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2364,7 +2384,10 @@
               "request": {
                 "method": "POST",
                 "header": [
-                  {"key":"Content-Type","value":"application/json"}
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
                 ],
                 "body": {
                   "mode": "raw",
@@ -2372,8 +2395,17 @@
                 },
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/visits/{{visit_id}}/complete/",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","visits","{{visit_id}}","complete",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "visits",
+                    "{{visit_id}}",
+                    "complete",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2390,8 +2422,16 @@
                 "header": [],
                 "url": {
                   "raw": "{{BASE_URL}}/api/v1/bookings/all/?page=1&limit=20",
-                  "host": ["{{BASE_URL}}"],
-                  "path": ["api","v1","bookings","all",""]
+                  "host": [
+                    "{{BASE_URL}}"
+                  ],
+                  "path": [
+                    "api",
+                    "v1",
+                    "bookings",
+                    "all",
+                    ""
+                  ]
                 }
               },
               "response": []
@@ -2399,6 +2439,254 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Custom Domains",
+      "item": [
+        {
+          "name": "Create Custom Domain",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status code is 201', function() {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const response = pm.response.json();",
+                  "    pm.environment.set('test_custom_domain_id', response.id);",
+                  "    console.log('Custom domain created with ID:', response.id);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"domain\": \"tours.example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/custom-domains",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-domains"
+              ]
+            },
+            "description": "Create a new custom domain for branded tour URLs. Returns the domain with a verification token that must be added as a DNS TXT record."
+          },
+          "response": []
+        },
+        {
+          "name": "List Custom Domains",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/custom-domains",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-domains"
+              ]
+            },
+            "description": "List all custom domains for the current user."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Custom Domain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/custom-domains/{{test_custom_domain_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-domains",
+                "{{test_custom_domain_id}}"
+              ]
+            },
+            "description": "Get a specific custom domain by ID."
+          },
+          "response": []
+        },
+        {
+          "name": "Verify Custom Domain",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/custom-domains/{{test_custom_domain_id}}/verify",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-domains",
+                "{{test_custom_domain_id}}",
+                "verify"
+              ]
+            },
+            "description": "Trigger verification for a custom domain. Checks if the DNS TXT record has been added correctly."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Custom Domain",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/custom-domains/{{test_custom_domain_id}}",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "custom-domains",
+                "{{test_custom_domain_id}}"
+              ]
+            },
+            "description": "Delete a custom domain."
+          },
+          "response": []
+        }
+      ],
+      "description": "Manage custom domains for branded tour URLs. Domains must be verified via DNS TXT records before they can be used."
+    },
+    {
+      "name": "Vastu",
+      "item": [
+        {
+          "name": "Analyze Floor Plan",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "floor_plan",
+                  "type": "file",
+                  "src": "",
+                  "description": "Floor plan image (JPEG, PNG, or WebP, max 5MB)"
+                },
+                {
+                  "key": "north_direction",
+                  "type": "text",
+                  "value": "up",
+                  "description": "Direction of North in the image: up, down, left, right, unknown"
+                },
+                {
+                  "key": "notes",
+                  "type": "text",
+                  "value": "",
+                  "description": "Additional notes about the property (max 1000 chars)"
+                },
+                {
+                  "key": "provider",
+                  "type": "text",
+                  "value": "gemini",
+                  "description": "AI provider: gemini (default) or glm"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/vastu/analyze",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vastu",
+                "analyze"
+              ]
+            },
+            "description": "Analyze a floor plan image for Vastu Shastra compliance. Returns overall score, room-by-room analysis, defects, remedies, and a markdown report."
+          },
+          "response": []
+        },
+        {
+          "name": "Vastu Health Check",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{BASE_URL}}/api/v1/vastu/health",
+              "host": [
+                "{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "vastu",
+                "health"
+              ]
+            },
+            "description": "Health check endpoint for the Vastu analyzer service. No authentication required."
+          },
+          "response": []
+        }
+      ],
+      "description": "Vastu Shastra floor plan analysis endpoints. Public endpoints - no authentication required."
+    },
+    {
+      "name": "WebSocket",
+      "item": [
+        {
+          "name": "WebSocket Connection (Documentation)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "ws://{{BASE_URL}}/api/v1/ws/{{test_tour_id}}",
+              "host": [
+                "ws://{{BASE_URL}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ws",
+                "{{test_tour_id}}"
+              ]
+            },
+            "description": "This is a WebSocket endpoint for real-time tour communication.\n\n**Note:** Postman supports WebSocket connections. Use ws:// or wss:// protocol instead of http://.\n\n**Available WebSocket Endpoints:**\n\n1. **Tour Updates:** `ws://{{BASE_URL}}/api/v1/ws/tours/{tour_id}?token={{access_token}}`\n   - Real-time updates for a specific tour\n   - Scene processing status\n   - Hotspot changes (collaborative editing)\n   - AI processing results\n\n2. **Job Updates:** `ws://{{BASE_URL}}/api/v1/ws/jobs/{job_id}?token={{access_token}}`\n   - AI job progress tracking\n   - Progress percentage and status changes\n   - Final results or errors\n\n3. **User Notifications:** `ws://{{BASE_URL}}/api/v1/ws/user?token={{access_token}}`\n   - User-level notifications\n   - AI job completions\n   - Tour updates\n   - System notifications\n\n**Authentication:** Pass the JWT token as a query parameter: `?token={{access_token}}`\n\n**Messages:**\n- Send `ping` to receive `pong` (keep-alive)\n- Server sends heartbeat messages every 30 seconds\n- Job updates: `{\"type\": \"job_update\", \"job_id\": \"...\", \"data\": {...}}`\n- Notifications: `{\"type\": \"notification\", \"data\": {...}}`"
+          },
+          "response": []
+        }
+      ],
+      "description": "WebSocket endpoints for real-time communication. These endpoints use the WebSocket protocol (ws:// or wss://) instead of HTTP."
     }
   ],
   "variable": [

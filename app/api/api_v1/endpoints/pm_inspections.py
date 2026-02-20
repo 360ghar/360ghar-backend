@@ -19,7 +19,7 @@ from app.services.pm_inspections import create_inspection_checklist, get_inspect
 router = APIRouter()
 
 
-@router.post("/", response_model=InspectionChecklistSchema)
+@router.post("", response_model=InspectionChecklistSchema)
 async def create_inspection(
     payload: InspectionChecklistCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -47,7 +47,7 @@ async def create_inspection(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.get("/", response_model=list[InspectionChecklistSchema])
+@router.get("", response_model=list[InspectionChecklistSchema])
 async def list_inspection_checklists(
     owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
     lease_id: Optional[int] = Query(None),

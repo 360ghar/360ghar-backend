@@ -30,7 +30,7 @@ def get_tool_fn(tool):
 
 
 class TestAgentPropertyTools:
-    """Tests for agent.properties.* MCP tools."""
+    """Tests for agent_properties_* MCP tools."""
 
     @pytest.mark.asyncio
     async def test_agent_properties_list_authenticated(self, mock_mcp_context):
@@ -45,7 +45,7 @@ class TestAgentPropertyTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -62,7 +62,7 @@ class TestAgentPropertyTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 # Should return unauthorized or forbidden
                 assert "error" in result
@@ -84,7 +84,7 @@ class TestAgentLeaseTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -102,7 +102,6 @@ class TestAgentLeaseTools:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
-                    jwt="test_token",
                     property_id=1,
                     tenant_user_id=2,
                     start_date="2025-01-01",
@@ -130,7 +129,7 @@ class TestAgentRentTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -148,7 +147,6 @@ class TestAgentRentTools:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
-                    jwt="test_token",
                     lease_id=1,
                     amount=50000,
                     payment_method="bank_transfer",
@@ -174,7 +172,7 @@ class TestAgentMaintenanceTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -192,7 +190,6 @@ class TestAgentMaintenanceTools:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
-                    jwt="test_token",
                     request_id=1,
                     status="in_progress",
                 )
@@ -216,7 +213,7 @@ class TestAgentDashboardTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -237,7 +234,7 @@ class TestAdminTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -254,7 +251,7 @@ class TestAdminTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 # Non-admin gets data but with access: denied
                 assert isinstance(result, dict)
@@ -279,7 +276,7 @@ class TestAgentBookingTools:
             with patch("app.mcp.admin_server.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
-                result = await fn(jwt="test_token")
+                result = await fn()
 
                 assert isinstance(result, dict)
 
@@ -297,7 +294,6 @@ class TestAgentBookingTools:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
-                    jwt="test_token",
                     booking_id=1,
                     status="confirmed",
                 )

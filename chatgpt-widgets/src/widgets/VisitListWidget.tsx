@@ -192,7 +192,7 @@ function VisitListWidget() {
             style={{
               padding: '12px 8px',
               backgroundColor: filter === stat.key ? colors.primary : colors.backgroundSecondary,
-              color: filter === stat.key ? '#fff' : colors.text,
+              color: filter === stat.key ? '#3D3829' : colors.text,
               border: 'none',
               borderRadius: 8,
               cursor: 'pointer',

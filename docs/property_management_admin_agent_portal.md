@@ -3,7 +3,7 @@
 This document is part of the **Property Management** module of 360 Ghar. It defines the **web portal UI/UX** needed to fully operate the Property Management system (Owners + Relationship Managers + Tenants) on top of the existing 360 Ghar backend and the new PM API surface:
 - PM APIs: `/api/v1/pm/*`
 - Public applications: `/api/v1/pm/public/*`
-- OTP Auth: `/api/v1/auth/otp/*`
+- Auth: direct Supabase client SDK login/session management; backend accepts bearer access tokens
 
 It is aligned to the current backend direction:
 - **Manual-first workflows** (rent ledger + receipt uploads, no payment gateway yet)
@@ -582,4 +582,3 @@ These can be included as **Phase 3** “coming later” placeholders in UI, but 
 - KYC verification and background checks dashboards
 - E-sign tracking pages and signature status timelines
 - Accounting exports/integrations (QuickBooks/Xero)
-

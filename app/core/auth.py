@@ -1,9 +1,9 @@
-import anyio
-from supabase import create_client, Client
-from jose import jwt, JWTError
-from app.core.config import settings
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
+
 import httpx
+from supabase import Client, create_client
+
+from app.core.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -12,11 +12,17 @@ logger = get_logger(__name__)
 _supabase_client: Client = None
 _supabase_service_client: Client = None
 
+
 def get_supabase_auth_client() -> Client:
     """Get Supabase client for authentication only"""
     global _supabase_client
     if _supabase_client is None:
-        _supabase_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+        key = settings.SUPABASE_CLIENT_KEY
+        if not key:
+            raise ValueError(
+                "Missing Supabase publishable key. Set SUPABASE_PUBLISHABLE_KEY."
+            )
+        _supabase_client = create_client(settings.SUPABASE_URL, key)
     return _supabase_client
 
 def get_supabase_service_client() -> Client:
@@ -26,29 +32,58 @@ def get_supabase_service_client() -> Client:
         _supabase_service_client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SECRET_KEY)
     return _supabase_service_client
 
+
 async def verify_supabase_token(token: str) -> Optional[Dict[str, Any]]:
-    """Verify Supabase JWT token"""
+    """Verify Supabase JWT by calling the Supabase Auth API.
+
+    Sends the user's access token to ``GET /auth/v1/user`` which performs
+    server-side validation.  This approach works with all Supabase key
+    formats (including the newer ``sb_publishable_*`` / ``sb_secret_*``
+    keys that do not expose JWKS).
+    """
+    url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/user"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "apikey": settings.SUPABASE_CLIENT_KEY,
+    }
     try:
-        supabase = get_supabase_auth_client()
-        user_response = await anyio.to_thread.run_sync(
-            lambda: supabase.auth.get_user(token)
-        )
-        if user_response.user:
-            # Consider either email or phone confirmation as verification
-            user_obj = user_response.user
-            is_verified = (user_obj.email_confirmed_at is not None) or (
-                getattr(user_obj, "phone_confirmed_at", None) is not None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=headers)
+
+        if response.status_code != 200:
+            logger.warning(
+                "Supabase token verification failed: status=%s body=%s",
+                response.status_code,
+                response.text[:200],
             )
-            return {
-                "id": user_obj.id,
-                "email": user_obj.email,
-                "user_metadata": user_obj.user_metadata,
-                "phone": user_obj.phone,
-                "email_verified": is_verified,
-            }
-        return None
-    except Exception as e:
-        logger.error(f"Error verifying Supabase token: {e}")
+            return None
+
+        user_data = response.json()
+        user_id = user_data.get("id")
+        if not isinstance(user_id, str) or not user_id.strip():
+            logger.warning("Supabase /auth/v1/user response missing id")
+            return None
+
+        email = user_data.get("email") if isinstance(user_data.get("email"), str) else None
+        phone = user_data.get("phone") if isinstance(user_data.get("phone"), str) else None
+        user_metadata = user_data.get("user_metadata")
+        if not isinstance(user_metadata, dict):
+            user_metadata = {}
+
+        email_verified = bool(
+            user_data.get("email_confirmed_at")
+            or user_data.get("phone_confirmed_at")
+        )
+
+        return {
+            "id": user_id,
+            "email": email,
+            "user_metadata": user_metadata,
+            "phone": phone,
+            "email_verified": email_verified,
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Supabase API token verification failed: %s", exc, exc_info=True)
         return None
 
 

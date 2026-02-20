@@ -35,6 +35,7 @@ def build_property_filters(
     semantic_search: bool = Query(False, description="Enable semantic vector similarity search"),
     
     # Property filters
+    ids: Optional[List[int]] = Query(None, description="Filter by property IDs"),
     property_type: Optional[List[PropertyType]] = Query(None),
     purpose: Optional[PropertyPurpose] = Query(None),
     
@@ -82,6 +83,7 @@ def build_property_filters(
         longitude=lng,
         radius_km=radius,
         search_query=q,
+        property_ids=ids,
         property_type=property_type,
         purpose=purpose,
         price_min=price_min,
@@ -121,7 +123,7 @@ def _build_response_payload(result: dict, filters: UnifiedPropertyFilter, page: 
         "search_center": ({"latitude": filters.latitude, "longitude": filters.longitude} if filters.latitude is not None and filters.longitude is not None else None)
     }
 
-@router.post("/", response_model=Property)
+@router.post("", response_model=Property)
 async def create_new_property(
     property_data: PropertyCreate,
     owner_id: Optional[int] = Query(None, description="Owner id (admin/agent only)"),
@@ -147,7 +149,7 @@ async def create_new_property(
         raise
 
 
-@router.get("/me/", response_model=List[Property])
+@router.get("/me", response_model=List[Property])
 async def get_my_properties(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -155,7 +157,7 @@ async def get_my_properties(
     """List properties owned by the current user (requires authentication)."""
     return await list_user_properties(db, owner_id=current_user.id)
 
-@router.get("/", response_model=UnifiedPropertyResponse)
+@router.get("", response_model=UnifiedPropertyResponse)
 async def get_properties_list(
     filters: UnifiedPropertyFilter = Depends(build_property_filters),
     page: int = Query(1, ge=1),
@@ -230,7 +232,7 @@ async def semantic_property_search(
     result = await get_unified_properties_optimized(db, filters, user_id, page, limit)
     return _build_response_payload(result, filters, page, limit)
 
-@router.get("/recommendations/")
+@router.get("/recommendations")
 async def get_recommendations(
     current_user: Optional[UserSchema] = Depends(get_current_user_optional),
     db: AsyncSession = Depends(get_db),
@@ -287,7 +289,7 @@ async def update_property_details(
     """Update property details"""
     return await update_property(db, property_id, property_update, current_user)
 
-@router.delete("/{property_id}/")
+@router.delete("/{property_id}")
 async def delete_property_endpoint(
     property_id: int,
     db: AsyncSession = Depends(get_db),

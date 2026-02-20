@@ -26,7 +26,7 @@ services:
       REDIS_URL: redis://redis:6379
       SECRET_KEY: your-secret-key-here-change-in-production
       SUPABASE_URL: your_supabase_url
-      SUPABASE_KEY: your_supabase_key
+      SUPABASE_PUBLISHABLE_KEY: your_supabase_publishable_key
       SUPABASE_SECRET_KEY: your_supabase_secret_key
     depends_on:
       - db

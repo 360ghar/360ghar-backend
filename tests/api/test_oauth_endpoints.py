@@ -67,8 +67,8 @@ class TestOAuthAuthorizeEndpoint:
 
         assert response.status_code == 400
         data = response.json()
-        assert data["detail"]["error"] == "invalid_request"
-        assert "PKCE" in data["detail"]["error_description"]
+        assert data["error"] == "invalid_request"
+        assert "PKCE" in data["error_description"]
 
     @pytest.mark.asyncio
     async def test_authorize_invalid_response_type(self, client: AsyncClient):
@@ -117,7 +117,7 @@ class TestOAuthAuthorizeEndpoint:
 
         assert response.status_code == 400
         data = response.json()
-        assert data["detail"]["error"] == "invalid_client"
+        assert data["error"] == "invalid_client"
 
 
 class TestOAuthTokenEndpoint:
@@ -143,7 +143,6 @@ class TestOAuthTokenEndpoint:
                 }
             )
             mock_store.store_oauth_tokens = AsyncMock()
-            mock_store.delete_auth_code = AsyncMock()
 
             response = await client.post(
                 "/api/v1/mcp/oauth/token",
@@ -208,19 +207,21 @@ class TestOAuthTokenEndpoint:
                 }
             )
             mock_store.store_oauth_tokens = AsyncMock()
-            mock_store.delete_refresh_token = AsyncMock()
+            mock_store.revoke_refresh_token = AsyncMock()
 
             response = await client.post(
                 "/api/v1/mcp/oauth/token",
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": "test_refresh_token",
+                    "client_id": "ghar360-mcp",
                 },
             )
 
             assert response.status_code == 200
             data = response.json()
             assert "access_token" in data
+            assert "refresh_token" in data
 
     @pytest.mark.asyncio
     async def test_token_invalid_refresh_token(self, client: AsyncClient):
@@ -239,6 +240,61 @@ class TestOAuthTokenEndpoint:
             )
 
             assert response.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_token_refresh_missing_client_id_for_bound_token(self, client: AsyncClient):
+        """Refresh token bound to a client_id must include client_id in request."""
+        with patch(
+            "app.api.api_v1.endpoints.oauth.oauth_token_store"
+        ) as mock_store:
+            mock_store.get_refresh_token = AsyncMock(
+                return_value={
+                    "user_id": "1",
+                    "scope": "mcp:read mcp:write",
+                    "resource": "http://testserver/mcp",
+                    "client_id": "ghar360-mcp",
+                }
+            )
+
+            response = await client.post(
+                "/api/v1/mcp/oauth/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": "test_refresh_token",
+                },
+            )
+
+            assert response.status_code == 400
+            data = response.json()
+            assert data["error"] == "invalid_request"
+
+    @pytest.mark.asyncio
+    async def test_token_refresh_invalid_client_id_for_bound_token(self, client: AsyncClient):
+        """Refresh token should reject mismatched client_id."""
+        with patch(
+            "app.api.api_v1.endpoints.oauth.oauth_token_store"
+        ) as mock_store:
+            mock_store.get_refresh_token = AsyncMock(
+                return_value={
+                    "user_id": "1",
+                    "scope": "mcp:read mcp:write",
+                    "resource": "http://testserver/mcp",
+                    "client_id": "ghar360-mcp",
+                }
+            )
+
+            response = await client.post(
+                "/api/v1/mcp/oauth/token",
+                data={
+                    "grant_type": "refresh_token",
+                    "refresh_token": "test_refresh_token",
+                    "client_id": "not-ghar360-mcp",
+                },
+            )
+
+            assert response.status_code == 400
+            data = response.json()
+            assert data["error"] == "invalid_client"
 
     @pytest.mark.asyncio
     async def test_token_unsupported_grant_type(self, client: AsyncClient):
@@ -386,6 +442,7 @@ class TestAuthorizationServerMetadata:
         assert "issuer" in data
         assert "authorization_endpoint" in data
         assert "token_endpoint" in data
+        assert "revocation_endpoint" in data
         assert "registration_endpoint" in data
         assert "response_types_supported" in data
         assert "grant_types_supported" in data
@@ -476,3 +533,45 @@ class TestClientValidation:
             client = await validate_client("dyn_12345")
             assert client is not None
             assert client["client_id"] == "dyn_12345"
+
+
+class TestOAuthRevokeEndpoint:
+    """Tests for POST /api/v1/mcp/oauth/revoke endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_revoke_refresh_token_success(self, client: AsyncClient):
+        with patch("app.api.api_v1.endpoints.oauth.oauth_token_store") as mock_store:
+            mock_store.get_refresh_token = AsyncMock(
+                return_value={"client_id": "ghar360-mcp", "access_token": "a1"}
+            )
+            mock_store.revoke_refresh_token = AsyncMock(return_value=True)
+
+            response = await client.post(
+                "/api/v1/mcp/oauth/revoke",
+                data={
+                    "token": "refresh_123",
+                    "token_type_hint": "refresh_token",
+                    "client_id": "ghar360-mcp",
+                },
+            )
+
+            assert response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_revoke_invalid_client_binding(self, client: AsyncClient):
+        with patch("app.api.api_v1.endpoints.oauth.oauth_token_store") as mock_store:
+            mock_store.get_access_token = AsyncMock(return_value={"client_id": "ghar360-mcp"})
+            mock_store.revoke_token_pair = AsyncMock(return_value=True)
+
+            response = await client.post(
+                "/api/v1/mcp/oauth/revoke",
+                data={
+                    "token": "access_123",
+                    "token_type_hint": "access_token",
+                    "client_id": "wrong-client",
+                },
+            )
+
+            assert response.status_code == 400
+            data = response.json()
+            assert data["error"] == "invalid_client"

@@ -39,10 +39,13 @@ const baseStyles = `
   padding: 0;
 }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(circle at 18% 0%, rgba(229, 208, 139, 0.18), transparent 46%),
+    radial-gradient(circle at 84% 100%, rgba(61, 56, 41, 0.08), transparent 52%);
 }
 img {
   max-width: 100%;
@@ -51,6 +54,13 @@ img {
 button {
   cursor: pointer;
   font-family: inherit;
+}
+#root {
+  animation: widgetFadeIn 220ms ease-out;
+}
+@keyframes widgetFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 `;
 

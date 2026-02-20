@@ -16,7 +16,7 @@ async def get_amenities_cached(db: AsyncSession) -> List[Amenity]:
     return await get_all_amenities(db)
 
 
-@router.get("/", response_model=List[Amenity])
+@router.get("", response_model=List[Amenity])
 async def list_amenities(db: AsyncSession = Depends(get_db)):
     """List all available amenities (cached for 24 hours)."""
     return await get_amenities_cached(db)

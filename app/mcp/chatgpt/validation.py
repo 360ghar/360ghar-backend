@@ -14,7 +14,7 @@ from app.models.enums import PropertyType, PropertyPurpose
 
 
 class PropertySearchInput(BaseModel):
-    """Input schema for discovery.search tool."""
+    """Input schema for discovery_search tool."""
 
     query: Optional[str] = Field(
         None,
@@ -113,7 +113,7 @@ class PropertySearchInput(BaseModel):
 
 
 class PropertyGetInput(BaseModel):
-    """Input schema for discovery.property.get tool."""
+    """Input schema for discovery_property_get tool."""
 
     property_id: int = Field(
         ...,
@@ -123,7 +123,7 @@ class PropertyGetInput(BaseModel):
 
 
 class DiscoveryFeedInput(BaseModel):
-    """Input schema for discovery.feed tool."""
+    """Input schema for discovery_feed tool."""
 
     latitude: Optional[float] = Field(
         None,
@@ -159,7 +159,7 @@ class DiscoveryFeedInput(BaseModel):
 
 
 class SwipeInput(BaseModel):
-    """Input schema for discovery.swipe tool."""
+    """Input schema for discovery_swipe tool."""
 
     property_id: int = Field(
         ...,
@@ -173,7 +173,7 @@ class SwipeInput(BaseModel):
 
 
 class ShortlistInput(BaseModel):
-    """Input schema for discovery.shortlist tool."""
+    """Input schema for discovery_shortlist tool."""
 
     page: int = Field(
         1,
@@ -189,7 +189,7 @@ class ShortlistInput(BaseModel):
 
 
 class VisitScheduleInput(BaseModel):
-    """Input schema for visits.schedule tool."""
+    """Input schema for visits_schedule tool."""
 
     property_id: int = Field(
         ...,
@@ -221,7 +221,7 @@ class VisitScheduleInput(BaseModel):
 
 
 class VisitListInput(BaseModel):
-    """Input schema for visits.list tool."""
+    """Input schema for visits_list tool."""
 
     status: Optional[str] = Field(
         None,
@@ -250,7 +250,7 @@ class VisitListInput(BaseModel):
 
 
 class VisitGetInput(BaseModel):
-    """Input schema for visits.get tool."""
+    """Input schema for visits_get tool."""
 
     visit_id: int = Field(
         ...,
@@ -260,7 +260,7 @@ class VisitGetInput(BaseModel):
 
 
 class VisitCancelInput(BaseModel):
-    """Input schema for visits.cancel tool."""
+    """Input schema for visits_cancel tool."""
 
     visit_id: int = Field(
         ...,

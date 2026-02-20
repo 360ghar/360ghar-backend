@@ -26,12 +26,13 @@ export function Card({ children, onClick, padding = 'md', style }: CardProps) {
     <div
       onClick={onClick}
       style={{
-        backgroundColor: colors.background,
-        borderRadius: '12px',
+        background: `linear-gradient(180deg, ${colors.backgroundSecondary} 0%, ${colors.background} 100%)`,
+        borderRadius: '14px',
         border: `1px solid ${colors.border}`,
         padding: paddingMap[padding],
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'box-shadow 0.15s ease',
+        boxShadow: colors.shadow,
+        transition: 'transform 120ms ease, box-shadow 120ms ease',
         ...style,
       }}
     >

@@ -176,7 +176,7 @@ function OwnerDashboardWidget() {
               borderRadius: 20,
               border: 'none',
               backgroundColor: filter === f ? colors.primary : colors.backgroundSecondary,
-              color: filter === f ? '#fff' : colors.text,
+              color: filter === f ? '#3D3829' : colors.text,
               fontSize: 13,
               fontWeight: 500,
               cursor: 'pointer',

@@ -41,7 +41,9 @@ async def upload_document(
 
             raise InsufficientPermissionsError("Only admins/agents can set owner_id")
 
-    upload_res = await storage_service.upload_document(file, folder=f"pm/{target_owner_id}")
+    upload_res = await storage_service.upload_document(
+        file, folder=f"pm/{target_owner_id}", user_id=target_owner_id
+    )
 
     doc = await create_document(
         db,
@@ -64,7 +66,7 @@ async def upload_document(
     return DocumentSchema.model_validate(doc)
 
 
-@router.get("/", response_model=list[DocumentSchema])
+@router.get("", response_model=list[DocumentSchema])
 async def get_documents(
     owner_id: Optional[int] = None,
     property_id: Optional[int] = None,

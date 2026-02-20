@@ -32,7 +32,11 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/", response_model=PaginatedTourResponse)
+@router.get(
+    "",
+    response_model=PaginatedTourResponse,
+    response_model_exclude={"items": {"__all__": {"scenes"}}},
+)
 async def list_tours(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -57,7 +61,7 @@ async def list_tours(
     return result
 
 
-@router.post("/", response_model=Tour, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Tour, status_code=status.HTTP_201_CREATED)
 async def create_tour(
     tour_data: TourCreate,
     db: AsyncSession = Depends(get_db),
@@ -87,25 +91,11 @@ async def get_tour(
 
     Returns the complete tour structure including nested scenes and their hotspots.
     """
-    tour = await tour_service.get_tour(
+    return await tour_service.get_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-
-    # Check ownership
-    if tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this tour"
-        )
-
-    return tour
 
 
 @router.put("/{tour_id}", response_model=Tour)
@@ -120,18 +110,12 @@ async def update_tour(
 
     Can update title, description, settings, and other tour properties.
     """
-    tour = await tour_service.update_tour(
+    return await tour_service.update_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
         data=tour_data,
     )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return tour
 
 
 @router.delete("/{tour_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -145,16 +129,11 @@ async def delete_tour(
 
     The tour is marked as deleted but not permanently removed from the database.
     """
-    success = await tour_service.delete_tour(
+    await tour_service.delete_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
     return None
 
 
@@ -169,17 +148,11 @@ async def publish_tour(
 
     Sets the tour status to 'published' and records the publish timestamp.
     """
-    tour = await tour_service.publish_tour(
+    return await tour_service.publish_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return tour
 
 
 @router.post("/{tour_id}/unpublish", response_model=Tour)
@@ -193,17 +166,11 @@ async def unpublish_tour(
 
     Sets the tour status back to 'draft'.
     """
-    tour = await tour_service.unpublish_tour(
+    return await tour_service.unpublish_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return tour
 
 
 @router.post("/{tour_id}/duplicate", response_model=Tour, status_code=status.HTTP_201_CREATED)
@@ -218,17 +185,11 @@ async def duplicate_tour(
     Creates a complete copy of the tour including all scenes and hotspots.
     The new tour will be in draft status.
     """
-    tour = await tour_service.duplicate_tour(
+    return await tour_service.duplicate_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return tour
 
 
 @router.get("/{tour_id}/analytics", response_model=TourAnalytics)
@@ -244,31 +205,13 @@ async def get_tour_analytics(
 
     Returns view counts, engagement metrics, device breakdown, and daily views.
     """
-    # First verify ownership
-    tour = await tour_service.get_tour(
-        db=db,
-        tour_id=tour_id,
-        user_id=current_user.id,
-    )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-    if tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this tour's analytics"
-        )
-
-    analytics = await tour_service.get_tour_analytics(
+    return await tour_service.get_tour_analytics(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
         start_date=start_date,
         end_date=end_date,
     )
-    return analytics
 
 
 # Scene endpoints nested under tours
@@ -283,25 +226,7 @@ async def list_scenes(
 
     Returns scenes ordered by their order_index.
     """
-    # Verify tour ownership
-    tour = await tour_service.get_tour(
-        db=db,
-        tour_id=tour_id,
-        user_id=current_user.id,
-    )
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-    if tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this tour"
-        )
-
-    scenes = await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
-    return scenes
+    return await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
 
 
 @router.post("/{tour_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED)
@@ -316,18 +241,12 @@ async def create_scene(
 
     The scene will be added at the end of the tour's scene list.
     """
-    scene = await tour_service.create_scene(
+    return await tour_service.create_scene(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
         data=scene_data,
     )
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return scene
 
 
 @router.put("/{tour_id}/scenes/reorder", response_model=List[Scene])
@@ -354,3 +273,92 @@ async def reorder_scenes(
             detail="Tour not found or not authorized"
         )
     return scenes
+
+
+@router.get("/{tour_id}/qr-code")
+async def get_tour_qr_code(
+    tour_id: str,
+    size: int = Query(256, ge=64, le=1024, description="QR code size in pixels"),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Generate a QR code for the tour URL.
+
+    Returns a PNG image of the QR code that links to the public tour page.
+    """
+    import qrcode
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
+    if not tour:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tour not found or not authorized"
+        )
+
+    # Generate tour URL - use PUBLIC_BASE_URL if configured
+    from app.core.config import settings
+    base_url = settings.PUBLIC_BASE_URL or "https://360ghar.com"
+    tour_url = f"{base_url}/tour/{tour_id}"
+
+    # Generate QR code
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=4,
+    )
+    qr.add_data(tour_url)
+    qr.make(fit=True)
+
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    # Resize to requested size
+    from PIL import Image
+    img = img.resize((size, size), Image.Resampling.LANCZOS)
+
+    # Convert to bytes
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="image/png",
+        headers={"Content-Disposition": f"inline; filename=tour-{tour_id}-qr.png"}
+    )
+
+
+@router.get("/{tour_id}/heatmap")
+async def get_tour_heatmap(
+    tour_id: str,
+    scene_id: Optional[str] = Query(None, description="Filter by specific scene"),
+    start_date: Optional[date] = Query(None, description="Start date for filtering"),
+    end_date: Optional[date] = Query(None, description="End date for filtering"),
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Get aggregated heatmap data for a tour.
+
+    Returns heatmap points grouped by scene with intensity values
+    for visualization of user interaction patterns.
+    """
+    tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
+    if not tour:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tour not found or not authorized"
+        )
+
+    heatmap_data = await tour_service.get_tour_heatmap(
+        db=db,
+        tour_id=tour_id,
+        scene_id=scene_id,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+    return {"tour_id": tour_id, "heatmap": heatmap_data}

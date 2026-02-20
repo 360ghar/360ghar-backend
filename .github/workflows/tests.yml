@@ -94,9 +94,8 @@ jobs:
           ASYNC_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
           SUPABASE_URL: https://mock.supabase.co
-          SUPABASE_KEY: mock_key_for_testing
+          SUPABASE_PUBLISHABLE_KEY: mock_key_for_testing
           SUPABASE_SECRET_KEY: mock_secret_key_for_testing
-          SUPABASE_JWT_SECRET: mock_jwt_secret_for_testing_purposes_only_32chars
           SENTRY_DSN: ""
           ENVIRONMENT: test
           CI: "true"

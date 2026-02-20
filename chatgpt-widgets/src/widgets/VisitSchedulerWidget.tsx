@@ -311,7 +311,7 @@ function VisitSchedulerWidget() {
                 borderRadius: 8,
                 border: `1px solid ${selectedTime === time ? colors.primary : colors.border}`,
                 backgroundColor: selectedTime === time ? colors.primary : colors.background,
-                color: selectedTime === time ? '#fff' : colors.text,
+                color: selectedTime === time ? '#3D3829' : colors.text,
                 cursor: 'pointer',
                 transition: 'all 0.15s ease',
               }}

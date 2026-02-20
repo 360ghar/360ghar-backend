@@ -84,7 +84,7 @@ def _require_agent_or_admin(user) -> bool:
 
 
 @admin_mcp.tool(
-    "agent.properties.list",
+    "agent_properties_list",
     annotations={
         "title": "List Managed Properties",
         "readOnlyHint": True,
@@ -117,7 +117,7 @@ async def agent_properties_list(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.properties.list",
+                    action="agent_properties_list",
                     message="Please log in to list managed properties.",
                     scope="mcp:read",
                 )
@@ -165,7 +165,7 @@ async def agent_properties_list(
 
 
 @admin_mcp.tool(
-    "agent.properties.get",
+    "agent_properties_get",
     annotations={
         "title": "Get Managed Property Details",
         "readOnlyHint": True,
@@ -185,7 +185,7 @@ async def agent_properties_get(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.properties.get",
+                    action="agent_properties_get",
                     message="Please log in to view managed property details.",
                     scope="mcp:read",
                 )
@@ -233,7 +233,6 @@ async def agent_properties_get(
             if active_lease:
                 lease_data = serialize_lease(active_lease)
                 if active_lease.tenant_user_id:
-                    from app.services.user import get_user_by_id
                     tenant = await get_user_by_id(db, active_lease.tenant_user_id)
                     if tenant:
                         tenant_data = serialize_user_basic(tenant)
@@ -252,7 +251,7 @@ async def agent_properties_get(
 
 
 @admin_mcp.tool(
-    "agent.properties.create_for_owner",
+    "agent_properties_create_for_owner",
     annotations={
         "title": "Create Property For Owner",
         "readOnlyHint": False,
@@ -306,7 +305,7 @@ async def agent_properties_create_for_owner(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.properties.create_for_owner",
+                    action="agent_properties_create_for_owner",
                     message="Please log in to create a property for an owner.",
                     scope="mcp:write",
                 )
@@ -370,7 +369,7 @@ async def agent_properties_create_for_owner(
 
 
 @admin_mcp.tool(
-    "agent.properties.verify",
+    "agent_properties_verify",
     annotations={
         "title": "Verify Property Listing",
         "readOnlyHint": False,
@@ -394,7 +393,7 @@ async def agent_properties_verify(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.properties.verify",
+                    action="agent_properties_verify",
                     message="Please log in to verify a property listing.",
                     scope="mcp:write",
                 )
@@ -453,7 +452,7 @@ async def agent_properties_verify(
 
 
 @admin_mcp.tool(
-    "agent.leases.list",
+    "agent_leases_list",
     annotations={
         "title": "List Leases",
         "readOnlyHint": True,
@@ -488,7 +487,7 @@ async def agent_leases_list(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.leases.list",
+                    action="agent_leases_list",
                     message="Please log in to list leases.",
                     scope="mcp:read",
                 )
@@ -550,7 +549,7 @@ async def agent_leases_list(
 
 
 @admin_mcp.tool(
-    "agent.leases.create",
+    "agent_leases_create",
     annotations={
         "title": "Create Lease",
         "readOnlyHint": False,
@@ -600,7 +599,7 @@ async def agent_leases_create(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.leases.create",
+                    action="agent_leases_create",
                     message="Please log in to create a lease.",
                     scope="mcp:write",
                 )
@@ -667,7 +666,7 @@ async def agent_leases_create(
 
 
 @admin_mcp.tool(
-    "agent.leases.terminate",
+    "agent_leases_terminate",
     annotations={
         "title": "Terminate Lease",
         "readOnlyHint": False,
@@ -701,7 +700,7 @@ async def agent_leases_terminate(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.leases.terminate",
+                    action="agent_leases_terminate",
                     message="Please log in to terminate a lease.",
                     scope="mcp:write",
                 )
@@ -760,7 +759,7 @@ async def agent_leases_terminate(
 
 
 @admin_mcp.tool(
-    "agent.rent.list_due",
+    "agent_rent_list_due",
     annotations={
         "title": "List Overdue Rent",
         "readOnlyHint": True,
@@ -794,7 +793,7 @@ async def agent_rent_list_due(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.rent.list_due",
+                    action="agent_rent_list_due",
                     message="Please log in to view overdue rent.",
                     scope="mcp:read",
                 )
@@ -875,7 +874,7 @@ async def agent_rent_list_due(
 
 
 @admin_mcp.tool(
-    "agent.rent.record_payment",
+    "agent_rent_record_payment",
     annotations={
         "title": "Record Rent Payment",
         "readOnlyHint": False,
@@ -916,7 +915,7 @@ async def agent_rent_record_payment(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.rent.record_payment",
+                    action="agent_rent_record_payment",
                     message="Please log in to record a rent payment.",
                     scope="mcp:write",
                 )
@@ -947,10 +946,10 @@ async def agent_rent_record_payment(
             # Create payment record
             payment = RentPayment(
                 lease_id=lease_id,
-                amount=amount,
-                payment_date=pay_date,
+                amount_paid=amount,
+                paid_at=pay_date,
                 payment_method=payment_method.lower(),
-                transaction_reference=transaction_reference,
+                reference=transaction_reference,
                 notes=notes,
                 recorded_by_user_id=user.id,
                 status="completed",
@@ -965,8 +964,8 @@ async def agent_rent_record_payment(
                 "payment": {
                     "id": payment.id,
                     "lease_id": payment.lease_id,
-                    "amount": float(payment.amount),
-                    "payment_date": payment.payment_date.isoformat(),
+                    "amount": float(payment.amount_paid),
+                    "payment_date": payment.paid_at.isoformat() if payment.paid_at else None,
                     "payment_method": payment.payment_method,
                     "status": payment.status,
                 },
@@ -984,7 +983,7 @@ async def agent_rent_record_payment(
 
 
 @admin_mcp.tool(
-    "agent.maintenance.list",
+    "agent_maintenance_list",
     annotations={
         "title": "List Maintenance Requests",
         "readOnlyHint": True,
@@ -1019,7 +1018,7 @@ async def agent_maintenance_list(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.maintenance.list",
+                    action="agent_maintenance_list",
                     message="Please log in to view maintenance requests.",
                     scope="mcp:read",
                 )
@@ -1085,7 +1084,7 @@ async def agent_maintenance_list(
 
 
 @admin_mcp.tool(
-    "agent.maintenance.update_status",
+    "agent_maintenance_update_status",
     annotations={
         "title": "Update Maintenance Status",
         "readOnlyHint": False,
@@ -1129,7 +1128,7 @@ async def agent_maintenance_update_status(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.maintenance.update_status",
+                    action="agent_maintenance_update_status",
                     message="Please log in to update maintenance status.",
                     scope="mcp:write",
                 )
@@ -1219,7 +1218,7 @@ async def agent_maintenance_update_status(
 
 
 @admin_mcp.tool(
-    "agent.bookings.list_all",
+    "agent_bookings_list_all",
     annotations={
         "title": "List All Bookings",
         "readOnlyHint": True,
@@ -1249,7 +1248,7 @@ async def agent_bookings_list_all(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.bookings.list_all",
+                    action="agent_bookings_list_all",
                     message="Please log in to view bookings.",
                     scope="mcp:read",
                 )
@@ -1298,7 +1297,7 @@ async def agent_bookings_list_all(
 
 
 @admin_mcp.tool(
-    "agent.bookings.update_status",
+    "agent_bookings_update_status",
     annotations={
         "title": "Update Booking Status",
         "readOnlyHint": False,
@@ -1326,7 +1325,7 @@ async def agent_bookings_update_status(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.bookings.update_status",
+                    action="agent_bookings_update_status",
                     message="Please log in to update a booking status.",
                     scope="mcp:write",
                 )
@@ -1369,7 +1368,7 @@ async def agent_bookings_update_status(
 
 
 @admin_mcp.tool(
-    "agent.dashboard.overview",
+    "agent_dashboard_overview",
     annotations={
         "title": "Agent Dashboard Overview",
         "readOnlyHint": True,
@@ -1396,7 +1395,7 @@ async def agent_dashboard_overview(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="agent.dashboard.overview",
+                    action="agent_dashboard_overview",
                     message="Please log in to view the agent dashboard.",
                     scope="mcp:read",
                 )
@@ -1495,7 +1494,7 @@ async def agent_dashboard_overview(
 
 
 @admin_mcp.tool(
-    "admin.system.status",
+    "admin_system_status",
     annotations={
         "title": "Admin System Status",
         "readOnlyHint": True,

@@ -16,7 +16,7 @@ class PropertyImageBase(BaseModel):
     image_url: str
     caption: Optional[str] = None
     image_category: ImageCategory = ImageCategory.others
-    display_order: int = 0
+    display_order: Optional[int] = None
     is_main_image: bool = False
 
 class PropertyImageCreate(PropertyImageBase):
@@ -146,6 +146,10 @@ class PropertyUpdate(BaseModel):
     amenity_ids: Optional[List[int]] = None
     features: Optional[List[str]] = None
     calendar_data: Optional[Dict[str, Any]] = None
+    main_image_url: Optional[str] = None
+    virtual_tour_url: Optional[str] = None
+    floor_plan_url: Optional[str] = None
+    video_tour_url: Optional[str] = None
     video_urls: Optional[List[str]] = None
     google_street_view_url: Optional[str] = None
 
@@ -276,6 +280,7 @@ class UnifiedPropertyFilter(BaseModel):
     # Text search field
     search_query: Optional[str] = None
     
+    property_ids: Optional[List[int]] = None
     property_type: Optional[List[PropertyType]] = None
     purpose: Optional[PropertyPurpose] = None
     price_min: Optional[float] = None

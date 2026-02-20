@@ -15,7 +15,7 @@ from app.services.pm_leases import create_lease, get_lease, list_leases, renew_l
 router = APIRouter()
 
 
-@router.post("/", response_model=LeaseSchema)
+@router.post("", response_model=LeaseSchema)
 async def create_pm_lease(
     payload: LeaseCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -55,7 +55,7 @@ async def create_pm_lease(
     return LeaseSchema.model_validate(lease)
 
 
-@router.get("/", response_model=list[LeaseSchema])
+@router.get("", response_model=list[LeaseSchema])
 async def list_pm_leases(
     owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
     property_id: Optional[int] = Query(None),

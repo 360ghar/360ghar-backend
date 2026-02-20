@@ -80,7 +80,7 @@ export interface OpenAiApi extends OpenAiGlobals {
 
 declare global {
   interface Window {
-    openai: OpenAiApi;
+    openai?: OpenAiApi;
   }
 }
 

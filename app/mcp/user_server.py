@@ -17,6 +17,7 @@ from app.mcp.apps_sdk import (
     AppsSDKFastMCP,
     AuthRequiredError,
     MCP_SECURITY_SCHEMES_MIXED,
+    build_widget_tool_meta,
     raise_auth_required,
 )
 
@@ -61,33 +62,29 @@ logger = get_logger(__name__)
 user_mcp = AppsSDKFastMCP("ghar360-user")
 
 # ChatGPT widget linkage metadata (used by Apps SDK)
-OWNER_DASHBOARD_META = {
-    "openai/outputTemplate": "ui://widget/ownerdashboardwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading your properties...",
-    "openai/toolInvocation/invoked": "Properties loaded",
-}
+OWNER_DASHBOARD_META = build_widget_tool_meta(
+    widget_uri="ui://widget/ownerdashboardwidget.html",
+    invoking="Loading your properties...",
+    invoked="Properties loaded",
+)
 
-LEASE_DETAILS_META = {
-    "openai/outputTemplate": "ui://widget/leasedetailswidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading lease details...",
-    "openai/toolInvocation/invoked": "Lease details loaded",
-}
+LEASE_DETAILS_META = build_widget_tool_meta(
+    widget_uri="ui://widget/leasedetailswidget.html",
+    invoking="Loading lease details...",
+    invoked="Lease details loaded",
+)
 
-MAINTENANCE_WIDGET_META = {
-    "openai/outputTemplate": "ui://widget/maintenancewidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading maintenance requests...",
-    "openai/toolInvocation/invoked": "Maintenance requests loaded",
-}
+MAINTENANCE_WIDGET_META = build_widget_tool_meta(
+    widget_uri="ui://widget/maintenancewidget.html",
+    invoking="Loading maintenance requests...",
+    invoked="Maintenance requests loaded",
+)
 
-TENANT_RENT_WIDGET_META = {
-    "openai/outputTemplate": "ui://widget/tenantrentwidget.html",
-    "openai/widgetAccessible": True,
-    "openai/toolInvocation/invoking": "Loading your rent information...",
-    "openai/toolInvocation/invoked": "Rent information loaded",
-}
+TENANT_RENT_WIDGET_META = build_widget_tool_meta(
+    widget_uri="ui://widget/tenantrentwidget.html",
+    invoking="Loading your rent information...",
+    invoked="Rent information loaded",
+)
 
 
 async def _get_user(db):
@@ -113,7 +110,7 @@ def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write
 
 
 @user_mcp.tool(
-    "owner.properties.list",
+    "owner_properties_list",
     annotations={
         "title": "List My Properties",
         "readOnlyHint": True,
@@ -146,7 +143,7 @@ async def owner_properties_list(
                     scope="mcp:read",
                     structured_content={
                         "requires_auth": True,
-                        "action": "owner.properties.list",
+                        "action": "owner_properties_list",
                     },
                 )
 
@@ -220,7 +217,7 @@ async def owner_properties_list(
 
 
 @user_mcp.tool(
-    "owner.properties.create",
+    "owner_properties_create",
     annotations={
         "title": "Create Property Listing",
         "readOnlyHint": False,
@@ -289,7 +286,7 @@ async def owner_properties_create(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="owner.properties.create",
+                    action="owner_properties_create",
                     message="Please log in to create a property listing.",
                     scope="mcp:write",
                 )
@@ -335,6 +332,17 @@ async def owner_properties_create(
                 owner_id=user.id,
                 property_data=property_data,
             )
+
+            # Handle amenities if provided
+            if amenity_ids:
+                from app.models.properties import PropertyAmenity
+                for amenity_id in amenity_ids:
+                    property_amenity = PropertyAmenity(
+                        property_id=prop.id,
+                        amenity_id=amenity_id
+                    )
+                    db.add(property_amenity)
+
             await db.commit()
 
             return MCPResponse.success({
@@ -351,7 +359,7 @@ async def owner_properties_create(
 
 
 @user_mcp.tool(
-    "owner.properties.get",
+    "owner_properties_get",
     annotations={
         "title": "Get Property Details (Owner)",
         "readOnlyHint": True,
@@ -371,7 +379,7 @@ async def owner_properties_get(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="owner.properties.get",
+                    action="owner_properties_get",
                     message="Please log in to view this property.",
                     scope="mcp:read",
                 )
@@ -414,7 +422,7 @@ async def owner_properties_get(
 
 
 @user_mcp.tool(
-    "owner.properties.update",
+    "owner_properties_update",
     annotations={
         "title": "Update Property Listing",
         "readOnlyHint": False,
@@ -443,7 +451,7 @@ async def owner_properties_update(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="owner.properties.update",
+                    action="owner_properties_update",
                     message="Please log in to update a property listing.",
                     scope="mcp:write",
                 )
@@ -497,7 +505,7 @@ async def owner_properties_update(
 
 
 @user_mcp.tool(
-    "owner.properties.toggle_availability",
+    "owner_properties_toggle_availability",
     annotations={
         "title": "Toggle Property Availability",
         "readOnlyHint": False,
@@ -519,7 +527,7 @@ async def owner_properties_toggle_availability(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="owner.properties.toggle_availability",
+                    action="owner_properties_toggle_availability",
                     message="Please log in to update property availability.",
                     scope="mcp:write",
                 )
@@ -562,7 +570,7 @@ async def owner_properties_toggle_availability(
 
 
 @user_mcp.tool(
-    "tenant.lease.current",
+    "tenant_lease_current",
     annotations={
         "title": "View My Current Lease",
         "readOnlyHint": True,
@@ -581,7 +589,7 @@ async def tenant_lease_current() -> Dict[str, Any]:
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="tenant.lease.current",
+                    action="tenant_lease_current",
                     message="Please log in to view your lease details.",
                     scope="mcp:read",
                 )
@@ -635,7 +643,7 @@ async def tenant_lease_current() -> Dict[str, Any]:
 
 
 @user_mcp.tool(
-    "tenant.rent.history",
+    "tenant_rent_history",
     annotations={
         "title": "View My Rent Payment History",
         "readOnlyHint": True,
@@ -659,7 +667,7 @@ async def tenant_rent_history(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="tenant.rent.history",
+                    action="tenant_rent_history",
                     message="Please log in to view your rent payment history.",
                     scope="mcp:read",
                 )
@@ -722,7 +730,7 @@ async def tenant_rent_history(
 
 
 @user_mcp.tool(
-    "tenant.maintenance.create",
+    "tenant_maintenance_create",
     annotations={
         "title": "Create Maintenance Request",
         "readOnlyHint": False,
@@ -788,7 +796,7 @@ async def tenant_maintenance_create(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="tenant.maintenance.create",
+                    action="tenant_maintenance_create",
                     message="Please log in to submit a maintenance request.",
                     scope="mcp:write",
                 )
@@ -841,7 +849,7 @@ async def tenant_maintenance_create(
 
 
 @user_mcp.tool(
-    "tenant.maintenance.list",
+    "tenant_maintenance_list",
     annotations={
         "title": "List My Maintenance Requests",
         "readOnlyHint": True,
@@ -872,7 +880,7 @@ async def tenant_maintenance_list(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="tenant.maintenance.list",
+                    action="tenant_maintenance_list",
                     message="Please log in to view your maintenance requests.",
                     scope="mcp:read",
                 )
@@ -938,7 +946,7 @@ async def tenant_maintenance_list(
 
 
 @user_mcp.tool(
-    "bookings.create",
+    "bookings_create",
     annotations={
         "title": "Create Booking",
         "readOnlyHint": False,
@@ -976,7 +984,7 @@ async def bookings_create(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="bookings.create",
+                    action="bookings_create",
                     message="Please log in to create a booking.",
                     scope="mcp:write",
                 )
@@ -1016,7 +1024,7 @@ async def bookings_create(
 
 
 @user_mcp.tool(
-    "bookings.list",
+    "bookings_list",
     annotations={
         "title": "List My Bookings",
         "readOnlyHint": True,
@@ -1042,7 +1050,7 @@ async def bookings_list(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="bookings.list",
+                    action="bookings_list",
                     message="Please log in to view your bookings.",
                     scope="mcp:read",
                 )
@@ -1078,7 +1086,7 @@ async def bookings_list(
 
 
 @user_mcp.tool(
-    "bookings.get",
+    "bookings_get",
     annotations={
         "title": "Get Booking Details",
         "readOnlyHint": True,
@@ -1098,7 +1106,7 @@ async def bookings_get(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="bookings.get",
+                    action="bookings_get",
                     message="Please log in to view this booking.",
                     scope="mcp:read",
                 )
@@ -1136,7 +1144,7 @@ async def bookings_get(
 
 
 @user_mcp.tool(
-    "bookings.cancel",
+    "bookings_cancel",
     annotations={
         "title": "Cancel Booking",
         "readOnlyHint": False,
@@ -1159,7 +1167,7 @@ async def bookings_cancel(
             user = await _get_user(db)
             if not user:
                 _require_auth(
-                    action="bookings.cancel",
+                    action="bookings_cancel",
                     message="Please log in to cancel a booking.",
                     scope="mcp:write",
                 )
@@ -1201,7 +1209,7 @@ async def bookings_cancel(
 
 
 @user_mcp.tool(
-    "bookings.check_availability",
+    "bookings_check_availability",
     annotations={
         "title": "Check Booking Availability",
         "readOnlyHint": True,
@@ -1241,7 +1249,7 @@ async def bookings_check_availability(
 
 
 @user_mcp.tool(
-    "bookings.get_pricing",
+    "bookings_get_pricing",
     annotations={
         "title": "Get Booking Pricing",
         "readOnlyHint": True,
@@ -1296,7 +1304,7 @@ async def bookings_get_pricing(
 
 
 @user_mcp.tool(
-    "user.system.status",
+    "user_system_status",
     annotations={
         "title": "System Status",
         "readOnlyHint": True,

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 from typing import Optional, Dict, Any, List, TYPE_CHECKING
 from datetime import date, datetime
+from app.models.enums import PropertyPurpose, PropertyType
 from app.utils.validators import ValidationUtils
 
 if TYPE_CHECKING:
@@ -122,8 +123,8 @@ class TokenData(BaseModel):
     phone: Optional[str] = None
 
 class UserPreferences(BaseModel):
-    property_type: Optional[List[str]] = None  # house, apartment, builder_floor, room
-    purpose: Optional[str] = None  # buy, rent, short_stay
+    property_type: Optional[List[PropertyType]] = None
+    purpose: Optional[PropertyPurpose] = None
     budget_min: Optional[float] = None
     budget_max: Optional[float] = None
     bedrooms_min: Optional[int] = None

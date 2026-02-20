@@ -9,7 +9,7 @@ This module provides REST API endpoints for AI-powered features:
 """
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -29,6 +29,7 @@ from app.schemas.tour import (
     TourOptimizationResponse,
 )
 from app.services import tour_ai
+from app.services.storage import storage_service
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -64,13 +65,70 @@ async def analyze_tour_scenes(
 
 @router.post("/tours/generate", response_model=TourGenerationResponse)
 async def generate_tour(
-    payload: TourGenerationRequest,
+    images: List[UploadFile] = File(..., description="360 panorama images to create tour from"),
+    title: Optional[str] = Form(None, max_length=255, description="Tour title"),
+    description: Optional[str] = Form(None, max_length=5000, description="Tour description"),
+    auto_detect_rooms: bool = Form(True, description="Automatically detect room types"),
+    auto_place_hotspots: bool = Form(False, description="Automatically suggest hotspot placements"),
+    auto_generate_descriptions: bool = Form(True, description="Generate AI descriptions for scenes"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """
-    Generate a new tour from uploaded scenes using AI.
+    Generate a new tour from uploaded 360 images using AI.
+
+    Accepts multipart/form-data with image files and tour options.
+    Images are uploaded to storage and then processed by AI to:
+    - Detect room types
+    - Generate scene titles and descriptions
+    - Optionally suggest hotspot placements
     """
+    if not images:
+        raise HTTPException(status_code=400, detail="At least one image is required")
+
+    # Validate image files
+    allowed_types = {"image/jpeg", "image/png", "image/webp"}
+    for img in images:
+        if img.content_type not in allowed_types:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid file type: {img.content_type}. Allowed: {', '.join(allowed_types)}"
+            )
+
+    # Upload images to storage
+    upload_results = await storage_service.upload_batch(
+        images,
+        db=db,
+        user_id=current_user.id,
+        folder="scenes",
+        visibility="private",
+    )
+
+    # Extract image URLs from upload results
+    image_urls = []
+    for result in upload_results:
+        url = result.get("url") or result.get("public_url")
+        if url:
+            image_urls.append(url)
+        else:
+            logger.warning(f"Upload result missing URL: {result}")
+
+    if not image_urls:
+        raise HTTPException(status_code=500, detail="Failed to upload images")
+
+    # Generate a default title if not provided
+    tour_title = title if title else f"AI Generated Tour ({len(images)} scenes)"
+
+    # Create TourGenerationRequest with uploaded image URLs
+    payload = TourGenerationRequest(
+        title=tour_title,
+        description=description,
+        image_urls=image_urls,
+        generate_titles=auto_detect_rooms,
+        generate_descriptions=auto_generate_descriptions,
+        suggest_hotspots=auto_place_hotspots,
+    )
+
     job, tour, scene_ids = await tour_ai.generate_tour(
         db=db,
         user_id=current_user.id,

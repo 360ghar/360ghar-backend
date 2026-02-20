@@ -247,7 +247,9 @@ async def update_user_preferences(db: AsyncSession, user_id: int, preferences: d
     try:
         user = await db.get(User, user_id)
         if user:
-            user.preferences = preferences
+            current_preferences = user.preferences if isinstance(user.preferences, dict) else {}
+            incoming_preferences = {k: v for k, v in preferences.items() if v is not None}
+            user.preferences = {**current_preferences, **incoming_preferences}
             await db.flush()
             await db.refresh(user)
             logger.info(f"Preferences updated for user {user_id}")

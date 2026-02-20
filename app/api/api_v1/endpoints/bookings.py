@@ -25,7 +25,41 @@ from app.services.notification_dispatcher import dispatch_notification_to_user
 
 router = APIRouter()
 
-@router.post("/", response_model=Booking)
+
+async def _agent_can_access_booking(
+    current_user: UserSchema,
+    booking: Booking,
+    db: AsyncSession,
+) -> bool:
+    if current_user.role != UserRole.agent.value or current_user.agent_id is None:
+        return False
+
+    from app.models.properties import Property
+    from app.models.users import User as UserModel
+
+    booking_user = await db.get(UserModel, booking.user_id)
+    property_obj = await db.get(Property, booking.property_id)
+    owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
+
+    return bool(
+        (booking_user and booking_user.agent_id == current_user.agent_id)
+        or (owner and owner.agent_id == current_user.agent_id)
+    )
+
+
+async def _can_access_booking(
+    current_user: UserSchema,
+    booking: Booking,
+    db: AsyncSession,
+) -> bool:
+    if booking.user_id == current_user.id:
+        return True
+    if current_user.role == UserRole.admin.value:
+        return True
+    return await _agent_can_access_booking(current_user, booking, db)
+
+
+@router.post("", response_model=Booking)
 async def create_new_booking(
     booking: BookingCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -33,14 +67,14 @@ async def create_new_booking(
 ):
     return await create_booking(db, current_user.id, booking)
 
-@router.get("/", response_model=BookingList)
+@router.get("", response_model=BookingList)
 async def get_my_bookings(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     return await get_user_bookings(db, current_user.id)
 
-@router.get("/upcoming/")
+@router.get("/upcoming")
 async def get_upcoming_bookings(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -48,7 +82,7 @@ async def get_upcoming_bookings(
     from app.services.booking import get_user_upcoming_bookings
     return await get_user_upcoming_bookings(db, current_user.id)
 
-@router.get("/past/")
+@router.get("/past")
 async def get_past_bookings(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -56,7 +90,7 @@ async def get_past_bookings(
     from app.services.booking import get_user_past_bookings
     return await get_user_past_bookings(db, current_user.id)
 
-@router.post("/check-availability/")
+@router.post("/check-availability")
 async def check_booking_availability(
     availability_check: BookingAvailability,
     db: AsyncSession = Depends(get_db)
@@ -69,7 +103,7 @@ async def check_booking_availability(
         availability_check.guests
     )
 
-@router.post("/calculate-pricing/")
+@router.post("/calculate-pricing")
 async def calculate_booking_pricing(
     pricing_request: BookingAvailability,
     db: AsyncSession = Depends(get_db)
@@ -91,11 +125,10 @@ async def get_booking_details(
     booking = await get_booking(db, booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
-    # Check if booking belongs to current user
-    if booking.user_id != current_user.id:
+
+    if not await _can_access_booking(current_user, booking, db):
         raise HTTPException(status_code=403, detail="Access denied")
-    
+
     return booking
 
 @router.put("/{booking_id}", response_model=Booking)
@@ -115,7 +148,7 @@ async def update_booking_details(
     
     return await update_booking(db, booking_id, booking_update)
 
-@router.post("/cancel/", response_model=MessageResponse)
+@router.post("/cancel", response_model=MessageResponse)
 async def cancel_booking_request(
     cancel_data: BookingCancel,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -135,7 +168,7 @@ async def cancel_booking_request(
     
     return MessageResponse(message="Booking cancelled successfully")
 
-@router.post("/payment/", response_model=MessageResponse)
+@router.post("/payment", response_model=MessageResponse)
 async def process_booking_payment(
     payment_data: BookingPayment,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -144,23 +177,10 @@ async def process_booking_payment(
     booking = await get_booking(db, payment_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
-    # Check ownership or agent permission
-    if booking.user_id != current_user.id:
-        if current_user.role != UserRole.agent.value:
-            raise HTTPException(status_code=403, detail="Access denied")
-        # Agent is allowed only if they manage the booking's user or the property's owner
-        from app.models.users import User as UserModel
-        from app.models.properties import Property
-        booking_user = await db.get(UserModel, booking.user_id)
-        property_obj = await db.get(Property, booking.property_id)
-        owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
-        if current_user.agent_id is None or not (
-            (booking_user and booking_user.agent_id == current_user.agent_id) or
-            (owner and owner.agent_id == current_user.agent_id)
-        ):
-            raise HTTPException(status_code=403, detail="Agent not authorized for this booking")
-    
+
+    if not await _can_access_booking(current_user, booking, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     success = await process_payment(db, payment_data)
     if not success:
         raise HTTPException(status_code=400, detail="Payment processing failed")
@@ -185,7 +205,7 @@ async def process_booking_payment(
 
     return MessageResponse(message="Payment processed successfully")
 
-@router.post("/review/", response_model=MessageResponse)
+@router.post("/review", response_model=MessageResponse)
 async def add_booking_review(
     review_data: BookingReview,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -194,23 +214,10 @@ async def add_booking_review(
     booking = await get_booking(db, review_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
-    # Check ownership or agent permission
-    if booking.user_id != current_user.id:
-        if current_user.role != UserRole.agent.value:
-            raise HTTPException(status_code=403, detail="Access denied")
-        # Agent is allowed only if they manage the booking's user or the property's owner
-        from app.models.users import User as UserModel
-        from app.models.properties import Property
-        booking_user = await db.get(UserModel, booking.user_id)
-        property_obj = await db.get(Property, booking.property_id)
-        owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
-        if current_user.agent_id is None or not (
-            (booking_user and booking_user.agent_id == current_user.agent_id) or
-            (owner and owner.agent_id == current_user.agent_id)
-        ):
-            raise HTTPException(status_code=403, detail="Agent not authorized for this booking")
-    
+
+    if not await _can_access_booking(current_user, booking, db):
+        raise HTTPException(status_code=403, detail="Access denied")
+
     success = await add_review(db, review_data)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add review")
@@ -218,7 +225,7 @@ async def add_booking_review(
     return MessageResponse(message="Review added successfully")
 
 
-@router.get("/all/", response_model=BookingList)
+@router.get("/all", response_model=BookingList)
 async def list_all_bookings(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
