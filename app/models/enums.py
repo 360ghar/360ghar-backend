@@ -14,6 +14,8 @@ class PropertyType(str, Enum):
     penthouse = "penthouse"
     studio = "studio"
     loft = "loft"
+    pg = "pg"
+    flatmate = "flatmate"
 
 class PropertyPurpose(str, Enum):
     buy = "buy"
