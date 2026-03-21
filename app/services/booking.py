@@ -23,6 +23,17 @@ async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate)
     if nights <= 0:
         raise HTTPException(status_code=400, detail="Invalid date range: check-out must be after check-in")
 
+    # Check availability before creating the booking
+    availability = await check_availability(
+        db,
+        booking_data["property_id"],
+        booking_data["check_in_date"].isoformat() if hasattr(booking_data["check_in_date"], 'isoformat') else str(booking_data["check_in_date"]),
+        booking_data["check_out_date"].isoformat() if hasattr(booking_data["check_out_date"], 'isoformat') else str(booking_data["check_out_date"]),
+        booking_data["guests"],
+    )
+    if not availability.get("available", False):
+        raise HTTPException(status_code=400, detail=availability.get("reason", "Property not available for these dates"))
+
     # Calculate pricing before creating the booking
     pricing = await calculate_pricing(
         db,
@@ -169,11 +180,11 @@ async def check_availability(db: AsyncSession, property_id: int, check_in_date: 
     check_in = datetime.fromisoformat(check_in_date)
     check_out = datetime.fromisoformat(check_out_date)
     
-    # Check for overlapping bookings
+    # Check for overlapping bookings (include pending to prevent double-booking)
     stmt = select(Booking).where(
         and_(
             Booking.property_id == property_id,
-            Booking.booking_status.in_(["confirmed", "checked_in"]),
+            Booking.booking_status.in_(["pending", "confirmed", "checked_in"]),
             # Check for date overlap
             Booking.check_in_date < check_out,
             Booking.check_out_date > check_in
@@ -219,6 +230,9 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
     # Choose a per-night rate: prefer daily_rate, else fall back to base_price
     per_night_rate = property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
     per_night_rate = float(per_night_rate or 0.0)
+
+    if per_night_rate <= 0:
+        return {"error": "Property has no valid rate configured"}
 
     base_amount = per_night_rate * nights
 

@@ -156,6 +156,21 @@ async def update_maintenance_request(
             raise InsufficientPermissionsError("Only the owner can update this request")
 
     if request_status is not None:
+        # Validate status transition
+        ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+            "open": {"in_progress", "closed"},
+            "in_progress": {"resolved", "on_hold", "closed"},
+            "on_hold": {"in_progress", "closed"},
+            "resolved": {"closed", "open"},
+            "closed": set(),
+        }
+        current = req.request_status.value if hasattr(req.request_status, "value") else str(req.request_status)
+        target = request_status.value if hasattr(request_status, "value") else str(request_status)
+        allowed = ALLOWED_TRANSITIONS.get(current, set())
+        if target not in allowed:
+            raise BadRequestException(
+                detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
+            )
         req.request_status = request_status
     if assigned_agent_id is not None:
         req.assigned_agent_id = assigned_agent_id

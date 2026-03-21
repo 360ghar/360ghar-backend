@@ -8,10 +8,12 @@ from sqlalchemy import (
     Integer,
     bindparam,
     MetaData,
+    cast,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
+from sqlalchemy.dialects.postgresql import JSONB
 from pgvector.sqlalchemy import Vector
 from app.models.properties import Property, PropertyAmenity, Amenity
 from app.models.users import User as UserModel
@@ -26,12 +28,13 @@ from app.schemas.user import User as UserSchema
 from app.core.logging import get_logger
 from app.core.cache import PropertyCacheManager
 from app.core.exceptions import (
+    BadRequestException,
     PropertyNotFoundException,
     PropertyOwnershipError,
     InsufficientPermissionsError,
     UserNotFoundException,
 )
-from app.models.enums import UserRole
+from app.models.enums import PropertyPurpose, PropertyType, UserRole
 from app.repositories.property_repository import PropertyRepository
 from app.vector.embedding_client import embed_query
 
@@ -49,6 +52,7 @@ VECTOR_WEIGHT = 0.6
 TEXT_WEIGHT = 0.4
 
 logger = get_logger(__name__)
+PG_FLATMATE_TYPES = {PropertyType.pg, PropertyType.flatmate}
 
 
 def _get_actor_role(actor: UserSchema) -> UserRole:
@@ -60,6 +64,11 @@ def _get_actor_role(actor: UserSchema) -> UserRole:
             "Unknown user role provided", extra={"user_id": actor.id, "role": actor.role}
         )
         return UserRole.user
+
+
+def _validate_listing_contract(property_type: PropertyType, purpose: PropertyPurpose) -> None:
+    if property_type in PG_FLATMATE_TYPES and purpose != PropertyPurpose.rent:
+        raise BadRequestException(detail="PG and flatmate listings must use purpose 'rent'")
 
 async def create_property(
     db: AsyncSession,
@@ -97,6 +106,8 @@ async def create_property(
                     owner_id=owner_id,
                     actor_id=actor.id,
                 )
+
+        _validate_listing_contract(property_data.property_type, property_data.purpose)
 
         property_dict = property_data.model_dump(exclude_unset=True)
         property_dict["owner_id"] = owner_id
@@ -193,8 +204,11 @@ async def update_property(
                     owner_id=property_obj.owner_id,
                     actor_id=actor.id,
                 )
-        
+
         update_data = property_update.model_dump(exclude_unset=True)
+        final_property_type = update_data.get("property_type", property_obj.property_type)
+        final_purpose = update_data.get("purpose", property_obj.purpose)
+        _validate_listing_contract(final_property_type, final_purpose)
 
         # Handle location update
         if 'latitude' in update_data or 'longitude' in update_data:
@@ -249,6 +263,35 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
                     owner_id=property_obj.owner_id,
                     actor_id=actor.id,
                 )
+
+        # Pre-check: block deletion if active bookings, visits, or leases reference this property
+        from app.models.bookings import Booking
+        from app.models.visits import Visit
+        active_booking = (await db.execute(
+            select(Booking.id).where(
+                Booking.property_id == property_id,
+                Booking.booking_status.in_(["pending", "confirmed", "checked_in"]),
+            ).limit(1)
+        )).scalar_one_or_none()
+        if active_booking:
+            raise BadRequestException(detail="Cannot delete property with active bookings")
+
+        active_visit = (await db.execute(
+            select(Visit.id).where(
+                Visit.property_id == property_id,
+                Visit.status.in_(["scheduled", "confirmed"]),
+            ).limit(1)
+        )).scalar_one_or_none()
+        if active_visit:
+            raise BadRequestException(detail="Cannot delete property with upcoming visits")
+
+        # Clean up swipes referencing this property
+        from app.models.users import UserSwipe
+        await db.execute(
+            select(UserSwipe).where(UserSwipe.property_id == property_id)
+        )
+        from sqlalchemy import delete as sa_delete
+        await db.execute(sa_delete(UserSwipe).where(UserSwipe.property_id == property_id))
 
         await db.delete(property_obj)
         await db.flush()
@@ -462,10 +505,25 @@ async def get_unified_properties_optimized(
                 )
                 conditions.append(Property.id.in_(amenity_subquery))
         
+        # Listing preference filters for PG / flatmate use cases
+        listing_preferences_json = cast(Property.listing_preferences, JSONB)
+        if filters.gender_preference is not None:
+            logger.debug(
+                "Adding gender preference filter: %s",
+                filters.gender_preference,
+            )
+            conditions.append(
+                listing_preferences_json["gender_preference"].astext == filters.gender_preference.value
+            )
+
+        if filters.sharing_type is not None:
+            logger.debug("Adding sharing type filter: %s", filters.sharing_type)
+            conditions.append(
+                listing_preferences_json["sharing_type"].astext == filters.sharing_type.value
+            )
+
         # Features filter - use PostgreSQL JSONB containment operator
         if filters.features:
-            from sqlalchemy.dialects.postgresql import JSONB
-            from sqlalchemy import cast, literal
             logger.debug(f"Adding features filter: {filters.features}")
             for feature in filters.features:
                 # Check if feature exists as a key with truthy value in JSONB

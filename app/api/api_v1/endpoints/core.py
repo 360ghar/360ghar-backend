@@ -1,7 +1,10 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -109,7 +112,7 @@ async def create_bug_report_with_media(
             media_urls.append(upload_result["public_url"])
         except Exception as e:
             # Log error but continue with other files
-            print(f"Failed to upload file {file.filename}: {str(e)}")
+            logger.error(f"Failed to upload file {file.filename}: {str(e)}")
             continue
 
     # Create bug report data

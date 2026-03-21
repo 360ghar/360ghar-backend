@@ -4,6 +4,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -78,8 +79,12 @@ async def create_lease(
         special_clauses=special_clauses,
         lease_document_id=lease_document_id,
     )
-    db.add(lease)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(lease)
+            await db.flush()
+    except IntegrityError:
+        raise BadRequestException(detail="Property already has an active lease (concurrent conflict)")
     await db.refresh(lease)
 
     # Mark property as managed and set convenience pointers when lease is active.

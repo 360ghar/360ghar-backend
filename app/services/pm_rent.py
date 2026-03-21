@@ -236,17 +236,16 @@ async def record_rent_payment(
     due_total = float(charge.amount_due or 0) + float(charge.late_fee_assessed or 0)
     outstanding = max(due_total - total_paid, 0.0)
 
+    today = date.today()
     if outstanding <= 0.0:
         charge.status = RentChargeStatus.paid
     elif total_paid > 0:
+        # Keep partial even if overdue — partial payment is more informative
         charge.status = RentChargeStatus.partial
+    elif today > charge.due_date:
+        charge.status = RentChargeStatus.overdue
     else:
         charge.status = RentChargeStatus.pending
-
-    # Mark overdue if due_date passed and still outstanding
-    today = date.today()
-    if outstanding > 0 and today > charge.due_date:
-        charge.status = RentChargeStatus.overdue
 
     await db.flush()
     return payment

@@ -255,14 +255,14 @@ async def undo_last_swipe(db: AsyncSession, user_id: int):
     last_swipe = result.scalar_one_or_none()
     
     if last_swipe:
-        # Update like count if it was liked
-        if last_swipe.is_liked:
-            stmt = update(Property).where(Property.id == last_swipe.property_id).values(
-                like_count=Property.like_count - 1
-            )
-            await db.execute(stmt)
-        
-        await db.delete(last_swipe)
+        # Use savepoint to ensure like count decrement + delete are atomic
+        async with db.begin_nested():
+            if last_swipe.is_liked:
+                stmt = update(Property).where(Property.id == last_swipe.property_id).values(
+                    like_count=Property.like_count - 1
+                )
+                await db.execute(stmt)
+            await db.delete(last_swipe)
         await db.flush()
         return last_swipe
     
@@ -275,18 +275,19 @@ async def toggle_swipe(db: AsyncSession, swipe_id: int, user_id: int):
     if swipe and swipe.user_id == user_id:
         old_status = swipe.is_liked
         swipe.is_liked = not old_status
-        
-        # Update property like count
-        if swipe.is_liked:
-            stmt = update(Property).where(Property.id == swipe.property_id).values(
-                like_count=Property.like_count + 1
-            )
-        else:
-            stmt = update(Property).where(Property.id == swipe.property_id).values(
-                like_count=Property.like_count - 1
-            )
-        await db.execute(stmt)
-        
+
+        # Use savepoint to ensure toggle + like count update are atomic
+        async with db.begin_nested():
+            if swipe.is_liked:
+                stmt = update(Property).where(Property.id == swipe.property_id).values(
+                    like_count=Property.like_count + 1
+                )
+            else:
+                stmt = update(Property).where(Property.id == swipe.property_id).values(
+                    like_count=Property.like_count - 1
+                )
+            await db.execute(stmt)
+
         await db.flush()
         return {"new_status": swipe.is_liked, "property_id": swipe.property_id}
     
