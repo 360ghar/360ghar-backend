@@ -253,3 +253,34 @@ class HotspotType(str, Enum):
     video = "video"
     link = "link"
     custom = "custom"
+
+
+# --------------------
+# Data Hub
+# --------------------
+
+class ScraperStatus(str, Enum):
+    running = "running"
+    success = "success"
+    partial = "partial"
+    failed = "failed"
+
+class AuctionSource(str, Enum):
+    sarfaesi = "sarfaesi"
+    ibapi = "ibapi"
+    mstc = "mstc"
+    drt = "drt"
+    ecourts = "ecourts"
+
+class GazetteType(str, Enum):
+    land_acquisition = "land_acquisition"
+    rate_revision = "rate_revision"
+    policy = "policy"
+    clu_change = "clu_change"
+
+class ComplaintNature(str, Enum):
+    delay = "delay"
+    quality = "quality"
+    refund = "refund"
+    compensation = "compensation"
+    other = "other"
