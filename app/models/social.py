@@ -1,9 +1,11 @@
 from datetime import date, datetime
-from typing import TYPE_CHECKING
+from enum import Enum
+from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -15,11 +17,58 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.core.database import Base
+from app.models.enums import (
+    ConversationSource,
+    ConversationStatus,
+    MessageType,
+    UserMatchStatus,
+    UserReportReason,
+    UserReportStatus,
+)
 
 if TYPE_CHECKING:
     from app.models.properties import Property
+
+
+SocialEnum = TypeVar("SocialEnum", bound=Enum)
+
+
+class EnumStringType(TypeDecorator[str]):
+    """Store str-backed enums as strings while validating ORM writes."""
+
+    impl = String
+    cache_ok = True
+
+    def __init__(self, enum_cls: type[SocialEnum], *, length: int = 32) -> None:
+        self.enum_cls = enum_cls
+        self.valid_values = frozenset(member.value for member in enum_cls)
+        super().__init__(length=length)
+
+    def process_bind_param(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        if isinstance(value, self.enum_cls):
+            return value.value
+        if isinstance(value, str) and value in self.valid_values:
+            return value
+        allowed = ", ".join(sorted(self.valid_values))
+        raise ValueError(
+            f"Invalid {self.enum_cls.__name__} value {value!r}; expected one of: {allowed}"
+        )
+
+    def process_result_value(self, value, dialect):  # noqa: ANN001
+        if value is None:
+            return None
+        return self.enum_cls(value)
+
+
+def enum_check_constraint(column_name: str, enum_cls: type[SocialEnum], name: str) -> CheckConstraint:
+    """Build a DB-level check constraint for a controlled enum value set."""
+    quoted_values = ", ".join(f"'{member.value}'" for member in enum_cls)
+    return CheckConstraint(f"{column_name} IN ({quoted_values})", name=name)
 
 
 class UserMatch(Base):
@@ -27,6 +76,7 @@ class UserMatch(Base):
     __table_args__ = (
         Index("idx_user_matches_unique_pair", "user_one_id", "user_two_id", unique=True),
         Index("idx_user_matches_status", "status"),
+        enum_check_constraint("status", UserMatchStatus, "ck_user_matches_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -36,7 +86,9 @@ class UserMatch(Base):
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
-    status: Mapped[str] = mapped_column(String(32), default="active")
+    status: Mapped[UserMatchStatus] = mapped_column(
+        EnumStringType(UserMatchStatus), default=UserMatchStatus.active
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -55,6 +107,8 @@ class UserConversation(Base):
     __table_args__ = (
         Index("idx_user_conversations_unique_pair", "user_one_id", "user_two_id", unique=True),
         Index("idx_user_conversations_last_message", "last_message_at"),
+        enum_check_constraint("source", ConversationSource, "ck_user_conversations_source"),
+        enum_check_constraint("status", ConversationStatus, "ck_user_conversations_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -65,8 +119,12 @@ class UserConversation(Base):
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
-    source: Mapped[str] = mapped_column(String(32), default="listing_interest")
-    status: Mapped[str] = mapped_column(String(32), default="active")
+    source: Mapped[ConversationSource] = mapped_column(
+        EnumStringType(ConversationSource), default=ConversationSource.listing_interest
+    )
+    status: Mapped[ConversationStatus] = mapped_column(
+        EnumStringType(ConversationStatus), default=ConversationStatus.active
+    )
     last_message_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     context_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -94,6 +152,7 @@ class UserMessage(Base):
     __table_args__ = (
         Index("idx_user_messages_conversation", "conversation_id", "created_at"),
         Index("idx_user_messages_unread", "conversation_id", "read_at"),
+        enum_check_constraint("message_type", MessageType, "ck_user_messages_message_type"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -103,7 +162,9 @@ class UserMessage(Base):
     sender_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    message_type: Mapped[str] = mapped_column(String(32), default="text")
+    message_type: Mapped[MessageType] = mapped_column(
+        EnumStringType(MessageType), default=MessageType.text
+    )
     message_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -152,6 +213,8 @@ class UserReport(Base):
     __table_args__ = (
         Index("idx_user_reports_reported_user", "reported_user_id", "status"),
         Index("idx_user_reports_reporter_user", "reporter_user_id", "created_at"),
+        enum_check_constraint("reason", UserReportReason, "ck_user_reports_reason"),
+        enum_check_constraint("status", UserReportStatus, "ck_user_reports_status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -165,8 +228,12 @@ class UserReport(Base):
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
-    reason: Mapped[str] = mapped_column(String(32), default="other")
-    status: Mapped[str] = mapped_column(String(32), default="open")
+    reason: Mapped[UserReportReason] = mapped_column(
+        EnumStringType(UserReportReason), default=UserReportReason.other
+    )
+    status: Mapped[UserReportStatus] = mapped_column(
+        EnumStringType(UserReportStatus), default=UserReportStatus.open
+    )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(

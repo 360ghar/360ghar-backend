@@ -8,7 +8,6 @@ so that Open Graph / Twitter metadata works for link unfurling.
 from __future__ import annotations
 
 import html
-from typing import Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -22,14 +21,13 @@ from app.core.database import get_db
 from app.models.enums import TourStatus
 from app.models.tours import Scene, Tour
 
-
 router = APIRouter()
 
 
 def _is_safe_absolute_url(url: str) -> bool:
     try:
         parsed = urlparse(url)
-    except Exception:
+    except ValueError:
         return False
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
@@ -46,7 +44,7 @@ def _get_frontend_base_url(request: Request) -> str:
 async def tour_share_preview(
     tour_id: str,
     request: Request,
-    redirect: Optional[str] = None,
+    redirect: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -67,7 +65,7 @@ async def tour_share_preview(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
     scenes = list(getattr(tour, "scenes", []) or [])
-    first_scene: Optional[Scene] = scenes[0] if scenes else None
+    first_scene: Scene | None = scenes[0] if scenes else None
 
     title = tour.title or "Virtual Tour"
     description = tour.description or "Explore this 360° virtual tour."
@@ -91,6 +89,12 @@ async def tour_share_preview(
     viewer_url_esc = html.escape(viewer_url)
     redirect_url_esc = html.escape(redirect_url)
     image_url_esc = html.escape(image_url)
+    og_image_meta = (
+        f'<meta property="og:image" content="{image_url_esc}" />' if image_url else ""
+    )
+    twitter_image_meta = (
+        f'<meta name="twitter:image" content="{image_url_esc}" />' if image_url else ""
+    )
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -105,12 +109,12 @@ async def tour_share_preview(
     <meta property="og:description" content="{desc_esc}" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="{share_url_esc}" />
-    {"<meta property=\"og:image\" content=\"" + image_url_esc + "\" />" if image_url else ""}
+    {og_image_meta}
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="{title_esc}" />
     <meta name="twitter:description" content="{desc_esc}" />
-    {"<meta name=\"twitter:image\" content=\"" + image_url_esc + "\" />" if image_url else ""}
+    {twitter_image_meta}
 
     <link rel="canonical" href="{viewer_url_esc}" />
 
@@ -126,4 +130,3 @@ async def tour_share_preview(
 """
 
     return HTMLResponse(content=html_doc)
-

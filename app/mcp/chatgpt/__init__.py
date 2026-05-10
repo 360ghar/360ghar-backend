@@ -17,25 +17,25 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any
 
 from fastmcp import FastMCP
 
-from app.core.logging import get_logger
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.mcp.apps_sdk import RESOURCE_MIME_TYPE
 
 logger = get_logger(__name__)
 
 # Populated at registration time with versioned URIs keyed by tool name.
-_TOOL_WIDGET_URIS: Dict[str, str] = {}
+_TOOL_WIDGET_URIS: dict[str, str] = {}
 
 # Widget directory (where built HTML bundles are stored)
 # Located at project_root/chatgpt-widgets/dist/
 WIDGET_DIR = Path(__file__).parent.parent.parent.parent / "chatgpt-widgets" / "dist"
 
 # Widget to tool mapping with metadata
-WIDGETS: Dict[str, Dict[str, Any]] = {
+WIDGETS: dict[str, dict[str, Any]] = {
     "PropertySearchWidget": {
         "tools": ["discovery_search", "guest_property_search", "guest_property_recommendations"],
         "title": "Property Search Results",
@@ -123,7 +123,7 @@ WIDGETS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def load_widget_html(widget_name: str) -> Optional[str]:
+def load_widget_html(widget_name: str) -> str | None:
     """Load widget HTML bundle from disk."""
     widget_path = WIDGET_DIR / f"{widget_name}.html"
     if widget_path.exists():
@@ -131,7 +131,7 @@ def load_widget_html(widget_name: str) -> Optional[str]:
     return None
 
 
-def get_widget_for_tool(tool_name: str) -> Optional[str]:
+def get_widget_for_tool(tool_name: str) -> str | None:
     """Get the versioned widget URI for a tool.
 
     Returns the content-hashed URI if widgets have been registered,
@@ -145,7 +145,7 @@ def get_widget_for_tool(tool_name: str) -> Optional[str]:
     return None
 
 
-def get_widget_name_for_tool(tool_name: str) -> Optional[str]:
+def get_widget_name_for_tool(tool_name: str) -> str | None:
     """Get the widget class name for a tool (e.g. 'OwnerDashboardWidget')."""
     for widget_name, config in WIDGETS.items():
         if tool_name in config["tools"]:
@@ -246,9 +246,15 @@ def register_chatgpt_tools(mcp: FastMCP) -> None:
     - Property Management tools (leases, rent, maintenance for owners/tenants)
     """
     # Import tool modules to trigger registration
-    from app.mcp.chatgpt import discovery_tools  # noqa: F401
-    from app.mcp.chatgpt import visit_tools  # noqa: F401
-    from app.mcp.chatgpt import pm_tools  # noqa: F401
+    from app.mcp.chatgpt import (
+        discovery_tools,  # noqa: F401
+        pm_dashboard_tools,  # noqa: F401
+        pm_lease_tools,  # noqa: F401
+        pm_maintenance_tools,  # noqa: F401
+        pm_rent_tools,  # noqa: F401
+        pm_tenant_tools,  # noqa: F401
+        visit_tools,  # noqa: F401
+    )
 
     logger.info("Registered ChatGPT tools (discovery, visits, property management)")
 

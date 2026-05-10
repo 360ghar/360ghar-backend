@@ -6,3 +6,4 @@ restartPolicyMaxRetries = 3
 [deploy.env]
 ENVIRONMENT = "production"
 DEBUG = "false"
+SERVERLESS_ENABLED = "true"

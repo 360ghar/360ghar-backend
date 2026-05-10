@@ -8,12 +8,14 @@ from app.api.api_v1.dependencies.auth import (
 from app.core.database import get_db
 from app.models.enums import UserRole
 from app.schemas.common import (
+    AssignAgentPayload,
     MessageResponse,
     NotificationSettings,
     PaginatedResponse,
     PrivacySettings,
 )
-from app.schemas.user import LocationUpdate, User as UserSchema, UserPreferences, UserUpdate
+from app.schemas.user import LocationUpdate, UserPreferences, UserUpdate
+from app.schemas.user import User as UserSchema
 from app.services.agent import assign_agent_to_user
 from app.services.user import (
     get_all_users,
@@ -43,9 +45,7 @@ async def update_user_me(
     updated_user = await update_user(db, current_user.id, user_update, actor=current_user)
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-    from app.schemas.user import User as UserSchemaModel
-
-    return UserSchemaModel.model_validate(updated_user)
+    return UserSchema.model_validate(updated_user)
 
 
 @router.get("/profile", response_model=UserSchema)
@@ -87,9 +87,9 @@ async def update_location(
 ):
     """Update user's current location"""
     await update_user_location(
-        db, 
-        current_user.id, 
-        location_update.latitude, 
+        db,
+        current_user.id,
+        location_update.latitude,
         location_update.longitude
     )
     return MessageResponse(message="Location updated successfully")
@@ -139,9 +139,7 @@ async def update_notifications_compat(
     user = await update_user_notification_settings(db, current_user.id, settings)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    from app.schemas.user import User as UserSchemaModel
-
-    return UserSchemaModel.model_validate(user)
+    return UserSchema.model_validate(user)
 
 
 @router.get("/privacy-settings", response_model=PrivacySettings)
@@ -176,9 +174,7 @@ async def update_privacy_compat(
     user = await update_user_privacy_settings(db, current_user.id, settings)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    from app.schemas.user import User as UserSchemaModel
-
-    return UserSchemaModel.model_validate(user)
+    return UserSchema.model_validate(user)
 
 
 # Admin/Agent management endpoints
@@ -213,9 +209,7 @@ async def list_users(
         raise HTTPException(status_code=403, detail="Access denied")
 
     users, total = await get_all_users(db, page=page, limit=limit, search_query=q, filter_agent_id=effective_agent_id)
-    # Convert to schema dicts
-    from app.schemas.user import User as UserSchemaModel
-    items = [UserSchemaModel.model_validate(u) for u in users]
+    items = [UserSchema.model_validate(u) for u in users]
     total_pages = (total + limit - 1) // limit
     return {
         "items": items,
@@ -245,8 +239,7 @@ async def get_user_details(
             raise HTTPException(status_code=403, detail="Access denied")
     else:
         raise HTTPException(status_code=403, detail="Access denied")
-    from app.schemas.user import User as UserSchemaModel
-    return UserSchemaModel.model_validate(user)
+    return UserSchema.model_validate(user)
 
 
 @router.put("/{user_id}", response_model=UserSchema)
@@ -260,21 +253,17 @@ async def update_user_details(
     updated_user = await update_user(db, user_id, user_update, actor=current_user)
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-    from app.schemas.user import User as UserSchemaModel
-    return UserSchemaModel.model_validate(updated_user)
+    return UserSchema.model_validate(updated_user)
 
 
 @router.post("/{user_id}/assign-agent", response_model=MessageResponse)
 async def assign_agent_to_specific_user(
     user_id: int,
-    payload: dict,
+    payload: AssignAgentPayload,
     current_user: UserSchema = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    new_agent_id = payload.get("agent_id")
-    if not isinstance(new_agent_id, int):
-        raise HTTPException(status_code=400, detail="agent_id is required and must be an integer")
-    assignment = await assign_agent_to_user(db, user_id, new_agent_id)
+    assignment = await assign_agent_to_user(db, user_id, payload.agent_id)
     if not assignment:
         raise HTTPException(status_code=400, detail="Failed to assign agent")
     return MessageResponse(message="Agent assigned successfully")

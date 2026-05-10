@@ -104,12 +104,24 @@ class CacheManager:
     def create_from_config(cls, settings: Any) -> "CacheManager":
         """Factory method to create CacheManager from app settings.
 
+        When SERVERLESS_ENABLED is true, forces the in-memory backend to
+        avoid persistent Redis connections that generate outbound packets
+        and prevent Railway serverless scale-to-zero.
+
         Args:
             settings: Application settings with cache configuration
 
         Returns:
             Configured CacheManager instance
         """
+        if getattr(settings, "SERVERLESS_ENABLED", False):
+            logger.info("Serverless mode — using in-memory cache (no Redis keep-alive)")
+            primary = InMemoryCacheBackend(
+                max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 1000),
+                default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
+            )
+            return cls(backend=primary)
+
         backend_type = CacheBackendType(
             getattr(settings, "CACHE_BACKEND", "memory")
         )

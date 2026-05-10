@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import contextvars
 import hashlib
 import hmac
-import logging
 import uuid
 from datetime import datetime
 
@@ -13,35 +11,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.cache import get_cache_manager
 from app.core.config import settings
-from app.core.logging import get_logger
+from app.core.logging import RequestIDFilter as RequestIDFilter
+from app.core.logging import get_logger, reset_request_id, set_request_id
 from app.core.utils import make_tz_aware, utc_now
 
 logger = get_logger(__name__)
-
-# ---------------------------------------------------------------------------
-# Request-ID context variable & logging filter
-# ---------------------------------------------------------------------------
-
-# Per-request context var that RequestIDMiddleware sets and RequestIDFilter reads.
-_current_request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "request_id", default=""
-)
-
-
-class RequestIDFilter(logging.Filter):
-    """Inject the current request ID into every log record.
-
-    When the ``RequestIDMiddleware`` has set ``_current_request_id`` for the
-    current async task, this filter copies the value onto the log record as
-    ``record.request_id``.  The ``StructuredFormatter`` (production JSON logs)
-    then surfaces it as ``correlation_id``.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        request_id = _current_request_id.get("")
-        if request_id:
-            record.request_id = request_id
-        return True
 
 
 class RequestLoggingMiddleware:
@@ -109,7 +83,7 @@ class RequestIDMiddleware:
             request_id = str(uuid.uuid4())
 
         # Propagate request_id to logging context via contextvar
-        _current_request_id.set(request_id)
+        request_id_token = set_request_id(request_id)
 
         # Store request ID in scope state
         if "state" not in scope:
@@ -126,7 +100,10 @@ class RequestIDMiddleware:
                 message["headers"] = headers
             await original_send(message)
 
-        await self.app(scope, receive, send_with_request_id)
+        try:
+            await self.app(scope, receive, send_with_request_id)
+        finally:
+            reset_request_id(request_id_token)
 
 
 class SecurityHeadersMiddleware:

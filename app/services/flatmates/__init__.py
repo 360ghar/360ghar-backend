@@ -7,6 +7,8 @@ from app.services.flatmates.conversations import (
     get_conversation_summary,
     list_conversations,
     list_messages,
+    mark_conversation_read,
+    save_match_qna_answers,
     send_message,
 )
 from app.services.flatmates.helpers import geocode_listing
@@ -67,6 +69,8 @@ __all__ = [
     "list_conversations",
     "list_messages",
     "send_message",
+    "mark_conversation_read",
+    "save_match_qna_answers",
     # interactions
     "record_profile_view_event",
     "record_society_tag_vote",

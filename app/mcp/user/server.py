@@ -6,14 +6,12 @@ helper functions used across all user tool sub-modules.
 """
 from __future__ import annotations
 
+from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
     AppsSDKFastMCP,
-    AuthRequiredError,
     raise_auth_required,
 )
-
-from app.core.logging import get_logger
-from app.mcp.utils import get_user_from_mcp_context, get_db
+from app.mcp.utils import get_user_from_mcp_context
 
 logger = get_logger(__name__)
 
@@ -60,13 +58,12 @@ def _count_mcp_tools(mcp: AppsSDKFastMCP) -> int:
 # These imports trigger the @user_mcp.tool() decorators defined in each
 # sub-module. They must come AFTER the user_mcp instance is created.
 
-from app.mcp.user import owner  # noqa: F401
-from app.mcp.user import tenant  # noqa: F401
-from app.mcp.user import booking  # noqa: F401
-from app.mcp.user import system  # noqa: F401
-from app.mcp.user import discovery  # noqa: F401
-from app.mcp.user import visits  # noqa: F401
-
+from app.mcp.user import booking as booking  # noqa: E402,F401
+from app.mcp.user import discovery as discovery  # noqa: E402,F401
+from app.mcp.user import owner as owner  # noqa: E402,F401
+from app.mcp.user import system as system  # noqa: E402,F401
+from app.mcp.user import tenant as tenant  # noqa: E402,F401
+from app.mcp.user import visits as visits  # noqa: E402,F401
 
 # ============================================================================
 # ChatGPT App PM Tools Registration
@@ -74,7 +71,13 @@ from app.mcp.user import visits  # noqa: F401
 # Import ChatGPT PM tools (cross-cutting owner/tenant) to register them
 try:
     _before_count = _count_mcp_tools(user_mcp)
-    from app.mcp.chatgpt import pm_tools  # noqa: F401
+    from app.mcp.chatgpt import (
+        pm_dashboard_tools,  # noqa: F401
+        pm_lease_tools,  # noqa: F401
+        pm_maintenance_tools,  # noqa: F401
+        pm_rent_tools,  # noqa: F401
+        pm_tenant_tools,  # noqa: F401
+    )
     _after_count = _count_mcp_tools(user_mcp)
     _new_tools = _after_count - _before_count
     if _new_tools == 0:

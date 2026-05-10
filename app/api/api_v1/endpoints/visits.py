@@ -1,54 +1,34 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+
 from app.api.api_v1.dependencies.auth import get_current_active_user
+from app.core.database import get_db
 from app.models.enums import UserRole
+from app.schemas.common import PaginatedResponse
 from app.schemas.user import User as UserSchema
 from app.schemas.visit import (
-    VisitCreate, VisitUpdate, Visit, VisitList, VisitReschedule, VisitCancel, VisitSlice
+    Visit,
+    VisitCancel,
+    VisitComplete,
+    VisitCreate,
+    VisitList,
+    VisitReschedule,
+    VisitSlice,
+    VisitUpdate,
 )
-from app.schemas.common import PaginatedResponse
+from app.services.pm_authz import can_access_visit
 from app.services.visit import (
-    create_visit, get_visit, get_user_visits, update_visit,
-    cancel_visit, reschedule_visit, get_all_visits, mark_visit_completed
+    cancel_visit,
+    create_visit,
+    get_all_visits,
+    get_user_visits,
+    get_visit,
+    mark_visit_completed,
+    reschedule_visit,
+    update_visit,
 )
 
 router = APIRouter()
-
-
-async def _agent_can_access_visit(
-    current_user: UserSchema,
-    visit: Visit,
-    db: AsyncSession,
-) -> bool:
-    if current_user.role != UserRole.agent.value or current_user.agent_id is None:
-        return False
-
-    from app.models.properties import Property
-    from app.models.users import User as UserModel
-
-    visit_user = await db.get(UserModel, visit.user_id)
-    property_obj = await db.get(Property, visit.property_id)
-    owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
-
-    return bool(
-        (visit_user and visit_user.agent_id == current_user.agent_id)
-        or (owner and owner.agent_id == current_user.agent_id)
-    )
-
-
-async def _can_access_visit(
-    current_user: UserSchema,
-    visit: Visit,
-    db: AsyncSession,
-) -> bool:
-    if visit.user_id == current_user.id:
-        return True
-    if visit.counterparty_user_id == current_user.id:
-        return True
-    if current_user.role == UserRole.admin.value:
-        return True
-    return await _agent_can_access_visit(current_user, visit, db)
 
 
 @router.post("", response_model=Visit)
@@ -124,7 +104,7 @@ async def get_visit_details(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await _can_access_visit(current_user, visit, db):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return visit
@@ -140,7 +120,7 @@ async def update_visit_details(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await _can_access_visit(current_user, visit, db):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return await update_visit(db, visit_id, visit_update)
@@ -156,7 +136,7 @@ async def reschedule_visit_date(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await _can_access_visit(current_user, visit, db):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     updated = await reschedule_visit(db, visit_id, reschedule_data.new_date, reschedule_data.reason)
@@ -175,7 +155,7 @@ async def cancel_visit_request(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await _can_access_visit(current_user, visit, db):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     updated = await cancel_visit(db, visit_id, cancel_data.reason)
@@ -187,7 +167,7 @@ async def cancel_visit_request(
 @router.post("/{visit_id}/complete", response_model=Visit)
 async def complete_visit(
     visit_id: int,
-    payload: dict | None = None,
+    payload: VisitComplete | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -196,15 +176,14 @@ async def complete_visit(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await _can_access_visit(current_user, visit, db):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    notes = (payload or {}).get("notes") if payload else None
-    feedback = (payload or {}).get("feedback") if payload else None
+    notes = payload.notes if payload else None
+    feedback = payload.feedback if payload else None
     ok = await mark_visit_completed(db, visit_id, notes, feedback)
     if not ok:
         raise HTTPException(status_code=400, detail="Failed to complete visit")
 
-    # Return updated visit
     updated = await get_visit(db, visit_id)
     return updated

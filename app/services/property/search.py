@@ -119,6 +119,23 @@ async def get_unified_properties_optimized(
         page,
         limit,
         filters,
+        extra={
+            "user_id": user_id,
+            "page": page,
+            "limit": limit,
+            "property_type": [t.value if hasattr(t, "value") else t for t in filters.property_type] if filters.property_type else None,
+            "purpose": filters.purpose.value if filters.purpose else None,
+            "city": filters.city,
+            "locality": filters.locality,
+            "price_min": filters.price_min,
+            "price_max": filters.price_max,
+            "bedrooms_min": filters.bedrooms_min,
+            "bedrooms_max": filters.bedrooms_max,
+            "search_query": filters.search_query,
+            "radius_km": filters.radius_km,
+            "semantic_search": getattr(filters, "semantic_search", False),
+            "sort_by": filters.sort_by.value if filters.sort_by else None,
+        },
     )
 
     try:
@@ -567,7 +584,21 @@ async def get_unified_properties_optimized(
 
         total_count = count_result.scalar()
 
-        logger.info("Found %s properties out of %s total", len(properties), total_count)
+        logger.info(
+            "Found %s properties out of %s total",
+            len(properties),
+            total_count,
+            extra={
+                "result_count": len(properties),
+                "total_count": total_count,
+                "page": page,
+                "limit": limit,
+                "user_id": user_id,
+                "search_query": filters.search_query,
+                "city": filters.city,
+                "purpose": filters.purpose.value if filters.purpose else None,
+            },
+        )
 
         property_list = [PropertySchema.model_validate(prop) for prop in properties]
 

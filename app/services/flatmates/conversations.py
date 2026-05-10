@@ -5,16 +5,16 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.logging import get_logger
-from app.models.enums import ConversationSource, ConversationStatus
+from app.models.enums import ConversationSource, ConversationStatus, UserMatchStatus
 from app.models.social import MatchQnAAnswer, UserConversation, UserMatch, UserMessage
 from app.models.users import User
-from app.schemas.flatmates import MessageCreate
+from app.schemas.flatmates import MessageCreate, QnAAnswers
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
@@ -312,6 +312,20 @@ async def send_message(
         if conversation.user_one_id == user_id
         else conversation.user_one_id
     )
+
+    # --- SSE events ---
+    try:
+        from app.core.sse import sse_bus
+
+        sse_bus.emit(
+            peer_id,
+            {"type": "new_message", "conversation_id": conversation.id, "sender_id": user_id, "message_id": message.id},
+        )
+        for uid in (user_id, peer_id):
+            sse_bus.emit(uid, {"type": "conversation_updated", "conversation_id": conversation.id})
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
+
     try:
         from app.services.push_notification import notify_new_message
 
@@ -328,3 +342,111 @@ async def send_message(
         pass  # best-effort; never block message delivery
 
     return message
+
+
+async def mark_conversation_read(
+    db: AsyncSession,
+    conversation_id: int,
+    user_id: int,
+) -> dict[str, str]:
+    """Mark all peer messages in a conversation as read."""
+    await get_conversation(db, conversation_id, user_id)
+
+    now = datetime.now(timezone.utc)
+    await db.execute(
+        update(UserMessage)
+        .where(
+            UserMessage.conversation_id == conversation_id,
+            UserMessage.sender_id != user_id,
+            UserMessage.read_at.is_(None),
+        )
+        .values(read_at=now)
+    )
+    await db.execute(
+        update(UserConversation)
+        .where(UserConversation.id == conversation_id)
+        .values(last_message_at=now)
+    )
+    await db.commit()
+
+    # --- SSE event to peer so their unread count refreshes ---
+    try:
+        from app.core.sse import sse_bus
+
+        conv = await get_conversation(db, conversation_id, user_id)
+        peer_id = (
+            conv.user_two_id if conv.user_one_id == user_id else conv.user_one_id
+        )
+        sse_bus.emit(peer_id, {"type": "conversation_updated", "conversation_id": conversation_id})
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
+
+    return {"status": "success"}
+
+
+async def save_match_qna_answers(
+    db: AsyncSession,
+    conversation_id: int,
+    user_id: int,
+    payload: QnAAnswers,
+) -> dict[str, int | str]:
+    """Persist current-user match Q&A answers for a conversation."""
+    result = await db.execute(
+        select(UserConversation).where(
+            UserConversation.id == conversation_id,
+            (UserConversation.user_one_id == user_id) | (UserConversation.user_two_id == user_id),
+        )
+    )
+    conversation = result.scalar_one_or_none()
+    if not conversation:
+        raise NotFoundException(detail="Conversation not found")
+
+    other_user_id = (
+        conversation.user_two_id if conversation.user_one_id == user_id else conversation.user_one_id
+    )
+    user_one_id, user_two_id = _canonical_pair(user_id, other_user_id)
+
+    match_result = await db.execute(
+        select(UserMatch).where(
+            UserMatch.user_one_id == user_one_id,
+            UserMatch.user_two_id == user_two_id,
+        )
+    )
+    user_match = match_result.scalar_one_or_none()
+
+    if not user_match:
+        user_match = UserMatch(
+            user_one_id=user_one_id,
+            user_two_id=user_two_id,
+            context_property_id=conversation.context_property_id,
+            status=UserMatchStatus.active,
+        )
+        db.add(user_match)
+        await db.flush()
+
+    existing = await db.execute(
+        select(MatchQnAAnswer).where(
+            MatchQnAAnswer.match_id == user_match.id,
+            MatchQnAAnswer.user_id == user_id,
+        )
+    )
+    qna_answer = existing.scalar_one_or_none()
+    if qna_answer is None:
+        qna_answer = MatchQnAAnswer(
+            match_id=user_match.id,
+            user_id=user_id,
+        )
+        db.add(qna_answer)
+
+    answer_fields = {
+        0: "q1",
+        1: "q2",
+        2: "q3",
+    }
+    for idx_str, answer_text in payload.answers.items():
+        answer_field = answer_fields.get(int(idx_str))
+        if answer_field is not None:
+            setattr(qna_answer, answer_field, str(answer_text))
+
+    await db.commit()
+    return {"status": "success", "match_id": user_match.id}

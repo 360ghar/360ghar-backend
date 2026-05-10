@@ -1,4 +1,5 @@
-from typing import Any, Dict, Optional
+from typing import Any
+
 from fastapi import HTTPException, status
 
 
@@ -21,10 +22,10 @@ class BaseAPIException(HTTPException):
 
     def __init__(
         self,
-        detail: Optional[str] = None,
-        headers: Optional[Dict[str, str]] = None,
-        error_code: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        detail: str | None = None,
+        headers: dict[str, str] | None = None,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
         **kwargs
     ):
         super().__init__(

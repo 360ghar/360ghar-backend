@@ -1,69 +1,76 @@
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
 from app.models.enums import VisitContext, VisitStatus
 from app.schemas.property import Property as PropertySchema
 from app.schemas.user import User as UserSchema
 
+
 class VisitBase(BaseModel):
     property_id: int
     scheduled_date: datetime
-    special_requirements: Optional[str] = None
+    special_requirements: str | None = None
     visit_context: VisitContext = VisitContext.property_tour
-    counterparty_user_id: Optional[int] = None
-    conversation_id: Optional[int] = None
-    match_id: Optional[int] = None
+    counterparty_user_id: int | None = None
+    conversation_id: int | None = None
+    match_id: int | None = None
 
 class VisitCreate(BaseModel):
     property_id: int
     scheduled_date: datetime
-    user_id: Optional[int] = None
-    special_requirements: Optional[str] = None
+    user_id: int | None = None
+    special_requirements: str | None = None
     visit_context: VisitContext = VisitContext.property_tour
-    counterparty_user_id: Optional[int] = None
-    conversation_id: Optional[int] = None
-    match_id: Optional[int] = None
+    counterparty_user_id: int | None = None
+    conversation_id: int | None = None
+    match_id: int | None = None
 
 class VisitUpdate(BaseModel):
-    scheduled_date: Optional[datetime] = None
-    status: Optional[VisitStatus] = None
-    special_requirements: Optional[str] = None
-    visit_notes: Optional[str] = None
-    visitor_feedback: Optional[str] = None
-    interest_level: Optional[str] = None
-    follow_up_required: Optional[bool] = None
-    follow_up_date: Optional[datetime] = None
-    cancellation_reason: Optional[str] = None
-    visit_context: Optional[VisitContext] = None
-    counterparty_user_id: Optional[int] = None
-    conversation_id: Optional[int] = None
-    match_id: Optional[int] = None
+    scheduled_date: datetime | None = None
+    status: VisitStatus | None = None
+    special_requirements: str | None = None
+    visit_notes: str | None = None
+    visitor_feedback: str | None = None
+    interest_level: str | None = None
+    follow_up_required: bool | None = None
+    follow_up_date: datetime | None = None
+    cancellation_reason: str | None = None
+    visit_context: VisitContext | None = None
+    counterparty_user_id: int | None = None
+    conversation_id: int | None = None
+    match_id: int | None = None
 
 class VisitReschedule(BaseModel):
     new_date: datetime
-    reason: Optional[str] = None
+    reason: str | None = None
 
 class VisitCancel(BaseModel):
     reason: str
 
+class VisitComplete(BaseModel):
+    """Payload for marking a visit as completed."""
+    notes: str | None = None
+    feedback: str | None = None
+
 class Visit(VisitBase):
     id: int
     user_id: int
-    agent_id: Optional[int] = None
-    actual_date: Optional[datetime] = None
+    agent_id: int | None = None
+    actual_date: datetime | None = None
     status: VisitStatus
-    visit_notes: Optional[str] = None
-    visitor_feedback: Optional[str] = None
-    interest_level: Optional[str] = None
+    visit_notes: str | None = None
+    visitor_feedback: str | None = None
+    interest_level: str | None = None
     follow_up_required: bool
-    follow_up_date: Optional[datetime] = None
-    cancellation_reason: Optional[str] = None
-    rescheduled_from: Optional[datetime] = None
+    follow_up_date: datetime | None = None
+    cancellation_reason: str | None = None
+    rescheduled_from: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    property: Optional[PropertySchema] = None
-    counterparty_user: Optional[UserSchema] = None
-    
+    updated_at: datetime | None = None
+    property: PropertySchema | None = None
+    counterparty_user: UserSchema | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class VisitList(BaseModel):

@@ -4,17 +4,22 @@ WebSocket API Endpoints.
 This module provides WebSocket endpoints for real-time updates:
 - AI job progress tracking
 - User notifications
+
+NOTE: Active WebSocket connections keep the server alive because the
+underlying TCP connection generates outbound ACK packets. Railway's
+serverless idle detection monitors outbound traffic, so any active
+WebSocket session will prevent scale-to-zero. This is expected —
+clients maintaining real-time connections need the server running.
 """
 import asyncio
-from typing import Optional
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import verify_supabase_token
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.core.websocket import manager
-from app.core.auth import verify_supabase_token
 from app.services import tour_ai
 from app.services.user import get_or_create_user_from_supabase
 
@@ -25,7 +30,7 @@ logger = get_logger(__name__)
 HEARTBEAT_INTERVAL = 30
 
 
-async def resolve_websocket_user_id(token: str, db: AsyncSession) -> Optional[int]:
+async def resolve_websocket_user_id(token: str, db: AsyncSession) -> int | None:
     """
     Verify Supabase access token and resolve the local user id.
 
@@ -46,7 +51,7 @@ async def resolve_websocket_user_id(token: str, db: AsyncSession) -> Optional[in
 
         return int(user.id)
     except Exception as e:
-        logger.warning("Token verification failed: %s", e)
+        logger.warning("Token verification failed: %s", e, exc_info=True)
         return None
 
 
@@ -125,12 +130,13 @@ async def websocket_job_updates(
                 try:
                     await websocket.send_json({"type": "heartbeat"})
                 except Exception:
+                    logger.debug("Heartbeat send failed for job %s; closing", job_id, exc_info=True)
                     break
 
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for job %s", job_id)
     except Exception as e:
-        logger.error("WebSocket error for job %s: %s", job_id, e)
+        logger.error("WebSocket error for job %s: %s", job_id, e, exc_info=True)
     finally:
         await manager.disconnect_job(websocket, job_id)
 
@@ -192,12 +198,13 @@ async def websocket_user_updates(
                 try:
                     await websocket.send_json({"type": "heartbeat"})
                 except Exception:
+                    logger.debug("Heartbeat send failed for user %s; closing", user_id, exc_info=True)
                     break
 
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for user %s", user_id)
     except Exception as e:
-        logger.error("WebSocket error for user %s: %s", user_id, e)
+        logger.error("WebSocket error for user %s: %s", user_id, e, exc_info=True)
     finally:
         await manager.disconnect_user(websocket, user_id)
 
@@ -250,11 +257,12 @@ async def websocket_tour_updates(
                 try:
                     await websocket.send_json({"type": "heartbeat"})
                 except Exception:
+                    logger.debug("Heartbeat send failed for tour %s; closing", tour_id, exc_info=True)
                     break
 
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for tour %s", tour_id)
     except Exception as e:
-        logger.error("WebSocket error for tour %s: %s", tour_id, e)
+        logger.error("WebSocket error for tour %s: %s", tour_id, e, exc_info=True)
     finally:
         await manager.disconnect_job(websocket, connection_key)

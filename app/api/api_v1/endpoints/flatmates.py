@@ -1,17 +1,13 @@
-from datetime import datetime, timedelta, timezone
+import asyncio
+import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select, update
+from fastapi import APIRouter, Depends, Query
+from starlette.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
-from app.models.enums import PropertyPurpose, PropertyType
-from app.models.properties import Property
-from app.models.social import MatchQnAAnswer, UserMatch, UserReport
-from app.models.users import User
 from app.schemas.flatmates import (
     BlockCreate,
     BlockOut,
@@ -44,7 +40,6 @@ from app.services.flatmates import (
     create_report,
     delete_block,
     get_bootstrap,
-    get_conversation,
     get_conversation_summary,
     get_flatmates_profile,
     list_blocks,
@@ -56,12 +51,12 @@ from app.services.flatmates import (
     list_matches,
     list_messages,
     mark_all_flatmates_notifications_read,
+    mark_conversation_read,
     mark_flatmates_notification_read,
-    pause_expired_flatmate_listings,
-    prescreen_flatmate_listing,
     record_profile_view_event,
     record_society_tag_vote,
     record_swipe,
+    save_match_qna_answers,
     send_message,
     unmatch_match,
     unmatch_user_pair,
@@ -71,155 +66,40 @@ from app.services.flatmates import (
 router = APIRouter()
 
 
-FLATMATE_LISTING_TYPES = (PropertyType.flatmate, PropertyType.pg)
+@router.get("/sse")
+async def flatmates_sse(
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """SSE stream for flatmates real-time events."""
+    from app.core.sse import sse_bus
 
+    user_id = current_user.id
+    queue = await sse_bus.subscribe(user_id)
 
-def _is_admin_user(user: UserSchema) -> bool:
-    return bool(getattr(user, "is_admin", False) or getattr(user, "role", None) == "admin")
+    async def event_stream():
+        try:
+            yield "event: connected\ndata: {\"status\":\"ok\"}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
+                    event_type = event.get("type", "update")
+                    payload = json.dumps(event, default=str)
+                    yield f"event: {event_type}\ndata: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await sse_bus.unsubscribe(user_id, queue)
 
-
-def _listing_moderation_status_expr():
-    return func.coalesce(
-        Property.listing_preferences["moderation_status"].as_string(),
-        "pending_review",
-    )
-
-
-def _flatmate_listing_filters(status: str):
-    return (
-        Property.property_type.in_(FLATMATE_LISTING_TYPES),
-        Property.purpose == PropertyPurpose.rent,
-        _listing_moderation_status_expr() == status,
-    )
-
-
-def _serialize_flatmate_listing(listing: Property) -> dict[str, Any]:
-    preferences = (
-        dict(listing.listing_preferences) if isinstance(listing.listing_preferences, dict) else {}
-    )
-    moderation_status = preferences.get("moderation_status", "pending_review")
-    raw_images = listing.__dict__.get("images") or []
-    sorted_images = sorted(
-        raw_images,
-        key=lambda image: (
-            getattr(image, "display_order", 0) or 0,
-            getattr(image, "id", 0) or 0,
-        ),
-    )
-    images = [
-        {
-            "id": image.id,
-            "image_url": image.image_url,
-            "caption": image.caption,
-            "display_order": image.display_order,
-            "is_main_image": image.is_main_image,
-        }
-        for image in sorted_images
-        if image.image_url
-    ]
-    image_urls = []
-    seen_image_urls: set[str] = set()
-    for raw_url in [listing.main_image_url, *(image["image_url"] for image in images)]:
-        if not raw_url or raw_url in seen_image_urls:
-            continue
-        seen_image_urls.add(raw_url)
-        image_urls.append(raw_url)
-    raw_features = listing.features or []
-    if isinstance(raw_features, list):
-        features = [str(feature) for feature in raw_features]
-    elif isinstance(raw_features, dict):
-        features = [str(key) for key, value in raw_features.items() if value]
-    else:
-        features = []
-    return {
-        "id": listing.id,
-        "title": listing.title,
-        "description": listing.description,
-        "property_type": listing.property_type,
-        "purpose": listing.purpose,
-        "property_status": listing.status,
-        "moderation_status": moderation_status,
-        "status": moderation_status,
-        "monthly_rent": listing.monthly_rent,
-        "security_deposit": listing.security_deposit,
-        "maintenance_charges": listing.maintenance_charges,
-        "area_sqft": listing.area_sqft,
-        "bedrooms": listing.bedrooms,
-        "bathrooms": listing.bathrooms,
-        "features": features,
-        "images": images,
-        "image_urls": image_urls,
-        "city": listing.city,
-        "locality": listing.locality,
-        "sub_locality": listing.sub_locality,
-        "main_image_url": listing.main_image_url,
-        "owner_id": listing.owner_id,
-        "owner": _serialize_user_summary(listing.__dict__.get("owner")),
-        "is_available": listing.is_available,
-        "listing_preferences": preferences,
-        "ai_prescreen_result": preferences.get("ai_prescreen_result"),
-        "ai_prescreen_flags": preferences.get("ai_prescreen_flags") or [],
-        "ai_flag_reason": preferences.get("ai_prescreen_reason"),
-        "created_at": listing.created_at,
-        "updated_at": listing.updated_at,
-    }
-
-
-def _serialize_user_summary(user: User | None) -> dict[str, Any] | None:
-    if user is None:
-        return None
-    return {
-        "id": user.id,
-        "full_name": user.full_name,
-        "email": user.email,
-        "phone": user.phone,
-        "profile_image_url": user.profile_image_url,
-    }
-
-
-def _serialize_report(
-    report: UserReport,
-    user_map: dict[int, User] | None = None,
-) -> dict[str, Any]:
-    user_map = user_map or {}
-    return {
-        "id": report.id,
-        "reporter_user_id": report.reporter_user_id,
-        "reported_user_id": report.reported_user_id,
-        "conversation_id": report.conversation_id,
-        "property_id": report.property_id,
-        "reason": report.reason,
-        "status": report.status,
-        "notes": report.notes,
-        "description": report.notes,
-        "admin_notes": report.notes,
-        "created_at": report.created_at,
-        "updated_at": report.updated_at,
-        "reporter": _serialize_user_summary(user_map.get(report.reporter_user_id)),
-        "reported_user": _serialize_user_summary(user_map.get(report.reported_user_id)),
-    }
-
-
-async def _dispatch_moderation_notification(
-    db: AsyncSession,
-    *,
-    recipient_db_id: int,
-    title: str,
-    body: str,
-    type_key: str,
-    deep_link: str = "/post",
-) -> None:
-    """Send a push notification for listing moderation events."""
-    from app.services.push_notification import _dispatch
-
-    await _dispatch(
-        db,
-        user_db_id=recipient_db_id,
-        type_key=type_key,
-        title=title,
-        body=body,
-        data={"route": deep_link},
-        deep_link=deep_link,
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 
@@ -458,34 +338,7 @@ async def mark_conversation_as_read(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mark all messages in a conversation as read for the current user."""
-    from app.models.social import UserMessage
-
-    await get_conversation(db, conversation_id, current_user.id)
-
-    now = datetime.now(timezone.utc)
-    await db.execute(
-        update(UserMessage)
-        .where(
-            UserMessage.conversation_id == conversation_id,
-            UserMessage.sender_id != current_user.id,
-            UserMessage.read_at.is_(None),
-        )
-        .values(read_at=now)
-    )
-
-    # Update conversation last_message_at to trigger UI update
-    from app.models.social import UserConversation
-
-    await db.execute(
-        update(UserConversation)
-        .where(UserConversation.id == conversation_id)
-        .values(last_message_at=now)
-    )
-
-    await db.commit()
-
-    return {"status": "success"}
+    return await mark_conversation_read(db, conversation_id, current_user.id)
 
 
 @router.post("/conversations/{conversation_id}/qa")
@@ -496,388 +349,4 @@ async def save_qna_answers(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Save Q&A answers for a match. Answers is a dict with question_index as key."""
-    # Get the conversation to find the match
-    from app.models.social import UserConversation
-
-    result = await db.execute(
-        select(UserConversation).where(
-            UserConversation.id == conversation_id,
-            (UserConversation.user_one_id == current_user.id)
-            | (UserConversation.user_two_id == current_user.id),
-        )
-    )
-    conversation = result.scalar_one_or_none()
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-
-    other_user_id = (
-        conversation.user_two_id
-        if conversation.user_one_id == current_user.id
-        else conversation.user_one_id
-    )
-
-    # Get or create the match
-    match_result = await db.execute(
-        select(UserMatch).where(
-            ((UserMatch.user_one_id == current_user.id) & (UserMatch.user_two_id == other_user_id))
-            | (
-                (UserMatch.user_two_id == current_user.id)
-                & (UserMatch.user_one_id == other_user_id)
-            )
-        )
-    )
-    user_match = match_result.scalar_one_or_none()
-
-    if not user_match:
-        # Create a match if it doesn't exist (shouldn't happen in normal flow)
-        user_one_id, user_two_id = (
-            (current_user.id, other_user_id)
-            if current_user.id < other_user_id
-            else (other_user_id, current_user.id)
-        )
-        user_match = UserMatch(
-            user_one_id=user_one_id,
-            user_two_id=user_two_id,
-            context_property_id=conversation.context_property_id,
-            status="active",
-        )
-        db.add(user_match)
-        await db.flush()
-
-    existing = await db.execute(
-        select(MatchQnAAnswer).where(
-            MatchQnAAnswer.match_id == user_match.id,
-            MatchQnAAnswer.user_id == current_user.id,
-        )
-    )
-    qna_answer = existing.scalar_one_or_none()
-    if qna_answer is None:
-        qna_answer = MatchQnAAnswer(
-            match_id=user_match.id,
-            user_id=current_user.id,
-        )
-        db.add(qna_answer)
-
-    answer_fields = {
-        0: "q1",
-        1: "q2",
-        2: "q3",
-    }
-
-    for idx_str, answer_text in payload.answers.items():
-        idx = int(idx_str)
-        answer_field = answer_fields.get(idx)
-        if answer_field is None:
-            continue
-        setattr(qna_answer, answer_field, str(answer_text))
-
-    await db.commit()
-
-    return {"status": "success", "match_id": user_match.id}
-
-
-# Admin moderation endpoints
-@router.get("/moderation/listings")
-async def get_pending_listings(
-    status: str = Query(default="pending_review", description="Filter by status"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get listings pending moderation review. Requires admin role."""
-    # Check if user has admin role
-    if not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    await pause_expired_flatmate_listings(db)
-
-    result = await db.execute(
-        select(Property)
-        .options(selectinload(Property.images), selectinload(Property.owner))
-        .where(*_flatmate_listing_filters(status))
-        .order_by(Property.created_at.asc())
-        .offset(offset)
-        .limit(limit)
-    )
-    listings = result.scalars().all()
-
-    # Get total count
-    count_result = await db.execute(
-        select(func.count()).select_from(Property).where(*_flatmate_listing_filters(status))
-    )
-    total = count_result.scalar()
-
-    return {
-        "listings": [_serialize_flatmate_listing(listing) for listing in listings],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
-
-
-@router.put("/moderation/listings/{listing_id}")
-async def moderate_listing(
-    listing_id: int,
-    payload: dict[str, Any],
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Moderate a listing: approve, reject, or request edit. Requires admin role."""
-    # Check if user has admin role
-    if not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    action = payload.get("action")  # "approve", "reject", "request_edit"
-    reason = payload.get("reason", "")
-
-    if action not in ["approve", "reject", "request_edit"]:
-        raise HTTPException(status_code=400, detail="Invalid action")
-
-    # Get the listing
-    result = await db.execute(
-        select(Property).where(
-            Property.id == listing_id,
-            Property.property_type.in_(FLATMATE_LISTING_TYPES),
-            Property.purpose == PropertyPurpose.rent,
-        )
-    )
-    listing = result.scalar_one_or_none()
-
-    if not listing:
-        raise HTTPException(status_code=404, detail="Listing not found")
-
-    # Update status based on action
-    status_map = {
-        "approve": "live",
-        "reject": "rejected",
-        "request_edit": "pending_review",
-    }
-    moderation_status = status_map[action]
-    listing.is_available = action == "approve"
-
-    # Store rejection/request_edit reason
-    preferences = (
-        dict(listing.listing_preferences) if isinstance(listing.listing_preferences, dict) else {}
-    )
-    moderated_at = datetime.now(timezone.utc)
-    approval_boost_granted = False
-    preferences["moderation_status"] = moderation_status
-    preferences["moderated_by"] = current_user.id
-    preferences["moderated_at"] = moderated_at.isoformat()
-    if reason:
-        preferences["moderation_reason"] = reason
-    if action == "approve" and not preferences.get("approval_boost_granted_at"):
-        approval_boost_granted = True
-        preferences["first_approved_at"] = moderated_at.isoformat()
-        preferences["approval_boost_granted_at"] = moderated_at.isoformat()
-        preferences["boosted_until"] = (moderated_at + timedelta(hours=24)).isoformat()
-        preferences["boost_reason"] = "first_approval"
-    listing.listing_preferences = preferences
-
-    await db.commit()
-    await db.refresh(listing)
-
-    # Send push notification to listing owner
-    from app.services.push_notification import notify_listing_approved
-
-    if action == "approve":
-        await notify_listing_approved(
-            db,
-            recipient_db_id=listing.owner_id,
-            listing_title=listing.title or "Your listing",
-            boosted_for_hours=24 if approval_boost_granted else None,
-        )
-    elif action == "reject":
-        await _dispatch_moderation_notification(
-            db,
-            recipient_db_id=listing.owner_id,
-            title="Listing Rejected",
-            body=f'Your listing "{listing.title or "Your listing"}" was not approved.'
-            + (f" Reason: {reason}" if reason else ""),
-            type_key="flatmate_listing_rejected",
-            deep_link="/post",
-        )
-
-    return {
-        "listing_id": listing_id,
-        "action": action,
-        "status": moderation_status,
-        "reason": reason,
-    }
-
-
-@router.get("/moderation/reports")
-async def get_pending_reports(
-    status: str = Query(default="open", description="Filter by status"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get user reports pending review. Requires admin role."""
-    # Check if user has admin role
-    if not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    result = await db.execute(
-        select(UserReport)
-        .where(UserReport.status == status)
-        .order_by(UserReport.created_at.asc())
-        .offset(offset)
-        .limit(limit)
-    )
-    reports = result.scalars().all()
-    user_ids = {
-        user_id
-        for report in reports
-        for user_id in (report.reporter_user_id, report.reported_user_id)
-    }
-    user_map: dict[int, User] = {}
-    if user_ids:
-        users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
-        user_map = {user.id: user for user in users}
-
-    # Get total count
-    count_result = await db.execute(
-        select(func.count()).select_from(UserReport).where(UserReport.status == status)
-    )
-    total = count_result.scalar()
-
-    return {
-        "reports": [_serialize_report(report, user_map) for report in reports],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
-
-
-@router.put("/moderation/reports/{report_id}")
-async def moderate_report(
-    report_id: int,
-    payload: dict[str, Any],
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Moderate a user report. Requires admin role."""
-    # Check if user has admin role
-    if not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-
-    action = payload.get("action")  # "dismiss", "warn_user", "suspend_user"
-    notes = payload.get("notes", "")
-
-    if action not in ["dismiss", "warn_user", "suspend_user", "escalate"]:
-        raise HTTPException(status_code=400, detail="Invalid action")
-
-    # Get the report
-    result = await db.execute(select(UserReport).where(UserReport.id == report_id))
-    report = result.scalar_one_or_none()
-
-    if not report:
-        raise HTTPException(status_code=404, detail="Report not found")
-
-    # Update report status
-    status_map = {
-        "dismiss": "dismissed",
-        "warn_user": "actioned",
-        "suspend_user": "actioned",
-        "escalate": "reviewed",
-    }
-    report.status = status_map[action]
-    if notes:
-        report.notes = notes
-
-    # Take action on the reported user within the same transaction
-    from app.services.push_notification import _dispatch
-
-    if action == "suspend_user":
-        # Suspend the reported user
-        reported_user = await db.execute(select(User).where(User.id == report.reported_user_id))
-        user = reported_user.scalar_one_or_none()
-        if user:
-            user.is_active = False
-
-    # Flush all changes in a single transaction before committing
-    await db.flush()
-    await db.commit()
-    await db.refresh(report)
-
-    # Send push notifications (best-effort, after commit)
-    if action == "suspend_user":
-        # Notify reported user about suspension
-        await _dispatch(
-            db,
-            user_db_id=report.reported_user_id,
-            type_key="flatmate_account_suspended",
-            title="Account Suspended",
-            body="Your account has been suspended due to a policy violation.",
-            data={"route": "/profile"},
-            deep_link="/profile",
-        )
-        # Notify reporter that action was taken
-        await _dispatch(
-            db,
-            user_db_id=report.reporter_user_id,
-            type_key="flatmate_report_actioned",
-            title="Report Actioned",
-            body="We've taken action on your report. Thank you for keeping the community safe.",
-            data={"route": "/chats"},
-            deep_link="/chats",
-        )
-    elif action == "warn_user":
-        # Notify reported user about warning
-        await _dispatch(
-            db,
-            user_db_id=report.reported_user_id,
-            type_key="flatmate_account_warned",
-            title="Account Warning",
-            body="You've received a warning regarding your behaviour. Please review our community guidelines.",
-            data={"route": "/profile"},
-            deep_link="/profile",
-        )
-        # Notify reporter that action was taken
-        await _dispatch(
-            db,
-            user_db_id=report.reporter_user_id,
-            type_key="flatmate_report_actioned",
-            title="Report Actioned",
-            body="We've reviewed your report and issued a warning. Thank you for keeping the community safe.",
-            data={"route": "/chats"},
-            deep_link="/chats",
-        )
-    elif action == "dismiss":
-        # Notify reporter that report was dismissed
-        await _dispatch(
-            db,
-            user_db_id=report.reporter_user_id,
-            type_key="flatmate_report_dismissed",
-            title="Report Dismissed",
-            body="We've reviewed your report and found no policy violation at this time.",
-            data={"route": "/chats"},
-            deep_link="/chats",
-        )
-
-    return {
-        "report_id": report_id,
-        "action": action,
-        "status": report.status,
-        "notes": notes,
-    }
-
-
-@router.post("/moderation/prescreen/{listing_id}")
-async def prescreen_listing(
-    listing_id: int,
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Run deterministic AI pre-screening for a flatmates listing. Requires admin role."""
-    if not _is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return await prescreen_flatmate_listing(
-        db,
-        listing_id,
-        admin_user_id=current_user.id,
-    )
+    return await save_match_qna_answers(db, conversation_id, current_user.id, payload)

@@ -238,6 +238,18 @@ async def record_swipe(
                 logger.warning("Match notification failed (best-effort): %s", exc, exc_info=True)
                 pass  # best-effort; never block swipe recording
 
+            # --- SSE events for new match ---
+            try:
+                from app.core.sse import sse_bus
+
+                for uid in (user_id, payload.target_user_id):
+                    sse_bus.emit(
+                        uid,
+                        {"type": "new_match", "match_id": match_id, "conversation_id": conversation_id},
+                    )
+            except Exception:  # noqa: BLE001
+                pass  # best-effort
+
     await db.flush()
     return {
         "stored": True,

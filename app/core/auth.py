@@ -76,10 +76,29 @@ class SupabaseClientManager:
     # -- Lifecycle --------------------------------------------------------------
 
     async def close(self) -> None:
-        """Gracefully close the async HTTP client. Call on app shutdown."""
+        """Gracefully close all managed HTTP clients. Call on app shutdown."""
         if self._auth_http_client and not self._auth_http_client.is_closed:
             await self._auth_http_client.aclose()
             self._auth_http_client = None
+
+        # Close sync Supabase clients' underlying httpx.Client connections.
+        # Each sub-client (auth, postgrest, storage) stores its httpx.Client
+        # as `.session` on the respective sub-object.
+        for client_attr in ("_auth_client", "_service_client", "_storage_client"):
+            client = getattr(self, client_attr, None)
+            if client is None:
+                continue
+            # Try known sub-client session paths
+            for sub_attr in ("auth", "postgrest", "storage"):
+                sub = getattr(client, sub_attr, None)
+                if sub is not None:
+                    session = getattr(sub, "session", None)
+                    if session is not None and hasattr(session, "close"):
+                        try:
+                            session.close()
+                        except Exception:
+                            pass
+            setattr(self, client_attr, None)
 
     # -- Auth operations --------------------------------------------------------
 

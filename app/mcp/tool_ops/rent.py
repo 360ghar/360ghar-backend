@@ -35,6 +35,7 @@ async def compute_rent_due_items(
     overdue status.
     """
     limit = min(max(1, limit), 100)
+    offset = (page - 1) * limit
     today = utc_now().date()
 
     stmt = select(Lease).where(Lease.status == LeaseStatus.active)
@@ -44,9 +45,18 @@ async def compute_rent_due_items(
     if property_id:
         stmt = stmt.where(Lease.property_id == property_id)
 
-    stmt = stmt.order_by(Lease.created_at.desc())
+    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     leases = result.scalars().all()
+
+    # Batch-load property titles to avoid N+1 queries
+    property_ids = {lease.property_id for lease in leases if lease.property_id}
+    prop_titles: dict[int, str] = {}
+    if property_ids:
+        prop_result = await db.execute(
+            select(Property.id, Property.title).where(Property.id.in_(property_ids))
+        )
+        prop_titles = {r[0]: r[1] or "Property" for r in prop_result.all()}
 
     items: list[dict[str, Any]] = []
     for lease in leases:
@@ -71,11 +81,7 @@ async def compute_rent_due_items(
         if overdue_only and not is_overdue:
             continue
 
-        # Get property title
-        prop_result = await db.execute(
-            select(Property.title).where(Property.id == lease.property_id)
-        )
-        prop_title = prop_result.scalar() or "Property"
+        prop_title = prop_titles.get(lease.property_id, "Property")
 
         items.append({
             "lease_id": lease.id,

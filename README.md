@@ -89,11 +89,15 @@ app/
 ├── api/                 # API endpoints and routing
 │   └── api_v1/
 │       └── endpoints/   # Individual endpoint modules
+├── config/              # Compatibility config package; implementation remains in core/config.py
 ├── core/                # Core components (config, db, auth, logging)
+├── infrastructure/      # App factory helpers, adapters, lifespan, middleware wiring
 ├── middleware/          # Custom middleware (rate limiting, security)
 ├── models/              # SQLAlchemy ORM models and enums  
+├── modules/             # Reserved namespace for future physical domain packages
 ├── schemas/             # Pydantic schemas for data validation
-├── services/            # Business logic and database operations
+├── services/            # Business logic and database operations (legacy implementation layer)
+├── shared/              # Reserved namespace for future physical shared packages
 └── utils/               # Utility functions
 
 supabase/

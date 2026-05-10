@@ -19,20 +19,38 @@ class BaseScraper(ABC):
     requires_playwright: bool = False
 
     async def run(self, run_type: str = "cron", triggered_by: int | None = None) -> dict:
-        """Orchestrate: create session → start_run → _scrape → _upsert → finish_run."""
+        """Orchestrate: start_run → _scrape (no DB session) → open session → _upsert → finish_run.
+
+        The network-heavy ``_scrape()`` call runs **without** holding a DB
+        session so the background pool is not exhausted while waiting for
+        external HTTP responses.
+        """
         session_factory = get_bg_session_factory()
+
+        # Phase 1: open a short-lived session just to record the run start
         async with session_factory() as db:
             run_id = await self._start_run(db, run_type, triggered_by)
-            try:
-                records = await self._scrape()
+
+        # Phase 2: scrape external sources (no DB session held)
+        try:
+            records = await self._scrape()
+        except Exception as e:
+            logger.error("Scraper %s scrape failed: %s", self.name, e, exc_info=True)
+            async with session_factory() as db:
+                await self._finish_run(db, run_id, "failed", {}, error=str(e))
+            return {"status": "failed", "run_id": run_id, "error": str(e)}
+
+        # Phase 3: open a session for upsert + finish
+        try:
+            async with session_factory() as db:
                 stats = await self._upsert(db, records)
                 await self._finish_run(db, run_id, "success", stats)
-                return {"status": "success", "run_id": run_id, **stats}
-            except Exception as e:
-                logger.error("Scraper %s failed: %s", self.name, e, exc_info=True)
-                await db.rollback()  # clear any aborted transaction
+            return {"status": "success", "run_id": run_id, **stats}
+        except Exception as e:
+            logger.error("Scraper %s upsert failed: %s", self.name, e, exc_info=True)
+            async with session_factory() as db:
                 await self._finish_run(db, run_id, "failed", {}, error=str(e))
-                return {"status": "failed", "run_id": run_id, "error": str(e)}
+            return {"status": "failed", "run_id": run_id, "error": str(e)}
 
     @retry(
         stop=stop_after_attempt(3),

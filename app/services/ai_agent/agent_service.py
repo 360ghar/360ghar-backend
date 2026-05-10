@@ -123,6 +123,7 @@ class PydanticAIAgentService:
             base_url=settings.AI_AGENT_API_BASE,
             api_key=settings.GLM_API_KEY,
         )
+        self._agent_cache: dict[str, Agent[AgentDeps, str]] = {}
 
     def _create_model(self) -> OpenAIChatModel:
         """Create the GLM model with OpenAI-compatible provider."""
@@ -131,19 +132,24 @@ class PydanticAIAgentService:
             provider=self._provider,
         )
 
-    def _create_agent(self, user_role: str) -> Agent[AgentDeps, str]:
-        """Build a fresh Agent with tools appropriate for the user role."""
-        tools = get_tools_for_role(user_role)
-        model = self._create_model()
-        agent: Agent[AgentDeps, str] = Agent(
-            model,
-            system_prompt=get_system_prompt(user_role),
-            retries=2,
-        )
-        # Register every tool function on the agent
-        for name, func, description in tools:
-            agent.tool(func, name=name, description=description)
-        return agent
+    def _get_agent(self, user_role: str) -> Agent[AgentDeps, str]:
+        """Get or create a cached Agent for the given role.
+
+        Agent instances are reused across requests to avoid repeated
+        allocation of model objects, tool schemas, and system prompts.
+        """
+        if user_role not in self._agent_cache:
+            tools = get_tools_for_role(user_role)
+            model = self._create_model()
+            agent: Agent[AgentDeps, str] = Agent(
+                model,
+                system_prompt=get_system_prompt(user_role),
+                retries=2,
+            )
+            for name, func, description in tools:
+                agent.tool(func, name=name, description=description)
+            self._agent_cache[user_role] = agent
+        return self._agent_cache[user_role]
 
     async def stream_response(
         self,
@@ -172,7 +178,7 @@ class PydanticAIAgentService:
             error              — something went wrong
         """
         role = user_role or getattr(user, "role", "user")
-        agent = self._create_agent(role)
+        agent = self._get_agent(role)
         deps = AgentDeps(user=user, db=db, user_role=role)
 
         # Build message history for context

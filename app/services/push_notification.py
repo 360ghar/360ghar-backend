@@ -42,6 +42,23 @@ async def _dispatch(
 
     Falls back to a log-only stub when the dispatcher is unavailable.
     """
+    # --- SSE event to user (always fire, even if FCM is down) ---
+    try:
+        from app.core.sse import sse_bus
+
+        sse_bus.emit(
+            user_db_id,
+            {
+                "type": "new_notification",
+                "type_key": type_key,
+                "title": title,
+                "body": body,
+                "route": (data or {}).get("route"),
+            },
+        )
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
+
     try:
         from app.services.notification_dispatcher import dispatch_notification_to_user
 

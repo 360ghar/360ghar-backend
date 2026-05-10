@@ -19,11 +19,17 @@ class Settings(BaseSettings):
     SENTRY_TRACES_SAMPLE_RATE: float | None = None  # Free tier default: 0.5 dev, 0.05 prod
     VALID_API_KEYS: str = ""  # API keys for middleware (comma-separated)
 
+    # ── Serverless ──────────────────────────────────────────────────────────────
+    SERVERLESS_ENABLED: bool = False  # When true, skips in-process schedulers to allow scale-to-zero
+
     # ── Public URLs ─────────────────────────────────────────────────────────────
     PUBLIC_BASE_URL: str | None = None  # e.g., https://xyz.ngrok-free.app (OAuth/MCP)
     PUBLIC_APP_URL: str | None = None  # e.g., https://360viewer.360ghar.com (share previews)
 
     # ── CORS ─────────────────────────────────────────────────────────────────────
+    # Set CORS_ORIGINS_STR via env to override the default list (comma-separated).
+    # Example: CORS_ORIGINS_STR=https://app.example.com,https://admin.example.com
+    CORS_ORIGINS_STR: str = ""  # Comma-separated override for CORS origins
     CORS_ORIGINS: list[str] = [
         # Local development
         "http://localhost:3000",
@@ -57,6 +63,15 @@ class Settings(BaseSettings):
         "https://chat.openai.com",
         "https://platform.openai.com",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def _cors_origins_from_env(cls, value: list[str], info: ValidationInfo) -> list[str]:
+        """Override CORS_ORIGINS from CORS_ORIGINS_STR if provided."""
+        origins_str = info.data.get("CORS_ORIGINS_STR", "")
+        if origins_str and origins_str.strip():
+            return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+        return value
 
     @field_validator("SECRET_KEY", mode="after")
     @classmethod
@@ -191,7 +206,7 @@ class Settings(BaseSettings):
     # ── Vector Embeddings & Sync ────────────────────────────────────────────────
     VECTOR_SYNC_ENABLED: bool = True
     VECTOR_SYNC_CRON: str | None = "0 9 * * *"  # once daily at 9:00 AM
-    VECTOR_SYNC_INTERVAL_SECONDS: int = 300  # used when CRON not provided
+    VECTOR_SYNC_INTERVAL_SECONDS: int = 86400  # used when CRON not provided (daily)
     VECTOR_SYNC_BATCH_SIZE: int = 500
     VECTOR_SYNC_MAX_RETRIES: int = 3
 

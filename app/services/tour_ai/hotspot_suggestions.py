@@ -147,11 +147,11 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
             logger.info("Hotspot suggestions completed for scene %s", scene_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during hotspot suggestions: %s", e)
+            logger.error("AI provider error during hotspot suggestions: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
         except Exception as e:
-            logger.error("Error during hotspot suggestions: %s", e)
+            logger.error("Error during hotspot suggestions: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
 
@@ -213,7 +213,7 @@ async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
                         all_hotspots.append(hotspot)
 
                 except Exception as e:
-                    logger.error("Error suggesting hotspots for scene %s: %s", scene.id, e)
+                    logger.error("Error suggesting hotspots for scene %s: %s", scene.id, e, exc_info=True)
 
                 await update_job_status(db, job_id, "processing", progress)
 
@@ -222,6 +222,6 @@ async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
             logger.info("Tour hotspot suggestions completed for tour %s", tour_id)
 
         except Exception as e:
-            logger.error("Error during tour hotspot suggestions: %s", e)
+            logger.error("Error during tour hotspot suggestions: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()

@@ -1,3 +1,4 @@
+import contextvars
 import json
 import logging
 import sys
@@ -6,6 +7,40 @@ from logging.config import dictConfig
 from typing import Any
 
 from app.core.config import settings
+
+_current_request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "request_id", default=""
+)
+
+
+def set_request_id(request_id: str) -> contextvars.Token[str]:
+    """Store the active request id for the current async context."""
+    return _current_request_id.set(request_id)
+
+
+def reset_request_id(token: contextvars.Token[str]) -> None:
+    """Restore the previous request id context."""
+    _current_request_id.reset(token)
+
+
+def get_request_id() -> str:
+    """Return the active request id, or an empty string outside a request."""
+    return _current_request_id.get("")
+
+
+class RequestIDFilter(logging.Filter):
+    """Inject the current request id into log records.
+
+    Defined here (in the logging module) rather than infrastructure to break
+    the circular dependency: core/logging no longer needs to import from
+    infrastructure at setup time.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        request_id = get_request_id()
+        if request_id:
+            record.request_id = request_id
+        return True
 
 
 class ColorFormatter(logging.Formatter):
@@ -225,8 +260,6 @@ def setup_logging() -> None:
     )
 
     # Attach RequestIDFilter to root handler so all log records carry correlation_id
-    from app.middleware.security import RequestIDFilter
-
     root_logger = logging.getLogger()
     for handler in root_logger.handlers:
         handler.addFilter(RequestIDFilter())

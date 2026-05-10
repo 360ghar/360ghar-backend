@@ -3,16 +3,84 @@ Tests for app.models.social module — UserMatch, UserConversation, UserMessage,
 """
 
 import pytest
+from sqlalchemy import CheckConstraint
 
+from app.models.enums import (
+    ConversationSource,
+    ConversationStatus,
+    MessageType,
+    UserMatchStatus,
+    UserReportReason,
+    UserReportStatus,
+)
 from app.models.social import (
     AppCatalog,
+    EnumStringType,
     MatchQnAAnswer,
     UserBlock,
     UserConversation,
-    UserMessage,
     UserMatch,
+    UserMessage,
     UserReport,
 )
+
+
+def _constraint_names(model) -> set[str]:
+    return {
+        constraint.name
+        for constraint in model.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+
+
+class TestEnumStringType:
+    """Tests for social enum column validation."""
+
+    @pytest.mark.parametrize(
+        ("enum_type", "valid_enum", "valid_string", "invalid_string"),
+        [
+            (UserMatch.__table__.c.status.type, UserMatchStatus.active, "active", "deleted"),
+            (
+                UserConversation.__table__.c.source.type,
+                ConversationSource.listing_interest,
+                "listing_interest",
+                "manual",
+            ),
+            (
+                UserConversation.__table__.c.status.type,
+                ConversationStatus.active,
+                "active",
+                "deleted",
+            ),
+            (UserMessage.__table__.c.message_type.type, MessageType.text, "text", "audio"),
+            (UserReport.__table__.c.reason.type, UserReportReason.spam, "spam", "fraud"),
+            (UserReport.__table__.c.status.type, UserReportStatus.open, "open", "closed"),
+        ],
+    )
+    def test_social_enum_columns_validate_bound_values(
+        self,
+        enum_type: EnumStringType,
+        valid_enum,
+        valid_string: str,
+        invalid_string: str,
+    ):
+        assert enum_type.process_bind_param(valid_enum, None) == valid_string
+        assert enum_type.process_bind_param(valid_string, None) == valid_string
+
+        with pytest.raises(ValueError):
+            enum_type.process_bind_param(invalid_string, None)
+
+    def test_social_tables_have_enum_check_constraints(self):
+        assert "ck_user_matches_status" in _constraint_names(UserMatch)
+        assert {
+            "ck_user_conversations_source",
+            "ck_user_conversations_status",
+        }.issubset(_constraint_names(UserConversation))
+        assert "ck_user_messages_message_type" in _constraint_names(UserMessage)
+        assert {
+            "ck_user_reports_reason",
+            "ck_user_reports_status",
+        }.issubset(_constraint_names(UserReport))
 
 
 class TestUserMatchModel:

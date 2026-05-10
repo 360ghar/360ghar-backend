@@ -9,6 +9,7 @@ All HTTP requests use the retry-enabled ``_make_request`` from the base class.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from app.core.config import settings
@@ -68,13 +69,16 @@ class GLMProvider(AIProvider):
         Build the messages array for GLM API.
 
         GLM uses OpenAI-compatible message format with vision support.
+        Vision input is attached only to the first user message to avoid
+        duplicating the large base64 string.
         """
         result = []
+        vision_attached = False
 
         for msg in messages:
             role = msg.role.value
 
-            if vision_input and msg.role == AIRole.USER:
+            if vision_input and msg.role == AIRole.USER and not vision_attached:
                 content = [
                     {"type": "text", "text": msg.content},
                     {
@@ -85,6 +89,7 @@ class GLMProvider(AIProvider):
                     }
                 ]
                 result.append({"role": role, "content": content})
+                vision_attached = True
             else:
                 result.append({"role": role, "content": msg.content})
 
@@ -106,7 +111,13 @@ class GLMProvider(AIProvider):
         }
 
         client = self._get_http_client()
+        t_start = time.monotonic()
         response = await self._make_request(client, url, headers, payload)
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "External call completed",
+            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url},
+        )
         try:
             data = response.json()
         except json.JSONDecodeError as exc:
@@ -144,7 +155,13 @@ class GLMProvider(AIProvider):
             }
 
         client = self._get_http_client()
+        t_start = time.monotonic()
         response = await self._make_request(client, url, headers, payload)
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "External call completed",
+            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url, "json_mode": True},
+        )
         try:
             data = response.json()
         except json.JSONDecodeError as exc:

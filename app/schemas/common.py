@@ -1,7 +1,7 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List, Dict, Any, Generic, TypeVar
 from datetime import datetime
-from pydantic import Field
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.utils import utc_now
 
@@ -17,7 +17,7 @@ class PaginationParams(BaseModel):
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
-    items: List[T]
+    items: list[T]
     total: int
     page: int
     limit: int
@@ -48,13 +48,13 @@ class MessageResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     message: str
-    error_code: Optional[str] = None
-    details: Optional[Dict[str, Any]] = None
+    error_code: str | None = None
+    details: dict[str, Any] | None = None
 
 class SearchParams(BaseModel):
-    query: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    query: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     radius_km: int = 5
     page: int = 1
     limit: int = 20
@@ -62,11 +62,11 @@ class SearchParams(BaseModel):
 class AnalyticsData(BaseModel):
     user_id: int
     event_type: str
-    event_data: Dict[str, Any]
+    event_data: dict[str, Any]
     timestamp: datetime = Field(default_factory=utc_now)
-    session_id: Optional[str] = None
-    user_agent: Optional[str] = None
-    ip_address: Optional[str] = None
+    session_id: str | None = None
+    user_agent: str | None = None
+    ip_address: str | None = None
 
 class NotificationSettings(BaseModel):
     email_notifications: bool = True
@@ -77,9 +77,9 @@ class NotificationSettings(BaseModel):
     promotional_emails: bool = False
     onboarding: bool = True
     digest: bool = True
-    frequency: Optional[str] = None
-    quiet_hours: Optional[Dict[str, str]] = Field(default=None, alias="quietHours")
-    categories: Dict[str, bool] = Field(
+    frequency: str | None = None
+    quiet_hours: dict[str, str] | None = Field(default=None, alias="quietHours")
+    categories: dict[str, bool] = Field(
         default_factory=lambda: {
             "promotions": True,
             "onboarding": True,
@@ -96,3 +96,8 @@ class PrivacySettings(BaseModel):
     location_sharing: bool = True
     contact_sharing: bool = True
     search_history_tracking: bool = True
+
+
+class AssignAgentPayload(BaseModel):
+    """Payload for assigning an agent to a user."""
+    agent_id: int

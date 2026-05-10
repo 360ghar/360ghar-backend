@@ -8,6 +8,7 @@ import uuid
 from typing import Any, Callable, Dict, Optional
 
 from fastapi import UploadFile
+from PIL import Image
 
 from app.core.exceptions import InvalidFileException, StorageException
 from app.core.logging import get_logger
@@ -32,6 +33,9 @@ async def upload_scene_image(
     """
     Upload a 360 scene image with automatic thumbnail generation.
 
+    Opens the source image once and reuses it for all operations to minimize
+    peak memory usage.
+
     Uses user-scoped path: users/{user_id}/tours/{tour_id}/scenes/{scene_id}/...
 
     Args:
@@ -55,13 +59,29 @@ async def upload_scene_image(
         # Read file content
         file_content = await file.read()
 
-        # Validate it's a 360 panorama (2:1 aspect ratio)
-        is_panorama = image_processing.validate_360_panorama(file_content)
-        if not is_panorama:
-            logger.warning("Image may not be a valid 360 panorama for scene %s", scene_id)
+        # Open image once for all operations
+        import io
+        with Image.open(io.BytesIO(file_content)) as img:
+            width, height = img.size
+            aspect_ratio = width / height if height > 0 else 0
+            is_panorama = abs(aspect_ratio - 2.0) <= 0.1
+            if not is_panorama:
+                logger.warning("Image may not be a valid 360 panorama for scene %s", scene_id)
 
-        # Get image info and EXIF
-        image_info = image_processing.get_image_info(file_content)
+            # Extract metadata using the already-open image (no extra opens)
+            image_info = image_processing.get_image_info(img=img, file_size=len(file_content))
+
+            # Generate thumbnail from the open image
+            rgb_img = img
+            if img.mode in ("RGBA", "P"):
+                rgb_img = img.convert("RGB")
+            thumbnail_bytes = _thumbnail_from_image(rgb_img, max_size=512)
+
+            # Generate WebP from the open image
+            web_bytes = _webp_from_image(rgb_img, max_dimension=4096)
+
+        # Release file_content early — the derived buffers are much smaller
+        file_size = len(file_content)
 
         # Generate unique filenames with user-scoped paths
         file_id = str(uuid.uuid4())
@@ -84,10 +104,11 @@ async def upload_scene_image(
 
         original_url = supabase.storage.from_(bucket_name).get_public_url(original_path)
 
-        # Generate and upload thumbnail
-        thumbnail_bytes = image_processing.generate_thumbnail(file_content, max_size=512)
-        thumbnail_path = f"{base_folder}/thumbnail/{file_id}.webp"
+        # Free the original content now that it's uploaded
+        del file_content
 
+        # Upload thumbnail
+        thumbnail_path = f"{base_folder}/thumbnail/{file_id}.webp"
         thumbnail_result = supabase.storage.from_(bucket_name).upload(
             path=thumbnail_path,
             file=thumbnail_bytes,
@@ -104,10 +125,9 @@ async def upload_scene_image(
         else:
             thumbnail_url = supabase.storage.from_(bucket_name).get_public_url(thumbnail_path)
 
-        # Generate and upload WebP optimized version
-        web_bytes = image_processing.convert_to_webp(file_content, max_dimension=4096)
+        # Upload WebP optimized version
+        del thumbnail_bytes
         web_path = f"{base_folder}/web/{file_id}.webp"
-
         web_result = supabase.storage.from_(bucket_name).upload(
             path=web_path,
             file=web_bytes,
@@ -124,6 +144,8 @@ async def upload_scene_image(
         else:
             web_url = supabase.storage.from_(bucket_name).get_public_url(web_path)
 
+        del web_bytes
+
         # Track in database if available
         if db and create_media_record:
             await create_media_record(
@@ -133,7 +155,7 @@ async def upload_scene_image(
                     "file_path": original_path,
                     "public_url": original_url,
                     "file_type": "scene_image",
-                    "file_size": len(file_content),
+                    "file_size": file_size,
                     "content_type": file.content_type,
                     "original_filename": file.filename,
                 },
@@ -149,7 +171,7 @@ async def upload_scene_image(
             "height": image_info["height"],
             "is_panorama": is_panorama,
             "exif": image_info.get("exif"),
-            "file_size": len(file_content),
+            "file_size": file_size,
         }
 
     except InvalidFileException:
@@ -159,6 +181,45 @@ async def upload_scene_image(
     except Exception as e:
         logger.error("Scene image upload error: %s", e)
         raise StorageException(detail=f"Scene image upload failed: {str(e)}")
+
+
+def _thumbnail_from_image(img: Image.Image, max_size: int = 512) -> bytes:
+    """Generate thumbnail bytes from an already-open Pillow Image."""
+    import io as _io
+    thumb = img.copy()
+    w, h = thumb.size
+    aspect_ratio = w / h
+    if w > h:
+        new_w = min(max_size, w)
+        new_h = int(new_w / aspect_ratio)
+    else:
+        new_h = min(max_size, h)
+        new_w = int(new_h * aspect_ratio)
+    thumb.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+    buf = _io.BytesIO()
+    thumb.save(buf, format="WEBP", quality=image_processing.WEBP_QUALITY, optimize=True)
+    thumb.close()
+    return buf.getvalue()
+
+
+def _webp_from_image(img: Image.Image, max_dimension: int = 4096, quality: int = image_processing.WEBP_QUALITY) -> bytes:
+    """Generate WebP bytes from an already-open Pillow Image."""
+    import io as _io
+    web_img = img.copy()
+    w, h = web_img.size
+    if w > max_dimension or h > max_dimension:
+        ar = w / h
+        if w > h:
+            new_w = max_dimension
+            new_h = int(max_dimension / ar)
+        else:
+            new_h = max_dimension
+            new_w = int(new_h * ar)
+        web_img = web_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    buf = _io.BytesIO()
+    web_img.save(buf, format="WEBP", quality=quality, optimize=True)
+    web_img.close()
+    return buf.getvalue()
 
 
 async def process_existing_scene_image(

@@ -3,10 +3,10 @@ Image Processing Service for 360 Tour panoramas.
 Uses Pillow for thumbnail generation, format conversion, and EXIF extraction.
 """
 import io
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
-from PIL import Image, ExifTags
-from PIL.ExifTags import TAGS, GPSTAGS
+from PIL import Image
+from PIL.ExifTags import GPSTAGS, TAGS
 
 from app.core.logging import get_logger
 
@@ -71,14 +71,14 @@ def generate_thumbnail(
             return output.getvalue()
 
     except Exception as e:
-        logger.error("Thumbnail generation failed: %s", e)
+        logger.error("Thumbnail generation failed: %s", e, exc_info=True)
         raise
 
 
 def convert_to_webp(
     image_bytes: bytes,
     quality: int = WEBP_QUALITY,
-    max_dimension: Optional[int] = None,
+    max_dimension: int | None = None,
 ) -> bytes:
     """
     Convert image to WebP format for optimal web delivery.
@@ -118,11 +118,11 @@ def convert_to_webp(
             return output.getvalue()
 
     except Exception as e:
-        logger.error("WebP conversion failed: %s", e)
+        logger.error("WebP conversion failed: %s", e, exc_info=True)
         raise
 
 
-def extract_exif(image_bytes: bytes) -> Dict[str, Any]:
+def extract_exif(image_bytes: bytes) -> dict[str, Any]:
     """
     Extract EXIF metadata from image.
 
@@ -132,7 +132,7 @@ def extract_exif(image_bytes: bytes) -> Dict[str, Any]:
     Returns:
         Dictionary containing EXIF data (camera info, GPS, etc.)
     """
-    exif_data: Dict[str, Any] = {
+    exif_data: dict[str, Any] = {
         "camera": {},
         "gps": {},
         "datetime": None,
@@ -187,9 +187,9 @@ def extract_exif(image_bytes: bytes) -> Dict[str, Any]:
         return exif_data
 
 
-def _parse_gps_info(gps_info: Dict) -> Dict[str, Any]:
+def _parse_gps_info(gps_info: dict) -> dict[str, Any]:
     """Parse GPS info from EXIF data into latitude/longitude."""
-    gps_data: Dict[str, Any] = {}
+    gps_data: dict[str, Any] = {}
 
     try:
         # Get GPS tags
@@ -234,7 +234,7 @@ def _convert_to_degrees(value) -> float:
         return 0.0
 
 
-def get_image_dimensions(image_bytes: bytes) -> Tuple[int, int]:
+def get_image_dimensions(image_bytes: bytes) -> tuple[int, int]:
     """
     Get image dimensions (width, height).
 
@@ -248,7 +248,7 @@ def get_image_dimensions(image_bytes: bytes) -> Tuple[int, int]:
         with Image.open(io.BytesIO(image_bytes)) as img:
             return img.size
     except Exception as e:
-        logger.error("Failed to get image dimensions: %s", e)
+        logger.error("Failed to get image dimensions: %s", e, exc_info=True)
         raise
 
 
@@ -280,42 +280,91 @@ def validate_360_panorama(image_bytes: bytes, tolerance: float = 0.1) -> bool:
         return is_valid
 
     except Exception as e:
-        logger.error("360 panorama validation failed: %s", e)
+        logger.error("360 panorama validation failed: %s", e, exc_info=True)
         return False
 
 
-def get_image_info(image_bytes: bytes) -> Dict[str, Any]:
+def get_image_info(
+    image_bytes: bytes | None = None,
+    *,
+    img: Image.Image | None = None,
+    file_size: int = 0,
+) -> dict[str, Any]:
     """
     Get comprehensive image information.
 
+    Accepts either raw bytes (opens once internally) or an already-opened
+    Pillow Image to avoid redundant Image.open calls.
+
     Args:
-        image_bytes: Raw image bytes
+        image_bytes: Raw image bytes (mutually exclusive with ``img``)
+        img: Already-opened Pillow Image (avoids re-opening)
+        file_size: Original file size in bytes (used when ``img`` is provided)
 
     Returns:
         Dictionary with dimensions, format, mode, and EXIF data
     """
     try:
-        with Image.open(io.BytesIO(image_bytes)) as img:
+        if img is not None:
             width, height = img.size
+            aspect_ratio = width / height if height > 0 else 0
+            expected_ratio = 2.0
+            is_360 = abs(aspect_ratio - expected_ratio) <= 0.1
+            raw_exif = img._getexif() if hasattr(img, "_getexif") else None
+
+            exif_data: dict[str, Any] = {"camera": {}, "gps": {}, "datetime": None, "software": None}
+            if raw_exif:
+                for tag_id, value in raw_exif.items():
+                    tag_name = TAGS.get(tag_id, str(tag_id))
+                    if tag_name == "Make":
+                        exif_data["camera"]["make"] = str(value)
+                    elif tag_name == "Model":
+                        exif_data["camera"]["model"] = str(value)
+                    elif tag_name == "LensModel":
+                        exif_data["camera"]["lens"] = str(value)
+                    elif tag_name == "FocalLength":
+                        exif_data["camera"]["focal_length"] = float(value) if value else None
+                    elif tag_name == "FNumber":
+                        exif_data["camera"]["aperture"] = float(value) if value else None
+                    elif tag_name == "ISOSpeedRatings":
+                        exif_data["camera"]["iso"] = int(value) if value else None
+                    elif tag_name == "ExposureTime":
+                        exif_data["camera"]["exposure"] = str(value) if value else None
+                    elif tag_name == "DateTimeOriginal":
+                        exif_data["datetime"] = str(value)
+                    elif tag_name == "DateTime" and not exif_data["datetime"]:
+                        exif_data["datetime"] = str(value)
+                    elif tag_name == "Software":
+                        exif_data["software"] = str(value)
+                    elif tag_name == "GPSInfo":
+                        exif_data["gps"] = _parse_gps_info(value)
 
             return {
                 "width": width,
                 "height": height,
-                "aspect_ratio": width / height if height > 0 else 0,
+                "aspect_ratio": aspect_ratio,
                 "format": img.format,
                 "mode": img.mode,
-                "is_360_panorama": validate_360_panorama(image_bytes),
-                "exif": extract_exif(image_bytes),
-                "file_size": len(image_bytes),
+                "is_360_panorama": is_360,
+                "exif": exif_data,
+                "file_size": file_size,
             }
+
+        # Legacy path: open from bytes (single open)
+        with Image.open(io.BytesIO(image_bytes)) as opened:  # type: ignore[arg-type]
+            return get_image_info(img=opened, file_size=len(image_bytes))  # type: ignore[arg-type]
+
     except Exception as e:
-        logger.error("Failed to get image info: %s", e)
+        logger.error("Failed to get image info: %s", e, exc_info=True)
         raise
 
 
-async def process_scene_image(image_bytes: bytes) -> Dict[str, bytes]:
+async def process_scene_image(image_bytes: bytes) -> dict[str, Any]:
     """
     Process a 360 scene image to generate all required derivatives.
+
+    Opens the source image **once** and reuses it for thumbnail, web-optimized
+    conversion, and metadata extraction to avoid the 3x Pillow open overhead.
 
     Args:
         image_bytes: Raw image bytes
@@ -324,14 +373,48 @@ async def process_scene_image(image_bytes: bytes) -> Dict[str, bytes]:
         Dictionary with 'thumbnail', 'web' (WebP optimized), and metadata
     """
     try:
-        # Generate thumbnail (512px max)
-        thumbnail = generate_thumbnail(image_bytes, max_size=512, format="WEBP")
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            # Convert to RGB once if needed
+            rgb_img = img
+            if img.mode in ("RGBA", "P"):
+                rgb_img = img.convert("RGB")
 
-        # Generate web-optimized version (4096px max for high quality viewing)
-        web_optimized = convert_to_webp(image_bytes, quality=WEBP_QUALITY, max_dimension=4096)
+            # --- Thumbnail (512px max) ---
+            thumb_img = rgb_img.copy()
+            width, height = thumb_img.size
+            aspect_ratio = width / height
+            if width > height:
+                new_w = min(512, width)
+                new_h = int(new_w / aspect_ratio)
+            else:
+                new_h = min(512, height)
+                new_w = int(new_h * aspect_ratio)
+            thumb_img.thumbnail((new_w, new_h), Image.Resampling.LANCZOS)
+            thumb_buf = io.BytesIO()
+            thumb_img.save(thumb_buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
+            thumbnail = thumb_buf.getvalue()
+            thumb_img.close()
 
-        # Extract metadata
-        info = get_image_info(image_bytes)
+            # --- Web-optimized (4096px max) ---
+            web_img = rgb_img.copy()
+            max_dim = 4096
+            w, h = web_img.size
+            if w > max_dim or h > max_dim:
+                ar = w / h
+                if w > h:
+                    new_w = max_dim
+                    new_h = int(max_dim / ar)
+                else:
+                    new_h = max_dim
+                    new_w = int(new_h * ar)
+                web_img = web_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            web_buf = io.BytesIO()
+            web_img.save(web_buf, format="WEBP", quality=WEBP_QUALITY, optimize=True)
+            web_optimized = web_buf.getvalue()
+            web_img.close()
+
+            # --- Metadata (reuse already-open image) ---
+            info = get_image_info(img=img, file_size=len(image_bytes))
 
         return {
             "thumbnail": thumbnail,
@@ -340,5 +423,5 @@ async def process_scene_image(image_bytes: bytes) -> Dict[str, bytes]:
         }
 
     except Exception as e:
-        logger.error("Scene image processing failed: %s", e)
+        logger.error("Scene image processing failed: %s", e, exc_info=True)
         raise

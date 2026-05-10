@@ -9,6 +9,7 @@ All HTTP requests use the retry-enabled ``_make_request`` from the base class.
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from app.core.logging import get_logger
@@ -62,6 +63,7 @@ class GeminiProvider(AIProvider):
         - User/Assistant messages go into contents
         """
         contents = []
+        vision_attached = False
 
         for msg in messages:
             if msg.role == AIRole.SYSTEM:
@@ -73,7 +75,9 @@ class GeminiProvider(AIProvider):
             if msg.content:
                 parts.append({"text": msg.content})
 
-            if vision_input and msg.role == AIRole.USER:
+            # Attach vision input only to the first user message to avoid
+            # duplicating the large base64 string across multiple parts.
+            if vision_input and msg.role == AIRole.USER and not vision_attached:
                 parts.append(
                     {
                         "inline_data": {
@@ -82,6 +86,7 @@ class GeminiProvider(AIProvider):
                         }
                     }
                 )
+                vision_attached = True
 
             if parts:
                 contents.append({"role": role, "parts": parts})
@@ -123,7 +128,13 @@ class GeminiProvider(AIProvider):
 
         client = self._get_http_client()
         headers: dict[str, str] = {"Content-Type": "application/json"}
+        t_start = time.monotonic()
         response = await self._make_request(client, url, headers, payload)
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "External call completed",
+            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url},
+        )
         try:
             data = response.json()
         except json.JSONDecodeError as exc:
@@ -153,7 +164,13 @@ class GeminiProvider(AIProvider):
 
         client = self._get_http_client()
         headers: dict[str, str] = {"Content-Type": "application/json"}
+        t_start = time.monotonic()
         response = await self._make_request(client, url, headers, payload)
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "External call completed",
+            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url, "json_mode": True},
+        )
         try:
             data = response.json()
         except json.JSONDecodeError as exc:

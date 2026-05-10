@@ -11,31 +11,31 @@ Tools for short-stay property bookings:
 """
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
-    AuthRequiredError,
     MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
 )
 from app.mcp.errors import (
     MCPErrorCode,
     MCPResponse,
     internal_error_response,
-    invalid_input_response,
     not_found_response,
 )
-from app.mcp.utils import (
-    get_db,
-    serialize_booking,
-    serialize_property_basic,
+from app.mcp.tool_ops import (
+    cancel_booking,
+    check_availability,
+    create_booking,
+    get_booking_detail,
+    get_pricing,
+    list_user_bookings,
 )
-from app.schemas.booking import BookingCreate
-from app.services import booking as booking_svc
 
 # Import the user MCP server instance to register tools
-from app.mcp.user.server import user_mcp, _get_user, _require_auth
+from app.mcp.user.server import _get_user, _require_auth, user_mcp
+from app.mcp.utils import get_db
 
 logger = get_logger(__name__)
 
@@ -60,8 +60,8 @@ async def bookings_create(
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    special_requests: Optional[str] = None,
-) -> Dict[str, Any]:
+    special_requests: str | None = None,
+) -> dict[str, Any]:
     """Create a new booking for a short-stay property.
 
     Args:
@@ -72,16 +72,6 @@ async def bookings_create(
         special_requests: Any special requests
     """
     try:
-        # Parse dates
-        try:
-            check_in = datetime.fromisoformat(check_in_date)
-            check_out = datetime.fromisoformat(check_out_date)
-        except ValueError:
-            return invalid_input_response("Dates must be in ISO-8601 format")
-
-        if check_out <= check_in:
-            return invalid_input_response("Check-out date must be after check-in date")
-
         async for db in get_db():
             user = await _get_user(db)
             if not user:
@@ -91,33 +81,23 @@ async def bookings_create(
                     scope="mcp:write",
                 )
 
-            # Check availability
-            availability = await booking_svc.check_availability(
-                db, property_id, check_in_date, check_out_date, guests
-            )
-
-            if not availability.get("available"):
-                return MCPResponse.failure(
-                    MCPErrorCode.BOOKING_CONFLICT,
-                    availability.get("reason", "Property not available for these dates")
-                ).model_dump()
-
-            # Create booking
-            booking_data = BookingCreate(
+            result = await create_booking(
+                db,
+                user_id=user.id,
                 property_id=property_id,
-                check_in_date=check_in,
-                check_out_date=check_out,
+                check_in_date=check_in_date,
+                check_out_date=check_out_date,
                 guests=guests,
                 special_requests=special_requests,
             )
 
-            booking = await booking_svc.create_booking(db, user.id, booking_data)
-            await db.commit()
+            if result.get("error"):
+                return MCPResponse.failure(
+                    MCPErrorCode.BOOKING_CONFLICT,
+                    result.get("message", "Booking creation failed"),
+                ).model_dump()
 
-            return MCPResponse.success({
-                "message": "Booking created successfully",
-                "booking": serialize_booking(booking),
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
@@ -138,8 +118,8 @@ async def bookings_create(
 async def bookings_list(
     page: int = 1,
     limit: int = 20,
-    status: Optional[str] = None,
-) -> Dict[str, Any]:
+    status: str | None = None,
+) -> dict[str, Any]:
     """List the current user's bookings.
 
     Args:
@@ -159,29 +139,18 @@ async def bookings_list(
                     scope="mcp:read",
                 )
 
-            data = await booking_svc.get_user_bookings(db, user.id)
-            bookings = data.get("bookings", [])
+            result = await list_user_bookings(
+                db,
+                user_id=user.id,
+                page=page,
+                limit=limit,
+                status=status,
+            )
 
-            # Filter by status if provided
-            if status:
-                bookings = [b for b in bookings if b.booking_status == status]
+            if result.get("error"):
+                return internal_error_response(result.get("message", "Failed to list bookings"))
 
-            # Paginate
-            start = (page - 1) * limit
-            end = start + limit
-            paginated = bookings[start:end]
-
-            items = [serialize_booking(b) for b in paginated]
-
-            return MCPResponse.success({
-                "total": data.get("total", 0),
-                "upcoming": data.get("upcoming", 0),
-                "completed": data.get("completed", 0),
-                "cancelled": data.get("cancelled", 0),
-                "page": page,
-                "limit": limit,
-                "bookings": items,
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
@@ -201,7 +170,7 @@ async def bookings_list(
 )
 async def bookings_get(
     booking_id: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get details of a specific booking.
 
     Args:
@@ -217,31 +186,22 @@ async def bookings_get(
                     scope="mcp:read",
                 )
 
-            booking = await booking_svc.get_booking(db, booking_id)
+            result = await get_booking_detail(
+                db,
+                booking_id=booking_id,
+                user_id=user.id,
+            )
 
-            if not booking:
-                return not_found_response("Booking", booking_id)
-
-            # Verify ownership
-            if booking.user_id != user.id:
+            if result.get("error"):
+                msg = result.get("message", "")
+                if "not found" in msg.lower():
+                    return not_found_response("Booking", booking_id)
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You can only view your own bookings"
+                    msg,
                 ).model_dump()
 
-            # Get property details
-            from sqlalchemy import select
-            from app.models.properties import Property
-            prop_stmt = select(Property).where(Property.id == booking.property_id)
-            prop_result = await db.execute(prop_stmt)
-            prop = prop_result.scalar_one_or_none()
-
-            property_data = serialize_property_basic(prop) if prop else None
-
-            return MCPResponse.success({
-                "booking": serialize_booking(booking),
-                "property": property_data,
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
@@ -262,7 +222,7 @@ async def bookings_get(
 async def bookings_cancel(
     booking_id: int,
     reason: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Cancel a booking.
 
     Args:
@@ -279,35 +239,30 @@ async def bookings_cancel(
                     scope="mcp:write",
                 )
 
-            booking = await booking_svc.get_booking(db, booking_id)
+            result = await cancel_booking(
+                db,
+                booking_id=booking_id,
+                user_id=user.id,
+                reason=reason,
+            )
 
-            if not booking:
-                return not_found_response("Booking", booking_id)
+            if result.get("error"):
+                msg = result.get("message", "")
+                if "not found" in msg.lower():
+                    return not_found_response("Booking", booking_id)
+                if "only" in msg.lower() and "own" in msg.lower():
+                    return MCPResponse.failure(
+                        MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                        msg,
+                    ).model_dump()
+                if "cannot cancel" in msg.lower():
+                    return MCPResponse.failure(
+                        MCPErrorCode.OPERATION_FAILED,
+                        msg,
+                    ).model_dump()
+                return internal_error_response(msg)
 
-            # Verify ownership
-            if booking.user_id != user.id:
-                return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You can only cancel your own bookings"
-                ).model_dump()
-
-            # Check if can be cancelled
-            if booking.booking_status in ["cancelled", "completed", "checked_out"]:
-                return MCPResponse.failure(
-                    MCPErrorCode.OPERATION_FAILED,
-                    f"Booking cannot be cancelled (status: {booking.booking_status})"
-                ).model_dump()
-
-            success = await booking_svc.cancel_booking(db, booking_id, reason)
-            await db.commit()
-
-            if success:
-                return MCPResponse.success({
-                    "message": "Booking cancelled successfully",
-                    "booking_id": booking_id,
-                }).model_dump()
-            else:
-                return internal_error_response("Failed to cancel booking")
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
@@ -330,7 +285,7 @@ async def bookings_check_availability(
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Check if a property is available for booking.
 
     Args:
@@ -341,15 +296,15 @@ async def bookings_check_availability(
     """
     try:
         async for db in get_db():
-            result = await booking_svc.check_availability(
-                db, property_id, check_in_date, check_out_date, guests
+            result = await check_availability(
+                db,
+                property_id=property_id,
+                check_in_date=check_in_date,
+                check_out_date=check_out_date,
+                guests=guests,
             )
 
-            return MCPResponse.success({
-                "available": result.get("available", False),
-                "reason": result.get("reason"),
-                "max_occupancy": result.get("max_occupancy"),
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
@@ -372,7 +327,7 @@ async def bookings_get_pricing(
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get pricing details for a potential booking.
 
     Args:
@@ -382,26 +337,22 @@ async def bookings_get_pricing(
         guests: Number of guests
     """
     try:
-        try:
-            check_in = datetime.fromisoformat(check_in_date)
-            check_out = datetime.fromisoformat(check_out_date)
-        except ValueError:
-            return invalid_input_response("Dates must be in ISO-8601 format")
-
         async for db in get_db():
-            pricing = await booking_svc.calculate_pricing(
-                db, property_id, check_in, check_out, guests
+            result = await get_pricing(
+                db,
+                property_id=property_id,
+                check_in_date=check_in_date,
+                check_out_date=check_out_date,
+                guests=guests,
             )
 
-            if isinstance(pricing, dict) and pricing.get("error"):
+            if result.get("error"):
                 return MCPResponse.failure(
                     MCPErrorCode.INVALID_INPUT,
-                    pricing["error"]
+                    result.get("message", "Invalid pricing request"),
                 ).model_dump()
 
-            return MCPResponse.success({
-                "pricing": pricing,
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:

@@ -70,7 +70,7 @@ async def apply_scene_analysis(
             updated_count += 1
 
         except Exception as e:
-            logger.error("Error applying suggestion for scene %s: %s", scene_id, e)
+            logger.error("Error applying suggestion for scene %s: %s", scene_id, e, exc_info=True)
 
     await db.commit()
     logger.info("Applied %s scene analysis suggestions for tour %s", updated_count, tour_id)
@@ -127,7 +127,7 @@ async def apply_hotspot_suggestions(
             created_hotspots.append(hotspot)
 
         except Exception as e:
-            logger.error("Error creating hotspot from suggestion: %s", e)
+            logger.error("Error creating hotspot from suggestion: %s", e, exc_info=True)
 
     logger.info("Applied %s hotspot suggestions for scene %s", len(created_hotspots), scene_id)
     return created_hotspots
@@ -304,11 +304,11 @@ Respond in JSON with:
             logger.info("Tour generation completed for tour %s", tour_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during tour generation: %s", e)
+            logger.error("AI provider error during tour generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
         except Exception as e:
-            logger.error("Error during tour generation: %s", e)
+            logger.error("Error during tour generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
 
@@ -449,10 +449,10 @@ Analyze this panorama and suggest improvements. Respond in JSON:
             logger.info("Tour optimization completed for tour %s", tour_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during tour optimization: %s", e)
+            logger.error("AI provider error during tour optimization: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
         except Exception as e:
-            logger.error("Error during tour optimization: %s", e)
+            logger.error("Error during tour optimization: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()

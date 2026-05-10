@@ -352,3 +352,15 @@ class QnAAnswers(BaseModel):
             if idx < 0 or idx > 2:
                 raise ValueError(f"Answer index must be between 0 and 2, got {idx}")
         return self
+
+
+class ListingModerationAction(BaseModel):
+    """Payload for moderating a flatmates listing (approve, reject, or request edit)."""
+    action: Literal["approve", "reject", "request_edit"]
+    reason: str = ""
+
+
+class ReportModerationAction(BaseModel):
+    """Payload for moderating a user report (dismiss, warn, suspend, or escalate)."""
+    action: Literal["dismiss", "warn_user", "suspend_user", "escalate"]
+    notes: str = ""

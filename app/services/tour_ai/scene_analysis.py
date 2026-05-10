@@ -117,11 +117,11 @@ async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
             logger.info("Scene analysis completed for scene %s", scene_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during scene analysis after retries: %s", e)
+            logger.error("AI provider error during scene analysis after retries: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e), increment_retry=True)
             await db.commit()
         except Exception as e:
-            logger.error("Error during scene analysis: %s", e)
+            logger.error("Error during scene analysis: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
 
@@ -177,7 +177,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
                     analysis_results.append(result)
 
                 except Exception as e:
-                    logger.error("Error analyzing scene %s: %s", scene.id, e)
+                    logger.error("Error analyzing scene %s: %s", scene.id, e, exc_info=True)
                     analysis_results.append({
                         "scene_id": scene.id,
                         "error": str(e)
@@ -190,7 +190,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
             logger.info("Tour analysis completed for tour %s", tour_id)
 
         except Exception as e:
-            logger.error("Error during tour analysis: %s", e)
+            logger.error("Error during tour analysis: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
 
@@ -305,11 +305,11 @@ Respond in JSON format:
             logger.info("Description generated for scene %s", scene_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during description generation: %s", e)
+            logger.error("AI provider error during description generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
         except Exception as e:
-            logger.error("Error during description generation: %s", e)
+            logger.error("Error during description generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
 
@@ -367,7 +367,7 @@ Respond in JSON format:
                     descriptions[scene.id] = result.get("description", "")
 
                 except Exception as e:
-                    logger.error("Error generating description for scene %s: %s", scene.id, e)
+                    logger.error("Error generating description for scene %s: %s", scene.id, e, exc_info=True)
                     descriptions[scene.id] = ""
 
                 await update_job_status(db, job_id, "processing", progress)
@@ -377,6 +377,6 @@ Respond in JSON format:
             logger.info("Tour descriptions generated for tour %s", tour_id)
 
         except Exception as e:
-            logger.error("Error during tour description generation: %s", e)
+            logger.error("Error during tour description generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()

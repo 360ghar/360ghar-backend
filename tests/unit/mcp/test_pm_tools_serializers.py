@@ -1,7 +1,7 @@
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
-from app.mcp.chatgpt.pm_tools import (
+from app.mcp.chatgpt.pm_shared import (
     _format_lease_summary,
     _format_rent_summary,
     _serialize_lease,

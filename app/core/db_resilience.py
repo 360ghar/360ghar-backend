@@ -4,7 +4,8 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
-from sqlalchemy.exc import DBAPIError, DisconnectionError, TimeoutError as SATimeoutError
+from sqlalchemy.exc import DBAPIError, DisconnectionError
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger

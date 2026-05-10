@@ -1,62 +1,37 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import get_db
+
 from app.api.api_v1.dependencies.auth import get_current_active_user
+from app.core.database import get_db
 from app.models.enums import UserRole
-from app.schemas.user import User as UserSchema
 from app.schemas.booking import (
-    BookingCreate, BookingUpdate, Booking, BookingList, BookingCancel,
-    BookingPayment, BookingReview, BookingAvailability, BookingPricing
+    Booking,
+    BookingAvailability,
+    BookingCancel,
+    BookingCreate,
+    BookingList,
+    BookingPayment,
+    BookingReview,
+    BookingUpdate,
 )
 from app.schemas.common import MessageResponse
+from app.schemas.user import User as UserSchema
 from app.services.booking import (
+    add_review,
+    calculate_pricing,
+    cancel_booking,
+    check_availability,
     create_booking,
+    get_all_bookings,
     get_booking,
     get_user_bookings,
-    update_booking,
-    cancel_booking,
     process_payment,
-    add_review,
-    check_availability,
-    calculate_pricing,
-    get_all_bookings,
+    update_booking,
 )
 from app.services.notification_dispatcher import dispatch_notification_to_user
+from app.services.pm_authz import can_access_booking
 
 router = APIRouter()
-
-
-async def _agent_can_access_booking(
-    current_user: UserSchema,
-    booking: Booking,
-    db: AsyncSession,
-) -> bool:
-    if current_user.role != UserRole.agent.value or current_user.agent_id is None:
-        return False
-
-    from app.models.properties import Property
-    from app.models.users import User as UserModel
-
-    booking_user = await db.get(UserModel, booking.user_id)
-    property_obj = await db.get(Property, booking.property_id)
-    owner = await db.get(UserModel, property_obj.owner_id) if property_obj else None
-
-    return bool(
-        (booking_user and booking_user.agent_id == current_user.agent_id)
-        or (owner and owner.agent_id == current_user.agent_id)
-    )
-
-
-async def _can_access_booking(
-    current_user: UserSchema,
-    booking: Booking,
-    db: AsyncSession,
-) -> bool:
-    if booking.user_id == current_user.id:
-        return True
-    if current_user.role == UserRole.admin.value:
-        return True
-    return await _agent_can_access_booking(current_user, booking, db)
 
 
 @router.post("", response_model=Booking)
@@ -96,7 +71,7 @@ async def check_booking_availability(
     db: AsyncSession = Depends(get_db)
 ):
     return await check_availability(
-        db, 
+        db,
         availability_check.property_id,
         availability_check.check_in_date.strftime('%Y-%m-%d'),
         availability_check.check_out_date.strftime('%Y-%m-%d'),
@@ -158,7 +133,7 @@ async def get_booking_details(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await _can_access_booking(current_user, booking, db):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return booking
@@ -174,7 +149,7 @@ async def update_booking_details(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await _can_access_booking(current_user, booking, db):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return await update_booking(db, booking_id, booking_update)
@@ -189,13 +164,13 @@ async def cancel_booking_request(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await _can_access_booking(current_user, booking, db):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await cancel_booking(db, cancel_data.booking_id, cancel_data.reason)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to cancel booking")
-    
+
     return MessageResponse(message="Booking cancelled successfully")
 
 @router.post("/payment", response_model=MessageResponse)
@@ -208,7 +183,7 @@ async def process_booking_payment(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await _can_access_booking(current_user, booking, db):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await process_payment(db, payment_data)
@@ -245,11 +220,11 @@ async def add_booking_review(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await _can_access_booking(current_user, booking, db):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await add_review(db, review_data)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add review")
-    
+
     return MessageResponse(message="Review added successfully")

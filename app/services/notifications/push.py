@@ -137,7 +137,7 @@ async def send_to_token(
         return {"ok": True, "fcm": resp}
     except httpx.HTTPStatusError as e:
         err_text = e.response.text
-        logger.error("FCM send failed", extra={"status": e.response.status_code, "error": err_text})
+        logger.error("FCM send failed", extra={"status": e.response.status_code, "error": err_text}, exc_info=True)
 
         def _sync_record_failure():
             supa = _supa()
@@ -224,6 +224,7 @@ async def send_to_user(
             await _run_sync(_sync_record_sent)
         except Exception as e:  # broad to capture HTTP errors
             err = str(e)
+            logger.warning("FCM send failed for token in send_to_user: %s", err, exc_info=True)
 
             def _sync_record_failed():
                 supa = _supa()
@@ -345,6 +346,7 @@ async def send_bulk(
             await _run_sync(_sync_record_sent)
         except Exception as e:
             err = str(e)
+            logger.warning("FCM send failed for token in send_bulk: %s", err, exc_info=True)
 
             def _sync_record_failed():
                 supa = _supa()

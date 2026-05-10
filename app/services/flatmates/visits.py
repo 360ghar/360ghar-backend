@@ -37,6 +37,18 @@ async def update_visit_status(
 
     effective_status = new_status or visit.status
 
+    # --- SSE events to both parties ---
+    try:
+        from app.core.sse import sse_bus
+
+        for uid in (visit.user_id, visit.counterparty_user_id):
+            sse_bus.emit(
+                uid,
+                {"type": "visit_updated", "visit_id": visit_id, "status": effective_status},
+            )
+    except Exception:  # noqa: BLE001
+        pass  # best-effort
+
     # Note: Push notifications for visit status changes are handled by
     # app.services.visit.update_visit (canonical endpoint). This stub
     # duplicates that endpoint and should be removed once consolidated.

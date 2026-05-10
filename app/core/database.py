@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -30,34 +31,57 @@ _bg_connect_args = {
     "prepare_threshold": None,
 }
 
+# ── Serverless: NullPool prevents persistent connections that generate ────────
+# outbound packets, which would keep Railway from scaling to zero.
+# PgBouncer handles server-side pooling, so client-side pooling is not needed.
+# Trade-off: each request creates a fresh connection (adds ~10-50ms latency).
+_use_null_pool = settings.SERVERLESS_ENABLED
+
+if _use_null_pool:
+    logger.info("Serverless mode — using NullPool (no persistent DB connections)")
+
 # ── Main engine: HTTP/MCP request traffic ─────────────────────────────────────
 # PgBouncer (Supabase) handles server-side pooling — keep the app-side
 # pool small to avoid exhausting PgBouncer's transaction-mode slots.
-engine = create_async_engine(
-    settings.ASYNC_DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_size=settings.DB_POOL_SIZE,
-    max_overflow=settings.DB_MAX_OVERFLOW,
-    pool_timeout=settings.DB_POOL_TIMEOUT,
-    pool_recycle=settings.DB_POOL_RECYCLE,
-    pool_pre_ping=True,
-    connect_args=_connect_args,
-)
+_main_engine_kwargs: dict = {
+    "echo": settings.DEBUG,
+    "future": True,
+    "connect_args": _connect_args,
+}
+if _use_null_pool:
+    _main_engine_kwargs["poolclass"] = NullPool
+else:
+    _main_engine_kwargs.update(
+        pool_size=settings.DB_POOL_SIZE,
+        max_overflow=settings.DB_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        pool_pre_ping=True,
+    )
+
+engine = create_async_engine(settings.ASYNC_DATABASE_URL, **_main_engine_kwargs)
 
 # ── Background engine: schedulers, scrapers, long-running tasks ───────────────
 # Isolated from the main pool so background work can't starve API traffic.
-bg_engine = create_async_engine(
-    settings.ASYNC_DATABASE_URL,
-    echo=settings.DEBUG,
-    future=True,
-    pool_size=settings.DB_BG_POOL_SIZE,
-    max_overflow=settings.DB_BG_MAX_OVERFLOW,
-    pool_timeout=settings.DB_POOL_TIMEOUT,
-    pool_recycle=settings.DB_POOL_RECYCLE,
-    pool_pre_ping=True,
-    connect_args=_bg_connect_args,
-)
+# In serverless mode, this engine is unused (schedulers are skipped) but
+# still created to avoid import errors; NullPool means zero overhead.
+_bg_engine_kwargs: dict = {
+    "echo": settings.DEBUG,
+    "future": True,
+    "connect_args": _bg_connect_args,
+}
+if _use_null_pool:
+    _bg_engine_kwargs["poolclass"] = NullPool
+else:
+    _bg_engine_kwargs.update(
+        pool_size=settings.DB_BG_POOL_SIZE,
+        max_overflow=settings.DB_BG_MAX_OVERFLOW,
+        pool_timeout=settings.DB_POOL_TIMEOUT,
+        pool_recycle=settings.DB_POOL_RECYCLE,
+        pool_pre_ping=True,
+    )
+
+bg_engine = create_async_engine(settings.ASYNC_DATABASE_URL, **_bg_engine_kwargs)
 
 # ── Slow-checkout logging ──────────────────────────────────────────────────────
 _SLOW_CHECKOUT_THRESHOLD_S = 5.0

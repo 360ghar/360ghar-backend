@@ -11,7 +11,7 @@ from typing import Optional, TYPE_CHECKING
 
 from mcp.server.auth.middleware.auth_context import get_access_token as get_auth_access_token
 
-from app.core.database import AsyncSessionLocal
+from app.core.database import AsyncSessionLocal, AsyncSessionLocalBG
 from app.core.logging import get_logger
 from app.models.enums import UserRole
 from app.services.user import get_user_by_id
@@ -27,8 +27,13 @@ logger = get_logger(__name__)
 
 
 async def get_db():
-    """Async generator for database sessions."""
-    async with AsyncSessionLocal() as db:
+    """Async generator for database sessions using the background pool.
+
+    MCP tool calls are typically long-lived and read-heavy. Using the
+    background pool avoids competing with HTTP API requests for the
+    limited main pool connections.
+    """
+    async with AsyncSessionLocalBG() as db:
         yield db
 
 

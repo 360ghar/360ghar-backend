@@ -13,7 +13,7 @@
 - Shared business ownership sits in `app/services/`.
 - MCP ownership sits in `app/mcp/`, but the underlying business behavior should still belong to shared services.
 - AI-agent ownership sits in `app/services/ai_agent/`, with model orchestration and tool registration there and business rules delegated down.
-- Scheduler ownership sits in dedicated service modules and is activated from `app/factory.py`.
+- Scheduler ownership sits in dedicated service modules and is activated from `app/infrastructure/lifespan.py`.
 
 ## Ambiguity Resolution
 - If a feature must work from REST, MCP, and the AI agent, the source of truth belongs in `app/services/`.

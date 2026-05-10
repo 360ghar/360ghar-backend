@@ -410,3 +410,68 @@ class ComplaintNature(str, Enum):
     refund = "refund"
     compensation = "compensation"
     other = "other"
+
+
+# --------------------
+# Tour AI Jobs
+# --------------------
+
+
+class AIJobStatus(str, Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class AIJobType(str, Enum):
+    scene_analysis = "scene_analysis"
+    hotspot_generation = "hotspot_generation"
+    floor_plan_processing = "floor_plan_processing"
+
+
+class CustomDomainVerificationStatus(str, Enum):
+    pending = "pending"
+    verified = "verified"
+    failed = "failed"
+
+
+class CustomDomainSSLStatus(str, Enum):
+    none = "none"
+    pending = "pending"
+    active = "active"
+    failed = "failed"
+
+
+class AgentInteractionType(str, Enum):
+    chat = "chat"
+    call = "call"
+    email = "email"
+
+
+# --------------------
+# Flatmates Moderation
+# --------------------
+
+
+class ListingModerationStatus(str, Enum):
+    """Status values stored in listing_preferences JSON for flatmate listings."""
+    pending_review = "pending_review"
+    live = "live"
+    rejected = "rejected"
+
+
+class ModerationAction(str, Enum):
+    """Actions available when moderating a flatmate listing."""
+    approve = "approve"
+    reject = "reject"
+    request_edit = "request_edit"
+
+
+class ReportAction(str, Enum):
+    """Actions available when moderating a user report."""
+    dismiss = "dismiss"
+    warn_user = "warn_user"
+    suspend_user = "suspend_user"
+    escalate = "escalate"

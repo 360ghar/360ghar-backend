@@ -46,7 +46,7 @@ if settings.SENTRY_DSN:
             if settings.SENTRY_TRACES_SAMPLE_RATE is not None
             else (0.5 if _is_dev else 0.05)
         ),
-        send_default_pii=True,
+        send_default_pii=False,
         release=f"360ghar-backend@{settings.APP_VERSION}",
         before_send=_sentry_before_send,
         integrations=[

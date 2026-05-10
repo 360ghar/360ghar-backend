@@ -4,7 +4,8 @@ Public 360 Virtual Tour API Endpoints.
 This module provides unauthenticated endpoints for viewing published tours.
 These endpoints are used by the public viewer and embed page.
 """
-from typing import Optional
+import time
+from collections import defaultdict
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from sqlalchemy import and_, select
@@ -20,6 +21,35 @@ from app.services import tour as tour_service
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+# ── Per-IP rate limiter for like/unlike endpoints ──────────────────────────────
+_LIKE_RATE_LIMIT = 10  # max requests
+_LIKE_RATE_WINDOW_S = 60  # per window
+_LIKE_REAP_INTERVAL_S = 300  # reap stale keys every 5 minutes
+_ip_like_timestamps: dict[str, list[float]] = defaultdict(list)
+_last_like_reap: float = 0.0
+
+
+def _is_like_rate_limited(client_ip: str) -> bool:
+    """Return True if the IP has exceeded the like/unlike rate limit."""
+    global _last_like_reap
+    now = time.monotonic()
+    window_start = now - _LIKE_RATE_WINDOW_S
+    timestamps = _ip_like_timestamps[client_ip]
+    # Prune old entries
+    _ip_like_timestamps[client_ip] = [t for t in timestamps if t > window_start]
+    if len(_ip_like_timestamps[client_ip]) >= _LIKE_RATE_LIMIT:
+        return True
+    _ip_like_timestamps[client_ip].append(now)
+
+    # Periodically reap keys with empty timestamp lists to prevent unbounded dict growth
+    if now - _last_like_reap > _LIKE_REAP_INTERVAL_S:
+        _last_like_reap = now
+        stale = [k for k, v in _ip_like_timestamps.items() if not v]
+        for k in stale:
+            del _ip_like_timestamps[k]
+
+    return False
 
 
 def get_device_type(user_agent: str) -> str:
@@ -226,10 +256,10 @@ async def get_public_tour_scenes(
 async def track_tour_event(
     tour_id: str,
     request: Request,
-    payload: Optional[TourEventPayload] = Body(default=None),
-    event_type: Optional[str] = None,
-    scene_id: Optional[str] = None,
-    hotspot_id: Optional[str] = None,
+    payload: TourEventPayload | None = Body(default=None),
+    event_type: str | None = None,
+    scene_id: str | None = None,
+    hotspot_id: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -329,11 +359,11 @@ async def track_tour_event(
 
         return {"status": "ok"}
     except Exception as e:
-        logger.error("Failed to track event for tour %s: %s", tour_id, e)
+        logger.error("Failed to track event for tour %s: %s", tour_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to track event"
-        )
+            detail="Failed to track event",
+        ) from e
 
 
 @router.post("/tours/{tour_id}/like")
@@ -345,9 +375,14 @@ async def like_tour(
     """
     Increment the like count for a public tour.
 
-    Note: This is a simple implementation without user tracking.
-    For production, consider storing likes per user/session to prevent abuse.
+    Rate-limited per IP to prevent count manipulation.
     """
+    client_ip = get_client_ip(request)
+    if _is_like_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Like rate limit exceeded. Try again later.",
+        )
     query = select(Tour).where(
         and_(
             Tour.id == tour_id,
@@ -398,7 +433,15 @@ async def unlike_tour(
 ):
     """
     Decrement the like count for a public tour.
+
+    Rate-limited per IP to prevent count manipulation.
     """
+    client_ip = get_client_ip(request)
+    if _is_like_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Like rate limit exceeded. Try again later.",
+        )
     query = select(Tour).where(
         and_(
             Tour.id == tour_id,

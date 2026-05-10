@@ -122,7 +122,7 @@ async def _embed_texts(texts_to_embed: list[str]) -> list[list[float]]:
     try:
         vectors = await embed(texts_to_embed)
     except Exception as e:  # noqa: BLE001
-        logger.error("Embedding API failed for batch of %s: %s", len(texts_to_embed), e)
+        logger.error("Embedding API failed for batch of %s: %s", len(texts_to_embed), e, exc_info=True)
         raise
     if not vectors or len(vectors) != len(texts_to_embed):
         logger.error(
@@ -175,12 +175,13 @@ async def run_property_vector_sync() -> dict[str, int | bool]:
             stats["scanned"] = len(changed)
             texts, metas, hashes, need_embed_flags = await _prepare_batch(db, changed)
         except Exception:
+            logger.error("Vector sync phase 1 failed", exc_info=True)
             if not force:
                 await db.rollback()
                 try:
                     await release_advisory_lock(db)
                 except Exception:
-                    pass
+                    logger.debug("Failed to release advisory lock", exc_info=True)
             raise
         finally:
             # Release session — embedding call happens without a DB connection
@@ -213,6 +214,7 @@ async def run_property_vector_sync() -> dict[str, int | bool]:
                 await write_watermark(db, datetime.now(timezone.utc))
                 await db.commit()
         except Exception:
+            logger.error("Vector sync phase 3 (upsert/watermark) failed", exc_info=True)
             await db.rollback()
             raise
 

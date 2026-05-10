@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from html import unescape
 import re
+from html import unescape
+from typing import Any
 
 
-def _strip_html(text: Optional[str]) -> str:
+def _strip_html(text: str | None) -> str:
     if not text:
         return ""
     # Basic HTML tag stripper and unescape
@@ -13,14 +13,14 @@ def _strip_html(text: Optional[str]) -> str:
     return re.sub(r"\s+", " ", unescape(no_tags)).strip()
 
 
-def build_embedding_text(prop: Dict[str, Any], amenities: List[str], tags: List[str]) -> str:
+def build_embedding_text(prop: dict[str, Any], amenities: list[str], tags: list[str]) -> str:
     """Compose a canonical text for property embeddings.
 
     prop: dict of fields from properties
     amenities: list of amenity titles
     tags: list of tags
     """
-    parts: List[str] = []
+    parts: list[str] = []
     # Headline
     parts.append(prop.get("title") or "")
     # Type & purpose
@@ -81,7 +81,7 @@ def build_embedding_text(prop: Dict[str, Any], amenities: List[str], tags: List[
     return ". ".join([p for p in parts if p]).strip()
 
 
-def build_metadata(prop: Dict[str, Any], amenities: List[str], tags: List[str]) -> Dict[str, Any]:
+def build_metadata(prop: dict[str, Any], amenities: list[str], tags: list[str]) -> dict[str, Any]:
     fields = [
         "id",
         "property_type",
@@ -109,11 +109,11 @@ def build_metadata(prop: Dict[str, Any], amenities: List[str], tags: List[str]) 
             import datetime as _dt
             if isinstance(v, (_dt.datetime, _dt.date)):
                 return v.isoformat()
-        except Exception:
+        except (TypeError, ValueError):
             pass
         return v
 
-    md: Dict[str, Any] = {k: _coerce(prop.get(k)) for k in fields}
+    md: dict[str, Any] = {k: _coerce(prop.get(k)) for k in fields}
     md["amenities"] = amenities
     md["tags"] = tags
     md["title"] = prop.get("title")

@@ -94,7 +94,12 @@ async def agent_chat(
     current_user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
-    """Stream an AI agent response via Server-Sent Events."""
+    """Stream an AI agent response via Server-Sent Events.
+
+    The main-pool DB session is released after the initial conversation
+    setup. The streaming phase uses a background-pool session so the
+    main pool is not held for the entire AI response duration.
+    """
     service = get_agent_service()
 
     # Get or create conversation
@@ -121,44 +126,56 @@ async def agent_chat(
         for m in history_rows
     ]
 
+    # Snapshot IDs needed after the session is released
+    conversation_id = conversation.id
+
+    # Release the main-pool session — streaming may take minutes
+    await db.close()
+
     async def event_stream():
         full_response = ""
         widget_events: list[dict] = []
-        try:
-            async for event in service.stream_response(
-                user_message=body.message,
-                conversation_id=conversation.id,
-                conversation_history=history[:-1],  # exclude the message we just stored
-                user=current_user,
-                db=db,
-            ):
-                # Extract response text from done event to persist
-                if '"response_text"' in event:
-                    try:
-                        line = event.split("data: ", 1)[1].split("\n")[0]
-                        data = _json.loads(line)
-                        full_response = data.get("response_text", "")
-                    except Exception:
-                        pass
-                # Capture widget events for persistence
-                elif '"widget_name"' in event:
-                    try:
-                        line = event.split("data: ", 1)[1].split("\n")[0]
-                        data = _json.loads(line)
-                        if "widget_name" in data:
-                            widget_events.append(data)
-                    except Exception:
-                        pass
-                yield event
-        except Exception as exc:
-            logger.error("SSE stream error: %s", exc, exc_info=True)
-            yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
-        finally:
+        # Open a background-pool session for tool calls during streaming
+        from app.core.database import AsyncSessionLocalBG
+        async with AsyncSessionLocalBG() as stream_db:
+            try:
+                async for event in service.stream_response(
+                    user_message=body.message,
+                    conversation_id=conversation_id,
+                    conversation_history=history[:-1],  # exclude the message we just stored
+                    user=current_user,
+                    db=stream_db,
+                ):
+                    # Extract response text from done event to persist
+                    if '"response_text"' in event:
+                        try:
+                            line = event.split("data: ", 1)[1].split("\n")[0]
+                            data = _json.loads(line)
+                            full_response = data.get("response_text", "")
+                        except Exception:
+                            pass
+                    # Capture widget events for persistence
+                    elif '"widget_name"' in event:
+                        try:
+                            line = event.split("data: ", 1)[1].split("\n")[0]
+                            data = _json.loads(line)
+                            if "widget_name" in data:
+                                widget_events.append(data)
+                        except Exception:
+                            pass
+                    yield event
+            except Exception as exc:
+                logger.error("SSE stream error: %s", exc, exc_info=True)
+                yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+
+        # After streaming completes, open a fresh session to persist results
+        from app.core.database import get_db as _get_db
+        async for fresh_db in _get_db():
             try:
                 # Persist widget events
                 for we in widget_events:
                     await conversation_store.add_message(
-                        db, conversation_id=conversation.id,
+                        fresh_db, conversation_id=conversation_id,
                         role="widget",
                         tool_name=we.get("widget_name"),
                         tool_result=we.get("structured_content"),
@@ -166,10 +183,10 @@ async def agent_chat(
                 # Persist assistant response (even if empty when widgets were emitted)
                 if full_response or widget_events:
                     await conversation_store.add_message(
-                        db, conversation_id=conversation.id,
+                        fresh_db, conversation_id=conversation_id,
                         role="assistant", content=full_response or "",
                     )
-                    await db.commit()
+                    await fresh_db.commit()
             except Exception as exc:
                 logger.error("Failed to persist messages: %s", exc)
 
