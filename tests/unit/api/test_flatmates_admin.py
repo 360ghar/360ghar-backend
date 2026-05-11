@@ -156,16 +156,12 @@ class TestIsAdminUser:
         user = _make_user_schema(role="admin")
         assert _is_admin_user(user) is True
 
-    def test_is_admin_flag_returns_true(self):
-        user = _make_user_schema(is_admin=True)
-        assert _is_admin_user(user) is True
-
     def test_regular_user_returns_false(self):
-        user = _make_user_schema(role="user", is_admin=False)
+        user = _make_user_schema(role="user")
         assert _is_admin_user(user) is False
 
     def test_agent_returns_false(self):
-        user = _make_user_schema(role="agent", is_admin=False)
+        user = _make_user_schema(role="agent")
         assert _is_admin_user(user) is False
 
 
@@ -377,6 +373,40 @@ class TestModerateListingApprove:
         assert result["status"] == "live"
         db.commit.assert_awaited_once()
 
+    @pytest.mark.asyncio
+    async def test_approve_emits_sse_event(self):
+        """Approve action emits SSE listing_status_changed event to the listing owner."""
+        db = _mock_db()
+        admin = _make_admin_user_schema()
+        prop = _make_property(prop_id=1, owner_id=10)
+
+        db.execute = AsyncMock(return_value=_scalar_result(prop))
+
+        payload = ListingModerationAction(action="approve", reason="Looks good")
+
+        mock_sse_bus = AsyncMock()
+        with (
+            patch("app.services.push_notification.notify_listing_approved", new=AsyncMock()),
+            patch("app.core.sse.sse_bus", mock_sse_bus),
+        ):
+            result = await moderate_listing(
+                listing_id=1,
+                payload=payload,
+                current_user=admin,
+                db=db,
+            )
+
+        mock_sse_bus.emit.assert_awaited_once_with(
+            10,
+            {
+                "type": "listing_status_changed",
+                "listing_id": 1,
+                "status": "live",
+                "reason": "Looks good",
+            },
+        )
+        assert result["status"] == "live"
+
 
 class TestModerateListingReject:
     """Tests for reject action on moderate_listing."""
@@ -407,6 +437,40 @@ class TestModerateListingReject:
         assert result["status"] == "rejected"
         assert result["reason"] == "Incomplete info"
         db.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_reject_emits_sse_event(self):
+        """Reject action emits SSE listing_status_changed event to the listing owner."""
+        db = _mock_db()
+        admin = _make_admin_user_schema()
+        prop = _make_property(prop_id=2, owner_id=10)
+
+        db.execute = AsyncMock(return_value=_scalar_result(prop))
+
+        payload = ListingModerationAction(action="reject", reason="Incomplete info")
+
+        mock_sse_bus = AsyncMock()
+        with (
+            patch("app.services.push_notification._dispatch", new=AsyncMock()),
+            patch("app.core.sse.sse_bus", mock_sse_bus),
+        ):
+            result = await moderate_listing(
+                listing_id=2,
+                payload=payload,
+                current_user=admin,
+                db=db,
+            )
+
+        mock_sse_bus.emit.assert_awaited_once_with(
+            10,
+            {
+                "type": "listing_status_changed",
+                "listing_id": 2,
+                "status": "rejected",
+                "reason": "Incomplete info",
+            },
+        )
+        assert result["status"] == "rejected"
 
 
 class TestModerateListingRequestEdit:

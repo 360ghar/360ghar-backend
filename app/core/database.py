@@ -91,25 +91,28 @@ def _on_checkout(dbapi_conn, connection_record, connection_proxy):
     connection_record.info["_checkout_start"] = time.monotonic()
 
 
-def _on_checkin(dbapi_conn, connection_record):
-    start = connection_record.info.pop("_checkout_start", None)
-    if start is not None:
-        elapsed = time.monotonic() - start
-        if elapsed > _SLOW_CHECKOUT_THRESHOLD_S:
-            pool = connection_record.pool
-            logger.warning(
-                "Slow pool checkout: %.1fs (pool: %s, size: %d, checkedout: %d, overflow: %d)",
-                elapsed,
-                connection_record.info.get("pool_label", "unknown"),
-                pool.size(),
-                pool.checkedout(),
-                pool.overflow(),
-            )
+def _make_checkin_logger(pool_label: str, pool):
+    def _on_checkin(dbapi_conn, connection_record):
+        start = connection_record.info.pop("_checkout_start", None)
+        if start is not None:
+            elapsed = time.monotonic() - start
+            if elapsed > _SLOW_CHECKOUT_THRESHOLD_S:
+                logger.warning(
+                    "Slow pool checkout: %.1fs (pool: %s, size: %d, checkedout: %d, overflow: %d)",
+                    elapsed,
+                    pool_label,
+                    pool.size(),
+                    pool.checkedout(),
+                    pool.overflow(),
+                )
+    return _on_checkin
 
 
-for _eng in (engine, bg_engine):
-    event.listen(_eng.sync_engine, "checkout", _on_checkout)
-    event.listen(_eng.sync_engine, "checkin", _on_checkin)
+if not _use_null_pool:
+    for _eng, _label in [(engine, "main"), (bg_engine, "background")]:
+        _pool = _eng.sync_engine.pool
+        event.listen(_eng.sync_engine, "checkout", _on_checkout)
+        event.listen(_eng.sync_engine, "checkin", _make_checkin_logger(_label, _pool))
 
 # ── Session factories ──────────────────────────────────────────────────────────
 AsyncSessionLocal = async_sessionmaker(

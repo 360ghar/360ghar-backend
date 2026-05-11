@@ -57,25 +57,35 @@ async def agent_chat_public(
     """Stream an AI agent response for unauthenticated guests via SSE.
 
     Only property search tools are available. No conversation persistence.
+
+    The main-pool DB session is released before streaming begins and a
+    background-pool session is used for tool calls, matching the pattern
+    in the authenticated ``/chat`` endpoint.
     """
     service = get_agent_service()
 
+    # Release the main-pool session — streaming may take minutes
+    await db.close()
+
     async def event_stream():
-        try:
-            async for event in service.stream_response(
-                user_message=body.message,
-                conversation_id=None,
-                conversation_history=[],
-                user=None,
-                db=db,
-                user_role="guest",
-            ):
-                yield event
-        except Exception as exc:
-            logger.error("Public SSE stream error: %s", exc, exc_info=True)
-            yield (
-                f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
-            )
+        from app.core.database import AsyncSessionLocalBG
+
+        async with AsyncSessionLocalBG() as stream_db:
+            try:
+                async for event in service.stream_response(
+                    user_message=body.message,
+                    conversation_id=None,
+                    conversation_history=[],
+                    user=None,
+                    db=stream_db,
+                    user_role="guest",
+                ):
+                    yield event
+            except Exception as exc:
+                logger.error("Public SSE stream error: %s", exc, exc_info=True)
+                yield (
+                    f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+                )
 
     return StreamingResponse(
         event_stream(),

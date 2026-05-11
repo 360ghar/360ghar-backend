@@ -1,6 +1,6 @@
 # ADR 004: Adapter Pattern for External Services
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-05-08
 

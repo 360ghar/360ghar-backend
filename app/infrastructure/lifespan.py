@@ -95,7 +95,7 @@ def _start_auto_blog_publish_scheduler(app: FastAPI) -> None:
 
         start_auto_blog_publish_scheduler(app)
     except Exception as sched_blog_e:
-        logger.error("Failed to start auto blog publish scheduler: %s", sched_blog_e)
+        logger.error("Failed to start auto blog publish scheduler: %s", sched_blog_e, exc_info=True)
 
 
 def _start_notification_scheduler(app: FastAPI) -> None:
@@ -104,7 +104,7 @@ def _start_notification_scheduler(app: FastAPI) -> None:
 
         start_notification_scheduler(app)
     except Exception as sched_e:
-        logger.error("Failed to start notification scheduler: %s", sched_e)
+        logger.error("Failed to start notification scheduler: %s", sched_e, exc_info=True)
 
 
 def _start_vector_sync_scheduler(app: FastAPI) -> None:
@@ -113,7 +113,7 @@ def _start_vector_sync_scheduler(app: FastAPI) -> None:
 
         start_vector_sync_scheduler(app)
     except Exception as sched_vec_e:
-        logger.error("Failed to start vector sync scheduler: %s", sched_vec_e)
+        logger.error("Failed to start vector sync scheduler: %s", sched_vec_e, exc_info=True)
 
 
 def _start_data_hub_scheduler(app: FastAPI) -> None:
@@ -122,11 +122,11 @@ def _start_data_hub_scheduler(app: FastAPI) -> None:
 
         start_data_hub_scheduler(app)
     except Exception as sched_dh_e:
-        logger.error("Failed to start data hub scheduler: %s", sched_dh_e)
+        logger.error("Failed to start data hub scheduler: %s", sched_dh_e, exc_info=True)
 
 
 def _shutdown_schedulers() -> None:
-    """Gracefully stop all APScheduler instances."""
+    """Gracefully stop all APScheduler instances via their public shutdown APIs."""
     for mod_path in (
         "app.services.blog_auto_publish_scheduler",
         "app.services.notification_scheduler",
@@ -135,10 +135,9 @@ def _shutdown_schedulers() -> None:
     ):
         try:
             import importlib
+
             mod = importlib.import_module(mod_path)
-            sched = getattr(mod, "_scheduler", None)
-            if sched is not None:
-                sched.shutdown(wait=False)
+            mod.shutdown_scheduler()
         except Exception as e:
             logger.warning("Failed to shutdown scheduler %s: %s", mod_path, e)
 
@@ -155,8 +154,8 @@ async def _shutdown_ai_providers() -> None:
 def _shutdown_notification_executor() -> None:
     """Shut down the notification thread pool."""
     try:
-        from app.services.notifications.helpers import _NOTIFICATION_EXECUTOR
-        _NOTIFICATION_EXECUTOR.shutdown(wait=False)
+        from app.services.notifications.helpers import shutdown_executor
+        shutdown_executor()
     except Exception as e:
         logger.warning("Failed to shutdown notification executor: %s", e)
 

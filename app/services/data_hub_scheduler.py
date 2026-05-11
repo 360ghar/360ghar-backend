@@ -174,3 +174,11 @@ def start_data_hub_scheduler(app: FastAPI) -> None:
             "timezone": _TZ,
         },
     )
+
+
+def shutdown_scheduler() -> None:
+    """Shut down the data hub scheduler. Called during app lifespan teardown."""
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None

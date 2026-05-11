@@ -50,3 +50,11 @@ def start_vector_sync_scheduler(app: FastAPI):
     _scheduler = sched
     logger.info("Vector sync scheduler started")
 
+
+def shutdown_scheduler() -> None:
+    """Shut down the vector sync scheduler. Called during app lifespan teardown."""
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+

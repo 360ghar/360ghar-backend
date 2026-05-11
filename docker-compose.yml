@@ -33,7 +33,7 @@ services:
       - redis
     volumes:
       - .:/app
-    command: hypercorn app.main:app --bind 0.0.0.0:3600 --reload
+    command: uv run python run.py
 
 volumes:
   postgres_data:

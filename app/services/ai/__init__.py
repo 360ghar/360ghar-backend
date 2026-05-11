@@ -22,6 +22,7 @@ from typing import Optional
 
 from app.core.config import settings
 from app.core.constants import DEFAULT_VISION_MODEL_GEMINI, DEFAULT_VISION_MODEL_GLM, DEFAULT_VISION_PROVIDER
+from app.core.logging import get_logger
 from app.services.ai.base import (
     AIProvider,
     AIProviderConfig,
@@ -30,6 +31,8 @@ from app.services.ai.base import (
     VisionInput,
     AIProviderError,
 )
+
+logger = get_logger(__name__)
 
 
 class AIProviderType(str, Enum):
@@ -64,6 +67,11 @@ def get_ai_provider(
         ValueError: If provider type is unknown or API key is not configured
     """
     if provider_type in _provider_cache:
+        if config_overrides:
+            logger.warning(
+                "AI provider %s already cached — config_overrides ignored",
+                provider_type.value,
+            )
         return _provider_cache[provider_type]
 
     if provider_type == AIProviderType.GEMINI:

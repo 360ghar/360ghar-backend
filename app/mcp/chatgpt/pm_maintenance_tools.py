@@ -172,7 +172,6 @@ async def owner_maintenance_list(
 async def owner_maintenance_update(
     request_id: int,
     status: str,
-    vendor_name: str | None = None,
     scheduled_date: str | None = None,
     estimated_cost: float | None = None,
     actual_cost: float | None = None,

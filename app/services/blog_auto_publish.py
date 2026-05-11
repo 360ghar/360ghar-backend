@@ -17,7 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import AsyncSessionLocalBG as AsyncSessionLocal
+from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
 from app.models.blogs import BlogPost
 from app.models.enums import UserRole
@@ -166,7 +166,7 @@ class DailyPerplexityBlogPublisher:
             return AutoBlogRunStats(skipped_count=1).model_dump()
 
         if db is None:
-            async with AsyncSessionLocal() as session:
+            async with AsyncSessionLocalBG() as session:
                 async with session.begin():
                     got_lock = await self._acquire_publish_lock(session)
                     if not got_lock:

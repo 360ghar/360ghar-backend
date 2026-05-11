@@ -8,6 +8,7 @@ so that Open Graph / Twitter metadata works for link unfurling.
 from __future__ import annotations
 
 import html
+import json
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -95,6 +96,8 @@ async def tour_share_preview(
     twitter_image_meta = (
         f'<meta name="twitter:image" content="{image_url_esc}" />' if image_url else ""
     )
+    # Escape redirect URL for safe embedding in <script>: prevent </script> injection
+    redirect_url_js = json.dumps(redirect_url).replace("</", "<\\/")
 
     html_doc = f"""<!doctype html>
 <html lang="en">
@@ -120,7 +123,7 @@ async def tour_share_preview(
 
     <meta http-equiv="refresh" content="0; url={redirect_url_esc}" />
     <script>
-      window.location.replace({redirect_url!r});
+      window.location.replace({redirect_url_js});
     </script>
   </head>
   <body>

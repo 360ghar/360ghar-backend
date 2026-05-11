@@ -59,6 +59,9 @@ class Lease(Base):
     signed_by_tenant_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     signed_by_owner_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    termination_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    termination_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
     lease_document_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )

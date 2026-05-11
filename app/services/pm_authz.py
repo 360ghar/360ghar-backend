@@ -185,7 +185,7 @@ async def get_accessible_owner_ids(db: AsyncSession, *, actor: User) -> Sequence
 async def can_access_booking(
     db: AsyncSession,
     *,
-    actor: object,
+    actor: User,
     booking_user_id: int,
     booking_property_id: int,
 ) -> bool:
@@ -218,7 +218,7 @@ async def can_access_booking(
 async def can_access_visit(
     db: AsyncSession,
     *,
-    actor: object,
+    actor: User,
     visit_user_id: int,
     visit_property_id: int,
     visit_counterparty_user_id: int | None = None,

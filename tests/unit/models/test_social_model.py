@@ -2,6 +2,8 @@
 Tests for app.models.social module — UserMatch, UserConversation, UserMessage, etc.
 """
 
+import logging
+
 import pytest
 from sqlalchemy import CheckConstraint
 
@@ -69,6 +71,46 @@ class TestEnumStringType:
 
         with pytest.raises(ValueError):
             enum_type.process_bind_param(invalid_string, None)
+
+    def test_process_result_value_valid_enum(self):
+        """Valid database values are converted back to enum members."""
+        enum_type = UserMatch.__table__.c.status.type
+        result = enum_type.process_result_value("active", None)
+        assert result == UserMatchStatus.active
+        assert isinstance(result, UserMatchStatus)
+
+    @pytest.mark.parametrize(
+        ("enum_type", "valid_string", "expected_enum"),
+        [
+            (UserMatch.__table__.c.status.type, "active", UserMatchStatus.active),
+            (
+                UserConversation.__table__.c.status.type,
+                "active",
+                ConversationStatus.active,
+            ),
+            (UserMessage.__table__.c.message_type.type, "text", MessageType.text),
+            (UserReport.__table__.c.status.type, "open", UserReportStatus.open),
+        ],
+    )
+    def test_process_result_value_parametrized(self, enum_type, valid_string, expected_enum):
+        """Multiple enum types round-trip correctly through process_result_value."""
+        result = enum_type.process_result_value(valid_string, None)
+        assert result == expected_enum
+        assert isinstance(result, type(expected_enum))
+
+    def test_process_result_value_none(self):
+        """None input returns None."""
+        enum_type = UserMatch.__table__.c.status.type
+        assert enum_type.process_result_value(None, None) is None
+
+    def test_process_result_value_unknown_returns_raw_string(self, caplog):
+        """Unknown database values return the raw string with a warning log."""
+        enum_type = UserMatch.__table__.c.status.type
+        with caplog.at_level(logging.WARNING, logger="app.models.social"):
+            result = enum_type.process_result_value("unknown_value", None)
+        assert result == "unknown_value"
+        assert not isinstance(result, UserMatchStatus)
+        assert "Unknown UserMatchStatus value" in caplog.text
 
     def test_social_tables_have_enum_check_constraints(self):
         assert "ck_user_matches_status" in _constraint_names(UserMatch)

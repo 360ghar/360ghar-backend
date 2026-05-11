@@ -33,7 +33,7 @@ FLATMATE_LISTING_TYPES = (PropertyType.flatmate, PropertyType.pg)
 
 
 def _is_admin_user(user: UserSchema) -> bool:
-    return bool(getattr(user, "is_admin", False) or getattr(user, "role", None) == "admin")
+    return getattr(user, "role", None) == "admin"
 
 
 def _listing_moderation_status_expr():
@@ -170,7 +170,7 @@ async def moderate_listing(
     try:
         from app.core.sse import sse_bus
 
-        sse_bus.emit(
+        await sse_bus.emit(
             listing.owner_id,
             {
                 "type": "listing_status_changed",

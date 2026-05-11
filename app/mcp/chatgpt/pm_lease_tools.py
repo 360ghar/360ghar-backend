@@ -10,6 +10,7 @@ from app.core.logging import get_logger
 from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError, build_widget_tool_meta
 from app.mcp.chatgpt import get_widget_for_tool
 from app.mcp.chatgpt.pm_shared import _format_lease_summary, _get_optional_user, _serialize_lease
+from app.models.enums import LeaseStatus
 from app.mcp.chatgpt.response_formatter import (
     format_auth_required_response,
     format_chatgpt_response,
@@ -64,13 +65,16 @@ async def owner_leases_list(
 
             user_schema = UserSchema.model_validate(user)
 
+            # Convert status string to LeaseStatus enum for the service layer
+            lease_status = LeaseStatus(status) if status else None
+
             # Get leases for owner's properties
             leases = await list_leases(
                 db,
                 actor=user_schema,
                 owner_id=user.id,
                 property_id=property_id,
-                status=status,
+                status=lease_status,
                 limit=limit,
                 offset=(page - 1) * limit,
             )

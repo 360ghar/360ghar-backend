@@ -1,6 +1,6 @@
 # ADR 002: Repository Pattern with Protocol Interfaces
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-05-08
 
@@ -276,7 +276,7 @@ async def test_check_availability_returns_true_when_no_conflicts():
 
 - **AsyncMock limitations.** Python's `AsyncMock` provides no compile-time safety. Typos in mock method names silently pass. Using `spec=ProtocolClass` helps but is not foolproof.
 
-- **Migration effort.** Existing services that directly use `AsyncSession` must be refactored one by one. This is substantial for service files like `visit.py` (18K lines of code), `flatmates.py`, and `booking.py`.
+- **Migration effort.** Existing services that directly use `AsyncSession` must be refactored one by one. This is substantial for service files like `visit.py` (~500 lines of code), `flatmates.py`, and `booking.py`.
 
 - **Cross-domain queries.** Some service operations query across multiple models (e.g., a dashboard that joins properties, bookings, and leases). These don't fit neatly into a single-domain repository and may require dedicated read-model repositories or composed queries.
 
@@ -313,7 +313,7 @@ For each domain:
 ### Recommended Migration Order
 
 1. **booking** — Medium size, clear data access patterns, high test value.
-2. **visit** — Large service (18K lines), high benefit from testability.
+2. **visit** — Moderate service (~500 lines), high benefit from testability.
 3. **user** — Referenced by many other services; migrating it early enables downstream tests.
 4. **flatmates** — Complex domain with many query patterns.
 5. **property** — Already has a repository; extend with a protocol interface.

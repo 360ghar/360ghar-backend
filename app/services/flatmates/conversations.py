@@ -317,12 +317,12 @@ async def send_message(
     try:
         from app.core.sse import sse_bus
 
-        sse_bus.emit(
+        await sse_bus.emit(
             peer_id,
             {"type": "new_message", "conversation_id": conversation.id, "sender_id": user_id, "message_id": message.id},
         )
         for uid in (user_id, peer_id):
-            sse_bus.emit(uid, {"type": "conversation_updated", "conversation_id": conversation.id})
+            await sse_bus.emit(uid, {"type": "conversation_updated", "conversation_id": conversation.id})
     except Exception:  # noqa: BLE001
         pass  # best-effort
 
@@ -350,7 +350,12 @@ async def mark_conversation_read(
     user_id: int,
 ) -> dict[str, str]:
     """Mark all peer messages in a conversation as read."""
-    await get_conversation(db, conversation_id, user_id)
+    conversation = await get_conversation(db, conversation_id, user_id)
+    peer_id = (
+        conversation.user_two_id
+        if conversation.user_one_id == user_id
+        else conversation.user_one_id
+    )
 
     now = datetime.now(timezone.utc)
     await db.execute(
@@ -373,11 +378,7 @@ async def mark_conversation_read(
     try:
         from app.core.sse import sse_bus
 
-        conv = await get_conversation(db, conversation_id, user_id)
-        peer_id = (
-            conv.user_two_id if conv.user_one_id == user_id else conv.user_one_id
-        )
-        sse_bus.emit(peer_id, {"type": "conversation_updated", "conversation_id": conversation_id})
+        await sse_bus.emit(peer_id, {"type": "conversation_updated", "conversation_id": conversation_id})
     except Exception:  # noqa: BLE001
         pass  # best-effort
 

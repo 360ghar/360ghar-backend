@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from app.models.properties import Property
 
 
+logger = logging.getLogger(__name__)
+
 SocialEnum = TypeVar("SocialEnum", bound=Enum)
 
 
@@ -62,6 +65,14 @@ class EnumStringType(TypeDecorator[str]):
     def process_result_value(self, value, dialect):  # noqa: ANN001
         if value is None:
             return None
+        if value not in self.valid_values:
+            logger.warning(
+                "Unknown %s value %r in database; returning raw string. "
+                "Run a data-cleaning pass to resolve.",
+                self.enum_cls.__name__,
+                value,
+            )
+            return value
         return self.enum_cls(value)
 
 

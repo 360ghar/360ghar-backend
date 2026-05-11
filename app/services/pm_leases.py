@@ -168,6 +168,8 @@ async def terminate_lease(
     *,
     actor: User,
     lease_id: int,
+    termination_date: Optional[date] = None,
+    reason: Optional[str] = None,
 ) -> Lease:
     lease = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
 
@@ -185,6 +187,10 @@ async def terminate_lease(
         )
 
     lease.status = LeaseStatus.terminated
+    if termination_date is not None:
+        lease.termination_date = termination_date
+    if reason is not None:
+        lease.termination_reason = reason
     await db.flush()
 
     prop = await db.get(Property, lease.property_id)

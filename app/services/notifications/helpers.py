@@ -74,3 +74,8 @@ def _augment_data_with_meta(
         meta["priority"] = priority
     base["_meta"] = meta
     return base
+
+
+def shutdown_executor() -> None:
+    """Shut down the notification thread pool. Called during app lifespan teardown."""
+    _NOTIFICATION_EXECUTOR.shutdown(wait=False)

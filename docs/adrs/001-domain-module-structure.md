@@ -1,6 +1,6 @@
 # ADR 001: Domain-Driven Module Structure
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-05-08
 

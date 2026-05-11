@@ -44,3 +44,11 @@ def start_notification_scheduler(app: FastAPI):
     sched.start()
     _scheduler = sched
     logger.info("Notification scheduler started", extra={"timezone": tz})
+
+
+def shutdown_scheduler() -> None:
+    """Shut down the notification scheduler. Called during app lifespan teardown."""
+    global _scheduler
+    if _scheduler is not None:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None

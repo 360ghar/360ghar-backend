@@ -104,7 +104,7 @@ async def get_visit_details(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return visit
@@ -120,7 +120,7 @@ async def update_visit_details(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return await update_visit(db, visit_id, visit_update)
@@ -136,7 +136,7 @@ async def reschedule_visit_date(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     updated = await reschedule_visit(db, visit_id, reschedule_data.new_date, reschedule_data.reason)
@@ -155,7 +155,7 @@ async def cancel_visit_request(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     updated = await cancel_visit(db, visit_id, cancel_data.reason)
@@ -176,7 +176,7 @@ async def complete_visit(
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
 
-    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=getattr(visit, 'counterparty_user_id', None)):
+    if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
     notes = payload.notes if payload else None

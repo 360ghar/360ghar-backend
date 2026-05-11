@@ -79,9 +79,16 @@ class MCPResponse(BaseModel):
         )
     
     def model_dump(self, *args, **kwargs) -> Dict[str, Any]:
-        """Override model_dump to exclude None values."""
+        """Override model_dump to exclude None values.
+
+        For failure responses, includes a top-level ``message`` key for
+        backward compatibility with clients that check ``response["message"]``.
+        """
         d = super().model_dump(*args, **kwargs)
-        return {k: v for k, v in d.items() if v is not None}
+        result = {k: v for k, v in d.items() if v is not None}
+        if not self.ok and self.error is not None:
+            result["message"] = self.error.message
+        return result
 
 
 def invalid_input_response(

@@ -217,7 +217,7 @@ class TestDailyPerplexityBlogPublisher:
         publish_with_session = AsyncMock()
 
         monkeypatch.setattr(
-            "app.services.blog_auto_publish.AsyncSessionLocal",
+            "app.services.blog_auto_publish.AsyncSessionLocalBG",
             lambda: _DummySessionContext(managed_session),
         )
         monkeypatch.setattr(publisher, "_acquire_publish_lock", acquire_lock)

@@ -141,7 +141,7 @@ def extract_exif(image_bytes: bytes) -> dict[str, Any]:
 
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
-            raw_exif = img._getexif()
+            raw_exif = img.getexif()
 
             if not raw_exif:
                 return exif_data
@@ -310,7 +310,7 @@ def get_image_info(
             aspect_ratio = width / height if height > 0 else 0
             expected_ratio = 2.0
             is_360 = abs(aspect_ratio - expected_ratio) <= 0.1
-            raw_exif = img._getexif() if hasattr(img, "_getexif") else None
+            raw_exif = img.getexif()
 
             exif_data: dict[str, Any] = {"camera": {}, "gps": {}, "datetime": None, "software": None}
             if raw_exif:

@@ -46,7 +46,7 @@ async def _dispatch(
     try:
         from app.core.sse import sse_bus
 
-        sse_bus.emit(
+        await sse_bus.emit(
             user_db_id,
             {
                 "type": "new_notification",

@@ -1,6 +1,6 @@
 # ADR 003: Event-Driven Side Effects
 
-**Status:** Proposed
+**Status:** Accepted
 
 **Date:** 2026-05-08
 

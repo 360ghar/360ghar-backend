@@ -178,11 +178,11 @@ async def owner_rent_record_payment(
                 payment = await record_rent_payment(
                     db,
                     actor=user_schema,
-                    rent_charge_id=rent_charge_id,
-                    amount=amount,
-                    payment_date=pay_date,
+                    charge_id=rent_charge_id,
+                    amount_paid=amount,
+                    paid_at=pay_date,
                     payment_method=method,
-                    transaction_id=transaction_id,
+                    reference=transaction_id,
                     notes=notes,
                 )
                 await db.commit()

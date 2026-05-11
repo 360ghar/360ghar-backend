@@ -243,7 +243,7 @@ async def record_swipe(
                 from app.core.sse import sse_bus
 
                 for uid in (user_id, payload.target_user_id):
-                    sse_bus.emit(
+                    await sse_bus.emit(
                         uid,
                         {"type": "new_match", "match_id": match_id, "conversation_id": conversation_id},
                     )

@@ -42,7 +42,7 @@ async def update_visit_status(
         from app.core.sse import sse_bus
 
         for uid in (visit.user_id, visit.counterparty_user_id):
-            sse_bus.emit(
+            await sse_bus.emit(
                 uid,
                 {"type": "visit_updated", "visit_id": visit_id, "status": effective_status},
             )
