@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import time
-from typing import Optional, Sequence
+from collections.abc import Sequence
 
 from fastmcp.server.auth import AccessToken, RemoteAuthProvider, TokenVerifier
 
 from app.config import settings
 from app.core.logging import get_logger
-
 
 logger = get_logger(__name__)
 
@@ -43,9 +42,9 @@ class SupabaseTokenVerifier(TokenVerifier):
 
     def __init__(
         self,
-        required_scopes: Optional[list[str]] | None = None,
-        expected_resource: Optional[str] = None,
-        expected_resources: Optional[Sequence[str]] = None,
+        required_scopes: list[str] | None | None = None,
+        expected_resource: str | None = None,
+        expected_resources: Sequence[str] | None = None,
     ):
         super().__init__(base_url=None, required_scopes=required_scopes)
         allowed: list[str] = []
@@ -66,7 +65,6 @@ class SupabaseTokenVerifier(TokenVerifier):
         Supabase JWT tokens are no longer supported in MCP endpoints.
         """
         logger.debug("Verifying OAuth token", extra={"token_len": len(token) if token else 0})
-        scopes = self.required_scopes or ["mcp:read", "mcp:write"]
 
         # OAuth access token verification
         try:

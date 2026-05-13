@@ -6,17 +6,17 @@ The class delegates validation to ``helpers`` and scene-image processing to
 """
 import os
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import get_supabase_storage_client
 from app.config import settings
+from app.core.auth import get_supabase_storage_client
 from app.core.exceptions import (
-    BaseAPIException,
     BadRequestException,
+    BaseAPIException,
     FileTooLargeException,
     InvalidFileException,
     NotFoundException,
@@ -75,12 +75,12 @@ class StorageService:
         *,
         user_id: int,
         folder: StorageFolder,
-        db: Optional[AsyncSession] = None,
-        property_id: Optional[int] = None,
-        tour_id: Optional[str] = None,
-        scene_id: Optional[str] = None,
+        db: AsyncSession | None = None,
+        property_id: int | None = None,
+        tour_id: str | None = None,
+        scene_id: str | None = None,
         visibility: str = "private",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Upload a file with user-scoped path using StorageFolder enum.
 
@@ -171,7 +171,7 @@ class StorageService:
             raise
         except Exception as e:
             logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}")
+            raise StorageException(detail=f"File upload failed: {str(e)}") from None
 
     # ============================================================
     # Legacy Upload Methods (maintained for backward compatibility)
@@ -181,9 +181,9 @@ class StorageService:
         self,
         file: UploadFile,
         property_id: int,
-        user_id: Optional[int] = None,
-        db: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
+        user_id: int | None = None,
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
         """Upload property image with user-scoped path."""
         if user_id:
             return await self.upload_with_path(
@@ -201,8 +201,8 @@ class StorageService:
         self,
         file: UploadFile,
         user_id: int,
-        db: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
         """Upload user avatar with user-scoped path."""
         return await self.upload_with_path(
             file,
@@ -216,8 +216,8 @@ class StorageService:
         self,
         file: UploadFile,
         agent_id: int,
-        user_id: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        user_id: int | None = None,
+    ) -> dict[str, Any]:
         """Upload agent avatar (not user-scoped, at root level)."""
         # Agent avatars use a special path at the root level
         try:
@@ -259,15 +259,15 @@ class StorageService:
             raise
         except Exception as e:
             logger.error("Agent avatar upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}")
+            raise StorageException(detail=f"File upload failed: {str(e)}") from None
 
     async def upload_generic(
         self,
         file: UploadFile,
         folder: str = "uploads",
-        user_id: Optional[int] = None,
-        db: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
+        user_id: int | None = None,
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
         """Generic upload for dashboard and misc files."""
         if user_id:
             return await self.upload_with_path(
@@ -284,12 +284,12 @@ class StorageService:
         self,
         file: UploadFile,
         *,
-        db: Optional[AsyncSession],
-        user_id: Optional[int],
+        db: AsyncSession | None,
+        user_id: int | None,
         folder: str = "uploads",
-        tour_id: Optional[str] = None,
+        tour_id: str | None = None,
         visibility: str = "private",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Upload a file and create a MediaFile record when DB context is available."""
         if user_id:
             return await self.upload_with_path(
@@ -309,14 +309,14 @@ class StorageService:
 
     async def upload_batch(
         self,
-        files: List[UploadFile],
+        files: list[UploadFile],
         *,
-        db: Optional[AsyncSession],
-        user_id: Optional[int],
+        db: AsyncSession | None,
+        user_id: int | None,
         folder: str = "uploads",
-        tour_id: Optional[str] = None,
+        tour_id: str | None = None,
         visibility: str = "private",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Upload multiple files with optional MediaFile tracking."""
         results = []
         for file in files:
@@ -340,16 +340,16 @@ class StorageService:
         self,
         *,
         filename: str,
-        content_type: Optional[str],
-        file_size: Optional[int],
+        content_type: str | None,
+        file_size: int | None,
         user_id: int,
         db: AsyncSession,
         folder: StorageFolder = StorageFolder.GENERIC_UPLOAD,
-        property_id: Optional[int] = None,
-        tour_id: Optional[str] = None,
-        scene_id: Optional[str] = None,
+        property_id: int | None = None,
+        tour_id: str | None = None,
+        scene_id: str | None = None,
         visibility: str = "private",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Create a presigned upload URL for direct client-side uploads.
 
@@ -516,8 +516,8 @@ class StorageService:
         self,
         file: UploadFile,
         user_id: int,
-        db: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
         """Upload a document (PDF, etc.) with user-scoped path."""
         return await self.upload_with_path(
             file,
@@ -538,8 +538,8 @@ class StorageService:
         tour_id: str,
         scene_id: str,
         user_id: int,
-        db: Optional[AsyncSession] = None,
-    ) -> Dict[str, Any]:
+        db: AsyncSession | None = None,
+    ) -> dict[str, Any]:
         """
         Upload a 360 scene image with automatic thumbnail generation.
 
@@ -572,7 +572,7 @@ class StorageService:
         tour_id: str,
         scene_id: str,
         user_id: int,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Process an existing scene image URL to generate thumbnails.
 
@@ -600,7 +600,7 @@ class StorageService:
     # File Management Methods
     # ============================================================
 
-    def delete_file(self, file_path: str, bucket_name: Optional[str] = None) -> bool:
+    def delete_file(self, file_path: str, bucket_name: str | None = None) -> bool:
         """Delete file from Supabase Storage."""
         try:
             target_bucket = bucket_name or self.bucket_name
@@ -610,12 +610,12 @@ class StorageService:
             logger.error("File deletion error: %s", e)
             return False
 
-    def get_file_url(self, file_path: str, bucket_name: Optional[str] = None) -> str:
+    def get_file_url(self, file_path: str, bucket_name: str | None = None) -> str:
         """Get public URL for file."""
         target_bucket = bucket_name or self.bucket_name
         return self.supabase.storage.from_(target_bucket).get_public_url(file_path)
 
-    def list_files(self, folder: str, bucket_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_files(self, folder: str, bucket_name: str | None = None) -> list[dict[str, Any]]:
         """List files in a folder."""
         try:
             target_bucket = bucket_name or self.bucket_name
@@ -638,9 +638,9 @@ class StorageService:
         folder: str,
         file_type: str,
         *,
-        bucket_name: Optional[str] = None,
+        bucket_name: str | None = None,
         allow_documents: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Legacy generic file upload method (non-user-scoped)."""
         try:
             # Validate file type
@@ -687,15 +687,15 @@ class StorageService:
             raise
         except Exception as e:
             logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}")
+            raise StorageException(detail=f"File upload failed: {str(e)}") from None
 
     async def _create_media_record(
         self,
         *,
         db: AsyncSession,
         user_id: int,
-        upload_result: Dict[str, Any],
-        tour_id: Optional[str] = None,
+        upload_result: dict[str, Any],
+        tour_id: str | None = None,
         visibility: str = "private",
         upload_status: str = "complete",
     ) -> MediaFile:
@@ -734,11 +734,11 @@ class StorageService:
         """Validate a content-type string (delegates to helpers)."""
         return is_valid_content_type(content_type, allow_documents=allow_documents)
 
-    def _infer_content_type_from_extension(self, ext: str) -> Optional[str]:
+    def _infer_content_type_from_extension(self, ext: str) -> str | None:
         """Infer MIME type from extension (delegates to helpers)."""
         return infer_content_type_from_extension(ext)
 
-    def _get_file_extension(self, filename: str, *, content_type: Optional[str] = None) -> str:
+    def _get_file_extension(self, filename: str, *, content_type: str | None = None) -> str:
         """Get file extension (delegates to helpers)."""
         return get_file_extension(filename, content_type=content_type)
 

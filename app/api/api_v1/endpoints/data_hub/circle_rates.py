@@ -18,7 +18,7 @@ from app.services.data_hub.utils import (
     calculate_stamp_duty,
 )
 
-from .helpers import _STAMP_DUTY_RATES, _meta_from_table, _paginate, _safe_list_query
+from .helpers import _STAMP_DUTY_RATES, _paginate, _safe_list_query
 
 router = APIRouter()
 

@@ -16,15 +16,15 @@ Usage:
 
 import hashlib
 import json
-from typing import Any, Optional
+from typing import Any
 
-from app.core.cache.interface import CacheBackend, CacheStats
-from app.core.cache.manager import CacheManager, CacheBackendType, NullCacheBackend
 from app.core.cache.decorators import cached, invalidate_cache
-from app.core.cache.keys import build_cache_key, CacheKeyPatterns, generate_hash
+from app.core.cache.interface import CacheBackend, CacheStats
+from app.core.cache.keys import CacheKeyPatterns, build_cache_key, generate_hash
+from app.core.cache.manager import CacheBackendType, CacheManager, NullCacheBackend
 
 # Global cache manager instance
-_cache_manager: Optional[CacheManager] = None
+_cache_manager: CacheManager | None = None
 
 
 def get_cache_manager() -> CacheManager:
@@ -47,7 +47,7 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def set_cache_manager(manager: Optional[CacheManager]) -> None:
+def set_cache_manager(manager: CacheManager | None) -> None:
     """Set the global cache manager (for testing).
 
     Args:
@@ -104,7 +104,7 @@ class PropertyCacheManager:
     @staticmethod
     async def get_cached_properties(
         filters: dict, user_id: int, page: int, limit: int
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Get cached property results."""
         cache = get_cache_manager()
         cache_key = PropertyCacheManager.generate_cache_key(

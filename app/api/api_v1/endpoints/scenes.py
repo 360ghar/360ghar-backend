@@ -4,7 +4,6 @@ Scene API Endpoints.
 This module provides REST API endpoints for managing scenes within virtual tours,
 including CRUD operations and hotspot management.
 """
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,7 +87,7 @@ async def delete_scene(
 
 
 # Hotspot endpoints nested under scenes
-@router.get("/{scene_id}/hotspots", response_model=List[Hotspot])
+@router.get("/{scene_id}/hotspots", response_model=list[Hotspot])
 async def list_hotspots(
     scene_id: str,
     db: AsyncSession = Depends(get_db),

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
 
@@ -8,10 +8,10 @@ from app.utils.validators import ValidationUtils
 
 
 class UserBase(BaseModel):
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
-    date_of_birth: Optional[date] = None
+    email: EmailStr | None = None
+    full_name: str | None = None
+    phone: str | None = None
+    date_of_birth: date | None = None
 
     @field_validator("email", mode="before")
     @classmethod
@@ -24,25 +24,25 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     phone: str  # Override to make phone required for registration
     password: str
-    
+
     @field_validator('phone')
     @classmethod
     def validate_phone_create(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Phone number is required for registration")
         return ValidationUtils.validate_phone(v)
-    
+
 class UserUpdate(BaseModel):
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
-    date_of_birth: Optional[date] = None
-    profile_image_url: Optional[str] = None
-    preferences: Optional[Dict[str, Any]] = None
-    current_latitude: Optional[float] = None
-    current_longitude: Optional[float] = None
-    notification_settings: Optional[Dict[str, bool]] = None
-    privacy_settings: Optional[Dict[str, Any]] = None
+    email: EmailStr | None = None
+    full_name: str | None = None
+    phone: str | None = None
+    date_of_birth: date | None = None
+    profile_image_url: str | None = None
+    preferences: dict[str, Any] | None = None
+    current_latitude: float | None = None
+    current_longitude: float | None = None
+    notification_settings: dict[str, bool] | None = None
+    privacy_settings: dict[str, Any] | None = None
 
     @field_validator('full_name')
     @classmethod
@@ -52,14 +52,14 @@ class UserUpdate(BaseModel):
             if len(v) < 2:
                 raise ValueError("Name must be at least 2 characters long")
         return v
-    
+
     @field_validator('phone')
     @classmethod
     def validate_phone(cls, v):
         if v:
             return ValidationUtils.validate_phone(v)
         return v
-    
+
     @field_validator('date_of_birth')
     @classmethod
     def validate_dob(cls, v):
@@ -72,7 +72,7 @@ class UserUpdate(BaseModel):
             if age < min_age:
                 raise ValueError(f"Must be at least {min_age} years old")
             if age > max_age:
-                raise ValueError(f"Invalid date of birth")
+                raise ValueError("Invalid date of birth")
         return v
 
     @field_validator("email", mode="before")
@@ -98,16 +98,16 @@ class UserInDB(UserBase):
     role: UserRole = UserRole.user
     is_active: bool
     is_verified: bool
-    profile_image_url: Optional[str] = None
-    preferences: Optional[Dict[str, Any]] = None
-    current_latitude: Optional[float] = None
-    current_longitude: Optional[float] = None
-    notification_settings: Optional[Dict[str, bool]] = None
-    privacy_settings: Optional[Dict[str, Any]] = None
-    agent_id: Optional[int] = None
+    profile_image_url: str | None = None
+    preferences: dict[str, Any] | None = None
+    current_latitude: float | None = None
+    current_longitude: float | None = None
+    notification_settings: dict[str, bool] | None = None
+    privacy_settings: dict[str, Any] | None = None
+    agent_id: int | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    
+    updated_at: datetime | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class User(UserInDB):
@@ -118,19 +118,19 @@ class Token(BaseModel):
     token_type: str
 
 class TokenData(BaseModel):
-    phone: Optional[str] = None
+    phone: str | None = None
 
 class UserPreferences(BaseModel):
-    property_type: Optional[List[PropertyType]] = None
-    purpose: Optional[PropertyPurpose] = None
-    budget_min: Optional[float] = None
-    budget_max: Optional[float] = None
-    bedrooms_min: Optional[int] = None
-    bedrooms_max: Optional[int] = None
-    area_min: Optional[float] = None
-    area_max: Optional[float] = None
-    location_preference: Optional[List[str]] = None
-    max_distance_km: Optional[int] = 5
+    property_type: list[PropertyType] | None = None
+    purpose: PropertyPurpose | None = None
+    budget_min: float | None = None
+    budget_max: float | None = None
+    bedrooms_min: int | None = None
+    bedrooms_max: int | None = None
+    area_min: float | None = None
+    area_max: float | None = None
+    location_preference: list[str] | None = None
+    max_distance_km: int | None = 5
 
 class LocationUpdate(BaseModel):
     latitude: float

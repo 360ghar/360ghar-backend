@@ -18,12 +18,12 @@ Tools:
     - agent_dashboard_overview
 """
 # Re-export shared helpers for backward-compatible test mocking
-from app.mcp.admin.server import _get_user, _require_auth, _require_agent_or_admin  # noqa: F401
+from app.mcp.admin.agent_tools.bookings import *  # noqa: F401, F403
+from app.mcp.admin.agent_tools.dashboard import *  # noqa: F401, F403
+from app.mcp.admin.agent_tools.leases import *  # noqa: F401, F403
+from app.mcp.admin.agent_tools.maintenance import *  # noqa: F401, F403
 
 # Import sub-modules to trigger @admin_mcp.tool() registration
 from app.mcp.admin.agent_tools.properties import *  # noqa: F401, F403
-from app.mcp.admin.agent_tools.leases import *  # noqa: F401, F403
 from app.mcp.admin.agent_tools.rent import *  # noqa: F401, F403
-from app.mcp.admin.agent_tools.maintenance import *  # noqa: F401, F403
-from app.mcp.admin.agent_tools.bookings import *  # noqa: F401, F403
-from app.mcp.admin.agent_tools.dashboard import *  # noqa: F401, F403
+from app.mcp.admin.server import _get_user, _require_agent_or_admin, _require_auth  # noqa: F401

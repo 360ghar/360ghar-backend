@@ -2,20 +2,17 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import Any, Dict, Optional
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.core.utils import utc_now
+from app.mcp.tool_ops import _user_schema
+from app.mcp.utils import serialize_lease
 from app.models.enums import LeaseStatus
 from app.models.pm_leases import Lease
 from app.models.properties import Property
-from app.models.users import User as UserModel
-from app.mcp.utils import serialize_lease, serialize_user_basic
-from app.mcp.tool_ops import _user_schema
 from app.services.pm_authz import assert_can_access_lease, assert_can_access_property
 from app.services.user import get_user_by_id
 
@@ -68,12 +65,12 @@ async def list_leases(
     db: AsyncSession,
     *,
     actor,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
-    accessible_owner_ids: Optional[list[int]] = None,
+    accessible_owner_ids: list[int] | None = None,
 ) -> dict:
     """List leases with optional filters."""
     limit = min(max(1, limit), 100)
@@ -99,7 +96,7 @@ async def list_leases(
     result = await db.execute(stmt)
     leases = result.scalars().all()
 
-    items = [serialize_lease(l) for l in leases]
+    items = [serialize_lease(lease) for lease in leases]
 
     return {
         "items": items,
@@ -119,10 +116,10 @@ async def create_lease(
     end_date: str,
     monthly_rent: float,
     security_deposit: float = 0,
-    payment_due_day: Optional[int] = None,
-    grace_period_days: Optional[int] = None,
-    terms: Optional[str] = None,
-    notes: Optional[str] = None,
+    payment_due_day: int | None = None,
+    grace_period_days: int | None = None,
+    terms: str | None = None,
+    notes: str | None = None,
 ) -> dict:
     """Create a new lease agreement."""
     actor_schema = _user_schema(actor)
@@ -179,7 +176,7 @@ async def terminate_lease(
     actor,
     lease_id: int,
     reason: str,
-    termination_date: Optional[str] = None,
+    termination_date: str | None = None,
 ) -> dict:
     """Terminate an active lease."""
     actor_schema = _user_schema(actor)

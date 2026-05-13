@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -19,7 +17,7 @@ logger = get_logger(__name__)
 async def compute_dashboard_metrics(
     db: AsyncSession,
     *,
-    owner_ids: Optional[list[int]] = None,
+    owner_ids: list[int] | None = None,
     managed_only: bool = True,
 ) -> dict:
     """Compute dashboard metrics for a set of owners.

@@ -1,10 +1,10 @@
 """
 Custom Domain schemas for branded tour URLs.
 """
-from datetime import datetime
-from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
 import re
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class CustomDomainBase(BaseModel):
@@ -37,7 +37,7 @@ class CustomDomainResponse(CustomDomainBase):
     user_id: int
     verification_status: str  # pending, verified, failed
     ssl_status: str  # pending, provisioning, active, failed
-    verification_token: Optional[str] = None
+    verification_token: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -48,7 +48,7 @@ class CustomDomainVerification(BaseModel):
     """Schema for domain verification status."""
     domain: str
     is_verified: bool
-    verification_instructions: Optional[str] = None
+    verification_instructions: str | None = None
     txt_record_name: str
     txt_record_value: str
 

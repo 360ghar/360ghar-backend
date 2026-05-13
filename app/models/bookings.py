@@ -1,15 +1,24 @@
 
-from sqlalchemy import Integer, String, Text, Boolean, DateTime, ForeignKey, Float, JSON, func
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
-from typing import Optional
-from datetime import datetime
+
 from app.core.database import Base
 from app.models.enums import BookingStatus, PaymentStatus
 
+if TYPE_CHECKING:
+    from app.models.properties import Property
+    from app.models.users import User
+
+
 class Booking(Base):
     __tablename__ = "bookings"
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
@@ -28,25 +37,25 @@ class Booking(Base):
     primary_guest_name: Mapped[str] = mapped_column(String, nullable=False)
     primary_guest_phone: Mapped[str] = mapped_column(String, nullable=False)
     primary_guest_email: Mapped[str] = mapped_column(String, nullable=False)
-    guest_details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    special_requests: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    internal_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    actual_check_in: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    actual_check_out: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    guest_details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    special_requests: Mapped[str | None] = mapped_column(Text, nullable=True)
+    internal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_check_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_check_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     early_check_in: Mapped[bool] = mapped_column(Boolean, default=False)
     late_check_out: Mapped[bool] = mapped_column(Boolean, default=False)
-    cancellation_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancellation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    refund_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    payment_method: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    transaction_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    payment_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    guest_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    guest_review: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    host_rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    host_review: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    cancellation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refund_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
+    transaction_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    guest_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    guest_review: Mapped[str | None] = mapped_column(Text, nullable=True)
+    host_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    host_review: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    
-    user: Mapped["User"] = relationship(back_populates="bookings")
-    property: Mapped["Property"] = relationship(back_populates="bookings")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="bookings")
+    property: Mapped[Property] = relationship(back_populates="bookings")

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,14 +54,14 @@ async def create_document(
     document_type: DocumentType,
     title: str,
     file_url: str,
-    file_path: Optional[str] = None,
-    mime_type: Optional[str] = None,
-    file_size: Optional[int] = None,
-    user_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    maintenance_request_id: Optional[int] = None,
-    rental_application_id: Optional[int] = None,
+    file_path: str | None = None,
+    mime_type: str | None = None,
+    file_size: int | None = None,
+    user_id: int | None = None,
+    property_id: int | None = None,
+    lease_id: int | None = None,
+    maintenance_request_id: int | None = None,
+    rental_application_id: int | None = None,
     shared_with_tenant: bool = False,
     shared_with_agent: bool = False,
 ) -> Document:
@@ -96,13 +94,13 @@ async def list_documents(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    user_id: Optional[int] = None,
-    maintenance_request_id: Optional[int] = None,
-    rental_application_id: Optional[int] = None,
-    document_type: Optional[DocumentType] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    lease_id: int | None = None,
+    user_id: int | None = None,
+    maintenance_request_id: int | None = None,
+    rental_application_id: int | None = None,
+    document_type: DocumentType | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Document]:
@@ -144,9 +142,9 @@ async def update_document(
     *,
     actor: User,
     document_id: int,
-    title: Optional[str] = None,
-    shared_with_tenant: Optional[bool] = None,
-    shared_with_agent: Optional[bool] = None,
+    title: str | None = None,
+    shared_with_tenant: bool | None = None,
+    shared_with_agent: bool | None = None,
 ) -> Document:
     doc = await assert_can_access_document(db, actor=actor, document_id=document_id)
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +55,7 @@ async def create_rm_assignment(
 
 @router.get("", response_model=list[OwnerRMAssignmentResponse])
 async def list_rm_assignments(
-    owner_id: Optional[int] = Query(None, description="Owner id (admin only)"),
+    owner_id: int | None = Query(None, description="Owner id (admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):

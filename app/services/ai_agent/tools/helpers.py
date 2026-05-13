@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 class AgentDeps:
     """Injected into every tool call via ``RunContext``."""
 
-    user: "User"  # SQLAlchemy User model instance
+    user: User  # SQLAlchemy User model instance
     db: AsyncSession
     user_role: str  # "user", "agent", "admin"
 
@@ -36,7 +36,7 @@ class AgentDeps:
 # Helper
 # ---------------------------------------------------------------------------
 
-def _user_schema(user: "User"):
+def _user_schema(user: User):
     """Convert a SQLAlchemy User to the Pydantic UserSchema expected by services."""
     from app.schemas.user import User as UserSchema
     return UserSchema.model_validate(user)

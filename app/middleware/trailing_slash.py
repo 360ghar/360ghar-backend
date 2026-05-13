@@ -17,7 +17,6 @@ API routes that need trailing slash stripped:
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-
 # Exact mount paths that need trailing slash normalization
 MCP_MOUNT_PATHS = {"/mcp", "/mcp-admin"}
 

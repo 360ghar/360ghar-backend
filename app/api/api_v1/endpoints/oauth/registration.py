@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 import uuid
-from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -20,18 +19,18 @@ class ClientRegistrationRequest(BaseModel):
     """RFC 7591 Dynamic Client Registration Request."""
 
     client_name: str
-    redirect_uris: List[str]
-    client_uri: Optional[str] = None
-    logo_uri: Optional[str] = None
-    contacts: Optional[List[str]] = None
-    grant_types: Optional[List[str]] = None
-    response_types: Optional[List[str]] = None
-    token_endpoint_auth_method: Optional[str] = None
-    scope: Optional[str] = None
+    redirect_uris: list[str]
+    client_uri: str | None = None
+    logo_uri: str | None = None
+    contacts: list[str] | None = None
+    grant_types: list[str] | None = None
+    response_types: list[str] | None = None
+    token_endpoint_auth_method: str | None = None
+    scope: str | None = None
 
     @field_validator("redirect_uris")
     @classmethod
-    def validate_redirect_uris(cls, v: List[str]) -> List[str]:
+    def validate_redirect_uris(cls, v: list[str]) -> list[str]:
         if not v:
             raise ValueError("At least one redirect_uri is required")
         for uri in v:
@@ -45,14 +44,14 @@ class ClientRegistrationRequest(BaseModel):
 
     @field_validator("client_uri", "logo_uri", "scope")
     @classmethod
-    def normalize_empty_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+    def normalize_empty_optional_strings(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
         return v
 
     @field_validator("contacts", "grant_types", "response_types")
     @classmethod
-    def normalize_empty_optional_lists(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+    def normalize_empty_optional_lists(cls, v: list[str] | None) -> list[str] | None:
         if v is None or v == []:
             return None
         return v
@@ -121,4 +120,4 @@ async def register_client(
                 "error": "server_error",
                 "error_description": "Internal server error during registration",
             },
-        )
+        ) from None

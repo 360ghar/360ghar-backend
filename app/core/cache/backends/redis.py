@@ -5,7 +5,7 @@ Refactored from existing CacheManager implementation.
 
 import json
 import pickle
-from typing import Optional, Any
+from typing import Any
 
 import redis.asyncio as redis
 
@@ -44,7 +44,7 @@ class RedisCacheBackend:
         self._default_ttl = default_ttl
         self._max_connections = max_connections
         self._key_prefix = key_prefix
-        self._client: Optional[redis.Redis] = None
+        self._client: redis.Redis | None = None
         self.stats = CacheStats()
 
     async def connect(self) -> None:
@@ -91,7 +91,7 @@ class RedisCacheBackend:
         except (json.JSONDecodeError, UnicodeDecodeError):
             return pickle.loads(data)
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Retrieve value from Redis."""
         if not self._client:
             return None
@@ -109,7 +109,7 @@ class RedisCacheBackend:
             self.stats.errors += 1
             return None
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Store value in Redis with TTL."""
         if not self._client:
             return False
@@ -125,7 +125,7 @@ class RedisCacheBackend:
             self.stats.errors += 1
             return False
 
-    async def get_and_delete(self, key: str) -> Optional[Any]:
+    async def get_and_delete(self, key: str) -> Any | None:
         """Atomically retrieve value and delete key from Redis.
 
         Uses GETDEL (Redis 6.2+) when available, otherwise falls back to

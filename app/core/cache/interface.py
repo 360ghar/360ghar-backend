@@ -3,8 +3,8 @@ Abstract cache interface following Protocol pattern for structural subtyping.
 This allows backends to be swapped without inheritance coupling.
 """
 
-from typing import Protocol, Optional, Any, runtime_checkable
 from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -15,15 +15,15 @@ class CacheBackend(Protocol):
     instead of ABC allows for structural subtyping and better testing.
     """
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Retrieve value from cache. Returns None if not found or expired."""
         ...
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Store value in cache with optional TTL in seconds. Returns success status."""
         ...
 
-    async def get_and_delete(self, key: str) -> Optional[Any]:
+    async def get_and_delete(self, key: str) -> Any | None:
         """Atomically retrieve value and delete key. Returns None if not found or expired.
 
         This prevents TOCTOU race conditions where a value is read and then

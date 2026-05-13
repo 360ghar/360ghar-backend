@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import calendar
 from datetime import date, datetime, timezone
-from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -33,9 +32,9 @@ async def generate_rent_charges(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    start_month: Optional[date] = None,
+    owner_id: int | None = None,
+    lease_id: int | None = None,
+    start_month: date | None = None,
     months: int = 1,
 ) -> dict:
     """Generate rent charges for active leases (idempotent).
@@ -119,10 +118,10 @@ async def list_rent_charges(
     *,
     actor: User,
     as_tenant: bool = False,
-    owner_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[RentChargeStatus] = None,
+    owner_id: int | None = None,
+    lease_id: int | None = None,
+    property_id: int | None = None,
+    status: RentChargeStatus | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict]:
@@ -186,11 +185,11 @@ async def record_rent_payment(
     actor: User,
     charge_id: int,
     amount_paid: float,
-    paid_at: Optional[datetime] = None,
-    payment_method: Optional[str] = None,
-    reference: Optional[str] = None,
-    notes: Optional[str] = None,
-    receipt_document_id: Optional[int] = None,
+    paid_at: datetime | None = None,
+    payment_method: str | None = None,
+    reference: str | None = None,
+    notes: str | None = None,
+    receipt_document_id: int | None = None,
 ) -> RentPayment:
     if amount_paid <= 0:
         raise BadRequestException(detail="amount_paid must be > 0")
@@ -256,9 +255,9 @@ async def list_rent_payments(
     *,
     actor: User,
     as_tenant: bool = False,
-    owner_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    property_id: Optional[int] = None,
+    owner_id: int | None = None,
+    lease_id: int | None = None,
+    property_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[RentPayment]:

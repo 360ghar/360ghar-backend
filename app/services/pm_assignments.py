@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AgentNotFoundException, InsufficientPermissionsError, UserNotFoundException
+from app.core.exceptions import (
+    AgentNotFoundException,
+    InsufficientPermissionsError,
+    UserNotFoundException,
+)
 from app.models.agents import Agent
 from app.models.enums import UserRole
 from app.models.users import User
@@ -14,7 +16,7 @@ async def set_owner_relationship_manager(
     db: AsyncSession,
     *,
     owner_user_id: int,
-    agent_id: Optional[int],
+    agent_id: int | None,
     actor: User,
 ) -> User:
     """Assign/unassign a Relationship Manager (Agent) to an owner.

@@ -1,11 +1,11 @@
+
+from sqlalchemy import and_, case, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, and_, desc, func, case
 from sqlalchemy.orm import selectinload
-from typing import Optional
+
+from app.models.properties import Amenity, Property, PropertyAmenity
 from app.models.users import UserSwipe
-from app.models.properties import Property, PropertyAmenity, Amenity
-from app.schemas.property import PropertySwipe, UnifiedPropertyFilter, SortBy
-from app.repositories.property_query_builder import PropertyQueryBuilder
+from app.schemas.property import PropertySwipe, SortBy, UnifiedPropertyFilter
 
 
 async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe):
@@ -18,7 +18,7 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
         # Property doesn't exist, silently return success to avoid client errors
         # This handles cases where properties are deleted after being shown to users
         return False
-    
+
     # Check if swipe exists
     stmt = select(UserSwipe).where(
         and_(
@@ -28,7 +28,7 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
     )
     result = await db.execute(stmt)
     existing_swipe = result.scalar_one_or_none()
-    
+
     if existing_swipe:
         # Update existing swipe
         existing_swipe.is_liked = swipe_data.is_liked
@@ -41,18 +41,18 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
             is_liked=swipe_data.is_liked
         )
         db.add(swipe)
-        
+
         # Update property like count
         if swipe_data.is_liked:
             stmt = update(Property).where(Property.id == swipe_data.property_id).values(
                 like_count=Property.like_count + 1
             )
             await db.execute(stmt)
-    
+
     await db.flush()
     return True
 
-async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedPropertyFilter, page: int, limit: int, is_liked: Optional[bool]):
+async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedPropertyFilter, page: int, limit: int, is_liked: bool | None):
     """Get user's swipe history with comprehensive property filtering"""
     skip = (page - 1) * limit
 
@@ -252,10 +252,10 @@ async def undo_last_swipe(db: AsyncSession, user_id: int):
     stmt = select(UserSwipe).where(
         UserSwipe.user_id == user_id
     ).order_by(desc(UserSwipe.created_at)).limit(1)
-    
+
     result = await db.execute(stmt)
     last_swipe = result.scalar_one_or_none()
-    
+
     if last_swipe:
         # Use savepoint to ensure like count decrement + delete are atomic
         async with db.begin_nested():
@@ -267,13 +267,13 @@ async def undo_last_swipe(db: AsyncSession, user_id: int):
             await db.delete(last_swipe)
         await db.flush()
         return last_swipe
-    
+
     return None
 
 async def toggle_swipe(db: AsyncSession, swipe_id: int, user_id: int):
     """Toggle swipe like status"""
     swipe = await db.get(UserSwipe, swipe_id)
-    
+
     if swipe and swipe.user_id == user_id:
         old_status = swipe.is_liked
         swipe.is_liked = not old_status
@@ -292,24 +292,24 @@ async def toggle_swipe(db: AsyncSession, swipe_id: int, user_id: int):
 
         await db.flush()
         return {"new_status": swipe.is_liked, "property_id": swipe.property_id}
-    
+
     return None
 
 async def get_swipe_stats(db: AsyncSession, user_id: int):
     """Get swipe statistics"""
     stmt = select(
         func.count(UserSwipe.id).label('total_swipes'),
-        func.sum(case((UserSwipe.is_liked == True, 1), else_=0)).label('liked_count'),
-        func.sum(case((UserSwipe.is_liked == False, 1), else_=0)).label('disliked_count')
+        func.sum(case((UserSwipe.is_liked, 1), else_=0)).label('liked_count'),
+        func.sum(case((not UserSwipe.is_liked, 1), else_=0)).label('disliked_count')
     ).where(UserSwipe.user_id == user_id)
-    
+
     result = await db.execute(stmt)
     stats = result.one()
-    
+
     total = stats.total_swipes or 0
     liked = stats.liked_count or 0
     disliked = stats.disliked_count or 0
-    
+
     return {
         "total_swipes": total,
         "liked_count": liked,
@@ -317,7 +317,7 @@ async def get_swipe_stats(db: AsyncSession, user_id: int):
         "like_percentage": (liked / total * 100) if total > 0 else 0
     }
 
-async def get_user_like_for_property(db: AsyncSession, user_id: int, property_id: int) -> Optional[bool]:
+async def get_user_like_for_property(db: AsyncSession, user_id: int, property_id: int) -> bool | None:
     """Return whether the user has a swipe for the property and if it's liked.
 
     Returns:

@@ -5,7 +5,6 @@ This module provides REST API endpoints for managing virtual tours,
 including CRUD operations, publishing, duplication, and analytics.
 """
 from datetime import date
-from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,8 +19,8 @@ from app.schemas.tour import (
     SceneCreate,
     SceneReorder,
     Tour,
-    TourCreate,
     TourAnalytics,
+    TourCreate,
     TourUpdate,
     TourWithScenes,
 )
@@ -40,8 +39,8 @@ logger = get_logger(__name__)
 async def list_tours(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
-    status: Optional[TourStatus] = Query(None, description="Filter by status"),
-    search: Optional[str] = Query(None, description="Search in title/description"),
+    status: TourStatus | None = Query(None, description="Filter by status"),
+    search: str | None = Query(None, description="Search in title/description"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -195,8 +194,8 @@ async def duplicate_tour(
 @router.get("/{tour_id}/analytics", response_model=TourAnalytics)
 async def get_tour_analytics(
     tour_id: str,
-    start_date: Optional[date] = Query(None, description="Analytics start date"),
-    end_date: Optional[date] = Query(None, description="Analytics end date"),
+    start_date: date | None = Query(None, description="Analytics start date"),
+    end_date: date | None = Query(None, description="Analytics end date"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -215,7 +214,7 @@ async def get_tour_analytics(
 
 
 # Scene endpoints nested under tours
-@router.get("/{tour_id}/scenes", response_model=List[Scene])
+@router.get("/{tour_id}/scenes", response_model=list[Scene])
 async def list_scenes(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -249,7 +248,7 @@ async def create_scene(
     )
 
 
-@router.put("/{tour_id}/scenes/reorder", response_model=List[Scene])
+@router.put("/{tour_id}/scenes/reorder", response_model=list[Scene])
 async def reorder_scenes(
     tour_id: str,
     reorder_data: SceneReorder,
@@ -287,8 +286,9 @@ async def get_tour_qr_code(
 
     Returns a PNG image of the QR code that links to the public tour page.
     """
-    import qrcode
     from io import BytesIO
+
+    import qrcode
     from fastapi.responses import StreamingResponse
 
     tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
@@ -334,9 +334,9 @@ async def get_tour_qr_code(
 @router.get("/{tour_id}/heatmap")
 async def get_tour_heatmap(
     tour_id: str,
-    scene_id: Optional[str] = Query(None, description="Filter by specific scene"),
-    start_date: Optional[date] = Query(None, description="Start date for filtering"),
-    end_date: Optional[date] = Query(None, description="End date for filtering"),
+    scene_id: str | None = Query(None, description="Filter by specific scene"),
+    start_date: date | None = Query(None, description="Start date for filtering"),
+    end_date: date | None = Query(None, description="End date for filtering"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):

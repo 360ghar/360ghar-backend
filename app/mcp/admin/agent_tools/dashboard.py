@@ -1,42 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from app.config import settings
-from app.core.database import AsyncSessionLocal
-from app.core.exceptions import (
-    InsufficientPermissionsError,
-    PropertyNotFoundException,
-    NotFoundException,
-)
-from app.models.enums import UserRole
+from typing import Any
 
 from app.mcp.admin.agent_tools.common import (
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
+    MCPErrorCode,
+    MCPResponse,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
     admin_mcp,
     get_db,
     get_user_role,
     internal_error_response,
-    invalid_input_response,
-    not_found_response,
-    MCPErrorCode,
-    MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_user_basic,
-    make_tz_aware,
-    utc_now,
-    utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
     logger,
+    utc_now,
 )
+from app.models.enums import UserRole
+
 
 @admin_mcp.tool(
     "agent_dashboard_overview",
@@ -49,20 +31,21 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_dashboard_overview(
-    owner_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+) -> dict[str, Any]:
     """Get dashboard overview with key metrics.
 
     Args:
         owner_id: Filter by specific owner (optional for admins)
     """
     try:
-        from sqlalchemy import select, func
-        from app.models.properties import Property
-        from app.models.pm_leases import Lease
-        from app.models.pm_maintenance import MaintenanceRequest
+        from sqlalchemy import func, select
+
         from app.models.bookings import Booking
         from app.models.enums import LeaseStatus, MaintenanceRequestStatus
+        from app.models.pm_leases import Lease
+        from app.models.pm_maintenance import MaintenanceRequest
+        from app.models.properties import Property
 
         async for db in get_db():
             user = await _get_user(db)
@@ -93,7 +76,7 @@ async def agent_dashboard_overview(
                 owner_filter = [owner_id]
 
             # Count properties
-            prop_stmt = select(func.count(Property.id)).where(Property.is_managed == True)
+            prop_stmt = select(func.count(Property.id)).where(Property.is_managed)
             if owner_filter:
                 prop_stmt = prop_stmt.where(Property.owner_id.in_(owner_filter))
             prop_result = await db.execute(prop_stmt)

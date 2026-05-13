@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InsufficientPermissionsError
@@ -16,8 +17,8 @@ from app.models.users import User
 
 
 async def _resolve_owner_scope(
-    db: AsyncSession, *, actor: User, owner_id: Optional[int]
-) -> Optional[Sequence[int]]:
+    db: AsyncSession, *, actor: User, owner_id: int | None
+) -> Sequence[int] | None:
     if actor.role == UserRole.admin.value:
         return [owner_id] if owner_id is not None else None
 
@@ -50,11 +51,11 @@ async def get_dashboard_overview(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+) -> dict[str, Any]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    prop_stmt = select(func.count(Property.id)).where(Property.is_managed == True)
+    prop_stmt = select(func.count(Property.id)).where(Property.is_managed)
     if owner_ids is not None:
         prop_stmt = prop_stmt.where(Property.owner_id.in_(owner_ids))
     total_properties = int((await db.execute(prop_stmt)).scalar_one() or 0)
@@ -64,7 +65,7 @@ async def get_dashboard_overview(
     )
 
     occupied_stmt = select(func.count(Property.id)).where(
-        Property.is_managed == True, active_lease_exists
+        Property.is_managed, active_lease_exists
     )
     if owner_ids is not None:
         occupied_stmt = occupied_stmt.where(Property.owner_id.in_(owner_ids))
@@ -72,7 +73,7 @@ async def get_dashboard_overview(
     vacant_properties = max(total_properties - occupied_properties, 0)
 
     maintenance_stmt = select(func.count(Property.id)).where(
-        Property.is_managed == True, Property.status == "maintenance"  # PropertyStatus enum stored as string in DB
+        Property.is_managed, Property.status == "maintenance"  # PropertyStatus enum stored as string in DB
     )
     if owner_ids is not None:
         maintenance_stmt = maintenance_stmt.where(Property.owner_id.in_(owner_ids))
@@ -143,12 +144,12 @@ async def get_recent_activity(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
+    owner_id: int | None = None,
     limit: int = 20,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    activities: List[Dict[str, Any]] = []
+    activities: list[dict[str, Any]] = []
 
     pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
     if owner_ids is not None:
@@ -186,14 +187,14 @@ async def get_recent_activity(
     if owner_ids is not None:
         lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     leases = list((await db.execute(lease_stmt)).scalars().all())
-    for l in leases:
+    for lease in leases:
         activities.append(
             {
                 "type": "lease",
-                "at": l.created_at.isoformat(),
-                "property_id": l.property_id,
-                "lease_id": l.id,
-                "status": getattr(l.status, "value", l.status),
+                "at": lease.created_at.isoformat(),
+                "property_id": lease.property_id,
+                "lease_id": lease.id,
+                "status": getattr(lease.status, "value", lease.status),
             }
         )
 

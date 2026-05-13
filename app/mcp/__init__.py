@@ -16,9 +16,9 @@ Authentication:
     User roles are extracted from the token claims.
 """
 
-from app.mcp.user import user_mcp
 from app.mcp.admin import admin_mcp
 from app.mcp.auth_provider import SupabaseAuthProvider
+from app.mcp.user import user_mcp
 
 __all__ = [
     "user_mcp",

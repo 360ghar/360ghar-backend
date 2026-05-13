@@ -8,8 +8,8 @@ from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.data_hub.base_scraper import BaseScraper
 from app.models.data_hub import BankRate
+from app.services.data_hub.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 

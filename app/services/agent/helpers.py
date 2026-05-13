@@ -1,6 +1,5 @@
-from sqlalchemy import select, func
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any
 
 from app.models.agents import Agent
 from app.schemas.agent import Agent as AgentSchema

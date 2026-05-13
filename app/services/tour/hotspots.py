@@ -4,7 +4,6 @@ Hotspot CRUD service functions.
 Create, read, update, delete hotspots, and update positions.
 """
 
-from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -26,8 +25,8 @@ logger = get_logger(__name__)
 
 
 async def get_hotspots(
-    db: AsyncSession, scene_id: str, user_id: Optional[int] = None
-) -> List[Hotspot]:
+    db: AsyncSession, scene_id: str, user_id: int | None = None
+) -> list[Hotspot]:
     """Get all hotspots for a scene."""
     # Verify scene access
     await get_scene(db, scene_id, user_id)
@@ -37,7 +36,7 @@ async def get_hotspots(
     return list(result.scalars().all())
 
 
-async def get_hotspot(db: AsyncSession, hotspot_id: str, user_id: Optional[int] = None) -> Hotspot:
+async def get_hotspot(db: AsyncSession, hotspot_id: str, user_id: int | None = None) -> Hotspot:
     """Get a single hotspot by ID."""
     query = (
         select(Hotspot)

@@ -14,10 +14,10 @@ from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash
 from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
+from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.utils import address_hash
 
 logger = logging.getLogger(__name__)
 

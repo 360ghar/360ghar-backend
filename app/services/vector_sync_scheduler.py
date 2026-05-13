@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from fastapi import FastAPI
 
 from app.config import settings
 from app.core.logging import get_logger

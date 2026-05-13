@@ -4,9 +4,9 @@ WebSocket Connection Manager.
 This module provides real-time communication capabilities for AI job progress
 updates and user notifications.
 """
-from typing import Dict, Set, Any, Optional
 import asyncio
 import json
+from typing import Any
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -27,9 +27,9 @@ class ConnectionManager:
 
     def __init__(self):
         # Maps job_id -> set of connected websockets
-        self.job_connections: Dict[str, Set[WebSocket]] = {}
+        self.job_connections: dict[str, set[WebSocket]] = {}
         # Maps user_id -> set of connected websockets
-        self.user_connections: Dict[int, Set[WebSocket]] = {}
+        self.user_connections: dict[int, set[WebSocket]] = {}
         # Lock for thread-safe operations
         self._lock = asyncio.Lock()
 
@@ -72,7 +72,7 @@ class ConnectionManager:
     async def send_job_update(
         self,
         job_id: str,
-        data: Dict[str, Any],
+        data: dict[str, Any],
     ) -> None:
         """
         Send an update to all websockets connected to a job.
@@ -109,7 +109,7 @@ class ConnectionManager:
     async def send_user_notification(
         self,
         user_id: int,
-        notification: Dict[str, Any],
+        notification: dict[str, Any],
     ) -> None:
         """
         Send a notification to all websockets connected for a user.
@@ -144,7 +144,7 @@ class ConnectionManager:
         self,
         job_id: str,
         user_id: int,
-        result: Dict[str, Any],
+        result: dict[str, Any],
     ) -> None:
         """
         Broadcast job completion to both job and user connections.

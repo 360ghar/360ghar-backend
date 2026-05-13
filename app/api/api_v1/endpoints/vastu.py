@@ -6,17 +6,16 @@ No authentication required.
 """
 
 import base64
-from typing import Optional
 
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, status
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 
 from app.core.constants import DEFAULT_VISION_PROVIDER, VALID_VISION_PROVIDERS
 from app.core.logging import get_logger
 from app.services.ai.vastu import (
-    analyze_vastu,
+    NorthDirection,
     VastuAnalyzeRequest,
     VastuAnalyzeResponse,
-    NorthDirection,
+    analyze_vastu,
 )
 
 logger = get_logger(__name__)
@@ -34,8 +33,8 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 async def analyze_floor_plan(
     image: UploadFile = File(..., description="Floor plan image (JPEG, PNG, or WebP)"),
     north_direction: str = Form(default="up", description="Direction of North in the image: up, down, left, right, unknown"),
-    notes: Optional[str] = Form(default=None, description="Additional notes about the property (max 1000 chars)"),
-    provider: Optional[str] = Form(default=DEFAULT_VISION_PROVIDER, description="AI provider: gemini or glm"),
+    notes: str | None = Form(default=None, description="Additional notes about the property (max 1000 chars)"),
+    provider: str | None = Form(default=DEFAULT_VISION_PROVIDER, description="AI provider: gemini or glm"),
 ):
     """
     Analyze a floor plan image for Vastu Shastra compliance.
@@ -92,7 +91,7 @@ async def analyze_floor_plan(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid north direction '{north_direction}'. Valid options: {valid_options}"
-        )
+        ) from None
 
     # Validate notes length
     if notes and len(notes) > 1000:

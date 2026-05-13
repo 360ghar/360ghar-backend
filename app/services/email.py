@@ -4,7 +4,6 @@ import asyncio
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -17,7 +16,7 @@ async def send_email(
     to_email: str,
     subject: str,
     body: str,
-    html_body: Optional[str] = None,
+    html_body: str | None = None,
 ) -> bool:
     """Send an email using basic SMTP configuration.
 

@@ -6,7 +6,7 @@ history, and submit/list maintenance requests.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic_ai import RunContext
 from sqlalchemy import select
@@ -153,7 +153,7 @@ async def tenant_maintenance_list(
     ctx: RunContext[AgentDeps],
     page: int = 1,
     limit: int = 20,
-    status: Optional[str] = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     """List maintenance requests submitted by the tenant."""
     from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus

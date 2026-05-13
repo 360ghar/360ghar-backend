@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import InsufficientPermissionsError
-from app.models.enums import LeaseStatus, UserRole
+from app.models.enums import LeaseStatus
 from app.models.pm_finance import Expense, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
@@ -20,17 +19,17 @@ async def rent_roll_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-) -> List[Dict[str, Any]]:
+    owner_id: int | None = None,
+) -> list[dict[str, Any]]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    stmt = select(Property).where(Property.is_managed == True)
+    stmt = select(Property).where(Property.is_managed)
     if owner_ids is not None:
         stmt = stmt.where(Property.owner_id.in_(owner_ids))
     res = await db.execute(stmt)
     props = list(res.scalars().all())
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for p in props:
         lease_stmt = (
             select(Lease)
@@ -56,10 +55,10 @@ async def income_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> dict[str, Any]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
     stmt = select(func.coalesce(func.sum(RentPayment.amount_paid), 0.0))
     if start is not None:
@@ -76,10 +75,10 @@ async def expense_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    start: Optional[date] = None,
-    end: Optional[date] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
     stmt = select(func.coalesce(func.sum(Expense.amount), 0.0))
     if start is not None:
@@ -96,10 +95,10 @@ async def pnl_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    start: Optional[date] = None,
-    end: Optional[date] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+    start: date | None = None,
+    end: date | None = None,
+) -> dict[str, Any]:
     income = await income_report(
         db,
         actor=actor,
@@ -122,11 +121,11 @@ async def occupancy_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-) -> Dict[str, int]:
+    owner_id: int | None = None,
+) -> dict[str, int]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    total_stmt = select(func.count(Property.id)).where(Property.is_managed == True)
+    total_stmt = select(func.count(Property.id)).where(Property.is_managed)
     if owner_ids is not None:
         total_stmt = total_stmt.where(Property.owner_id.in_(owner_ids))
     total = int((await db.execute(total_stmt)).scalar_one() or 0)
@@ -134,7 +133,7 @@ async def occupancy_report(
     active_lease_exists = exists(
         select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
     )
-    occupied_stmt = select(func.count(Property.id)).where(Property.is_managed == True, active_lease_exists)
+    occupied_stmt = select(func.count(Property.id)).where(Property.is_managed, active_lease_exists)
     if owner_ids is not None:
         occupied_stmt = occupied_stmt.where(Property.owner_id.in_(owner_ids))
     occupied = int((await db.execute(occupied_stmt)).scalar_one() or 0)
@@ -146,8 +145,8 @@ async def maintenance_report(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-) -> Dict[str, int]:
+    owner_id: int | None = None,
+) -> dict[str, int]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
     stmt = select(func.count(MaintenanceRequest.id))
     if owner_ids is not None:

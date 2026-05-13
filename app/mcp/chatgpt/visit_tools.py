@@ -10,23 +10,23 @@ These tools enable property visit scheduling and management:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED, build_widget_tool_meta
+from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError, build_widget_tool_meta
 from app.mcp.chatgpt import get_widget_for_tool
 from app.mcp.chatgpt.response_formatter import (
-    format_chatgpt_response,
     format_auth_required_response,
+    format_chatgpt_response,
     format_visit_summary,
     format_visits_list_summary,
 )
-from app.mcp.utils import get_user_from_mcp_context
-from app.schemas.visit import VisitCreate
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
+from app.mcp.utils import get_user_from_mcp_context
+from app.schemas.visit import VisitCreate
 
 logger = get_logger(__name__)
 
@@ -49,7 +49,7 @@ async def _get_optional_user(db):
     return await get_user_from_mcp_context(db)
 
 
-def _serialize_visit(visit) -> Dict[str, Any]:
+def _serialize_visit(visit) -> dict[str, Any]:
     """Serialize a visit object to a dictionary."""
     property_data = None
     if visit.property:
@@ -91,8 +91,8 @@ def _serialize_visit(visit) -> Dict[str, Any]:
 async def visits_schedule(
     property_id: int,
     scheduled_date: str,
-    notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    notes: str | None = None,
+) -> dict[str, Any]:
     """Schedule a property visit.
 
     Schedule a visit to view a property. The scheduled date must be in the future.
@@ -108,8 +108,8 @@ async def visits_schedule(
         Created visit details.
     """
     try:
-        from app.services.visit import create_visit
         from app.services.property import get_property
+        from app.services.visit import create_visit
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -192,10 +192,10 @@ async def visits_schedule(
     meta=VISIT_LIST_META,
 )
 async def visits_list(
-    status: Optional[str] = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List the user's property visits.
 
     Retrieves all visits scheduled by the user, with optional status filtering.
@@ -286,7 +286,7 @@ async def visits_list(
 )
 async def visits_get(
     visit_id: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get details of a specific visit.
 
     Retrieves full details of a property visit including property information.
@@ -364,8 +364,8 @@ async def visits_get(
 )
 async def visits_cancel(
     visit_id: int,
-    reason: Optional[str] = None,
-) -> Dict[str, Any]:
+    reason: str | None = None,
+) -> dict[str, Any]:
     """Cancel a scheduled property visit.
 
     Cancels a visit that has not yet been completed. Only upcoming visits can be cancelled.
@@ -380,7 +380,7 @@ async def visits_cancel(
         Confirmation of cancellation.
     """
     try:
-        from app.services.visit import get_visit, cancel_visit
+        from app.services.visit import cancel_visit, get_visit
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)

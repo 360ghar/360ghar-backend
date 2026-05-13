@@ -6,22 +6,22 @@ Tools for system-level status and feature information:
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from app.config import settings
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
-    AuthRequiredError,
     MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
 )
 from app.mcp.errors import (
     MCPResponse,
     internal_error_response,
 )
-from app.mcp.utils import get_db
 
 # Import the user MCP server instance to register tools
-from app.mcp.user.server import user_mcp, _get_user
+from app.mcp.user.server import _get_user, user_mcp
+from app.mcp.utils import get_db
 
 logger = get_logger(__name__)
 
@@ -41,7 +41,7 @@ logger = get_logger(__name__)
         "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
     },
 )
-async def user_system_status() -> Dict[str, Any]:
+async def user_system_status() -> dict[str, Any]:
     """Get system status and available user features."""
     try:
         auth_status = "unauthenticated"

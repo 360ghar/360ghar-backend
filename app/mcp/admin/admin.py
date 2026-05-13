@@ -6,14 +6,14 @@ Tools:
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from app.config import settings
 from app.core.logging import get_logger
-from app.models.enums import UserRole
+from app.mcp.admin.server import _get_user, admin_mcp
 from app.mcp.apps_sdk import (
-    AuthRequiredError,
     MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
 )
 from app.mcp.errors import (
     MCPResponse,
@@ -23,8 +23,7 @@ from app.mcp.utils import (
     get_db,
     get_user_role,
 )
-
-from app.mcp.admin.server import admin_mcp, _get_user
+from app.models.enums import UserRole
 
 logger = get_logger(__name__)
 
@@ -44,7 +43,7 @@ logger = get_logger(__name__)
         "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
     },
 )
-async def admin_system_status() -> Dict[str, Any]:
+async def admin_system_status() -> dict[str, Any]:
     """Get admin system status and available features."""
     try:
         auth_status = "unauthenticated"

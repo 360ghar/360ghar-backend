@@ -9,21 +9,18 @@ This module also defines the shared auth helpers used by every tool.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, NoReturn, Optional
+from typing import NoReturn
 
+from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
     AppsSDKFastMCP,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
     raise_auth_required,
 )
-from app.core.logging import get_logger
-from app.models.enums import UserRole
 from app.mcp.utils import (
-    get_db,
     get_user_from_mcp_context,
     get_user_role,
 )
+from app.models.enums import UserRole
 
 logger = get_logger(__name__)
 
@@ -55,5 +52,5 @@ def _require_agent_or_admin(user) -> bool:
 
 
 # Import sub-modules to trigger tool registration
-from app.mcp.admin import agent as _agent  # noqa: F401
-from app.mcp.admin import admin as _admin  # noqa: F401
+from app.mcp.admin import admin as _admin  # noqa: E402,F401
+from app.mcp.admin import agent as _agent  # noqa: E402,F401

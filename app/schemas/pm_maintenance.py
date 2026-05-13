@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,48 +17,48 @@ class MaintenanceRequestCreate(BaseModel):
     category: MaintenanceCategory
     urgency: MaintenanceUrgency
     title: str
-    description: Optional[str] = None
-    preferred_contact_method: Optional[str] = None
-    availability_notes: Optional[str] = None
+    description: str | None = None
+    preferred_contact_method: str | None = None
+    availability_notes: str | None = None
 
 
 class MaintenanceRequestUpdate(BaseModel):
-    request_status: Optional[MaintenanceRequestStatus] = None
-    assigned_agent_id: Optional[int] = None
-    work_order_status: Optional[WorkOrderStatus] = None
-    priority: Optional[str] = None
-    estimated_cost: Optional[float] = Field(default=None, ge=0)
-    actual_cost: Optional[float] = Field(default=None, ge=0)
-    scheduled_for: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    closed_at: Optional[datetime] = None
-    completion_notes: Optional[str] = None
+    request_status: MaintenanceRequestStatus | None = None
+    assigned_agent_id: int | None = None
+    work_order_status: WorkOrderStatus | None = None
+    priority: str | None = None
+    estimated_cost: float | None = Field(default=None, ge=0)
+    actual_cost: float | None = Field(default=None, ge=0)
+    scheduled_for: datetime | None = None
+    completed_at: datetime | None = None
+    closed_at: datetime | None = None
+    completion_notes: str | None = None
 
 
 class MaintenanceRequest(BaseModel):
     id: int
     property_id: int
-    lease_id: Optional[int] = None
+    lease_id: int | None = None
     owner_id: int
-    tenant_user_id: Optional[int] = None
+    tenant_user_id: int | None = None
     category: MaintenanceCategory
     urgency: MaintenanceUrgency
     title: str
-    description: Optional[str] = None
-    preferred_contact_method: Optional[str] = None
-    availability_notes: Optional[str] = None
+    description: str | None = None
+    preferred_contact_method: str | None = None
+    availability_notes: str | None = None
     request_status: MaintenanceRequestStatus
-    assigned_agent_id: Optional[int] = None
-    work_order_status: Optional[WorkOrderStatus] = None
-    priority: Optional[str] = None
-    estimated_cost: Optional[float] = None
-    actual_cost: Optional[float] = None
-    scheduled_for: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-    closed_at: Optional[datetime] = None
-    completion_notes: Optional[str] = None
+    assigned_agent_id: int | None = None
+    work_order_status: WorkOrderStatus | None = None
+    priority: str | None = None
+    estimated_cost: float | None = None
+    actual_cost: float | None = None
+    scheduled_for: datetime | None = None
+    completed_at: datetime | None = None
+    closed_at: datetime | None = None
+    completion_notes: str | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

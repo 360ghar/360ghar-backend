@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,7 +30,7 @@ router = APIRouter()
 
 @router.get("/rent-roll", response_model=list[RentRollItem])
 async def rent_roll(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -40,9 +39,9 @@ async def rent_roll(
 
 @router.get("/income", response_model=IncomeReport)
 async def income(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    start: Optional[datetime] = Query(None),
-    end: Optional[datetime] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    start: datetime | None = Query(None),
+    end: datetime | None = Query(None),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -51,9 +50,9 @@ async def income(
 
 @router.get("/expenses", response_model=ExpenseReport)
 async def expenses(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    start: date | None = Query(None),
+    end: date | None = Query(None),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -62,9 +61,9 @@ async def expenses(
 
 @router.get("/pnl", response_model=PnLReport)
 async def pnl(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    start: Optional[date] = Query(None),
-    end: Optional[date] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    start: date | None = Query(None),
+    end: date | None = Query(None),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -73,7 +72,7 @@ async def pnl(
 
 @router.get("/occupancy", response_model=OccupancyReport)
 async def occupancy(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -82,7 +81,7 @@ async def occupancy(
 
 @router.get("/maintenance", response_model=MaintenanceReport)
 async def maintenance(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):

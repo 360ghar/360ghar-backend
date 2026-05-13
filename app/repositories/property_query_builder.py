@@ -5,9 +5,8 @@ Eliminates duplicated filter/sort logic across property.py, swipe.py, and proper
 All property query construction should go through this builder.
 """
 
-from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -38,9 +37,9 @@ class PropertyQueryBuilder:
         db: AsyncSession,
         *,
         include_unavailable: bool = False,
-    ) -> Tuple[
-        List,  # conditions
-        Optional[object],  # distance_expr (SQLAlchemy column)
+    ) -> tuple[
+        list,  # conditions
+        object | None,  # distance_expr (SQLAlchemy column)
         dict,  # search_meta: {search_query_obj, search_vector, text_rank_expr}
     ]:
         """Build and return all filter components.
@@ -52,7 +51,7 @@ class PropertyQueryBuilder:
         search_meta: dict with keys search_query_obj, search_vector, text_rank_expr.
         """
         f = self.filters
-        conditions: List[object] = []
+        conditions: list[object] = []
 
         # --- availability ---
         if not include_unavailable:
@@ -128,7 +127,7 @@ class PropertyQueryBuilder:
         if f.features:
             for feat in f.features:
                 if hasattr(Property, feat):
-                    conditions.append(getattr(Property, feat) == True)
+                    conditions.append(getattr(Property, feat))
 
         # --- gender preference ---
         if f.gender_preference:
@@ -151,8 +150,8 @@ class PropertyQueryBuilder:
     async def _build_geo_conditions(
         self,
         f: UnifiedPropertyFilter,
-        conditions: List[object],
-    ) -> Optional[object]:
+        conditions: list[object],
+    ) -> object | None:
         """Add geo filter conditions. Returns distance expression or None."""
         if f.latitude is None or f.longitude is None or not f.radius_km:
             return None
@@ -169,7 +168,7 @@ class PropertyQueryBuilder:
     def _build_fts_conditions(
         self,
         f: UnifiedPropertyFilter,
-        conditions: List[object],
+        conditions: list[object],
     ) -> dict:
         """Build full-text search expressions. Returns search_meta dict."""
         search_meta: dict = {
@@ -202,14 +201,14 @@ class PropertyQueryBuilder:
         self,
         f: UnifiedPropertyFilter,
         db: AsyncSession,
-        conditions: List[object],
+        conditions: list[object],
     ) -> None:
         """Add amenity subquery filter if amenities specified."""
         if not f.amenities:
             return
 
-        amenity_ids: List[int] = []
-        amenity_names: List[str] = []
+        amenity_ids: list[int] = []
+        amenity_names: list[str] = []
 
         for amenity in f.amenities:
             if isinstance(amenity, int) or (isinstance(amenity, str) and amenity.isdigit()):

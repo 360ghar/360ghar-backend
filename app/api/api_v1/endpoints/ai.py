@@ -7,15 +7,13 @@ This module provides REST API endpoints for AI-powered features:
 - Description generation
 - AI job management
 """
-from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.schemas.user import User as UserSchema
 from app.schemas.tour import (
     AIJobListResponse,
     AIJobResponse,
@@ -28,6 +26,7 @@ from app.schemas.tour import (
     TourOptimizationRequest,
     TourOptimizationResponse,
 )
+from app.schemas.user import User as UserSchema
 from app.services import tour_ai
 from app.services.storage import storage_service
 
@@ -65,9 +64,9 @@ async def analyze_tour_scenes(
 
 @router.post("/tours/generate", response_model=TourGenerationResponse)
 async def generate_tour(
-    images: List[UploadFile] = File(..., description="360 panorama images to create tour from"),
-    title: Optional[str] = Form(None, max_length=255, description="Tour title"),
-    description: Optional[str] = Form(None, max_length=5000, description="Tour description"),
+    images: list[UploadFile] = File(..., description="360 panorama images to create tour from"),
+    title: str | None = Form(None, max_length=255, description="Tour title"),
+    description: str | None = Form(None, max_length=5000, description="Tour description"),
     auto_detect_rooms: bool = Form(True, description="Automatically detect room types"),
     auto_place_hotspots: bool = Form(False, description="Automatically suggest hotspot placements"),
     auto_generate_descriptions: bool = Form(True, description="Generate AI descriptions for scenes"),
@@ -140,7 +139,7 @@ async def generate_tour(
 @router.post("/tours/{tour_id}/optimize", response_model=TourOptimizationResponse)
 async def optimize_tour(
     tour_id: str,
-    payload: Optional[TourOptimizationRequest] = None,
+    payload: TourOptimizationRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -224,7 +223,7 @@ async def suggest_tour_hotspots(
 @router.post("/scenes/{scene_id}/description", response_model=AIJobResponse)
 async def generate_scene_description(
     scene_id: str,
-    options: Optional[DescriptionOptions] = None,
+    options: DescriptionOptions | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -245,7 +244,7 @@ async def generate_scene_description(
 @router.post("/tours/{tour_id}/descriptions", response_model=AIJobResponse)
 async def generate_tour_descriptions(
     tour_id: str,
-    options: Optional[DescriptionOptions] = None,
+    options: DescriptionOptions | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -269,7 +268,7 @@ async def generate_tour_descriptions(
 
 @router.get("/jobs", response_model=AIJobListResponse)
 async def list_ai_jobs(
-    status_filter: Optional[str] = Query(None, alias="status", description="Filter by status"),
+    status_filter: str | None = Query(None, alias="status", description="Filter by status"),
     limit: int = Query(20, ge=1, le=100, description="Items to return"),
     offset: int = Query(0, ge=0, description="Items to skip"),
     db: AsyncSession = Depends(get_db),
@@ -357,7 +356,7 @@ async def apply_scene_analysis(
 async def apply_hotspot_suggestions(
     scene_id: str,
     data: ApplyHotspotSuggestions,
-    job_id: Optional[str] = Query(None, description="Job ID containing suggestions"),
+    job_id: str | None = Query(None, description="Job ID containing suggestions"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,9 +20,9 @@ async def create_inspection_checklist(
     owner_id: int,
     lease_id: int,
     inspection_type: InspectionType,
-    rooms_data: Optional[dict] = None,
-    overall_notes: Optional[str] = None,
-    conducted_at: Optional[datetime] = None,
+    rooms_data: dict | None = None,
+    overall_notes: str | None = None,
+    conducted_at: datetime | None = None,
 ) -> InspectionChecklist:
     await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
     lease = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
@@ -50,9 +49,9 @@ async def list_inspections(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    property_id: Optional[int] = None,
+    owner_id: int | None = None,
+    lease_id: int | None = None,
+    property_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[InspectionChecklist]:
@@ -100,8 +99,8 @@ async def sign_inspection(
     *,
     actor: User,
     inspection_id: int,
-    tenant_signature_document_id: Optional[int] = None,
-    owner_signature_document_id: Optional[int] = None,
+    tenant_signature_document_id: int | None = None,
+    owner_signature_document_id: int | None = None,
 ) -> InspectionChecklist:
     checklist = await db.get(InspectionChecklist, inspection_id)
     if not checklist:

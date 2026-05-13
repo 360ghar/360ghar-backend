@@ -1,7 +1,10 @@
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, model_validator
-from typing import Optional, Dict, Any
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
+
 from app.models.enums import BookingStatus, PaymentStatus
+
 
 class BookingBase(BaseModel):
     property_id: int
@@ -11,11 +14,11 @@ class BookingBase(BaseModel):
     primary_guest_name: str
     primary_guest_phone: str
     primary_guest_email: EmailStr
-    special_requests: Optional[str] = None
+    special_requests: str | None = None
 
 class BookingCreate(BookingBase):
-    guest_details: Optional[Dict[str, Any]] = None
-    
+    guest_details: dict[str, Any] | None = None
+
     @model_validator(mode="after")
     def validate_dates(self):
         if self.check_out_date <= self.check_in_date:
@@ -23,14 +26,14 @@ class BookingCreate(BookingBase):
         return self
 
 class BookingUpdate(BaseModel):
-    check_in_date: Optional[datetime] = None
-    check_out_date: Optional[datetime] = None
-    guests: Optional[int] = None
-    primary_guest_name: Optional[str] = None
-    primary_guest_phone: Optional[str] = None
-    primary_guest_email: Optional[EmailStr] = None
-    special_requests: Optional[str] = None
-    guest_details: Optional[Dict[str, Any]] = None
+    check_in_date: datetime | None = None
+    check_out_date: datetime | None = None
+    guests: int | None = None
+    primary_guest_name: str | None = None
+    primary_guest_phone: str | None = None
+    primary_guest_email: EmailStr | None = None
+    special_requests: str | None = None
+    guest_details: dict[str, Any] | None = None
 
 class BookingCancel(BaseModel):
     booking_id: int
@@ -45,8 +48,8 @@ class BookingPayment(BaseModel):
 class BookingReview(BaseModel):
     booking_id: int
     guest_rating: int  # 1-5 stars
-    guest_review: Optional[str] = None
-    
+    guest_review: str | None = None
+
     @field_validator("guest_rating")
     @classmethod
     def validate_rating(cls, v: int) -> int:
@@ -66,25 +69,25 @@ class Booking(BookingBase):
     total_amount: float
     booking_status: BookingStatus
     payment_status: PaymentStatus
-    guest_details: Optional[Dict[str, Any]] = None
-    internal_notes: Optional[str] = None
-    actual_check_in: Optional[datetime] = None
-    actual_check_out: Optional[datetime] = None
+    guest_details: dict[str, Any] | None = None
+    internal_notes: str | None = None
+    actual_check_in: datetime | None = None
+    actual_check_out: datetime | None = None
     early_check_in: bool
     late_check_out: bool
-    cancellation_date: Optional[datetime] = None
-    cancellation_reason: Optional[str] = None
-    refund_amount: Optional[float] = None
-    payment_method: Optional[str] = None
-    transaction_id: Optional[str] = None
-    payment_date: Optional[datetime] = None
-    guest_rating: Optional[int] = None
-    guest_review: Optional[str] = None
-    host_rating: Optional[int] = None
-    host_review: Optional[str] = None
+    cancellation_date: datetime | None = None
+    cancellation_reason: str | None = None
+    refund_amount: float | None = None
+    payment_method: str | None = None
+    transaction_id: str | None = None
+    payment_date: datetime | None = None
+    guest_rating: int | None = None
+    guest_review: str | None = None
+    host_rating: int | None = None
+    host_review: str | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    
+    updated_at: datetime | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class BookingList(BaseModel):

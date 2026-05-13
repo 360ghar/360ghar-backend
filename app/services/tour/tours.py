@@ -4,7 +4,6 @@ Tour CRUD service functions.
 Create, read, update, delete, publish, unpublish, and duplicate tours.
 """
 
-from typing import List, Optional
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
@@ -31,8 +30,8 @@ async def get_tours(
     user_id: int,
     page: int = 1,
     page_size: int = 20,
-    status_filter: Optional[str] = None,
-    search: Optional[str] = None,
+    status_filter: str | None = None,
+    search: str | None = None,
 ) -> dict:
     """Get paginated list of tours for a user."""
     query = select(Tour).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
@@ -75,7 +74,7 @@ async def get_tours(
     result = await db.execute(query)
     rows = result.all()
 
-    tours: List[dict] = []
+    tours: list[dict] = []
     for tour, scene_count in rows:
         tours.append(
             {
@@ -111,7 +110,7 @@ async def get_tours(
 
 
 async def get_tour(
-    db: AsyncSession, tour_id: str, user_id: Optional[int] = None, include_scenes: bool = True
+    db: AsyncSession, tour_id: str, user_id: int | None = None, include_scenes: bool = True
 ) -> Tour:
     """Get a single tour by ID."""
     query = select(Tour).where(and_(Tour.id == tour_id, Tour.deleted_at.is_(None)))

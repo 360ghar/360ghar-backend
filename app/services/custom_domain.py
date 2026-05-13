@@ -4,12 +4,12 @@ Custom Domain service for managing branded tour URLs.
 Handles domain creation, DNS verification, and SSL provisioning.
 """
 import secrets
-from typing import Optional, List
-from sqlalchemy import select, func
+
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
 from app.core.exceptions import ConflictException, NotFoundException
+from app.core.logging import get_logger
 from app.models.tours import CustomDomain
 from app.schemas.custom_domain import (
     CustomDomainCreate,
@@ -69,7 +69,7 @@ async def get_custom_domain(
     db: AsyncSession,
     domain_id: str,
     user_id: int,
-) -> Optional[CustomDomainResponse]:
+) -> CustomDomainResponse | None:
     """Get a custom domain by ID, ensuring user ownership."""
     stmt = select(CustomDomain).where(
         CustomDomain.id == domain_id,
@@ -86,7 +86,7 @@ async def get_custom_domain(
 async def get_user_domains(
     db: AsyncSession,
     user_id: int,
-) -> List[CustomDomainResponse]:
+) -> list[CustomDomainResponse]:
     """Get all custom domains for a user."""
     stmt = select(CustomDomain).where(CustomDomain.user_id == user_id).order_by(CustomDomain.created_at.desc())
     result = await db.execute(stmt)
@@ -205,7 +205,7 @@ async def delete_custom_domain(
 async def get_domain_by_hostname(
     db: AsyncSession,
     hostname: str,
-) -> Optional[CustomDomainResponse]:
+) -> CustomDomainResponse | None:
     """
     Look up a custom domain by hostname.
 

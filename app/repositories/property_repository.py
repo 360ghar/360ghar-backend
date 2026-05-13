@@ -2,16 +2,15 @@
 Repository for property data access
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from sqlalchemy import and_, desc, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException
 from app.core.logging import get_logger
 from app.models.properties import Property, PropertyAmenity
-from app.models.users import User
 from app.repositories.base import BaseRepository
 from app.schemas.property import SortBy
 
@@ -24,7 +23,7 @@ class PropertyRepository(BaseRepository[Property]):
     def __init__(self, session: AsyncSession):
         super().__init__(Property, session)
 
-    async def get_property_with_owner(self, property_id: int) -> Optional[Property]:
+    async def get_property_with_owner(self, property_id: int) -> Property | None:
         stmt = (
             select(Property)
             .options(
@@ -39,14 +38,14 @@ class PropertyRepository(BaseRepository[Property]):
 
     async def get_properties_filtered(
         self,
-        filters: Dict[str, Any],
+        filters: dict[str, Any],
         skip: int,
         limit: int,
         sort_by: SortBy,
         sort_order: str,
         include_owner: bool = False,
         include_images: bool = False,
-    ) -> List[Property]:
+    ) -> list[Property]:
         stmt = select(Property)
 
         filters = dict(filters or {})
@@ -100,10 +99,10 @@ class PropertyRepository(BaseRepository[Property]):
         latitude: float,
         longitude: float,
         radius_km: int,
-        filters: Dict[str, Any],
+        filters: dict[str, Any],
         skip: int,
         limit: int,
-    ) -> List[Property]:
+    ) -> list[Property]:
         center_point = func.ST_SetSRID(func.ST_MakePoint(longitude, latitude), 4326)
         stmt = select(Property)
         stmt = stmt.where(
@@ -121,13 +120,13 @@ class PropertyRepository(BaseRepository[Property]):
         result = await self.session.execute(stmt)
         return result.scalars().all()
 
-    async def count_filtered(self, filters: Dict[str, Any]) -> int:
+    async def count_filtered(self, filters: dict[str, Any]) -> int:
         stmt = select(func.count(Property.id))
         stmt = self._apply_filters(stmt, filters)
         result = await self.session.execute(stmt)
         return result.scalar_one()
 
-    def _apply_filters(self, stmt, filters: Dict[str, Any]):
+    def _apply_filters(self, stmt, filters: dict[str, Any]):
         """Apply dynamic filters to a SQLAlchemy statement"""
         if not filters:
             return stmt

@@ -4,7 +4,7 @@ Cache key generation utilities with consistent hashing.
 
 import hashlib
 import json
-from typing import Any, Optional, List
+from typing import Any
 
 from fastapi import Request
 
@@ -32,7 +32,7 @@ def build_cache_key(
     prefix: str,
     *args: Any,
     include_user: bool = False,
-    user_id: Optional[int] = None,
+    user_id: int | None = None,
     **kwargs: Any,
 ) -> str:
     """Build a cache key from prefix, positional args, and keyword args.
@@ -72,8 +72,8 @@ def build_request_cache_key(
     prefix: str,
     request: Request,
     include_user: bool = False,
-    user_id: Optional[int] = None,
-    param_names: Optional[List[str]] = None,
+    user_id: int | None = None,
+    param_names: list[str] | None = None,
 ) -> str:
     """Build cache key from FastAPI Request object.
 

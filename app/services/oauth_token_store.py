@@ -8,7 +8,7 @@ using the centralized CacheManager for all storage operations.
 from __future__ import annotations
 
 import time
-from typing import Optional, Dict, Any
+from typing import Any
 
 from app.core.cache import get_cache_manager
 from app.core.logging import get_logger
@@ -54,11 +54,11 @@ class OAuthTokenStore:
         code: str,
         user_id: str,
         client_id: str,
-        redirect_uri: Optional[str],
+        redirect_uri: str | None,
         scope: str,
-        code_challenge: Optional[str] = None,
-        code_challenge_method: Optional[str] = None,
-        resource: Optional[str] = None,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
+        resource: str | None = None,
         expires_in: int = 600,
     ) -> bool:
         self._ensure_cache_available()
@@ -82,7 +82,7 @@ class OAuthTokenStore:
             logger.error("Failed to store auth code: %s", e)
             raise OAuthStorageError(f"Failed to store auth code: {e}") from e
 
-    async def get_auth_code(self, code: str) -> Optional[Dict[str, Any]]:
+    async def get_auth_code(self, code: str) -> dict[str, Any] | None:
         """Retrieve and consume an authorization code (one-time use, atomic)."""
         try:
             cache = get_cache_manager()
@@ -120,8 +120,8 @@ class OAuthTokenStore:
         refresh_token: str,
         user_id: str,
         scope: str,
-        client_id: Optional[str] = None,
-        resource: Optional[str] = None,
+        client_id: str | None = None,
+        resource: str | None = None,
         access_token_expires_in: int = 3600,
         refresh_token_expires_in: int = 2592000,
     ) -> bool:
@@ -170,7 +170,7 @@ class OAuthTokenStore:
             logger.error("Failed to store OAuth tokens: %s", e)
             raise OAuthStorageError(f"Failed to store OAuth tokens: {e}") from e
 
-    async def get_access_token(self, access_token: str) -> Optional[Dict[str, Any]]:
+    async def get_access_token(self, access_token: str) -> dict[str, Any] | None:
         try:
             cache = get_cache_manager()
             data = await cache.get(self._key("access_token", access_token))
@@ -188,7 +188,7 @@ class OAuthTokenStore:
             logger.error("Failed to get access token: %s", e)
             return None
 
-    async def get_refresh_token(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+    async def get_refresh_token(self, refresh_token: str) -> dict[str, Any] | None:
         try:
             cache = get_cache_manager()
             data = await cache.get(self._key("refresh_token", refresh_token))
@@ -235,8 +235,8 @@ class OAuthTokenStore:
     async def revoke_token_pair(
         self,
         *,
-        access_token: Optional[str] = None,
-        refresh_token: Optional[str] = None,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
     ) -> bool:
         try:
             if refresh_token:
@@ -264,12 +264,12 @@ class OAuthTokenStore:
         self,
         session_id: str,
         client_id: str,
-        redirect_uri: Optional[str],
+        redirect_uri: str | None,
         scope: str,
-        state: Optional[str] = None,
-        code_challenge: Optional[str] = None,
-        code_challenge_method: Optional[str] = None,
-        resource: Optional[str] = None,
+        state: str | None = None,
+        code_challenge: str | None = None,
+        code_challenge_method: str | None = None,
+        resource: str | None = None,
         expires_in: int = 1800,
     ) -> bool:
         self._ensure_cache_available()
@@ -292,7 +292,7 @@ class OAuthTokenStore:
             logger.error("Failed to store OAuth session: %s", e)
             raise OAuthStorageError(f"Failed to store OAuth session: {e}") from e
 
-    async def get_oauth_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+    async def get_oauth_session(self, session_id: str) -> dict[str, Any] | None:
         try:
             cache = get_cache_manager()
             data = await cache.get(self._key("session", session_id))
@@ -322,8 +322,8 @@ class OAuthTokenStore:
     async def store_client(
         self,
         client_id: str,
-        metadata: Dict[str, Any],
-        expires_in: Optional[int] = None,
+        metadata: dict[str, Any],
+        expires_in: int | None = None,
     ) -> bool:
         try:
             cache = get_cache_manager()
@@ -344,7 +344,7 @@ class OAuthTokenStore:
             logger.error("Failed to store OAuth client: %s", e)
             raise OAuthStorageError(f"Failed to store OAuth client: {e}") from e
 
-    async def get_client(self, client_id: str) -> Optional[Dict[str, Any]]:
+    async def get_client(self, client_id: str) -> dict[str, Any] | None:
         try:
             cache = get_cache_manager()
             data = await cache.get(self._key("client", client_id))

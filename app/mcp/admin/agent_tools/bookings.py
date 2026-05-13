@@ -1,42 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
-
-from app.config import settings
-from app.core.database import AsyncSessionLocal
-from app.core.exceptions import (
-    InsufficientPermissionsError,
-    PropertyNotFoundException,
-    NotFoundException,
-)
-from app.models.enums import UserRole
+from typing import Any
 
 from app.mcp.admin.agent_tools.common import (
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
+    MCPErrorCode,
+    MCPResponse,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
     admin_mcp,
     get_db,
     get_user_role,
     internal_error_response,
     invalid_input_response,
-    not_found_response,
-    MCPErrorCode,
-    MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_user_basic,
-    make_tz_aware,
-    utc_now,
-    utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
     logger,
+    not_found_response,
+    serialize_booking,
 )
+from app.models.enums import UserRole
+
 
 @admin_mcp.tool(
     "agent_bookings_list_all",
@@ -49,12 +33,12 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_bookings_list_all(
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List all bookings for managed properties.
 
     Args:
@@ -131,8 +115,8 @@ async def agent_bookings_list_all(
 async def agent_bookings_update_status(
     booking_id: int,
     status: str,
-    notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    notes: str | None = None,
+) -> dict[str, Any]:
     """Update the status of a booking.
 
     Args:

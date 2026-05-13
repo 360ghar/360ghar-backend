@@ -11,17 +11,15 @@ Compatible with FastMCP 3.0+.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
-
-from pydantic import Field
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import NotFoundError, ToolError
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.tools.tool import ToolResult
 from mcp import types as mcp_types
+from pydantic import Field
 
-from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -55,8 +53,8 @@ class AppsSDKToolResult(ToolResult):
         self,
         *,
         content: Any | None = None,
-        structured_content: Dict[str, Any] | None = None,
-        result_meta: Optional[Dict[str, Any]] = None,
+        structured_content: dict[str, Any] | None = None,
+        result_meta: dict[str, Any] | None = None,
         is_error: bool = False,
     ) -> None:
         super().__init__(
@@ -99,7 +97,7 @@ class AuthRequiredError(ToolError):
         self,
         message: str,
         www_authenticate: str,
-        structured_content: Optional[Dict[str, Any]] = None,
+        structured_content: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -138,7 +136,7 @@ def build_www_authenticate(
     error: str,
     error_description: str,
     scope: str = "mcp:read mcp:write",
-    resource_metadata_url: Optional[str] = None,
+    resource_metadata_url: str | None = None,
 ) -> str:
     """Build a Bearer WWW-Authenticate challenge string for Apps SDK."""
     resource_metadata_url = resource_metadata_url or _resource_metadata_url_for_current_request()
@@ -159,7 +157,7 @@ def build_widget_tool_meta(
     invoked: str,
     visibility: str = "host",
     widget_accessible: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build tool-level metadata that is standards-first and ChatGPT-compatible.
 
@@ -185,7 +183,7 @@ def raise_auth_required(
     message: str,
     error_description: str,
     scope: str = "mcp:read mcp:write",
-    structured_content: Optional[Dict[str, Any]] = None,
+    structured_content: dict[str, Any] | None = None,
 ) -> None:
     """Convenience helper to raise an AuthRequiredError with correct metadata."""
     www_authenticate = build_www_authenticate(
@@ -202,10 +200,10 @@ def raise_auth_required(
 
 def success_response(
     *,
-    data: Dict[str, Any],
+    data: dict[str, Any],
     summary: str,
-    meta: Optional[Dict[str, Any]] = None,
-    widget_uri: Optional[str] = None,
+    meta: dict[str, Any] | None = None,
+    widget_uri: str | None = None,
 ) -> AppsSDKToolResult:
     """
     Create a successful ChatGPT Apps SDK compatible tool response.
@@ -234,8 +232,8 @@ def success_response(
 def error_response(
     *,
     message: str,
-    error_code: Optional[str] = None,
-    details: Optional[Dict[str, Any]] = None,
+    error_code: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> AppsSDKToolResult:
     """
     Create an error ChatGPT Apps SDK compatible tool response.
@@ -248,7 +246,7 @@ def error_response(
     Returns:
         AppsSDKToolResult with isError=True.
     """
-    error_data: Dict[str, Any] = {
+    error_data: dict[str, Any] = {
         "error": True,
         "message": message,
     }
@@ -289,7 +287,7 @@ class AppsSDKFastMCP(FastMCP):
 
         def _patched_create_init(
             notification_options: Any = None,
-            experimental_capabilities: Optional[Dict[str, Any]] = None,
+            experimental_capabilities: dict[str, Any] | None = None,
         ) -> Any:
             caps = experimental_capabilities or {}
             caps["io.modelcontextprotocol/ui"] = {}

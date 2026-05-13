@@ -5,7 +5,6 @@ Shared helper functions used across the application.
 """
 
 from datetime import datetime, timezone
-from typing import Optional
 
 
 def utc_now() -> datetime:
@@ -18,7 +17,7 @@ def utc_now_iso() -> str:
     return utc_now().isoformat()
 
 
-def make_tz_aware(dt: Optional[datetime]) -> Optional[datetime]:
+def make_tz_aware(dt: datetime | None) -> datetime | None:
     """Ensure a datetime is timezone-aware (UTC).
 
     Handles both naive and aware datetimes. If the datetime is naive

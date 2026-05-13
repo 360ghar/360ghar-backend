@@ -1,13 +1,14 @@
 """Zoning data scraper — TCP Haryana tables + supports CSV admin import."""
 import asyncio
 import logging
+
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.data_hub import ColonyApproval, ZoningData
 from app.services.data_hub.base_scraper import BaseScraper
 from app.services.data_hub.utils import generate_slug
-from app.models.data_hub import ZoningData, ColonyApproval
 
 logger = logging.getLogger(__name__)
 

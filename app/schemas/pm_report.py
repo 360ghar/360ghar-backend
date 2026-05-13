@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
 
@@ -10,29 +9,29 @@ class RentRollItem(BaseModel):
     property_id: int
     title: str
     occupancy: str
-    tenant_user_id: Optional[int] = None
-    monthly_rent: Optional[float] = None
-    lease_end_date: Optional[date] = None
+    tenant_user_id: int | None = None
+    monthly_rent: float | None = None
+    lease_end_date: date | None = None
 
 
 class IncomeReport(BaseModel):
     total_income: float
-    start: Optional[datetime] = None
-    end: Optional[datetime] = None
+    start: datetime | None = None
+    end: datetime | None = None
 
 
 class ExpenseReport(BaseModel):
     total_expenses: float
-    start: Optional[date] = None
-    end: Optional[date] = None
+    start: date | None = None
+    end: date | None = None
 
 
 class PnLReport(BaseModel):
     total_income: float
     total_expenses: float
     net_income: float
-    start: Optional[date] = None
-    end: Optional[date] = None
+    start: date | None = None
+    end: date | None = None
 
 
 class OccupancyReport(BaseModel):

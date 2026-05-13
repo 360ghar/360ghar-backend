@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,10 +16,10 @@ async def list_tenants(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
+    owner_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """List tenant users across an owner's (or RM's) accessible portfolio."""
     owner_ids = None
     if actor.role == UserRole.user.value:
@@ -76,8 +76,8 @@ async def get_tenant_detail(
     *,
     actor: User,
     tenant_user_id: int,
-    owner_id: Optional[int] = None,
-) -> Dict[str, Any]:
+    owner_id: int | None = None,
+) -> dict[str, Any]:
     # Determine owner scope
     if actor.role == UserRole.user.value:
         owner_ids = [actor.id]

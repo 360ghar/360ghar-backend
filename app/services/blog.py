@@ -1,19 +1,29 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, or_, func
-from sqlalchemy.orm import selectinload
-from typing import Optional, List, Tuple
-from datetime import datetime, UTC
+from __future__ import annotations
+
 import re as _re
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.config import settings
+from app.core.cache import cached
 from app.core.db_resilience import execute_with_transient_retry
-from app.core.cache import cached, CacheKeyPatterns
-from app.core.logging import get_logger
 from app.core.exceptions import (
-    ForbiddenException, NotFoundException, ConflictException,
-    BlogNotFoundException, CategoryNotFoundException, TagNotFoundException,
+    BlogNotFoundException,
+    CategoryNotFoundException,
+    ConflictException,
+    ForbiddenException,
+    TagNotFoundException,
 )
-from app.models.blogs import BlogPost, BlogCategory, BlogTag, BlogPostCategory, BlogPostTag
+from app.core.logging import get_logger
+from app.models.blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
 from app.models.enums import UserRole
+
+if TYPE_CHECKING:
+    from app.schemas.blog import BlogPost as BlogPostSchema
 
 logger = get_logger(__name__)
 
@@ -89,7 +99,7 @@ def _serialize_seo_metadata(seo_metadata) -> dict:
     return {}
 
 
-async def _get_or_create_categories(db: AsyncSession, identifiers: List[str]) -> List[BlogCategory]:
+async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) -> list[BlogCategory]:
     if not identifiers:
         return []
 
@@ -103,7 +113,7 @@ async def _get_or_create_categories(db: AsyncSession, identifiers: List[str]) ->
     result = await db.execute(stmt)
     existing = {c.slug: c for c in result.scalars().all()}
 
-    categories: List[BlogCategory] = list(existing.values())
+    categories: list[BlogCategory] = list(existing.values())
     for ident in names_or_slugs:
         slug = _slugify(ident)
         if slug not in existing:
@@ -116,7 +126,7 @@ async def _get_or_create_categories(db: AsyncSession, identifiers: List[str]) ->
     return categories
 
 
-async def _get_or_create_tags(db: AsyncSession, identifiers: List[str]) -> List[BlogTag]:
+async def _get_or_create_tags(db: AsyncSession, identifiers: list[str]) -> list[BlogTag]:
     if not identifiers:
         return []
 
@@ -130,7 +140,7 @@ async def _get_or_create_tags(db: AsyncSession, identifiers: List[str]) -> List[
     result = await db.execute(stmt)
     existing = {t.slug: t for t in result.scalars().all()}
 
-    tags: List[BlogTag] = list(existing.values())
+    tags: list[BlogTag] = list(existing.values())
     for ident in names_or_slugs:
         slug = _slugify(ident)
         if slug not in existing:
@@ -143,7 +153,7 @@ async def _get_or_create_tags(db: AsyncSession, identifiers: List[str]) -> List[
     return tags
 
 
-async def create_blog_post(db: AsyncSession, data, actor) -> "app.schemas.blog.BlogPost":
+async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
     if actor.role != UserRole.admin.value:
@@ -225,7 +235,7 @@ async def get_blog_post(
     db: AsyncSession,
     identifier: str,
     include_inactive: bool = False,
-) -> Optional["app.schemas.blog.BlogPost"]:
+) -> BlogPostSchema | None:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
     cond = None
@@ -255,20 +265,20 @@ async def get_blog_post(
 async def get_blog_post_cached(
     db: AsyncSession,
     identifier: str,
-) -> Optional["app.schemas.blog.BlogPost"]:
+) -> BlogPostSchema | None:
     """Cached wrapper — only caches active posts (include_inactive=False)."""
     return await get_blog_post(db, identifier, include_inactive=False)
 
 
 async def list_blog_posts(
     db: AsyncSession,
-    q: Optional[str],
-    categories: Optional[List[str]],
-    tags: Optional[List[str]],
+    q: str | None,
+    categories: list[str] | None,
+    tags: list[str] | None,
     page: int,
     limit: int,
     include_inactive: bool = False,
-) -> Tuple[List["app.schemas.blog.BlogPost"], int]:
+) -> tuple[list[BlogPostSchema], int]:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
     query = select(BlogPost).options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
@@ -342,7 +352,7 @@ async def list_blog_posts(
 
 
 # Category CRUD operations
-async def create_category(db: AsyncSession, name: str, description: Optional[str] = None) -> BlogCategory:
+async def create_category(db: AsyncSession, name: str, description: str | None = None) -> BlogCategory:
     """Create a new blog category."""
     slug = _slugify(name)
 
@@ -363,7 +373,7 @@ async def create_category(db: AsyncSession, name: str, description: Optional[str
     return category
 
 
-async def get_category(db: AsyncSession, identifier: str) -> Optional[BlogCategory]:
+async def get_category(db: AsyncSession, identifier: str) -> BlogCategory | None:
     """Get category by ID or slug."""
     try:
         # Try to parse as ID
@@ -377,7 +387,7 @@ async def get_category(db: AsyncSession, identifier: str) -> Optional[BlogCatego
     return result.scalar_one_or_none()
 
 
-async def list_categories(db: AsyncSession, page: int = 1, limit: int = 100) -> Tuple[List[BlogCategory], int]:
+async def list_categories(db: AsyncSession, page: int = 1, limit: int = 100) -> tuple[list[BlogCategory], int]:
     """List all categories with pagination."""
     count_stmt = select(func.count(BlogCategory.id))
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -389,7 +399,7 @@ async def list_categories(db: AsyncSession, page: int = 1, limit: int = 100) -> 
     return list(categories), int(total)
 
 
-async def update_category(db: AsyncSession, identifier: str, name: Optional[str] = None, description: Optional[str] = None) -> BlogCategory:
+async def update_category(db: AsyncSession, identifier: str, name: str | None = None, description: str | None = None) -> BlogCategory:
     """Update category by ID or slug."""
     category = await get_category(db, identifier)
     if not category:
@@ -453,7 +463,7 @@ async def create_tag(db: AsyncSession, name: str) -> BlogTag:
     return tag
 
 
-async def get_tag(db: AsyncSession, identifier: str) -> Optional[BlogTag]:
+async def get_tag(db: AsyncSession, identifier: str) -> BlogTag | None:
     """Get tag by ID or slug."""
     try:
         # Try to parse as ID
@@ -467,7 +477,7 @@ async def get_tag(db: AsyncSession, identifier: str) -> Optional[BlogTag]:
     return result.scalar_one_or_none()
 
 
-async def list_tags(db: AsyncSession, page: int = 1, limit: int = 100) -> Tuple[List[BlogTag], int]:
+async def list_tags(db: AsyncSession, page: int = 1, limit: int = 100) -> tuple[list[BlogTag], int]:
     """List all tags with pagination."""
     count_stmt = select(func.count(BlogTag.id))
     total = (await db.execute(count_stmt)).scalar() or 0
@@ -518,7 +528,7 @@ async def delete_tag(db: AsyncSession, identifier: str) -> bool:
 
 
 # Blog Post CRUD operations (additional)
-async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> "app.schemas.blog.BlogPost":
+async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> BlogPostSchema:
     """Update blog post by ID or slug."""
     from app.schemas.blog import BlogPost as BlogPostSchema
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,11 +8,18 @@ from app.core.database import get_db
 from app.models.enums import UserRole
 from app.schemas.pm_inspection import (
     InspectionChecklist as InspectionChecklistSchema,
+)
+from app.schemas.pm_inspection import (
     InspectionChecklistCreate,
     InspectionSign,
 )
 from app.schemas.user import User as UserSchema
-from app.services.pm_inspections import create_inspection_checklist, get_inspection, list_inspections, sign_inspection
+from app.services.pm_inspections import (
+    create_inspection_checklist,
+    get_inspection,
+    list_inspections,
+    sign_inspection,
+)
 
 router = APIRouter()
 
@@ -49,9 +54,9 @@ async def create_inspection(
 
 @router.get("", response_model=list[InspectionChecklistSchema])
 async def list_inspection_checklists(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    lease_id: Optional[int] = Query(None),
-    property_id: Optional[int] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    lease_id: int | None = Query(None),
+    property_id: int | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: UserSchema = Depends(get_current_active_user),

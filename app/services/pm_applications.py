@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,12 +25,12 @@ async def create_application_form(
     actor: User,
     owner_id: int,
     title: str,
-    description: Optional[str] = None,
-    property_id: Optional[int] = None,
-    application_fee_amount: Optional[float] = None,
-    required_document_types: Optional[dict] = None,
-    questions: Optional[dict] = None,
-    config: Optional[dict] = None,
+    description: str | None = None,
+    property_id: int | None = None,
+    application_fee_amount: float | None = None,
+    required_document_types: dict | None = None,
+    questions: dict | None = None,
+    config: dict | None = None,
 ) -> RentalApplicationForm:
     await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
@@ -90,13 +89,13 @@ async def submit_public_application(
     db: AsyncSession,
     *,
     slug: str,
-    property_id: Optional[int] = None,
-    applicant_full_name: Optional[str] = None,
-    applicant_phone: Optional[str] = None,
-    applicant_email: Optional[str] = None,
-    answers: Optional[dict] = None,
-    application_data: Optional[dict] = None,
-    emergency_contacts: Optional[dict] = None,
+    property_id: int | None = None,
+    applicant_full_name: str | None = None,
+    applicant_phone: str | None = None,
+    applicant_email: str | None = None,
+    answers: dict | None = None,
+    application_data: dict | None = None,
+    emergency_contacts: dict | None = None,
 ) -> RentalApplication:
     form = await get_public_application_form_by_slug(db, slug=slug)
 
@@ -151,9 +150,9 @@ async def list_application_forms(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    q: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    q: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[RentalApplicationForm]:
@@ -183,11 +182,11 @@ async def list_applications(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[TenantStatus] = None,
-    submitted_from: Optional[datetime] = None,
-    submitted_to: Optional[datetime] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: TenantStatus | None = None,
+    submitted_from: datetime | None = None,
+    submitted_to: datetime | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[RentalApplication]:

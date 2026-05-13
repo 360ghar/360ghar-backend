@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,30 +9,30 @@ from app.models.enums import TenantStatus
 
 
 class RentalApplicationFormCreate(BaseModel):
-    owner_id: Optional[int] = Field(default=None, description="Owner id (agent/admin only)")
-    property_id: Optional[int] = None
+    owner_id: int | None = Field(default=None, description="Owner id (agent/admin only)")
+    property_id: int | None = None
     title: str
-    description: Optional[str] = None
-    application_fee_amount: Optional[float] = None
-    required_document_types: Optional[Dict[str, Any]] = None
-    questions: Optional[Dict[str, Any]] = None
-    config: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    application_fee_amount: float | None = None
+    required_document_types: dict[str, Any] | None = None
+    questions: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
 
 
 class RentalApplicationForm(BaseModel):
     id: int
     owner_id: int
-    property_id: Optional[int] = None
+    property_id: int | None = None
     title: str
-    description: Optional[str] = None
+    description: str | None = None
     slug: str
     is_active: bool
-    application_fee_amount: Optional[float] = None
-    required_document_types: Optional[Dict[str, Any]] = None
-    questions: Optional[Dict[str, Any]] = None
-    config: Optional[Dict[str, Any]] = None
+    application_fee_amount: float | None = None
+    required_document_types: dict[str, Any] | None = None
+    questions: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -40,24 +40,24 @@ class RentalApplicationForm(BaseModel):
 class PublicRentalApplicationForm(BaseModel):
     slug: str
     title: str
-    description: Optional[str] = None
-    property_id: Optional[int] = None
-    application_fee_amount: Optional[float] = None
-    required_document_types: Optional[Dict[str, Any]] = None
-    questions: Optional[Dict[str, Any]] = None
-    config: Optional[Dict[str, Any]] = None
+    description: str | None = None
+    property_id: int | None = None
+    application_fee_amount: float | None = None
+    required_document_types: dict[str, Any] | None = None
+    questions: dict[str, Any] | None = None
+    config: dict[str, Any] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class RentalApplicationSubmit(BaseModel):
-    property_id: Optional[int] = None
-    applicant_full_name: Optional[str] = None
-    applicant_phone: Optional[str] = None
-    applicant_email: Optional[str] = None
-    answers: Optional[Dict[str, Any]] = None
-    application_data: Optional[Dict[str, Any]] = None
-    emergency_contacts: Optional[Dict[str, Any]] = None
+    property_id: int | None = None
+    applicant_full_name: str | None = None
+    applicant_phone: str | None = None
+    applicant_email: str | None = None
+    answers: dict[str, Any] | None = None
+    application_data: dict[str, Any] | None = None
+    emergency_contacts: dict[str, Any] | None = None
 
 
 class RentalApplicationDecision(BaseModel):
@@ -70,18 +70,18 @@ class RentalApplication(BaseModel):
     property_id: int
     owner_id: int
     status: TenantStatus
-    applicant_user_id: Optional[int] = None
-    applicant_full_name: Optional[str] = None
-    applicant_phone: Optional[str] = None
-    applicant_email: Optional[str] = None
-    answers: Optional[Dict[str, Any]] = None
-    application_data: Optional[Dict[str, Any]] = None
-    emergency_contacts: Optional[Dict[str, Any]] = None
-    submitted_at: Optional[datetime] = None
-    decision_at: Optional[datetime] = None
-    decided_by_user_id: Optional[int] = None
+    applicant_user_id: int | None = None
+    applicant_full_name: str | None = None
+    applicant_phone: str | None = None
+    applicant_email: str | None = None
+    answers: dict[str, Any] | None = None
+    application_data: dict[str, Any] | None = None
+    emergency_contacts: dict[str, Any] | None = None
+    submitted_at: datetime | None = None
+    decision_at: datetime | None = None
+    decided_by_user_id: int | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

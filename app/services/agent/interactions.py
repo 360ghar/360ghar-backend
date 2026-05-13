@@ -1,6 +1,7 @@
-from sqlalchemy import select, func
-from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import timedelta
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.utils import utc_now
 from app.models.agents import AgentInteraction

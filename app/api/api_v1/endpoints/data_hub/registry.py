@@ -25,7 +25,7 @@ from app.schemas.data_hub import (
 )
 from app.schemas.user import User as UserSchema
 
-from .helpers import _meta_from_table, _paginate, _safe_list_query
+from .helpers import _paginate, _safe_list_query
 
 router = APIRouter()
 logger = get_logger(__name__)

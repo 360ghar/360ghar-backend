@@ -2,12 +2,13 @@
 import asyncio
 import logging
 from datetime import date
+
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.data_hub import CircleRate
 from app.services.data_hub.base_scraper import BaseScraper
 from app.services.data_hub.utils import generate_slug
-from app.models.data_hub import CircleRate
 
 logger = logging.getLogger(__name__)
 

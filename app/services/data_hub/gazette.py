@@ -2,17 +2,17 @@
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import date
 
 import httpx
 from bs4 import BeautifulSoup
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import classify_gazette_relevance, extract_pdf_text
 from app.models.data_hub import GazetteNotification
 from app.models.enums import GazetteType
+from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.utils import classify_gazette_relevance, extract_pdf_text
 
 logger = logging.getLogger(__name__)
 

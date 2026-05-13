@@ -3,7 +3,6 @@ Custom Domain API endpoints for managing branded tour URLs.
 
 Provides endpoints for creating, verifying, and managing custom domains.
 """
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,9 +12,9 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.schemas.custom_domain import (
     CustomDomainCreate,
+    CustomDomainList,
     CustomDomainResponse,
     CustomDomainVerification,
-    CustomDomainList,
 )
 from app.schemas.user import User as UserSchema
 from app.services import custom_domain as custom_domain_service
@@ -46,7 +45,7 @@ async def create_custom_domain(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from None
 
 
 @router.get("", response_model=CustomDomainList)
@@ -109,7 +108,7 @@ async def verify_custom_domain(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from None
 
 
 @router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT)

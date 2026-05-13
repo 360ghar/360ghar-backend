@@ -1,27 +1,37 @@
+
+from sqlalchemy import and_, desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, desc, and_, or_
 from sqlalchemy.orm import selectinload
-from typing import List, Optional, Dict, Any
 
 from app.core.exceptions import NotFoundException, ValidationException
 from app.core.utils import utc_now
-from app.models.core import BugReport, Page, AppVersion, FAQ
-from app.models.users import User
-from app.models.enums import BugStatus, PageFormat, BugType
+from app.models.core import FAQ, AppVersion, BugReport, Page
+from app.models.enums import BugStatus, BugType
 from app.schemas.core import (
-    BugReportCreate, BugReportUpdate, BugReportResponse,
-    PageCreate, PageUpdate, PageResponse, PagePublicResponse,
-    AppVersionCreate, AppVersionUpdate, AppVersionResponse,
-    AppVersionCheckRequest, AppVersionCheckResponse,
-    FAQCreate, FAQUpdate, FAQResponse
+    AppVersionCheckRequest,
+    AppVersionCheckResponse,
+    AppVersionCreate,
+    AppVersionResponse,
+    AppVersionUpdate,
+    BugReportCreate,
+    BugReportResponse,
+    BugReportUpdate,
+    FAQCreate,
+    FAQResponse,
+    FAQUpdate,
+    PageCreate,
+    PagePublicResponse,
+    PageResponse,
+    PageUpdate,
 )
+
 
 class CoreService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     # Bug Report Methods
-    async def create_bug_report(self, bug_data: BugReportCreate, user_id: Optional[int] = None) -> BugReportResponse:
+    async def create_bug_report(self, bug_data: BugReportCreate, user_id: int | None = None) -> BugReportResponse:
         """Create a new bug report"""
         bug_report = BugReport(
             user_id=user_id,
@@ -36,12 +46,12 @@ class CoreService:
 
     async def get_bug_reports(
         self,
-        user_id: Optional[int] = None,
-        status: Optional[BugStatus] = None,
-        bug_type: Optional[BugType] = None,
+        user_id: int | None = None,
+        status: BugStatus | None = None,
+        bug_type: BugType | None = None,
         limit: int = 20,
         offset: int = 0
-    ) -> List[BugReportResponse]:
+    ) -> list[BugReportResponse]:
         """Get bug reports with optional filtering"""
         query = select(BugReport).options(
             selectinload(BugReport.user),
@@ -83,7 +93,7 @@ class CoreService:
         self,
         bug_id: int,
         update_data: BugReportUpdate,
-        updated_by: Optional[int] = None
+        updated_by: int | None = None
     ) -> BugReportResponse:
         """Update a bug report"""
         # Get the bug report
@@ -110,7 +120,7 @@ class CoreService:
         return await self.get_bug_report_by_id(bug_id)
 
     # Page Methods
-    async def create_page(self, page_data: PageCreate, created_by: Optional[int] = None) -> PageResponse:
+    async def create_page(self, page_data: PageCreate, created_by: int | None = None) -> PageResponse:
         """Create a new page"""
         # Check if unique_name already exists
         existing_page = await self.get_page_by_unique_name(page_data.unique_name)
@@ -128,13 +138,13 @@ class CoreService:
 
         return PageResponse.model_validate(page)
 
-    async def get_page_by_unique_name(self, unique_name: str) -> Optional[PageResponse]:
+    async def get_page_by_unique_name(self, unique_name: str) -> PageResponse | None:
         """Get a page by its unique name"""
         query = select(Page).options(
             selectinload(Page.creator),
             selectinload(Page.updater)
         ).where(
-            and_(Page.unique_name == unique_name, Page.is_active == True)
+            and_(Page.unique_name == unique_name, Page.is_active)
         )
 
         result = await self.db.execute(query)
@@ -149,14 +159,14 @@ class CoreService:
             return PageResponse.model_validate(page)
         return None
 
-    async def get_page_public(self, unique_name: str) -> Optional[PagePublicResponse]:
+    async def get_page_public(self, unique_name: str) -> PagePublicResponse | None:
         """Get a page for public access (without sensitive data)"""
         query = select(Page).where(
             and_(
                 Page.unique_name == unique_name,
-                Page.is_active == True,
-                Page.is_draft == False,
-                Page.is_private == False,
+                Page.is_active,
+                not Page.is_draft,
+                not Page.is_private,
             )
         )
 
@@ -174,11 +184,11 @@ class CoreService:
 
     async def get_pages(
         self,
-        is_active: Optional[bool] = None,
-        is_draft: Optional[bool] = None,
+        is_active: bool | None = None,
+        is_draft: bool | None = None,
         limit: int = 20,
         offset: int = 0
-    ) -> List[PageResponse]:
+    ) -> list[PageResponse]:
         """Get pages with optional filtering"""
         query = select(Page).options(
             selectinload(Page.creator),
@@ -202,7 +212,7 @@ class CoreService:
         self,
         unique_name: str,
         update_data: PageUpdate,
-        updated_by: Optional[int] = None
+        updated_by: int | None = None
     ) -> PageResponse:
         """Update a page"""
         # Check if page exists
@@ -266,7 +276,7 @@ class CoreService:
                 and_(
                     AppVersion.app == check_data.app,
                     AppVersion.platform == check_data.platform,
-                    AppVersion.is_active == True,
+                    AppVersion.is_active,
                 )
             )
             .order_by(desc(AppVersion.created_at))
@@ -302,12 +312,12 @@ class CoreService:
 
     async def get_app_versions(
         self,
-        app: Optional[str] = None,
-        platform: Optional[str] = None,
-        is_active: Optional[bool] = None,
+        app: str | None = None,
+        platform: str | None = None,
+        is_active: bool | None = None,
         limit: int = 10,
         offset: int = 0,
-    ) -> List[AppVersionResponse]:
+    ) -> list[AppVersionResponse]:
         """Get app versions with optional filtering"""
         query = select(AppVersion)
 
@@ -368,11 +378,11 @@ class CoreService:
 
     async def get_faqs(
         self,
-        category: Optional[str] = None,
-        is_active: Optional[bool] = True,
+        category: str | None = None,
+        is_active: bool | None = True,
         limit: int = 50,
         offset: int = 0
-    ) -> List[FAQResponse]:
+    ) -> list[FAQResponse]:
         """Get FAQs with optional filtering by category and active status"""
         query = select(FAQ)
 

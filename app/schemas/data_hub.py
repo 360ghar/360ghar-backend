@@ -6,13 +6,12 @@ and paginated list response schemas.
 """
 
 from datetime import date, datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.enums import AuctionSource, ComplaintNature, GazetteType, ScraperStatus
 from app.schemas.common import PaginatedResponse
-
 
 # ---------------------------------------------------------------------------
 # Shared meta schema
@@ -20,7 +19,7 @@ from app.schemas.common import PaginatedResponse
 
 class DataHubMeta(BaseModel):
     """Metadata attached to every paginated data-hub list response."""
-    last_updated: Optional[datetime] = None
+    last_updated: datetime | None = None
     is_stale: bool = False
 
 
@@ -31,24 +30,24 @@ class DataHubMeta(BaseModel):
 class CircleRateResponse(BaseModel):
     id: int
     sector: str
-    colony: Optional[str] = None
+    colony: str | None = None
     property_type: str
-    rate_per_sqyd: Optional[float] = None
-    rate_per_sqft: Optional[float] = None
+    rate_per_sqyd: float | None = None
+    rate_per_sqft: float | None = None
     revision_year: int
-    effective_date: Optional[date] = None
+    effective_date: date | None = None
     slug: str
-    source_url: Optional[str] = None
+    source_url: str | None = None
     # last_scraped_at is not a model field; kept Optional for forward-compat
-    last_scraped_at: Optional[datetime] = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class CircleRateListResponse(PaginatedResponse):
-    items: List[CircleRateResponse]
+    items: list[CircleRateResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -63,30 +62,30 @@ class ReraProjectResponse(BaseModel):
     rera_number: str
     project_name: str
     # Model column is `developer_name` — mapped directly
-    developer_name: Optional[str] = None
-    project_type: Optional[str] = None
-    location: Optional[str] = None
+    developer_name: str | None = None
+    project_type: str | None = None
+    location: str | None = None
     # The model has no separate `sector` column; expose as None
-    sector: Optional[str] = None
+    sector: str | None = None
     # Model uses `total_units` — aliased to `units_total` for API consumers
-    units_total: Optional[int] = Field(None, alias="total_units")
-    units_booked: Optional[int] = None
-    possession_date: Optional[date] = None
-    registration_date: Optional[date] = None
-    expiry_date: Optional[date] = None
-    status: Optional[str] = None
+    units_total: int | None = Field(None, alias="total_units")
+    units_booked: int | None = None
+    possession_date: date | None = None
+    registration_date: date | None = None
+    expiry_date: date | None = None
+    status: str | None = None
     # ORM column is `source_url`; exposed directly
-    source_url: Optional[str] = None
-    slug: Optional[str] = None
-    last_scraped_at: Optional[datetime] = None
+    source_url: str | None = None
+    slug: str | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ReraProjectListResponse(PaginatedResponse):
-    items: List[ReraProjectResponse]
+    items: list[ReraProjectResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -101,30 +100,30 @@ class BankAuctionResponse(BaseModel):
     bank_name: str
     property_description: str
     # Model stores address in `full_address`
-    address: Optional[str] = Field(None, alias="full_address")
-    reserve_price: Optional[float] = None
-    emd_amount: Optional[float] = None
-    auction_date: Optional[date] = None
-    emd_deadline: Optional[date] = Field(None, alias="auction_end_date")
+    address: str | None = Field(None, alias="full_address")
+    reserve_price: float | None = None
+    emd_amount: float | None = None
+    auction_date: date | None = None
+    emd_deadline: date | None = Field(None, alias="auction_end_date")
     # Contact info is split in model; serialised as combined string by router layer.
     # Expose as Optional here so the schema stays forward-compatible.
-    contact_info: Optional[str] = None
+    contact_info: str | None = None
     source: AuctionSource
-    source_url: Optional[str] = None
-    property_type: Optional[str] = None
+    source_url: str | None = None
+    property_type: str | None = None
     # No lat/lng on the model; kept Optional for forward-compat
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    slug: Optional[str] = None
-    last_scraped_at: Optional[datetime] = None
+    lat: float | None = None
+    lng: float | None = None
+    slug: str | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class AuctionListResponse(PaginatedResponse):
-    items: List[BankAuctionResponse]
+    items: list[BankAuctionResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -135,11 +134,11 @@ class AuctionListResponse(PaginatedResponse):
 # ---------------------------------------------------------------------------
 
 class AuctionAlertCreate(BaseModel):
-    bank_name: Optional[str] = None
-    property_type: Optional[str] = None
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
-    alert_channels: Optional[List[str]] = None
+    bank_name: str | None = None
+    property_type: str | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    alert_channels: list[str] | None = None
 
 
 class AuctionAlertUpdate(AuctionAlertCreate):
@@ -149,14 +148,14 @@ class AuctionAlertUpdate(AuctionAlertCreate):
 class AuctionAlertResponse(BaseModel):
     id: int
     user_id: int
-    bank_name: Optional[str] = None
-    property_type: Optional[str] = None
-    min_price: Optional[float] = None
-    max_price: Optional[float] = None
-    alert_channels: Optional[List[str]] = None
+    bank_name: str | None = None
+    property_type: str | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    alert_channels: list[str] | None = None
     is_active: bool
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -170,18 +169,18 @@ class BankRateResponse(BaseModel):
     bank_name: str
     rate_type: str
     rate_value: float
-    effective_date: Optional[date] = None
+    effective_date: date | None = None
     # Model stores `source` (not source_url); aliased for API surface
-    source_url: Optional[str] = Field(None, alias="source")
-    last_scraped_at: Optional[datetime] = None
+    source_url: str | None = Field(None, alias="source")
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class BankRateListResponse(PaginatedResponse):
-    items: List[BankRateResponse]
+    items: list[BankRateResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -202,11 +201,11 @@ class JamabandiLookupResponse(BaseModel):
     tehsil: str
     village: str
     khasra_number: str
-    owner_names: List[str]
-    area_acres: Optional[float] = None
-    mutation_status: Optional[str] = None
-    encumbrance: Optional[str] = None
-    raw_data: Optional[Dict[str, Any]] = None
+    owner_names: list[str]
+    area_acres: float | None = None
+    mutation_status: str | None = None
+    encumbrance: str | None = None
+    raw_data: dict[str, Any] | None = None
     fetched_at: datetime
     is_cached: bool
 
@@ -218,25 +217,25 @@ class JamabandiLookupResponse(BaseModel):
 class ZoningDataResponse(BaseModel):
     id: int
     sector: str
-    land_use: Optional[str] = None
+    land_use: str | None = None
     # Model uses `far_limit`; exposed as `far` for API consumers
-    far: Optional[float] = Field(None, alias="far_limit")
-    max_height_m: Optional[float] = None
+    far: float | None = Field(None, alias="far_limit")
+    max_height_m: float | None = None
     # Model uses `max_coverage_pct`; exposed as `ground_coverage_pct`
-    ground_coverage_pct: Optional[float] = Field(None, alias="max_coverage_pct")
-    permitted_uses: Optional[List[str]] = None
-    prohibited_uses: Optional[List[str]] = None
+    ground_coverage_pct: float | None = Field(None, alias="max_coverage_pct")
+    permitted_uses: list[str] | None = None
+    prohibited_uses: list[str] | None = None
     slug: str
-    source_url: Optional[str] = None
-    last_scraped_at: Optional[datetime] = None
+    source_url: str | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ZoningDataListResponse(PaginatedResponse):
-    items: List[ZoningDataResponse]
+    items: list[ZoningDataResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -249,25 +248,25 @@ class ZoningDataListResponse(PaginatedResponse):
 class ColonyApprovalResponse(BaseModel):
     id: int
     colony_name: str
-    licence_number: Optional[str] = None
+    licence_number: str | None = None
     # Model uses `approval_status`; exposed as `status`
-    status: Optional[str] = Field(None, alias="approval_status")
+    status: str | None = Field(None, alias="approval_status")
     # Model uses `area_acres` (stored in acres); alias matches ORM column name
-    approved_area_acres: Optional[float] = Field(None, alias="area_acres")
-    developer_name: Optional[str] = None
-    approval_date: Optional[date] = None
+    approved_area_acres: float | None = Field(None, alias="area_acres")
+    developer_name: str | None = None
+    approval_date: date | None = None
     # No expiry_date on the model; kept Optional for forward-compat
-    expiry_date: Optional[date] = None
-    source_url: Optional[str] = None
-    last_scraped_at: Optional[datetime] = None
+    expiry_date: date | None = None
+    source_url: str | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ColonyApprovalListResponse(PaginatedResponse):
-    items: List[ColonyApprovalResponse]
+    items: list[ColonyApprovalResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -279,27 +278,27 @@ class ColonyApprovalListResponse(PaginatedResponse):
 
 class GazetteNotificationResponse(BaseModel):
     id: int
-    notification_number: Optional[str] = None
-    notification_date: Optional[date] = None
-    department: Optional[str] = None
+    notification_number: str | None = None
+    notification_date: date | None = None
+    department: str | None = None
     title: str
-    summary: Optional[str] = None
+    summary: str | None = None
     # Model stores `pdf_text`; `full_text` exposed as alias
-    full_text: Optional[str] = Field(None, alias="pdf_text")
-    pdf_url: Optional[str] = None
+    full_text: str | None = Field(None, alias="pdf_text")
+    pdf_url: str | None = None
     # Model uses `relevance_tags`; exposed as `tags`
-    tags: Optional[List[str]] = Field(None, alias="relevance_tags")
-    relevance_score: Optional[float] = None
-    notification_type: Optional[GazetteType] = None
-    last_scraped_at: Optional[datetime] = None
+    tags: list[str] | None = Field(None, alias="relevance_tags")
+    relevance_score: float | None = None
+    notification_type: GazetteType | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class GazetteNotificationListResponse(PaginatedResponse):
-    items: List[GazetteNotificationResponse]
+    items: list[GazetteNotificationResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -311,28 +310,28 @@ class GazetteNotificationListResponse(PaginatedResponse):
 
 class ReraComplaintResponse(BaseModel):
     id: int
-    rera_number: Optional[str] = None
+    rera_number: str | None = None
     # Model uses `respondent_project`; exposed as `project_name`
-    project_name: Optional[str] = Field(None, alias="respondent_project")
+    project_name: str | None = Field(None, alias="respondent_project")
     # Model uses `respondent_builder`; exposed as `developer_name`
-    developer_name: Optional[str] = Field(None, alias="respondent_builder")
-    complainant_type: Optional[str] = None
-    complaint_nature: Optional[ComplaintNature] = None
+    developer_name: str | None = Field(None, alias="respondent_builder")
+    complainant_type: str | None = None
+    complaint_nature: ComplaintNature | None = None
     order_number: str
-    order_date: Optional[date] = None
-    penalty_amount: Optional[float] = None
-    order_summary: Optional[str] = None
+    order_date: date | None = None
+    penalty_amount: float | None = None
+    order_summary: str | None = None
     # Model uses `pdf_url`; exposed as `order_url`
-    order_url: Optional[str] = Field(None, alias="pdf_url")
-    last_scraped_at: Optional[datetime] = None
+    order_url: str | None = Field(None, alias="pdf_url")
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class ReraComplaintListResponse(PaginatedResponse):
-    items: List[ReraComplaintResponse]
+    items: list[ReraComplaintResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
@@ -345,24 +344,24 @@ class ReraComplaintListResponse(PaginatedResponse):
 class CourtAuctionResponse(BaseModel):
     id: int
     case_number: str
-    court_name: Optional[str] = None
+    court_name: str | None = None
     # Model uses `borrower_name`; exposed as `debtor_name`
-    debtor_name: Optional[str] = Field(None, alias="borrower_name")
-    property_description: Optional[str] = None
+    debtor_name: str | None = Field(None, alias="borrower_name")
+    property_description: str | None = None
     # Model stores address as `locality` (city-level); no separate `address` col
-    address: Optional[str] = Field(None, alias="locality")
-    reserve_price: Optional[float] = None
-    auction_date: Optional[date] = None
+    address: str | None = Field(None, alias="locality")
+    reserve_price: float | None = None
+    auction_date: date | None = None
     source: AuctionSource
-    source_url: Optional[str] = None
-    property_type: Optional[str] = None
+    source_url: str | None = None
+    property_type: str | None = None
     # No lat/lng on the model; kept Optional for forward-compat
-    lat: Optional[float] = None
-    lng: Optional[float] = None
-    slug: Optional[str] = None
-    last_scraped_at: Optional[datetime] = None
+    lat: float | None = None
+    lng: float | None = None
+    slug: str | None = None
+    last_scraped_at: datetime | None = None
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -373,21 +372,21 @@ class CourtAuctionResponse(BaseModel):
 
 class NeighbourhoodScoreResponse(BaseModel):
     id: int
-    listing_id: Optional[int] = None
-    overall_score: Optional[int] = None
+    listing_id: int | None = None
+    overall_score: int | None = None
     # Individual category scores are stored in `category_scores` JSON dict.
     # Expose them as Optional[int] mapped from the dict — router layer
     # should populate these; schema stays forward-compatible with None.
-    transit_score: Optional[int] = None
-    education_score: Optional[int] = None
-    health_score: Optional[int] = None
-    retail_score: Optional[int] = None
+    transit_score: int | None = None
+    education_score: int | None = None
+    health_score: int | None = None
+    retail_score: int | None = None
     # `nearby_places` dict surface for API consumers
-    places_data: Optional[Dict[str, Any]] = Field(None, alias="nearby_places")
+    places_data: dict[str, Any] | None = Field(None, alias="nearby_places")
     stale_after: datetime
     last_fetched_at: datetime
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
@@ -404,16 +403,16 @@ class ScraperRunResponse(BaseModel):
     records_found: int
     records_upserted: int
     records_failed: int
-    error_message: Optional[str] = None
+    error_message: str | None = None
     started_at: datetime
     # Model uses `finished_at`; exposed as `completed_at`
-    completed_at: Optional[datetime] = Field(None, alias="finished_at")
-    triggered_by: Optional[int] = None
-    run_metadata: Optional[Dict[str, Any]] = None
+    completed_at: datetime | None = Field(None, alias="finished_at")
+    triggered_by: int | None = None
+    run_metadata: dict[str, Any] | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def duration_seconds(self) -> Optional[float]:
+    def duration_seconds(self) -> float | None:
         """Compute run duration from started_at / completed_at."""
         if self.completed_at is not None and self.started_at is not None:
             return (self.completed_at - self.started_at).total_seconds()
@@ -428,19 +427,19 @@ class ScraperRunResponse(BaseModel):
 
 class StampDutyCalculationRequest(BaseModel):
     property_value: float = Field(..., gt=0)
-    sector: Optional[str] = None
+    sector: str | None = None
     buyer_type: Literal["male", "female", "joint"]
-    property_type: Optional[str] = None
+    property_type: str | None = None
 
 
 class StampDutyCalculationResponse(BaseModel):
     property_value: float
-    circle_rate_per_sqyd: Optional[float] = None
+    circle_rate_per_sqyd: float | None = None
     stamp_duty_rate: float
     stamp_duty_amount: float
     registration_fee: float
     total_cost: float
-    current_bank_rate: Optional[float] = None
+    current_bank_rate: float | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -453,14 +452,14 @@ class BuilderReputationResponse(BaseModel):
     total_projects: int
     total_complaints: int
     builder_score: float
-    rera_projects: List[ReraProjectResponse]
-    recent_complaints: List[ReraComplaintResponse]
+    rera_projects: list[ReraProjectResponse]
+    recent_complaints: list[ReraComplaintResponse]
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BuilderListResponse(PaginatedResponse):
-    items: List[BuilderReputationResponse]
+    items: list[BuilderReputationResponse]
     meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)

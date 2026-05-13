@@ -3,13 +3,12 @@ from __future__ import annotations
 import base64
 import hashlib
 import secrets
-from typing import Optional
 
 
 def verify_pkce(
-    code_challenge: Optional[str],
-    code_verifier: Optional[str],
-    method: Optional[str],
+    code_challenge: str | None,
+    code_verifier: str | None,
+    method: str | None,
 ) -> bool:
     """Verify PKCE code challenge."""
     if not code_challenge or not code_verifier:

@@ -8,18 +8,18 @@ ChatGPT Apps expect tool responses in a specific format:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from app.mcp.apps_sdk import AppsSDKToolResult
 
 
 def format_chatgpt_response(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     content_summary: str,
-    meta: Optional[Dict[str, Any]] = None,
+    meta: dict[str, Any] | None = None,
     *,
     is_error: bool = False,
-    widget_uri: Optional[str] = None,
+    widget_uri: str | None = None,
 ) -> AppsSDKToolResult:
     """Format tool response for ChatGPT App consumption.
 
@@ -48,8 +48,8 @@ def format_chatgpt_response(
 
 def format_auth_required_response(
     action: str,
-    message: Optional[str] = None,
-    context: Optional[Dict[str, Any]] = None,
+    message: str | None = None,
+    context: dict[str, Any] | None = None,
 ) -> None:
     """Format a response that prompts the user to authenticate.
 
@@ -75,7 +75,7 @@ def format_auth_required_response(
             "You can log in with your phone number."
         )
 
-    data: Dict[str, Any] = {
+    data: dict[str, Any] = {
         "requires_auth": True,
         "action": action,
     }
@@ -90,9 +90,9 @@ def format_auth_required_response(
 
 
 def format_property_list_summary(
-    properties: List[Dict[str, Any]],
+    properties: list[dict[str, Any]],
     total: int,
-    filters: Optional[Dict[str, Any]] = None,
+    filters: dict[str, Any] | None = None,
 ) -> str:
     """Generate natural language summary of property search results.
 
@@ -117,18 +117,18 @@ def format_property_list_summary(
         price_range = "various prices"
 
     # Extract property types
-    types = set(p.get("property_type", "property") for p in properties)
+    types = {p.get("property_type", "property") for p in properties}
     type_str = ", ".join(types) if len(types) <= 3 else "various types"
 
     # Extract locations
-    locations = set(p.get("locality") or p.get("city", "") for p in properties if p.get("locality") or p.get("city"))
+    locations = {p.get("locality") or p.get("city", "") for p in properties if p.get("locality") or p.get("city")}
     location_str = ", ".join(list(locations)[:3]) if locations else "your search area"
 
     showing = len(properties)
     return f"Found {total} properties. Showing {showing} {type_str} in {location_str}, with prices ranging from {price_range}."
 
 
-def format_property_detail_summary(property_data: Dict[str, Any]) -> str:
+def format_property_detail_summary(property_data: dict[str, Any]) -> str:
     """Generate natural language summary of a single property.
 
     Args:
@@ -168,7 +168,7 @@ def format_property_detail_summary(property_data: Dict[str, Any]) -> str:
     return f"{title} in {location}. {specs_str}. {price_str}."
 
 
-def format_visit_summary(visit_data: Dict[str, Any]) -> str:
+def format_visit_summary(visit_data: dict[str, Any]) -> str:
     """Generate natural language summary of a visit.
 
     Args:
@@ -184,7 +184,7 @@ def format_visit_summary(visit_data: Dict[str, Any]) -> str:
     return f"Visit to {property_title} {status} for {scheduled_date}."
 
 
-def format_visits_list_summary(visits: List[Dict[str, Any]], counts: Dict[str, int]) -> str:
+def format_visits_list_summary(visits: list[dict[str, Any]], counts: dict[str, int]) -> str:
     """Generate natural language summary of visits list.
 
     Args:
@@ -210,7 +210,7 @@ def format_visits_list_summary(visits: List[Dict[str, Any]], counts: Dict[str, i
     return f"You have {total} visits: {', '.join(parts)}."
 
 
-def _format_price(price: Union[int, float]) -> str:
+def _format_price(price: int | float) -> str:
     """Format price in Indian numbering system (lakhs/crores)."""
     if price >= 10000000:  # 1 crore
         return f"{price / 10000000:.2f} Cr"
@@ -226,8 +226,8 @@ def _format_price(price: Union[int, float]) -> str:
 
 
 def format_lease_list_summary(
-    leases: List[Dict[str, Any]],
-    stats: Dict[str, Any],
+    leases: list[dict[str, Any]],
+    stats: dict[str, Any],
 ) -> str:
     """Generate natural language summary of lease list.
 
@@ -249,8 +249,8 @@ def format_lease_list_summary(
 
 
 def format_rent_status_summary(
-    charges: List[Dict[str, Any]],
-    totals: Dict[str, Any],
+    charges: list[dict[str, Any]],
+    totals: dict[str, Any],
 ) -> str:
     """Generate natural language summary of rent collection status.
 
@@ -275,8 +275,8 @@ def format_rent_status_summary(
 
 
 def format_maintenance_list_summary(
-    requests: List[Dict[str, Any]],
-    stats: Dict[str, Any],
+    requests: list[dict[str, Any]],
+    stats: dict[str, Any],
 ) -> str:
     """Generate natural language summary of maintenance requests.
 
@@ -302,7 +302,7 @@ def format_maintenance_list_summary(
     return summary
 
 
-def format_dashboard_summary(dashboard: Dict[str, Any]) -> str:
+def format_dashboard_summary(dashboard: dict[str, Any]) -> str:
     """Generate natural language summary of owner dashboard.
 
     Args:
@@ -337,7 +337,7 @@ def format_dashboard_summary(dashboard: Dict[str, Any]) -> str:
 
 
 def format_tenant_rent_dues_summary(
-    charges: List[Dict[str, Any]],
+    charges: list[dict[str, Any]],
     total_due: float,
     overdue_count: int,
 ) -> str:

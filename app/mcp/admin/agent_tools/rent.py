@@ -1,42 +1,32 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from app.config import settings
-from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
-    PropertyNotFoundException,
     NotFoundException,
 )
-from app.models.enums import UserRole
-
 from app.mcp.admin.agent_tools.common import (
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
+    MCPErrorCode,
+    MCPResponse,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
     admin_mcp,
     get_db,
     get_user_role,
     internal_error_response,
     invalid_input_response,
-    not_found_response,
-    MCPErrorCode,
-    MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_user_basic,
-    make_tz_aware,
-    utc_now,
-    utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
     logger,
+    make_tz_aware,
+    not_found_response,
+    utc_now,
 )
+from app.models.enums import UserRole
+
 
 @admin_mcp.tool(
     "agent_rent_list_due",
@@ -49,12 +39,12 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_rent_list_due(
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
     overdue_only: bool = False,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List due/overdue rent payments.
 
     Args:
@@ -65,9 +55,10 @@ async def agent_rent_list_due(
         limit: Items per page
     """
     try:
-        from sqlalchemy import select, and_
-        from app.models.pm_leases import Lease
+        from sqlalchemy import select
+
         from app.models.enums import LeaseStatus
+        from app.models.pm_leases import Lease
 
         limit = min(max(1, limit), 100)
 
@@ -169,9 +160,9 @@ async def agent_rent_record_payment(
     amount: float,
     payment_date: str,
     payment_method: str,
-    transaction_reference: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    transaction_reference: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
     """Record a rent payment for a lease.
 
     Args:
@@ -217,7 +208,7 @@ async def agent_rent_record_payment(
             user_schema = UserSchema.model_validate(user)
 
             try:
-                lease = await assert_can_access_lease(
+                await assert_can_access_lease(
                     db, actor=user_schema, lease_id=lease_id
                 )
             except NotFoundException:

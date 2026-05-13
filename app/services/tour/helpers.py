@@ -5,11 +5,9 @@ Contains ownership checks, HTML sanitization, URL validation,
 content normalization, and other utilities used across sub-modules.
 """
 
-from typing import Optional
 from urllib.parse import parse_qs, urlparse
 
 import bleach
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.models.enums import HotspotType
@@ -94,7 +92,7 @@ def _sanitize_hotspot_html(value: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _extract_youtube_id(url: str) -> Optional[str]:
+def _extract_youtube_id(url: str) -> str | None:
     try:
         parsed = urlparse(url)
     except Exception:
@@ -117,7 +115,7 @@ def _extract_youtube_id(url: str) -> Optional[str]:
     return None
 
 
-def _extract_vimeo_id(url: str) -> Optional[str]:
+def _extract_vimeo_id(url: str) -> str | None:
     try:
         parsed = urlparse(url)
     except Exception:
@@ -142,7 +140,7 @@ def _extract_vimeo_id(url: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def _extract_session_duration(event, session_starts: dict) -> Optional[float]:
+def _extract_session_duration(event, session_starts: dict) -> float | None:
     """Extract session duration from an analytics event."""
     payload = event.event_data or {}
     duration = payload.get("duration_seconds")
@@ -162,8 +160,8 @@ def _extract_session_duration(event, session_starts: dict) -> Optional[float]:
 
 def _normalize_hotspot_content(
     hotspot_type: HotspotType,
-    content: Optional[dict],
-) -> Optional[dict]:
+    content: dict | None,
+) -> dict | None:
     if content is None:
         content = {}
 

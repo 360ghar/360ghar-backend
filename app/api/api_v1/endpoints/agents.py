@@ -1,39 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Dict, Any, Optional
+
+from app.api.api_v1.dependencies.auth import (
+    get_current_active_user,
+    get_current_admin,
+    get_current_agent,
+)
 from app.core.database import get_db
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.api.api_v1.dependencies.auth import get_current_admin, get_current_agent
-from app.schemas.user import User as UserSchema
 from app.schemas.agent import (
     Agent,
-    AgentCreate,
-    AgentUpdate,
     AgentAssignment,
+    AgentCreate,
+    AgentSystemStats,
+    AgentUpdate,
     AgentWithStats,
     AgentWorkload,
-    AgentSystemStats,
 )
 from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.user import User as UserSchema
 from app.services.agent import (
-    get_all_agents,
-    get_active_agents,
-    get_available_agents,
-    get_agent_by_id,
-    create_agent,
-    update_agent,
-    delete_agent,
-    get_user_agent,
     assign_agent_to_user,
+    create_agent,
+    delete_agent,
+    get_agent_by_id,
     get_agent_with_stats,
-    get_agents_by_type,
-    update_agent_availability,
-    get_workload_distribution,
-    get_system_stats,
-    get_available_agents_paginated,
-    get_agents_by_type_paginated,
     get_agents_by_specialization_paginated,
+    get_agents_by_type_paginated,
     get_all_agents_paginated,
+    get_available_agents_paginated,
+    get_system_stats,
+    get_user_agent,
+    get_workload_distribution,
+    update_agent,
+    update_agent_availability,
 )
 from app.services.visit import get_agent_visits
 
@@ -58,7 +58,7 @@ async def get_my_agent(
 
 @router.post("/assign", response_model=AgentAssignment)
 async def assign_my_agent(
-    agent_id: Optional[int] = None,
+    agent_id: int | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -75,8 +75,8 @@ async def assign_my_agent(
 # Public agent information endpoints
 @router.get("/available", response_model=PaginatedResponse)
 async def list_available_agents(
-    specialization: Optional[str] = Query(None, description="Filter by specialization"),
-    agent_type: Optional[str] = Query(None, description="Filter by agent type"),
+    specialization: str | None = Query(None, description="Filter by specialization"),
+    agent_type: str | None = Query(None, description="Filter by agent type"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -117,7 +117,7 @@ async def get_agents_by_agent_specialization(
 
 
 # System monitoring endpoints (must be before /{agent_id})
-@router.get("/system/workload", response_model=List[AgentWorkload])
+@router.get("/system/workload", response_model=list[AgentWorkload])
 async def get_system_workload(
     current_user: UserSchema = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ):

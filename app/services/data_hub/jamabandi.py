@@ -1,14 +1,14 @@
 """Jamabandi cache service — user-initiated lookups with CAPTCHA proxy."""
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional
+from datetime import datetime, timedelta, timezone
+
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.data_hub.base_scraper import BaseScraper
-from app.models.data_hub import JamabandiCache
 from app.config import settings
+from app.models.data_hub import JamabandiCache
+from app.services.data_hub.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class JamabandiScraper(BaseScraper):
         village: str,
         khasra_number: str,
         captcha_token: str,
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """
         Lookup land record. Returns cached result if fresh, else fetches from Jamabandi.
         CAPTCHA token from the user's browser session.
@@ -75,7 +75,7 @@ class JamabandiScraper(BaseScraper):
 
     async def _get_cached(
         self, db: AsyncSession, tehsil: str, village: str, khasra_number: str
-    ) -> Optional[JamabandiCache]:
+    ) -> JamabandiCache | None:
         """Return a cache row if present and not expired."""
         now = datetime.now(timezone.utc)
         result = await db.execute(
@@ -91,7 +91,7 @@ class JamabandiScraper(BaseScraper):
 
     async def _fetch_from_jamabandi(
         self, tehsil: str, village: str, khasra_number: str, captcha_token: str
-    ) -> Optional[dict]:
+    ) -> dict | None:
         """Submit the land records form and parse the result."""
         async with httpx.AsyncClient(timeout=30.0) as client:
             payload = {

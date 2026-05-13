@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -28,12 +28,12 @@ token_router = APIRouter()
 async def token_endpoint(
     request: Request,
     grant_type: str = Form(...),
-    code: Optional[str] = Form(None),
-    redirect_uri: Optional[str] = Form(None),
-    client_id: Optional[str] = Form(None),
-    refresh_token: Optional[str] = Form(None),
-    code_verifier: Optional[str] = Form(None),
-    resource: Optional[str] = Form(None),
+    code: str | None = Form(None),
+    redirect_uri: str | None = Form(None),
+    client_id: str | None = Form(None),
+    refresh_token: str | None = Form(None),
+    code_verifier: str | None = Form(None),
+    resource: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     """OAuth 2.1 Token Endpoint."""
@@ -279,14 +279,14 @@ async def token_endpoint(
                 "error": "server_error",
                 "error_description": "Internal server error",
             },
-        )
+        ) from None
 
 
 @token_router.post("/mcp/oauth/revoke")
 async def revoke_token(
     token: str = Form(...),
-    token_type_hint: Optional[str] = Form(None),
-    client_id: Optional[str] = Form(None),
+    token_type_hint: str | None = Form(None),
+    client_id: str | None = Form(None),
 ):
     """RFC 7009 OAuth token revocation endpoint."""
     try:
@@ -299,7 +299,7 @@ async def revoke_token(
                 },
             )
 
-        async def _validate_client_binding(token_data: Optional[Dict[str, Any]]) -> bool:
+        async def _validate_client_binding(token_data: dict[str, Any] | None) -> bool:
             if not token_data:
                 return True
             token_client_id = token_data.get("client_id")
@@ -372,4 +372,4 @@ async def revoke_token(
                 "error": "server_error",
                 "error_description": "Internal server error",
             },
-        )
+        ) from None

@@ -1,29 +1,41 @@
-from typing import Optional, Dict, List, Literal, Any
+from typing import Any, Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, Field
 
-from app.api.api_v1.dependencies.auth import get_current_user_optional
-from app.core.database import get_db
-from app.api.api_v1.dependencies.auth import get_current_admin, get_current_active_user
-from app.schemas.user import User as UserSchema
-from app.services.notifications import (
-    register_device_token,
-    unregister_device_token,
-    send_to_token as svc_send_to_token,
-    send_to_user as svc_send_to_user,
-    send_to_topic as svc_send_to_topic,
-    send_bulk as svc_send_bulk,
-    mark_delivery_opened,
-    list_notifications_for_user,
+from app.api.api_v1.dependencies.auth import (
+    get_current_active_user,
+    get_current_admin,
+    get_current_user_optional,
 )
+from app.core.database import get_db
+from app.schemas.user import User as UserSchema
+from app.services.notification_config import NOTIFICATION_TYPES, NotificationCategory
 from app.services.notification_dispatcher import (
     dispatch_notification_to_user,
     dispatch_notification_to_users,
     find_user_ids_for_segment,
 )
-from app.services.notification_config import NOTIFICATION_TYPES, NotificationCategory
+from app.services.notifications import (
+    list_notifications_for_user,
+    mark_delivery_opened,
+    register_device_token,
+    unregister_device_token,
+)
+from app.services.notifications import (
+    send_bulk as svc_send_bulk,
+)
+from app.services.notifications import (
+    send_to_token as svc_send_to_token,
+)
+from app.services.notifications import (
+    send_to_topic as svc_send_to_topic,
+)
+from app.services.notifications import (
+    send_to_user as svc_send_to_user,
+)
 
 router = APIRouter()
 
@@ -31,16 +43,16 @@ router = APIRouter()
 class DeviceRegister(BaseModel):
     token: str
     platform: Literal["android", "ios", "web"]
-    app_version: Optional[str] = None
-    locale: Optional[str] = None
+    app_version: str | None = None
+    locale: str | None = None
     # user_id optional (ignored for untrusted callers); prefer auth header user
-    user_id: Optional[str] = None
+    user_id: str | None = None
 
 
 @router.post("/devices/register")
 async def devices_register(
     payload: DeviceRegister,
-    current_user: Optional[UserSchema] = Depends(get_current_user_optional),
+    current_user: UserSchema | None = Depends(get_current_user_optional),
 ):
     # Require authentication before binding a device token to a user.
     # Anonymous callers may register a token, but it will remain unassociated
@@ -71,7 +83,7 @@ async def devices_register(
 @router.delete("/devices/unregister")
 async def devices_unregister(
     token: str = Query(..., min_length=1),
-    _: Optional[UserSchema] = Depends(get_current_user_optional),
+    _: UserSchema | None = Depends(get_current_user_optional),
 ):
     return await unregister_device_token(token=token)
 
@@ -80,9 +92,9 @@ class SendToToken(BaseModel):
     token: str
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
-    image: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
+    image: str | None = None
 
 
 @router.post("/send/token")
@@ -102,8 +114,8 @@ class SendToUser(BaseModel):
     user_id: str
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
 
 
 @router.post("/send/user")
@@ -122,8 +134,8 @@ class SendToTopic(BaseModel):
     topic: str
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
 
 
 @router.post("/send/topic")
@@ -139,11 +151,11 @@ async def send_topic(req: SendToTopic, _: UserSchema = Depends(get_current_admin
 
 
 class SendBulk(BaseModel):
-    tokens: List[str] = Field(..., min_length=1, max_length=500)
+    tokens: list[str] = Field(..., min_length=1, max_length=500)
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
 
 
 @router.post("/send/bulk")
@@ -182,8 +194,8 @@ class TypedUserNotification(BaseModel):
     type_key: str
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
 
 
 @router.post("/send/typed/user")
@@ -208,14 +220,14 @@ class NotificationLogEntry(BaseModel):
     id: str
     title: str
     body: str
-    data: Optional[Dict[str, Any]] = None
-    audience_type: Optional[str] = None
-    target_user_id: Optional[str] = None
-    topic: Optional[str] = None
-    created_at: Optional[str] = None
+    data: dict[str, Any] | None = None
+    audience_type: str | None = None
+    target_user_id: str | None = None
+    topic: str | None = None
+    created_at: str | None = None
 
 
-@router.get("/users/{user_id}", response_model=List[NotificationLogEntry])
+@router.get("/users/{user_id}", response_model=list[NotificationLogEntry])
 async def list_user_notifications(
     user_id: int,
     _: UserSchema = Depends(get_current_admin),
@@ -231,7 +243,7 @@ async def list_user_notifications(
         raise HTTPException(status_code=404, detail="User not found or not linked to Supabase")
     records = await list_notifications_for_user(user.supabase_user_id, limit=limit, offset=offset)
     # Supabase may return ints/other types for id; normalise to strings for the API
-    normalised: List[Dict[str, Any]] = []
+    normalised: list[dict[str, Any]] = []
     for rec in records:
         rec = dict(rec)
         rec["id"] = str(rec.get("id"))
@@ -243,14 +255,14 @@ class MarketingNotification(BaseModel):
     type_key: str
     title: str
     body: str
-    data: Optional[Dict[str, str]] = None
-    deep_link: Optional[str] = None
+    data: dict[str, str] | None = None
+    deep_link: str | None = None
 
 
 class SegmentFilter(BaseModel):
-    role: Optional[Literal["user", "agent", "admin"]] = None
-    agent_id: Optional[int] = None
-    is_active: Optional[bool] = True
+    role: Literal["user", "agent", "admin"] | None = None
+    agent_id: int | None = None
+    is_active: bool | None = True
 
 
 class MarketingSegmentRequest(MarketingNotification):

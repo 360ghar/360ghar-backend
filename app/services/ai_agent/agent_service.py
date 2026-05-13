@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic_ai import (
     Agent,
@@ -18,8 +19,6 @@ from pydantic_ai import (
     PartStartEvent,
     TextPartDelta,
 )
-from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -30,6 +29,8 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings

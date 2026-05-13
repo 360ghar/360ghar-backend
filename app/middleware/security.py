@@ -9,8 +9,8 @@ from fastapi import Request, status
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from app.core.cache import get_cache_manager
 from app.config import settings
+from app.core.cache import get_cache_manager
 from app.core.logging import RequestIDFilter as RequestIDFilter
 from app.core.logging import get_logger, reset_request_id, set_request_id
 from app.core.utils import make_tz_aware, utc_now

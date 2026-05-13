@@ -1,36 +1,39 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional, List, Dict, Any
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+
 from app.models.enums import AgentType, ExperienceLevel
+
 
 class AgentBase(BaseModel):
     name: str
-    contact_number: Optional[str] = None
-    description: Optional[str] = None
-    avatar_url: Optional[str] = None
-    languages: Optional[List[str]] = ["english"]
+    contact_number: str | None = None
+    description: str | None = None
+    avatar_url: str | None = None
+    languages: list[str] | None = ["english"]
 
 class AgentCreate(AgentBase):
     agent_type: AgentType = AgentType.general
     experience_level: ExperienceLevel = ExperienceLevel.intermediate
-    working_hours: Optional[Dict[str, Any]] = {
+    working_hours: dict[str, Any] | None = {
         "start": "09:00",
-        "end": "18:00", 
+        "end": "18:00",
         "timezone": "UTC"
     }
 
 
 class AgentUpdate(BaseModel):
-    name: Optional[str] = None
-    contact_number: Optional[str] = None
-    description: Optional[str] = None
-    avatar_url: Optional[str] = None
-    languages: Optional[List[str]] = None
-    agent_type: Optional[AgentType] = None
-    experience_level: Optional[ExperienceLevel] = None
-    is_active: Optional[bool] = None
-    is_available: Optional[bool] = None
-    working_hours: Optional[Dict[str, Any]] = None
+    name: str | None = None
+    contact_number: str | None = None
+    description: str | None = None
+    avatar_url: str | None = None
+    languages: list[str] | None = None
+    agent_type: AgentType | None = None
+    experience_level: ExperienceLevel | None = None
+    is_active: bool | None = None
+    is_available: bool | None = None
+    working_hours: dict[str, Any] | None = None
 
 class Agent(AgentBase):
     id: int
@@ -38,12 +41,12 @@ class Agent(AgentBase):
     experience_level: ExperienceLevel
     is_active: bool
     is_available: bool
-    working_hours: Optional[Dict[str, Any]] = None
+    working_hours: dict[str, Any] | None = None
     total_users_assigned: int
     user_satisfaction_rating: float
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    
+    updated_at: datetime | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class AgentStats(BaseModel):
@@ -61,8 +64,8 @@ class AgentAssignment(BaseModel):
     user_id: int
     agent: Agent
     assigned_at: datetime
-    assignment_reason: Optional[str] = "auto_assigned"
-    
+    assignment_reason: str | None = "auto_assigned"
+
     model_config = ConfigDict(from_attributes=True)
 
 class AgentInteraction(BaseModel):
@@ -71,11 +74,11 @@ class AgentInteraction(BaseModel):
     agent_id: int
     interaction_type: str  # chat, call, email, etc.
     message: str
-    response: Optional[str] = None
-    response_time_seconds: Optional[int] = None
-    user_satisfaction: Optional[int] = None  # 1-5 rating
+    response: str | None = None
+    response_time_seconds: int | None = None
+    user_satisfaction: int | None = None  # 1-5 rating
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class AgentPerformanceMetrics(BaseModel):
@@ -101,8 +104,8 @@ class AgentCapabilities(BaseModel):
     can_handle_visits: bool = True
     can_handle_complaints: bool = True
     can_escalate_to_human: bool = True
-    supported_languages: List[str] = ["english"]
-    working_hours: Dict[str, Any] = {
+    supported_languages: list[str] = ["english"]
+    working_hours: dict[str, Any] = {
         "start": "09:00",
         "end": "18:00",
         "timezone": "UTC"
@@ -114,5 +117,5 @@ class AgentSystemStats(BaseModel):
     active_agents: int
     total_users_served: int
     system_satisfaction_score: float
-    agents_by_type: Dict[str, int]
-    load_distribution: List[AgentWorkload]
+    agents_by_type: dict[str, int]
+    load_distribution: list[AgentWorkload]

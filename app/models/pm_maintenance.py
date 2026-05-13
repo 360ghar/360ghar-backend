@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, Integer, Text, func
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Enum as SQLEnum
 
@@ -14,6 +14,13 @@ from app.models.enums import (
     MaintenanceUrgency,
     WorkOrderStatus,
 )
+
+if TYPE_CHECKING:
+    from app.models.agents import Agent
+    from app.models.pm_documents import Document
+    from app.models.pm_leases import Lease
+    from app.models.properties import Property
+    from app.models.users import User
 
 
 class MaintenanceRequest(Base):
@@ -33,11 +40,11 @@ class MaintenanceRequest(Base):
     property_id: Mapped[int] = mapped_column(
         ForeignKey("properties.id", ondelete="CASCADE"), nullable=False
     )
-    lease_id: Mapped[Optional[int]] = mapped_column(
+    lease_id: Mapped[int | None] = mapped_column(
         ForeignKey("leases.id", ondelete="SET NULL"), nullable=True
     )
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    tenant_user_id: Mapped[Optional[int]] = mapped_column(
+    tenant_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
@@ -49,9 +56,9 @@ class MaintenanceRequest(Base):
     )
 
     title: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    preferred_contact_method: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    availability_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preferred_contact_method: Mapped[str | None] = mapped_column(Text, nullable=True)
+    availability_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Request lifecycle
     request_status: Mapped[MaintenanceRequestStatus] = mapped_column(
@@ -61,36 +68,36 @@ class MaintenanceRequest(Base):
     )
 
     # Work order lifecycle (no vendors; RM/owner handles)
-    assigned_agent_id: Mapped[Optional[int]] = mapped_column(
+    assigned_agent_id: Mapped[int | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
     )
-    work_order_status: Mapped[Optional[WorkOrderStatus]] = mapped_column(
+    work_order_status: Mapped[WorkOrderStatus | None] = mapped_column(
         SQLEnum(WorkOrderStatus, name="work_order_status"), nullable=True
     )
-    priority: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    estimated_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    actual_cost: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    scheduled_for: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    completion_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    priority: Mapped[str | None] = mapped_column(Text, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    actual_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scheduled_for: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completion_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(
+    updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
 
-    property: Mapped["Property"] = relationship(
+    property: Mapped[Property] = relationship(
         "Property", back_populates="maintenance_requests"
     )
-    lease: Mapped[Optional["Lease"]] = relationship(
+    lease: Mapped[Lease | None] = relationship(
         "Lease", back_populates="maintenance_requests"
     )
-    owner: Mapped["User"] = relationship("User", foreign_keys=[owner_id])
-    tenant_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[tenant_user_id])
-    assigned_agent: Mapped[Optional["Agent"]] = relationship("Agent", foreign_keys=[assigned_agent_id])
+    owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
+    tenant_user: Mapped[User | None] = relationship("User", foreign_keys=[tenant_user_id])
+    assigned_agent: Mapped[Agent | None] = relationship("Agent", foreign_keys=[assigned_agent_id])
 
-    documents: Mapped[list["Document"]] = relationship(
+    documents: Mapped[list[Document]] = relationship(
         "Document",
         back_populates="maintenance_request",
         cascade="all, delete-orphan",

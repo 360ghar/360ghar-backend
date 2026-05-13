@@ -14,38 +14,6 @@ tool bridge wrappers) handle response format wrapping (MCPResponse,
 AppsSDKToolResult, etc.).
 """
 
-from app.schemas.user import User as UserSchema
-
-
-def _user_schema(user) -> UserSchema:
-    """Convert a SQLAlchemy User to a Pydantic UserSchema."""
-    return UserSchema.model_validate(user)
-
-from app.mcp.tool_ops.properties import (
-    create_property,
-    enrich_properties_with_lease_info,
-    get_property_detail,
-    list_properties_enriched,
-    toggle_property_availability,
-    update_property_fields,
-)
-from app.mcp.tool_ops.leases import (
-    create_lease,
-    get_tenant_current_lease,
-    list_leases,
-    terminate_lease,
-)
-from app.mcp.tool_ops.rent import (
-    compute_rent_due_items,
-    get_rent_history,
-    record_rent_payment,
-)
-from app.mcp.tool_ops.maintenance import (
-    apply_maintenance_status_update,
-    build_maintenance_status_filter,
-    create_maintenance_request,
-    list_maintenance_requests,
-)
 from app.mcp.tool_ops.bookings import (
     cancel_booking,
     check_availability,
@@ -55,6 +23,38 @@ from app.mcp.tool_ops.bookings import (
     list_user_bookings,
 )
 from app.mcp.tool_ops.dashboard import compute_dashboard_metrics
+from app.mcp.tool_ops.leases import (
+    create_lease,
+    get_tenant_current_lease,
+    list_leases,
+    terminate_lease,
+)
+from app.mcp.tool_ops.maintenance import (
+    apply_maintenance_status_update,
+    build_maintenance_status_filter,
+    create_maintenance_request,
+    list_maintenance_requests,
+)
+from app.mcp.tool_ops.properties import (
+    create_property,
+    enrich_properties_with_lease_info,
+    get_property_detail,
+    list_properties_enriched,
+    toggle_property_availability,
+    update_property_fields,
+)
+from app.mcp.tool_ops.rent import (
+    compute_rent_due_items,
+    get_rent_history,
+    record_rent_payment,
+)
+from app.schemas.user import User as UserSchema
+
+
+def _user_schema(user) -> UserSchema:
+    """Convert a SQLAlchemy User to a Pydantic UserSchema."""
+    return UserSchema.model_validate(user)
+
 
 __all__ = [
     # Properties

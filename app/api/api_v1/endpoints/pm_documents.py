@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import DocumentType, UserRole
-from app.schemas.pm_document import Document as DocumentSchema, DocumentDownload, DocumentUpdate
+from app.schemas.pm_document import Document as DocumentSchema
+from app.schemas.pm_document import DocumentDownload, DocumentUpdate
 from app.schemas.user import User as UserSchema
 from app.services.pm_documents import create_document, list_documents, update_document
 from app.services.storage import storage_service
@@ -21,12 +20,12 @@ async def upload_document(
     file: UploadFile = File(...),
     document_type: DocumentType = Form(...),
     title: str = Form(...),
-    owner_id: Optional[int] = Form(None),
-    user_id: Optional[int] = Form(None),
-    property_id: Optional[int] = Form(None),
-    lease_id: Optional[int] = Form(None),
-    maintenance_request_id: Optional[int] = Form(None),
-    rental_application_id: Optional[int] = Form(None),
+    owner_id: int | None = Form(None),
+    user_id: int | None = Form(None),
+    property_id: int | None = Form(None),
+    lease_id: int | None = Form(None),
+    maintenance_request_id: int | None = Form(None),
+    rental_application_id: int | None = Form(None),
     shared_with_tenant: bool = Form(False),
     shared_with_agent: bool = Form(False),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -68,13 +67,13 @@ async def upload_document(
 
 @router.get("", response_model=list[DocumentSchema])
 async def get_documents(
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    user_id: Optional[int] = None,
-    maintenance_request_id: Optional[int] = None,
-    rental_application_id: Optional[int] = None,
-    document_type: Optional[DocumentType] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    lease_id: int | None = None,
+    user_id: int | None = None,
+    maintenance_request_id: int | None = None,
+    rental_application_id: int | None = None,
+    document_type: DocumentType | None = None,
     limit: int = 50,
     offset: int = 0,
     current_user: UserSchema = Depends(get_current_active_user),

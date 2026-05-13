@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,7 +7,8 @@ from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import ManagedPropertyStatus, UserRole
 from app.schemas.pm_property import ManagedPropertyDetail, ManagedPropertyUpdate
-from app.schemas.property import Property as PropertySchema, PropertyCreate
+from app.schemas.property import Property as PropertySchema
+from app.schemas.property import PropertyCreate
 from app.schemas.user import User as UserSchema
 from app.services.pm_properties import (
     create_managed_property,
@@ -24,7 +23,7 @@ router = APIRouter()
 @router.post("", response_model=PropertySchema)
 async def create_pm_property(
     property_data: PropertyCreate,
-    owner_id: Optional[int] = Query(None, description="Owner id (admin/agent only)"),
+    owner_id: int | None = Query(None, description="Owner id (admin/agent only)"),
     management_status: ManagedPropertyStatus = Query(ManagedPropertyStatus.active),
     payment_due_day: int = Query(1, ge=1, le=28),
     grace_period_days: int = Query(5, ge=0, le=365),
@@ -54,9 +53,9 @@ async def create_pm_property(
 
 @router.get("", response_model=list[PropertySchema])
 async def list_pm_properties(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    occupancy: Optional[str] = Query(None, description="occupied|vacant"),
-    q: Optional[str] = Query(None, description="Search by title/address"),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    occupancy: str | None = Query(None, description="occupied|vacant"),
+    q: str | None = Query(None, description="Search by title/address"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: UserSchema = Depends(get_current_active_user),

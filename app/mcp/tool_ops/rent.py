@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.utils import utc_now
+from app.mcp.tool_ops import _user_schema
 from app.models.enums import LeaseStatus
 from app.models.pm_finance import RentPayment
 from app.models.pm_leases import Lease
 from app.models.properties import Property
-from app.mcp.tool_ops import _user_schema
 from app.services.pm_authz import assert_can_access_lease
 
 logger = get_logger(__name__)
@@ -23,8 +23,8 @@ logger = get_logger(__name__)
 async def compute_rent_due_items(
     db: AsyncSession,
     *,
-    owner_ids: Optional[List[int]] = None,
-    property_id: Optional[int] = None,
+    owner_ids: list[int] | None = None,
+    property_id: int | None = None,
     overdue_only: bool = False,
     page: int = 1,
     limit: int = 20,
@@ -117,8 +117,8 @@ async def record_rent_payment(
     amount: float,
     payment_date: str,
     payment_method: str,
-    transaction_reference: Optional[str] = None,
-    notes: Optional[str] = None,
+    transaction_reference: str | None = None,
+    notes: str | None = None,
 ) -> dict:
     """Record a rent payment for a lease."""
     actor_schema = _user_schema(actor)

@@ -5,7 +5,8 @@ Thumbnail generation, WebP conversion, and scene-image upload orchestration
 that was previously embedded in the StorageService class.
 """
 import uuid
-from typing import Any, Callable, Dict, Optional
+from collections.abc import Callable
+from typing import Any
 
 from fastapi import UploadFile
 from PIL import Image
@@ -27,9 +28,9 @@ async def upload_scene_image(
     tour_id: str,
     scene_id: str,
     user_id: int,
-    create_media_record: Optional[Callable] = None,
-    db: Optional[Any] = None,
-) -> Dict[str, Any]:
+    create_media_record: Callable | None = None,
+    db: Any | None = None,
+) -> dict[str, Any]:
     """
     Upload a 360 scene image with automatic thumbnail generation.
 
@@ -180,7 +181,7 @@ async def upload_scene_image(
         raise
     except Exception as e:
         logger.error("Scene image upload error: %s", e)
-        raise StorageException(detail=f"Scene image upload failed: {str(e)}")
+        raise StorageException(detail=f"Scene image upload failed: {str(e)}") from None
 
 
 def _thumbnail_from_image(img: Image.Image, max_size: int = 512) -> bytes:
@@ -229,7 +230,7 @@ async def process_existing_scene_image(
     tour_id: str,
     scene_id: str,
     user_id: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Process an existing scene image URL to generate thumbnails.
 

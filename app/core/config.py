@@ -155,7 +155,7 @@ class Settings(BaseSettings):
     AI_AGENT_FALLBACK_MODEL: str | None = None
     AI_AGENT_FALLBACK_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     AI_AGENT_FALLBACK_API_KEY: str | None = None  # Defaults to GOOGLE_API_KEY
-    AI_AGENT_FALLBACK2_MODEL: str = "llama-3.3-70b-versatile"
+    AI_AGENT_FALLBACK2_MODEL: str = "qwen/qwen3-32b"
     AI_AGENT_FALLBACK2_API_BASE: str = "https://api.groq.com/openai/v1"
     AI_AGENT_FALLBACK2_API_KEY: str | None = None  # Groq API key
     AI_AGENT_MAX_TOKENS: int = 64096
@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     AI_AGENT_MAX_HISTORY: int = 50
     # Groq
     GROQ_API_KEY: str | None = None
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_MODEL: str = "qwen/qwen3-32b"
     GROQ_API_BASE: str = "https://api.groq.com/openai/v1"
     # Perplexity (web search for blog & agent)
     PERPLEXITY_API_KEY: str | None = None

@@ -7,7 +7,7 @@ owner resources — properties, leases, rent collection, and maintenance.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from pydantic_ai import RunContext
 from sqlalchemy import func, select
@@ -32,8 +32,8 @@ async def owner_properties_list(
     ctx: RunContext[AgentDeps],
     page: int = 1,
     limit: int = 20,
-    occupancy: Optional[str] = None,
-    q: Optional[str] = None,
+    occupancy: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
     """List all properties owned by the current user with occupancy stats."""
     from app.models.enums import LeaseStatus
@@ -99,25 +99,25 @@ async def owner_properties_create(
     latitude: float,
     longitude: float,
     base_price: float,
-    description: Optional[str] = None,
-    sub_locality: Optional[str] = None,
-    pincode: Optional[str] = None,
-    state: Optional[str] = None,
-    monthly_rent: Optional[float] = None,
-    daily_rate: Optional[float] = None,
-    security_deposit: Optional[float] = None,
-    maintenance_charges: Optional[float] = None,
-    area_sqft: Optional[float] = None,
-    bedrooms: Optional[int] = None,
-    bathrooms: Optional[int] = None,
-    balconies: Optional[int] = None,
-    parking_spaces: Optional[int] = None,
-    floor_number: Optional[int] = None,
-    total_floors: Optional[int] = None,
-    max_occupancy: Optional[int] = None,
-    minimum_stay_days: Optional[int] = None,
-    main_image_url: Optional[str] = None,
-    virtual_tour_url: Optional[str] = None,
+    description: str | None = None,
+    sub_locality: str | None = None,
+    pincode: str | None = None,
+    state: str | None = None,
+    monthly_rent: float | None = None,
+    daily_rate: float | None = None,
+    security_deposit: float | None = None,
+    maintenance_charges: float | None = None,
+    area_sqft: float | None = None,
+    bedrooms: int | None = None,
+    bathrooms: int | None = None,
+    balconies: int | None = None,
+    parking_spaces: int | None = None,
+    floor_number: int | None = None,
+    total_floors: int | None = None,
+    max_occupancy: int | None = None,
+    minimum_stay_days: int | None = None,
+    main_image_url: str | None = None,
+    virtual_tour_url: str | None = None,
 ) -> dict[str, Any]:
     """Create a new property listing for the current user."""
     from app.models.enums import PropertyPurpose, PropertyType
@@ -169,14 +169,14 @@ async def owner_properties_get(
 async def owner_properties_update(
     ctx: RunContext[AgentDeps],
     property_id: int,
-    title: Optional[str] = None,
-    description: Optional[str] = None,
-    base_price: Optional[float] = None,
-    monthly_rent: Optional[float] = None,
-    daily_rate: Optional[float] = None,
-    is_available: Optional[bool] = None,
-    max_occupancy: Optional[int] = None,
-    main_image_url: Optional[str] = None,
+    title: str | None = None,
+    description: str | None = None,
+    base_price: float | None = None,
+    monthly_rent: float | None = None,
+    daily_rate: float | None = None,
+    is_available: bool | None = None,
+    max_occupancy: int | None = None,
+    main_image_url: str | None = None,
 ) -> dict[str, Any]:
     """Update one of the user's properties (partial update)."""
     from app.services.pm_authz import assert_can_access_property
@@ -223,11 +223,11 @@ async def owner_properties_toggle_availability(
 
 async def agent_properties_list(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
+    owner_id: int | None = None,
     page: int = 1,
     limit: int = 50,
-    occupancy: Optional[str] = None,
-    q: Optional[str] = None,
+    occupancy: str | None = None,
+    q: str | None = None,
 ) -> dict[str, Any]:
     """List managed properties (agents see assigned owners; admins see all)."""
     from app.services.pm_properties import list_managed_properties
@@ -273,11 +273,11 @@ async def agent_properties_create_for_owner(
     latitude: float,
     longitude: float,
     base_price: float,
-    description: Optional[str] = None,
-    monthly_rent: Optional[float] = None,
-    area_sqft: Optional[float] = None,
-    bedrooms: Optional[int] = None,
-    bathrooms: Optional[int] = None,
+    description: str | None = None,
+    monthly_rent: float | None = None,
+    area_sqft: float | None = None,
+    bedrooms: int | None = None,
+    bathrooms: int | None = None,
 ) -> dict[str, Any]:
     """Create a property listing on behalf of an owner."""
     from app.models.enums import PropertyPurpose, PropertyType
@@ -304,7 +304,7 @@ async def agent_properties_verify(
     ctx: RunContext[AgentDeps],
     property_id: int,
     is_verified: bool,
-    verification_notes: Optional[str] = None,
+    verification_notes: str | None = None,
 ) -> dict[str, Any]:
     """Mark a property as verified or unverified."""
     from app.services.pm_authz import assert_can_access_property
@@ -329,9 +329,9 @@ async def agent_properties_verify(
 
 async def agent_leases_list(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -350,7 +350,7 @@ async def agent_leases_list(
         stmt = stmt.where(Lease.status == LeaseStatus(status.lower()))
     stmt = stmt.order_by(Lease.created_at.desc()).offset((page - 1) * limit).limit(limit)
     leases = (await db.execute(stmt)).scalars().all()
-    return {"items": [serialize_lease(l) for l in leases], "total": len(leases), "page": page}
+    return {"items": [serialize_lease(lease) for lease in leases], "total": len(leases), "page": page}
 
 
 async def agent_leases_create(
@@ -363,8 +363,8 @@ async def agent_leases_create(
     security_deposit: float = 0,
     payment_due_day: int = 1,
     grace_period_days: int = 5,
-    terms: Optional[str] = None,
-    notes: Optional[str] = None,
+    terms: str | None = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Create a new lease between an owner and a tenant."""
     from app.models.enums import LeaseStatus
@@ -372,7 +372,7 @@ async def agent_leases_create(
     from app.models.properties import Property
     from app.services.user import get_user_by_id
 
-    db, user = ctx.deps.db, ctx.deps.user
+    db, _user = ctx.deps.db, ctx.deps.user
     prop = (await db.execute(
         select(Property).where(Property.id == property_id)
     )).scalar_one_or_none()
@@ -403,7 +403,7 @@ async def agent_leases_terminate(
     ctx: RunContext[AgentDeps],
     lease_id: int,
     reason: str,
-    termination_date: Optional[str] = None,
+    termination_date: str | None = None,
 ) -> dict[str, Any]:
     """Terminate an active lease."""
     from app.models.enums import LeaseStatus
@@ -430,8 +430,8 @@ async def agent_leases_terminate(
 
 async def agent_rent_list_due(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
     overdue_only: bool = False,
     page: int = 1,
     limit: int = 20,
@@ -477,8 +477,8 @@ async def agent_rent_record_payment(
     amount: float,
     payment_date: str,
     payment_method: str = "bank_transfer",
-    transaction_reference: Optional[str] = None,
-    notes: Optional[str] = None,
+    transaction_reference: str | None = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Record a rent payment for a lease."""
     from app.models.pm_finance import RentPayment
@@ -512,9 +512,9 @@ async def agent_rent_record_payment(
 
 async def agent_maintenance_list(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -541,12 +541,12 @@ async def agent_maintenance_update_status(
     ctx: RunContext[AgentDeps],
     request_id: int,
     status: str,
-    notes: Optional[str] = None,
-    scheduled_date: Optional[str] = None,
-    vendor_name: Optional[str] = None,
-    vendor_contact: Optional[str] = None,
-    estimated_cost: Optional[float] = None,
-    actual_cost: Optional[float] = None,
+    notes: str | None = None,
+    scheduled_date: str | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
+    estimated_cost: float | None = None,
+    actual_cost: float | None = None,
 ) -> dict[str, Any]:
     """Update the status of a maintenance request."""
     from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
@@ -594,7 +594,7 @@ async def agent_maintenance_update_status(
 
 async def agent_dashboard_overview(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
+    owner_id: int | None = None,
 ) -> dict[str, Any]:
     """Get an overview dashboard: occupancy, rent, maintenance, bookings."""
     from app.models.enums import LeaseStatus, MaintenanceRequestStatus

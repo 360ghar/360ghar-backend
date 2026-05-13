@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import anyio
@@ -9,8 +8,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import admin_find_user_by_phone, get_supabase_auth_client, verify_supabase_token
 from app.config import settings
+from app.core.auth import admin_find_user_by_phone, get_supabase_auth_client, verify_supabase_token
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.services.oauth_token_store import oauth_token_store
@@ -35,12 +34,12 @@ async def authorize(
     request: Request,
     response_type: str,
     client_id: str,
-    redirect_uri: Optional[str] = None,
-    scope: Optional[str] = None,
-    state: Optional[str] = None,
-    code_challenge: Optional[str] = None,
-    code_challenge_method: Optional[str] = None,
-    resource: Optional[str] = None,
+    redirect_uri: str | None = None,
+    scope: str | None = None,
+    state: str | None = None,
+    code_challenge: str | None = None,
+    code_challenge_method: str | None = None,
+    resource: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
     """OAuth 2.1 Authorization Endpoint."""
@@ -289,8 +288,8 @@ async def process_consent(
 async def oauth_callback(
     request: Request,
     code: str,
-    state: Optional[str] = None,
-    iss: Optional[str] = None,
+    state: str | None = None,
+    iss: str | None = None,
 ):
     """Handle OAuth callback for MCP clients."""
     return JSONResponse(

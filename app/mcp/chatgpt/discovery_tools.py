@@ -12,27 +12,27 @@ These tools enable property discovery features:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import AuthRequiredError, MCP_SECURITY_SCHEMES_MIXED, build_widget_tool_meta
+from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError, build_widget_tool_meta
 from app.mcp.chatgpt import get_widget_for_tool
 from app.mcp.chatgpt.response_formatter import (
-    format_chatgpt_response,
     format_auth_required_response,
-    format_property_list_summary,
+    format_chatgpt_response,
     format_property_detail_summary,
+    format_property_list_summary,
 )
+
+# Import the user MCP server to register tools
+from app.mcp.user.server import user_mcp
 from app.mcp.utils import (
     get_user_from_mcp_context,
     serialize_property_basic,
     serialize_property_full,
 )
-from app.schemas.property import UnifiedPropertyFilter, PropertySwipe
-
-# Import the user MCP server to register tools
-from app.mcp.user.server import user_mcp
+from app.schemas.property import PropertySwipe, UnifiedPropertyFilter
 
 logger = get_logger(__name__)
 
@@ -90,22 +90,22 @@ async def _get_optional_user(db):
     meta=DISCOVERY_SEARCH_META,
 )
 async def discovery_search(
-    query: Optional[str] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
+    query: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
     radius_km: int = 5,
-    property_type: Optional[str] = None,
-    purpose: Optional[str] = None,
-    price_min: Optional[float] = None,
-    price_max: Optional[float] = None,
-    bedrooms_min: Optional[int] = None,
-    bedrooms_max: Optional[int] = None,
-    amenities: Optional[List[str]] = None,
-    city: Optional[str] = None,
-    locality: Optional[str] = None,
+    property_type: str | None = None,
+    purpose: str | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    bedrooms_min: int | None = None,
+    bedrooms_max: int | None = None,
+    amenities: list[str] | None = None,
+    city: str | None = None,
+    locality: str | None = None,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Search properties with comprehensive filtering.
 
     Search for properties using text search, location-based search, or filters.
@@ -233,7 +233,7 @@ async def discovery_search(
 )
 async def discovery_property_get(
     property_id: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get detailed information about a property.
 
     Retrieves full property details including images, amenities, and location.
@@ -297,11 +297,11 @@ async def discovery_property_get(
     meta=DISCOVERY_FEED_META,
 )
 async def discovery_feed(
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
-    purpose: Optional[str] = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    purpose: str | None = None,
     limit: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get a discovery feed of properties for swipe-style browsing.
 
     Returns properties for a swipe-style discovery interface.
@@ -320,8 +320,8 @@ async def discovery_feed(
         List of properties for discovery feed.
     """
     try:
+
         from app.services.property import get_unified_properties_optimized
-        from sqlalchemy import select
 
         limit = min(max(1, limit), 20)
 
@@ -377,7 +377,7 @@ async def discovery_feed(
         "securitySchemes": MCP_SECURITY_SCHEMES_MIXED,
     },
 )
-async def discovery_amenities() -> Dict[str, Any]:
+async def discovery_amenities() -> dict[str, Any]:
     """Get list of available amenities for filtering.
 
     Returns all available amenities that can be used to filter property searches.
@@ -388,6 +388,7 @@ async def discovery_amenities() -> Dict[str, Any]:
     """
     try:
         from sqlalchemy import select
+
         from app.models.properties import Amenity
 
         async with AsyncSessionLocal() as db:
@@ -437,7 +438,7 @@ async def discovery_amenities() -> Dict[str, Any]:
 async def discovery_swipe(
     property_id: int,
     is_liked: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Record a swipe action on a property (like or pass).
 
     Records the user's swipe action for a property. Use is_liked=true for
@@ -507,7 +508,7 @@ async def discovery_swipe(
 async def discovery_shortlist(
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get the user's shortlisted (liked) properties.
 
     Retrieves all properties the user has liked/swiped right on.
@@ -597,10 +598,10 @@ async def discovery_shortlist(
     ),
 )
 async def discovery_recommendations(
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
     limit: int = 10,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get AI-powered property recommendations based on user preferences.
 
     Provides personalized property recommendations based on the user's

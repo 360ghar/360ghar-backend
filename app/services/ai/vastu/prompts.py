@@ -248,7 +248,7 @@ def generate_markdown_report(result: dict) -> str:
     remedies = result.get("remedies", [])
     improvements = result.get("improvements", [])
     disclaimer = result.get("disclaimer", "")
-    floor_plan = result.get("floor_plan_analysis", {})
+    result.get("floor_plan_analysis", {})
 
     report = f"""# Vastu Analysis Report
 

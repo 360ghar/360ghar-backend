@@ -1,42 +1,32 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from app.config import settings
-from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
     PropertyNotFoundException,
-    NotFoundException,
 )
-from app.models.enums import UserRole
-
 from app.mcp.admin.agent_tools.common import (
-    admin_mcp,
-    get_db,
-    get_user_role,
-    internal_error_response,
-    invalid_input_response,
-    not_found_response,
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
     MCPErrorCode,
     MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
+    admin_mcp,
+    get_db,
+    internal_error_response,
+    invalid_input_response,
+    logger,
+    not_found_response,
+    serialize_lease,
     serialize_property_basic,
     serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
     serialize_user_basic,
-    make_tz_aware,
-    utc_now,
     utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
-    logger,
 )
+
 
 @admin_mcp.tool(
     "agent_properties_list",
@@ -49,12 +39,12 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_properties_list(
-    owner_id: Optional[int] = None,
+    owner_id: int | None = None,
     page: int = 1,
     limit: int = 50,
-    occupancy: Optional[str] = None,
-    q: Optional[str] = None,
-) -> Dict[str, Any]:
+    occupancy: str | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
     """List managed properties for agents/admins.
 
     Agents see properties of their assigned owners.
@@ -132,7 +122,7 @@ async def agent_properties_list(
 )
 async def agent_properties_get(
     property_id: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get detailed property information including lease and tenant data.
 
     Args:
@@ -228,16 +218,16 @@ async def agent_properties_create_for_owner(
     latitude: float,
     longitude: float,
     base_price: float,
-    description: Optional[str] = None,
-    monthly_rent: Optional[float] = None,
-    daily_rate: Optional[float] = None,
-    bedrooms: Optional[int] = None,
-    bathrooms: Optional[int] = None,
-    area_sqft: Optional[float] = None,
-    main_image_url: Optional[str] = None,
+    description: str | None = None,
+    monthly_rent: float | None = None,
+    daily_rate: float | None = None,
+    bedrooms: int | None = None,
+    bathrooms: int | None = None,
+    area_sqft: float | None = None,
+    main_image_url: str | None = None,
     payment_due_day: int = 1,
     grace_period_days: int = 5,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Create a property for an owner (agent/admin only).
 
     Args:
@@ -248,7 +238,7 @@ async def agent_properties_create_for_owner(
         ... (other property fields)
     """
     try:
-        from app.models.enums import PropertyType, PropertyPurpose
+        from app.models.enums import PropertyPurpose, PropertyType
 
         try:
             prop_type = PropertyType(property_type.lower())
@@ -275,8 +265,8 @@ async def agent_properties_create_for_owner(
                     "This endpoint is for agents and admins only"
                 ).model_dump()
 
-            from app.schemas.user import User as UserSchema
             from app.schemas.property import PropertyCreate
+            from app.schemas.user import User as UserSchema
             from app.services.pm_properties import create_managed_property
 
             user_schema = UserSchema.model_validate(user)
@@ -339,8 +329,8 @@ async def agent_properties_create_for_owner(
 async def agent_properties_verify(
     property_id: int,
     is_verified: bool,
-    verification_notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    verification_notes: str | None = None,
+) -> dict[str, Any]:
     """Mark a property as verified or unverified.
 
     Args:

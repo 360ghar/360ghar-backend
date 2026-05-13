@@ -1,42 +1,33 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from app.config import settings
-from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
-    PropertyNotFoundException,
     NotFoundException,
+    PropertyNotFoundException,
 )
-from app.models.enums import UserRole
-
 from app.mcp.admin.agent_tools.common import (
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
+    MCPErrorCode,
+    MCPResponse,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
     admin_mcp,
     get_db,
     get_user_role,
     internal_error_response,
     invalid_input_response,
-    not_found_response,
-    MCPErrorCode,
-    MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_user_basic,
-    make_tz_aware,
-    utc_now,
-    utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
     logger,
+    not_found_response,
+    serialize_lease,
+    utc_now,
 )
+from app.models.enums import UserRole
+
 
 @admin_mcp.tool(
     "agent_leases_list",
@@ -49,12 +40,12 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_leases_list(
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List leases for managed properties.
 
     Args:
@@ -65,10 +56,10 @@ async def agent_leases_list(
         limit: Items per page
     """
     try:
-        from sqlalchemy import select, func
-        from app.models.pm_leases import Lease
-        from app.models.properties import Property
+        from sqlalchemy import func, select
+
         from app.models.enums import LeaseStatus
+        from app.models.pm_leases import Lease
 
         limit = min(max(1, limit), 100)
 
@@ -126,7 +117,7 @@ async def agent_leases_list(
             result = await db.execute(stmt)
             leases = result.scalars().all()
 
-            items = [serialize_lease(l) for l in leases]
+            items = [serialize_lease(lease) for lease in leases]
 
             return MCPResponse.success({
                 "total": total,
@@ -159,9 +150,9 @@ async def agent_leases_create(
     security_deposit: float,
     payment_due_day: int = 1,
     grace_period_days: int = 5,
-    terms: Optional[str] = None,
-    notes: Optional[str] = None,
-) -> Dict[str, Any]:
+    terms: str | None = None,
+    notes: str | None = None,
+) -> dict[str, Any]:
     """Create a new lease for a property.
 
     Args:
@@ -177,8 +168,8 @@ async def agent_leases_create(
         notes: Additional notes
     """
     try:
-        from app.models.pm_leases import Lease
         from app.models.enums import LeaseStatus
+        from app.models.pm_leases import Lease
 
         try:
             start = datetime.fromisoformat(start_date).date()
@@ -271,8 +262,8 @@ async def agent_leases_create(
 async def agent_leases_terminate(
     lease_id: int,
     reason: str,
-    termination_date: Optional[str] = None,
-) -> Dict[str, Any]:
+    termination_date: str | None = None,
+) -> dict[str, Any]:
     """Terminate an active lease.
 
     Args:

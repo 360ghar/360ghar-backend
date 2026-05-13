@@ -1,19 +1,37 @@
-from sqlalchemy import Integer, String, Float, Boolean, DateTime, ForeignKey, JSON, Text, Index
+from __future__ import annotations
+
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from geoalchemy2 import Geography
+from geoalchemy2.functions import ST_AsBinary, ST_GeogFromText
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.types import Enum as SQLEnum
-from typing import Optional, List
-from datetime import datetime
+
 from app.core.database import Base
 from app.models.enums import (
-    PropertyType, PropertyPurpose, PropertyStatus,
-    VisitStatus, ImageCategory,
+    ImageCategory,
     ManagedPropertyStatus,
+    PropertyPurpose,
+    PropertyStatus,
+    PropertyType,
+    VisitStatus,
 )
-from geoalchemy2 import Geography
-from geoalchemy2.functions import ST_AsBinary, ST_GeogFromText
-from sqlalchemy.ext.compiler import compiles
+
+if TYPE_CHECKING:
+    from app.models.agents import Agent
+    from app.models.bookings import Booking
+    from app.models.pm_documents import Document
+    from app.models.pm_finance import Expense, RentCharge
+    from app.models.pm_inspections import InspectionChecklist
+    from app.models.pm_leases import Lease
+    from app.models.pm_maintenance import MaintenanceRequest
+    from app.models.social import UserSwipe
+    from app.models.users import User
 
 
 # GeoAlchemy2's Geography type isn't supported by SQLite (used in tests).
@@ -51,65 +69,65 @@ class Property(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     __ts_vector__: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_type: Mapped[PropertyType] = mapped_column(SQLEnum(PropertyType, name='property_type'), nullable=False)
     purpose: Mapped[PropertyPurpose] = mapped_column(SQLEnum(PropertyPurpose, name='property_purpose'), nullable=False)
     status: Mapped[PropertyStatus] = mapped_column(SQLEnum(PropertyStatus, name='property_status'), default=PropertyStatus.available)
 
     # Location
-    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    location: Mapped[Optional[str]] = mapped_column(
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    location: Mapped[str | None] = mapped_column(
         Geography(geometry_type="POINT", srid=4326, spatial_index=False),
         nullable=True,
     )
-    city: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    state: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    city: Mapped[str | None] = mapped_column(String, nullable=True)
+    state: Mapped[str | None] = mapped_column(String, nullable=True)
     country: Mapped[str] = mapped_column(String, default="India")
-    pincode: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    locality: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    sub_locality: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    landmark: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    full_address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    area_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    pincode: Mapped[str | None] = mapped_column(String, nullable=True)
+    locality: Mapped[str | None] = mapped_column(String, nullable=True)
+    sub_locality: Mapped[str | None] = mapped_column(String, nullable=True)
+    landmark: Mapped[str | None] = mapped_column(String, nullable=True)
+    full_address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    area_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Pricing
     base_price: Mapped[float] = mapped_column(Float, nullable=False)
-    price_per_sqft: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    monthly_rent: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    daily_rate: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    security_deposit: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    maintenance_charges: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_per_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
+    monthly_rent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    daily_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
+    security_deposit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    maintenance_charges: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     # Details
-    area_sqft: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    bedrooms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    bathrooms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    balconies: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    parking_spaces: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    floor_number: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    total_floors: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    age_of_property: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    max_occupancy: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    area_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
+    bedrooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bathrooms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    balconies: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    parking_spaces: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    floor_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    total_floors: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    age_of_property: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_occupancy: Mapped[int | None] = mapped_column(Integer, nullable=True)
     minimum_stay_days: Mapped[int] = mapped_column(Integer, default=1)
 
     # Features
-    features: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    listing_preferences: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    main_image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    virtual_tour_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    google_street_view_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    video_urls: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    floor_plan_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    video_tour_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    tags: Mapped[Optional[List[str]]] = mapped_column(JSON, nullable=True)
-    search_keywords: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    features: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    listing_preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    main_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    virtual_tour_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    google_street_view_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    video_urls: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    floor_plan_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    video_tour_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    search_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Owner info
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    owner_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    owner_contact: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    builder_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    owner_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    owner_contact: Mapped[str | None] = mapped_column(String, nullable=True)
+    builder_name: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Meta
     # Property Management
@@ -120,48 +138,48 @@ class Property(Base):
     )
     payment_due_day: Mapped[int] = mapped_column(Integer, default=1)
     grace_period_days: Mapped[int] = mapped_column(Integer, default=5)
-    late_fee_policy: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    current_lease_id: Mapped[Optional[int]] = mapped_column(ForeignKey("leases.id"), nullable=True)
-    current_tenant_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    late_fee_policy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    current_lease_id: Mapped[int | None] = mapped_column(ForeignKey("leases.id"), nullable=True)
+    current_tenant_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
 
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    available_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    calendar_data: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    calendar_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
     interest_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     # Relationships
-    owner: Mapped["User"] = relationship(
+    owner: Mapped[User] = relationship(
         "User",
         back_populates="owned_properties",
         foreign_keys=[owner_id],
     )
-    images: Mapped[List["PropertyImage"]] = relationship(back_populates="property", cascade="all, delete-orphan")
-    property_amenities: Mapped[List["PropertyAmenity"]] = relationship(back_populates="property", cascade="all, delete-orphan")
-    swipes: Mapped[List["UserSwipe"]] = relationship(
+    images: Mapped[list[PropertyImage]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    swipes: Mapped[list[UserSwipe]] = relationship(
         back_populates="property",
         foreign_keys="UserSwipe.property_id",
     )
-    visits: Mapped[List["Visit"]] = relationship(back_populates="property")
-    bookings: Mapped[List["Booking"]] = relationship(back_populates="property")
+    visits: Mapped[list[Visit]] = relationship(back_populates="property")
+    bookings: Mapped[list[Booking]] = relationship(back_populates="property")
     # PM relationships (declared by name to avoid circular imports)
-    leases: Mapped[List["Lease"]] = relationship(
+    leases: Mapped[list[Lease]] = relationship(
         "Lease",
         back_populates="property",
         foreign_keys="Lease.property_id",
     )
-    maintenance_requests: Mapped[List["MaintenanceRequest"]] = relationship(
+    maintenance_requests: Mapped[list[MaintenanceRequest]] = relationship(
         "MaintenanceRequest", back_populates="property"
     )
-    expenses: Mapped[List["Expense"]] = relationship("Expense", back_populates="property")
-    rent_charges: Mapped[List["RentCharge"]] = relationship("RentCharge", back_populates="property")
-    inspection_checklists: Mapped[List["InspectionChecklist"]] = relationship(
+    expenses: Mapped[list[Expense]] = relationship("Expense", back_populates="property")
+    rent_charges: Mapped[list[RentCharge]] = relationship("RentCharge", back_populates="property")
+    inspection_checklists: Mapped[list[InspectionChecklist]] = relationship(
         "InspectionChecklist", back_populates="property"
     )
-    documents: Mapped[List["Document"]] = relationship("Document", back_populates="property")
+    documents: Mapped[list[Document]] = relationship("Document", back_populates="property")
 
 class PropertyImage(Base):
     __tablename__ = "property_images"
@@ -169,28 +187,28 @@ class PropertyImage(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
     image_url: Mapped[str] = mapped_column(String, nullable=False)
-    caption: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    caption: Mapped[str | None] = mapped_column(String, nullable=True)
     image_category: Mapped[ImageCategory] = mapped_column(SQLEnum(ImageCategory, name='image_category'), default=ImageCategory.others)
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     is_main_image: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
-    property: Mapped["Property"] = relationship(back_populates="images")
+    property: Mapped[Property] = relationship(back_populates="images")
 
 class Amenity(Base):
     __tablename__ = "amenities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    icon: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    category: Mapped[Optional[str]] = mapped_column(String, nullable=True)  # e.g., "safety", "recreation", "convenience"
+    icon: Mapped[str | None] = mapped_column(String, nullable=True)
+    category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "safety", "recreation", "convenience"
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
     # Relationships
-    property_amenities: Mapped[List["PropertyAmenity"]] = relationship(back_populates="amenity", cascade="all, delete-orphan")
+    property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="amenity", cascade="all, delete-orphan")
 
 class PropertyAmenity(Base):
     __tablename__ = "property_amenities"
@@ -204,8 +222,8 @@ class PropertyAmenity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    property: Mapped["Property"] = relationship(back_populates="property_amenities")
-    amenity: Mapped["Amenity"] = relationship(back_populates="property_amenities")
+    property: Mapped[Property] = relationship(back_populates="property_amenities")
+    amenity: Mapped[Amenity] = relationship(back_populates="property_amenities")
 
 class Visit(Base):
     __tablename__ = "visits"
@@ -213,35 +231,35 @@ class Visit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
-    agent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("agents.id"), nullable=True)
-    counterparty_user_id: Mapped[Optional[int]] = mapped_column(
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    counterparty_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
-    conversation_id: Mapped[Optional[int]] = mapped_column(
+    conversation_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_conversations.id", ondelete="SET NULL"),
         nullable=True,
     )
-    match_id: Mapped[Optional[int]] = mapped_column(
+    match_id: Mapped[int | None] = mapped_column(
         ForeignKey("user_matches.id", ondelete="SET NULL"),
         nullable=True,
     )
     visit_context: Mapped[str] = mapped_column(String(32), default="property_tour")
     scheduled_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    actual_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[VisitStatus] = mapped_column(SQLEnum(VisitStatus, name='visit_status'), default=VisitStatus.scheduled)
-    special_requirements: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    visit_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    visitor_feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    interest_level: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    special_requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visitor_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    interest_level: Mapped[str | None] = mapped_column(String, nullable=True)
     follow_up_required: Mapped[bool] = mapped_column(Boolean, default=False)
-    follow_up_date: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    cancellation_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    rescheduled_from: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    follow_up_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rescheduled_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
 
-    user: Mapped["User"] = relationship(back_populates="visits", foreign_keys=[user_id])
-    counterparty_user: Mapped[Optional["User"]] = relationship(foreign_keys=[counterparty_user_id])
-    property: Mapped["Property"] = relationship(back_populates="visits")
-    agent: Mapped[Optional["Agent"]] = relationship(back_populates="visits")
+    user: Mapped[User] = relationship(back_populates="visits", foreign_keys=[user_id])
+    counterparty_user: Mapped[User | None] = relationship(foreign_keys=[counterparty_user_id])
+    property: Mapped[Property] = relationship(back_populates="visits")
+    agent: Mapped[Agent | None] = relationship(back_populates="visits")

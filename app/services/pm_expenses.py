@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,12 +21,12 @@ async def create_expense(
     category: ExpenseCategory,
     amount: float,
     expense_date: date,
-    description: Optional[str] = None,
-    notes: Optional[str] = None,
-    receipt_document_id: Optional[int] = None,
+    description: str | None = None,
+    notes: str | None = None,
+    receipt_document_id: int | None = None,
     is_recurring: bool = False,
-    recurrence_rule: Optional[dict] = None,
-    next_due_date: Optional[date] = None,
+    recurrence_rule: dict | None = None,
+    next_due_date: date | None = None,
 ) -> Expense:
     if amount <= 0:
         raise BadRequestException(detail="amount must be > 0")
@@ -60,11 +59,11 @@ async def list_expenses(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    category: Optional[ExpenseCategory] = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    category: ExpenseCategory | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Expense]:
@@ -98,16 +97,16 @@ async def update_expense(
     *,
     actor: User,
     expense_id: int,
-    property_id: Optional[int] = None,
-    category: Optional[ExpenseCategory] = None,
-    amount: Optional[float] = None,
-    expense_date: Optional[date] = None,
-    description: Optional[str] = None,
-    notes: Optional[str] = None,
-    receipt_document_id: Optional[int] = None,
-    is_recurring: Optional[bool] = None,
-    recurrence_rule: Optional[dict] = None,
-    next_due_date: Optional[date] = None,
+    property_id: int | None = None,
+    category: ExpenseCategory | None = None,
+    amount: float | None = None,
+    expense_date: date | None = None,
+    description: str | None = None,
+    notes: str | None = None,
+    receipt_document_id: int | None = None,
+    is_recurring: bool | None = None,
+    recurrence_rule: dict | None = None,
+    next_due_date: date | None = None,
 ) -> Expense:
     expense = await db.get(Expense, expense_id)
     if not expense:

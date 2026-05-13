@@ -3,8 +3,8 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from starlette.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.responses import StreamingResponse
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db

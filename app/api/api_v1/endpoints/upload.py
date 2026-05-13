@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
@@ -40,13 +40,13 @@ def _resolve_folder_type(folder_type: StorageFolderType) -> StorageFolder:
     return mapping.get(folder_type, StorageFolder.GENERIC_UPLOAD)
 
 
-@router.post("", response_model=Dict[str, Any])
+@router.post("", response_model=dict[str, Any])
 async def upload_file(
     file: UploadFile = File(...),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     folder: str = Form("uploads"),
-    tour_id: Optional[str] = Form(None),
+    tour_id: str | None = Form(None),
     visibility: str = Form("private"),
 ):
     """Upload a single file with MediaFile tracking.
@@ -67,13 +67,13 @@ async def upload_file(
     return result
 
 
-@router.post("/batch", response_model=Dict[str, Any])
+@router.post("/batch", response_model=dict[str, Any])
 async def upload_batch(
-    files: List[UploadFile] = File(...),
+    files: list[UploadFile] = File(...),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     folder: str = Form("uploads"),
-    tour_id: Optional[str] = Form(None),
+    tour_id: str | None = Form(None),
     visibility: str = Form("private"),
 ):
     """Upload multiple files in a single request.
@@ -169,12 +169,12 @@ async def confirm_upload(
 async def list_media(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    tour_id: Optional[str] = Query(None),
-    folder: Optional[str] = Query(None),
-    mime_type: Optional[str] = Query(None),
-    visibility: Optional[str] = Query(None),
-    is_processed: Optional[bool] = Query(None),
-    upload_status: Optional[str] = Query(None, description="Filter by upload status: pending, complete, failed"),
+    tour_id: str | None = Query(None),
+    folder: str | None = Query(None),
+    mime_type: str | None = Query(None),
+    visibility: str | None = Query(None),
+    is_processed: bool | None = Query(None),
+    upload_status: str | None = Query(None, description="Filter by upload status: pending, complete, failed"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -246,7 +246,7 @@ async def delete_media(
         raise HTTPException(status_code=404, detail="Media file not found")
 
     # Use storage_path if available, otherwise construct from folder/filename
-    file_path: Optional[str] = media.storage_path
+    file_path: str | None = media.storage_path
     if not file_path and media.filename:
         file_path = f"{media.folder}/{media.filename}" if media.folder else media.filename
 

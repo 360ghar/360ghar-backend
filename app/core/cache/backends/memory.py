@@ -8,7 +8,7 @@ import fnmatch
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Optional, Any
+from typing import Any
 
 from app.core.cache.interface import CacheStats
 from app.core.logging import get_logger
@@ -21,7 +21,7 @@ class CacheEntry:
     """Single cache entry with value and expiration tracking."""
 
     value: Any
-    expires_at: Optional[float]  # Unix timestamp, None = no expiry
+    expires_at: float | None  # Unix timestamp, None = no expiry
     created_at: float
 
     def is_expired(self) -> bool:
@@ -63,7 +63,7 @@ class InMemoryCacheBackend:
         self._max_size = max_size
         self._default_ttl = default_ttl
         self._cleanup_interval = cleanup_interval
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         self._available = False
         self.stats = CacheStats()
 
@@ -93,7 +93,7 @@ class InMemoryCacheBackend:
         """Check if cache is available."""
         return self._available
 
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get value, updating LRU order on access."""
         async with self._lock:
             entry = self._cache.get(key)
@@ -111,7 +111,7 @@ class InMemoryCacheBackend:
             self.stats.hits += 1
             return entry.value
 
-    async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+    async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set value with optional TTL, evicting LRU if needed."""
         try:
             ttl = ttl if ttl is not None else self._default_ttl
@@ -141,7 +141,7 @@ class InMemoryCacheBackend:
             self.stats.errors += 1
             return False
 
-    async def get_and_delete(self, key: str) -> Optional[Any]:
+    async def get_and_delete(self, key: str) -> Any | None:
         """Atomically get value and delete key under the same lock.
 
         Prevents TOCTOU races where two concurrent callers both read

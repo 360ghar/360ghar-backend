@@ -5,7 +5,7 @@ Manages CRUD operations for AI conversations and messages.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 async def get_or_create_conversation(
     db: AsyncSession,
     user_id: int,
-    conversation_id: Optional[int] = None,
+    conversation_id: int | None = None,
 ) -> AIConversation:
     """Load an existing conversation or create a new one."""
     if conversation_id is not None:
@@ -47,10 +47,10 @@ async def add_message(
     db: AsyncSession,
     conversation_id: int,
     role: str,
-    content: Optional[str] = None,
-    tool_name: Optional[str] = None,
-    tool_args: Optional[dict[str, Any]] = None,
-    tool_result: Optional[dict[str, Any]] = None,
+    content: str | None = None,
+    tool_name: str | None = None,
+    tool_args: dict[str, Any] | None = None,
+    tool_result: dict[str, Any] | None = None,
 ) -> AIConversationMessage:
     """Persist a message to the conversation."""
     msg = AIConversationMessage(

@@ -4,7 +4,6 @@ Floor Plan API Endpoints.
 This module provides REST API endpoints for managing floor plans within virtual tours,
 including CRUD operations and marker management.
 """
-from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +24,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/tours/{tour_id}/floor-plans", response_model=List[FloorPlanResponse])
+@router.get("/tours/{tour_id}/floor-plans", response_model=list[FloorPlanResponse])
 async def list_floor_plans(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -122,7 +121,7 @@ async def update_floor_plan(
 async def update_floor_plan_markers(
     tour_id: str,
     floor_plan_id: str,
-    markers: List[FloorPlanMarker],
+    markers: list[FloorPlanMarker],
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):

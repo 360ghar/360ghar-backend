@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 from app.core.logging import get_logger
 from app.vector.sync import run_property_vector_sync
@@ -9,7 +9,7 @@ from app.vector.sync import run_property_vector_sync
 logger = get_logger(__name__)
 
 
-async def _run_once() -> Dict[str, Any]:
+async def _run_once() -> dict[str, Any]:
     return await run_property_vector_sync()
 
 

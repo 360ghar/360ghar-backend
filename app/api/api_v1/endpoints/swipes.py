@@ -1,14 +1,26 @@
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional, List
-from app.core.database import get_db
+
 from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.schemas.property import PropertySwipe, UnifiedPropertyFilter, UnifiedPropertyResponse, SortBy, SwipeHistoryResponse
-from app.schemas.user import User as UserSchema
-from app.models.enums import PropertyType, PropertyPurpose
-from app.schemas.common import MessageResponse
-from app.services.swipe import record_swipe, get_swipe_history, undo_last_swipe, get_swipe_stats, toggle_swipe
+from app.core.database import get_db
 from app.core.logging import get_logger
+from app.models.enums import PropertyPurpose, PropertyType
+from app.schemas.common import MessageResponse
+from app.schemas.property import (
+    PropertySwipe,
+    SortBy,
+    SwipeHistoryResponse,
+    UnifiedPropertyFilter,
+)
+from app.schemas.user import User as UserSchema
+from app.services.swipe import (
+    get_swipe_history,
+    get_swipe_stats,
+    record_swipe,
+    toggle_swipe,
+    undo_last_swipe,
+)
 
 logger = get_logger(__name__)
 
@@ -22,65 +34,65 @@ async def swipe_property(
 ):
     """Record a property swipe (like/dislike)"""
     success = await record_swipe(db, current_user.id, swipe)
-    
+
     action = "liked" if swipe.is_liked else "passed"
-    
+
     if not success:
         # Property doesn't exist, but we return success to avoid client errors
         logger.warning("Attempted to swipe non-existent property %s by user %s", swipe.property_id, current_user.id)
         return MessageResponse(message=f"Property {action} successfully")
-    
+
     logger.debug("Property swipe recorded", extra={"user_id": current_user.id, "property_id": swipe.property_id, "action": action})
     return MessageResponse(message=f"Property {action} successfully")
 
 @router.get("", response_model=SwipeHistoryResponse)
 async def get_user_swipe_history(
     # Location-based search
-    lat: Optional[float] = Query(None, description="Latitude for location-based search"),
-    lng: Optional[float] = Query(None, description="Longitude for location-based search"),
+    lat: float | None = Query(None, description="Latitude for location-based search"),
+    lng: float | None = Query(None, description="Longitude for location-based search"),
     radius: int = Query(5, ge=1, le=100, description="Search radius in km"),
 
     # Search query
-    q: Optional[str] = Query(None, description="Search query for text search"),
+    q: str | None = Query(None, description="Search query for text search"),
 
     # Property filters
-    property_type: Optional[List[PropertyType]] = Query(None),
-    purpose: Optional[PropertyPurpose] = Query(None),
+    property_type: list[PropertyType] | None = Query(None),
+    purpose: PropertyPurpose | None = Query(None),
 
     # Price filters
-    price_min: Optional[float] = Query(None, ge=0),
-    price_max: Optional[float] = Query(None, le=1e9),
+    price_min: float | None = Query(None, ge=0),
+    price_max: float | None = Query(None, le=1e9),
 
     # Room filters
-    bedrooms_min: Optional[int] = Query(None, ge=0),
-    bedrooms_max: Optional[int] = Query(None, le=20),
-    bathrooms_min: Optional[int] = Query(None, ge=0),
-    bathrooms_max: Optional[int] = Query(None, le=10),
+    bedrooms_min: int | None = Query(None, ge=0),
+    bedrooms_max: int | None = Query(None, le=20),
+    bathrooms_min: int | None = Query(None, ge=0),
+    bathrooms_max: int | None = Query(None, le=10),
 
     # Area filters
-    area_min: Optional[float] = Query(None, ge=0),
-    area_max: Optional[float] = Query(None, le=100000),
+    area_min: float | None = Query(None, ge=0),
+    area_max: float | None = Query(None, le=100000),
 
     # Location filters
-    city: Optional[str] = Query(None),
-    locality: Optional[str] = Query(None),
-    pincode: Optional[str] = Query(None),
+    city: str | None = Query(None),
+    locality: str | None = Query(None),
+    pincode: str | None = Query(None),
 
     # Additional filters
-    amenities: Optional[List[str]] = Query(None),
-    features: Optional[List[str]] = Query(None),
-    parking_spaces_min: Optional[int] = Query(None, ge=0),
-    floor_number_min: Optional[int] = Query(None, ge=0),
-    floor_number_max: Optional[int] = Query(None, le=100),
-    age_max: Optional[int] = Query(None, ge=0),
+    amenities: list[str] | None = Query(None),
+    features: list[str] | None = Query(None),
+    parking_spaces_min: int | None = Query(None, ge=0),
+    floor_number_min: int | None = Query(None, ge=0),
+    floor_number_max: int | None = Query(None, le=100),
+    age_max: int | None = Query(None, ge=0),
 
     # Short stay filters
-    check_in: Optional[str] = Query(None, description="Check-in date (YYYY-MM-DD)"),
-    check_out: Optional[str] = Query(None, description="Check-out date (YYYY-MM-DD)"),
-    guests: Optional[int] = Query(None, ge=1, le=20),
+    check_in: str | None = Query(None, description="Check-in date (YYYY-MM-DD)"),
+    check_out: str | None = Query(None, description="Check-out date (YYYY-MM-DD)"),
+    guests: int | None = Query(None, ge=1, le=20),
 
     # Swipe-specific filters
-    is_liked: Optional[bool] = Query(None, description="Filter by liked (true) or disliked (false)"),
+    is_liked: bool | None = Query(None, description="Filter by liked (true) or disliked (false)"),
 
     # Sorting and pagination
     sort_by: SortBy = Query(SortBy.newest, description="Sort by: distance, price_low, price_high, newest, popular, relevance"),
@@ -170,10 +182,10 @@ async def undo_last_swipe_endpoint(
 ):
     """Undo the last swipe for the user"""
     undone_swipe = await undo_last_swipe(db, current_user.id)
-    
+
     if not undone_swipe:
         raise HTTPException(status_code=404, detail="No swipes to undo")
-    
+
     return MessageResponse(message="Last swipe undone successfully")
 
 @router.put("/{swipe_id}/toggle", response_model=MessageResponse)
@@ -184,10 +196,10 @@ async def toggle_swipe_like(
 ):
     """Toggle the like status of an existing swipe"""
     result = await toggle_swipe(db, swipe_id, current_user.id)
-    
+
     if not result:
         raise HTTPException(status_code=404, detail="Swipe not found or does not belong to user")
-    
+
     action = "liked" if result["new_status"] else "unliked"
     return MessageResponse(message=f"Property {action} successfully")
 

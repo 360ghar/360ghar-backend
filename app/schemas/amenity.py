@@ -1,11 +1,12 @@
-from pydantic import BaseModel, field_validator, ConfigDict
-from typing import Optional, List
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, field_validator
+
 
 class AmenityBase(BaseModel):
     title: str
-    icon: Optional[str] = None
-    category: Optional[str] = None
+    icon: str | None = None
+    category: str | None = None
     is_active: bool = True
 
 class AmenityCreate(AmenityBase):
@@ -17,10 +18,10 @@ class AmenityCreate(AmenityBase):
         if len(v) > 100:
             raise ValueError('Title must be less than 100 characters')
         return v.strip()
-    
+
     @field_validator("category")
     @classmethod
-    def validate_category(cls, v: Optional[str]) -> Optional[str]:
+    def validate_category(cls, v: str | None) -> str | None:
         if v:
             allowed_categories = ['safety', 'recreation', 'convenience', 'utilities', 'services', 'accessibility']
             if v not in allowed_categories:
@@ -28,16 +29,16 @@ class AmenityCreate(AmenityBase):
         return v
 
 class AmenityUpdate(BaseModel):
-    title: Optional[str] = None
-    icon: Optional[str] = None
-    category: Optional[str] = None
-    is_active: Optional[bool] = None
+    title: str | None = None
+    icon: str | None = None
+    category: str | None = None
+    is_active: bool | None = None
 
 class AmenityInDB(AmenityBase):
     id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    
+    updated_at: datetime | None = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class Amenity(AmenityInDB):
@@ -49,7 +50,7 @@ class PropertyAmenityCreate(BaseModel):
 class PropertyAmenityResponse(BaseModel):
     id: int
     title: str
-    icon: Optional[str] = None
-    category: Optional[str] = None
-    
+    icon: str | None = None
+    category: str | None = None
+
     model_config = ConfigDict(from_attributes=True)

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +16,6 @@ from app.models.enums import (
 )
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
-from app.models.properties import Property
 from app.models.users import User
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
 
@@ -30,15 +28,15 @@ async def create_maintenance_request(
     category: MaintenanceCategory,
     urgency: MaintenanceUrgency,
     title: str,
-    description: Optional[str] = None,
-    preferred_contact_method: Optional[str] = None,
-    availability_notes: Optional[str] = None,
+    description: str | None = None,
+    preferred_contact_method: str | None = None,
+    availability_notes: str | None = None,
 ) -> MaintenanceRequest:
     prop = await assert_can_access_property(db, actor=actor, property_id=property_id, allow_tenant=True)
 
     owner_id = prop.owner_id
-    lease_id: Optional[int] = None
-    tenant_user_id: Optional[int] = None
+    lease_id: int | None = None
+    tenant_user_id: int | None = None
 
     # Determine whether caller is owner/RM/admin vs tenant
     if actor.role == UserRole.admin.value:
@@ -86,11 +84,11 @@ async def list_maintenance_requests(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    lease_id: Optional[int] = None,
-    request_status: Optional[MaintenanceRequestStatus] = None,
-    work_order_status: Optional[WorkOrderStatus] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    lease_id: int | None = None,
+    request_status: MaintenanceRequestStatus | None = None,
+    work_order_status: WorkOrderStatus | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[MaintenanceRequest]:
@@ -131,16 +129,16 @@ async def update_maintenance_request(
     *,
     actor: User,
     request_id: int,
-    request_status: Optional[MaintenanceRequestStatus] = None,
-    assigned_agent_id: Optional[int] = None,
-    work_order_status: Optional[WorkOrderStatus] = None,
-    priority: Optional[str] = None,
-    estimated_cost: Optional[float] = None,
-    actual_cost: Optional[float] = None,
-    scheduled_for: Optional[datetime] = None,
-    completed_at: Optional[datetime] = None,
-    closed_at: Optional[datetime] = None,
-    completion_notes: Optional[str] = None,
+    request_status: MaintenanceRequestStatus | None = None,
+    assigned_agent_id: int | None = None,
+    work_order_status: WorkOrderStatus | None = None,
+    priority: str | None = None,
+    estimated_cost: float | None = None,
+    actual_cost: float | None = None,
+    scheduled_for: datetime | None = None,
+    completed_at: datetime | None = None,
+    closed_at: datetime | None = None,
+    completion_notes: str | None = None,
 ) -> MaintenanceRequest:
     req = await db.get(MaintenanceRequest, request_id)
     if not req:

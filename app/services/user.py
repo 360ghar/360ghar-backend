@@ -1,18 +1,22 @@
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, and_, func
+from typing import Any
+
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from typing import Optional, Dict, Any, List, Tuple
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.exceptions import (
-    BaseAPIException, BadRequestException, ForbiddenException, InsufficientPermissionsError,
+    BadRequestException,
+    BaseAPIException,
+    ForbiddenException,
 )
-from app.models.users import User
-from app.models.enums import UserRole
-from app.schemas.user import UserUpdate
 from app.core.logging import get_logger
+from app.models.enums import UserRole
+from app.models.users import User
+from app.schemas.user import UserUpdate
 
 logger = get_logger(__name__)
 
-async def get_user_by_phone(db: AsyncSession, phone: str) -> Optional[User]:
+async def get_user_by_phone(db: AsyncSession, phone: str) -> User | None:
     """Fetch a user by phone number, if present.
 
     Note: Phone numbers are not unique in the schema; this returns the first match
@@ -32,7 +36,7 @@ async def get_user_by_phone(db: AsyncSession, phone: str) -> Optional[User]:
         logger.error("Failed to fetch user by phone %s: %s", phone, e, exc_info=True)
         raise
 
-async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     logger.debug("Fetching user by email: %s", email)
     try:
         stmt = select(User).where(User.email == email)
@@ -47,7 +51,7 @@ async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
         logger.error("Failed to fetch user by email %s: %s", email, e, exc_info=True)
         raise
 
-async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> Optional[User]:
+async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> User | None:
     logger.debug("Fetching user by Supabase ID: %s", supabase_user_id)
     try:
         stmt = select(User).where(User.supabase_user_id == supabase_user_id)
@@ -62,10 +66,10 @@ async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> Op
         logger.error("Failed to fetch user by Supabase ID %s: %s", supabase_user_id, e, exc_info=True)
         raise
 
-async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data: Dict[str, Any]) -> User:
+async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data: dict[str, Any]) -> User:
     """Get or create user from Supabase auth data"""
     logger.info("Getting or creating user from Supabase data for user %s", supabase_user_data['id'])
-    
+
     try:
         # Normalize incoming fields
         supabase_id = supabase_user_data.get("id")
@@ -75,7 +79,7 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
         is_verified = bool(supabase_user_data.get("email_verified", False))
 
         user = await get_user_by_supabase_id(db, supabase_id)
-        
+
         if not user:
             # Prioritize phone lookup over email since phone is now the primary identifier
             if phone:
@@ -85,7 +89,7 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
                 user = await get_user_by_email(db, email)
             else:
                 user = None
-            
+
             if user:
                 # Update with Supabase ID
                 logger.info("Updating existing user %s with Supabase ID", user.id)
@@ -126,13 +130,13 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
                 logger.info("User %s with ID %s", 'updated' if user.supabase_user_id else 'created', user.id)
         else:
             logger.debug("User already exists with ID %s", user.id)
-        
+
         return user
     except Exception as e:
         logger.error("Failed to get or create user from Supabase: %s", e, exc_info=True)
         raise
 
-async def get_user_by_id(db: AsyncSession, user_id: int) -> Optional[User]:
+async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """Fetch a user by internal ID."""
     try:
         stmt = select(User).where(User.id == user_id)
@@ -147,9 +151,9 @@ async def get_all_users(
     *,
     page: int = 1,
     limit: int = 20,
-    search_query: Optional[str] = None,
-    filter_agent_id: Optional[int] = None,
-) -> Tuple[List[User], int]:
+    search_query: str | None = None,
+    filter_agent_id: int | None = None,
+) -> tuple[list[User], int]:
     """Return users with optional agent filter and search, with pagination."""
     try:
         offset = (page - 1) * limit
@@ -176,16 +180,16 @@ async def get_all_users(
         logger.error("Failed to list users: %s", e)
         raise
 
-async def update_user(db: AsyncSession, user_id: int, user_update: UserUpdate, actor: Optional[User] = None) -> Optional[User]:
+async def update_user(db: AsyncSession, user_id: int, user_update: UserUpdate, actor: User | None = None) -> User | None:
     logger.info("Updating user %s", user_id)
-    
+
     try:
         user = await get_user_by_id(db, user_id)
-        
+
         if not user:
             logger.warning("User %s not found for update", user_id)
             return None
-        
+
         update_data = user_update.model_dump(exclude_unset=True)
         logger.debug("Updating user %s with fields: %s", user_id, list(update_data.keys()))
 
@@ -202,38 +206,38 @@ async def update_user(db: AsyncSession, user_id: int, user_update: UserUpdate, a
             update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
             logger.debug("Agent update filtered fields: %s", list(update_data.keys()))
         # Admins can update any fields; end-users can update their own profile via API
-        
+
         # Handle email update (no uniqueness validation needed since emails are now non-unique)
         if 'email' in update_data:
             new_email = update_data['email']
-            
+
             # Skip update if email is the same as current
             if new_email == user.email:
                 logger.debug("Email unchanged for user %s, skipping email update", user_id)
                 del update_data['email']
-        
+
         # Apply updates
         for field, value in update_data.items():
             setattr(user, field, value)
-        
+
         await db.flush()
         await db.refresh(user)
         logger.info("User %s updated successfully", user_id)
-        
+
         return user
     except BaseAPIException:
         # Re-raise custom API exceptions as-is
         raise
     except IntegrityError as e:
         logger.error("Integrity error updating user %s: %s", user_id, e)
-        raise BadRequestException(detail="Data integrity constraint violated")
+        raise BadRequestException(detail="Data integrity constraint violated") from None
     except Exception as e:
         logger.error("Failed to update user %s: %s", user_id, e, exc_info=True)
-        raise BaseAPIException(detail="Internal server error occurred while updating user")
+        raise BaseAPIException(detail="Internal server error occurred while updating user") from None
 
-async def update_user_preferences(db: AsyncSession, user_id: int, preferences: dict) -> Optional[User]:
+async def update_user_preferences(db: AsyncSession, user_id: int, preferences: dict) -> User | None:
     logger.info("Updating preferences for user %s", user_id)
-    
+
     try:
         user = await db.get(User, user_id)
         if user:
@@ -250,9 +254,9 @@ async def update_user_preferences(db: AsyncSession, user_id: int, preferences: d
         logger.error("Failed to update preferences for user %s: %s", user_id, e, exc_info=True)
         raise
 
-async def update_user_location(db: AsyncSession, user_id: int, latitude: float, longitude: float) -> Optional[User]:
+async def update_user_location(db: AsyncSession, user_id: int, latitude: float, longitude: float) -> User | None:
     logger.info("Updating location for user %s: (%s, %s)", user_id, latitude, longitude)
-    
+
     try:
         user = await db.get(User, user_id)
         if user:
@@ -273,7 +277,7 @@ async def update_user_notification_settings(
     db: AsyncSession,
     user_id: int,
     settings: dict,
-) -> Optional[User]:
+) -> User | None:
     logger.info("Updating notification settings for user %s", user_id)
     try:
         user = await db.get(User, user_id)
@@ -294,7 +298,7 @@ async def update_user_privacy_settings(
     db: AsyncSession,
     user_id: int,
     settings: dict,
-) -> Optional[User]:
+) -> User | None:
     logger.info("Updating privacy settings for user %s", user_id)
     try:
         user = await db.get(User, user_id)

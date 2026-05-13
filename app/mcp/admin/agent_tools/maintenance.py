@@ -1,42 +1,33 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from app.config import settings
-from app.core.database import AsyncSessionLocal
 from app.core.exceptions import (
     InsufficientPermissionsError,
-    PropertyNotFoundException,
-    NotFoundException,
 )
-from app.models.enums import UserRole
-
 from app.mcp.admin.agent_tools.common import (
+    MCP_SECURITY_SCHEMES_MIXED,
+    AuthRequiredError,
+    MCPErrorCode,
+    MCPResponse,
+    _get_user,
+    _require_agent_or_admin,
+    _require_auth,
     admin_mcp,
     get_db,
     get_user_role,
     internal_error_response,
     invalid_input_response,
-    not_found_response,
-    MCPErrorCode,
-    MCPResponse,
-    AuthRequiredError,
-    MCP_SECURITY_SCHEMES_MIXED,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_user_basic,
+    logger,
     make_tz_aware,
+    not_found_response,
+    serialize_maintenance_request,
     utc_now,
     utc_now_iso,
-    _get_user,
-    _require_auth,
-    _require_agent_or_admin,
-    logger,
 )
+from app.models.enums import UserRole
+
 
 @admin_mcp.tool(
     "agent_maintenance_list",
@@ -49,12 +40,12 @@ from app.mcp.admin.agent_tools.common import (
     },
 )
 async def agent_maintenance_list(
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """List maintenance requests for managed properties.
 
     Args:
@@ -66,9 +57,10 @@ async def agent_maintenance_list(
     """
     try:
         from sqlalchemy import select
+
+        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
-        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
 
         limit = min(max(1, limit), 100)
 
@@ -153,13 +145,13 @@ async def agent_maintenance_list(
 async def agent_maintenance_update_status(
     request_id: int,
     status: str,
-    notes: Optional[str] = None,
-    scheduled_date: Optional[str] = None,
-    vendor_name: Optional[str] = None,
-    vendor_contact: Optional[str] = None,
-    estimated_cost: Optional[float] = None,
-    actual_cost: Optional[float] = None,
-) -> Dict[str, Any]:
+    notes: str | None = None,
+    scheduled_date: str | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
+    estimated_cost: float | None = None,
+    actual_cost: float | None = None,
+) -> dict[str, Any]:
     """Update the status of a maintenance request.
 
     Args:
@@ -174,8 +166,9 @@ async def agent_maintenance_update_status(
     """
     try:
         from sqlalchemy import select
-        from app.models.pm_maintenance import MaintenanceRequest
+
         from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
+        from app.models.pm_maintenance import MaintenanceRequest
 
         valid_statuses = ['open', 'in_progress', 'scheduled', 'completed', 'cancelled']
         if status.lower() not in valid_statuses:

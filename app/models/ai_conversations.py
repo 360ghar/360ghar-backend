@@ -7,7 +7,6 @@ for the Pydantic AI Agent chat feature.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy import (
     DateTime,
@@ -31,7 +30,7 @@ class AIConversation(Base):
     user_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    title: Mapped[str | None] = mapped_column(String(200), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -39,7 +38,7 @@ class AIConversation(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    messages: Mapped[list["AIConversationMessage"]] = relationship(
+    messages: Mapped[list[AIConversationMessage]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="AIConversationMessage.created_at",
@@ -62,15 +61,15 @@ class AIConversationMessage(Base):
     role: Mapped[str] = mapped_column(
         String(20), nullable=False
     )  # user, assistant, tool_call, tool_result
-    content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    tool_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    tool_args: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
-    tool_result: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tool_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    tool_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
-    conversation: Mapped["AIConversation"] = relationship(back_populates="messages")
+    conversation: Mapped[AIConversation] = relationship(back_populates="messages")
 
     __table_args__ = (
         Index("idx_ai_messages_conv", "conversation_id", "created_at"),

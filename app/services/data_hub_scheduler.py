@@ -33,16 +33,16 @@ async def _run_scraper_limited(scraper):
 
 async def _run_daily_scrapers() -> None:
     """Bank auctions, HSVP, DDA, MDA, YEIDA, aggregator, gazette, court auctions, neighbourhood scores, alert matching."""
-    from app.services.data_hub.bank_auctions import BankAuctionScraper
-    from app.services.data_hub.hsvp_auctions import HsvpAuctionScraper
-    from app.services.data_hub.dda_auctions import DdaAuctionScraper
-    from app.services.data_hub.mda_auctions import MdaAuctionScraper
-    from app.services.data_hub.yeida_auctions import YeidaAuctionScraper
     from app.services.data_hub.aggregator_eauctions import AggregatorEauctionsScraper
-    from app.services.data_hub.gazette import GazetteScraper
-    from app.services.data_hub.court_auctions import CourtAuctionScraper
-    from app.services.data_hub.neighbourhood import NeighbourhoodScraper
     from app.services.data_hub.alerts import AlertMatcherService
+    from app.services.data_hub.bank_auctions import BankAuctionScraper
+    from app.services.data_hub.court_auctions import CourtAuctionScraper
+    from app.services.data_hub.dda_auctions import DdaAuctionScraper
+    from app.services.data_hub.gazette import GazetteScraper
+    from app.services.data_hub.hsvp_auctions import HsvpAuctionScraper
+    from app.services.data_hub.mda_auctions import MdaAuctionScraper
+    from app.services.data_hub.neighbourhood import NeighbourhoodScraper
+    from app.services.data_hub.yeida_auctions import YeidaAuctionScraper
 
     scrapers = [
         BankAuctionScraper(),
@@ -57,7 +57,7 @@ async def _run_daily_scrapers() -> None:
         AlertMatcherService(),
     ]
     results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
-    for scraper, result in zip(scrapers, results):
+    for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Daily scraper %s failed: %s", scraper.name, result, exc_info=result)
         else:
@@ -66,16 +66,16 @@ async def _run_daily_scrapers() -> None:
 
 async def _run_weekly_scrapers() -> None:
     """RERA projects, bank rates, RERA complaints, Tier 2 auction scrapers, bank-specific scrapers."""
-    from app.services.data_hub.rera_projects import ReraProjectScraper
-    from app.services.data_hub.bank_rates import BankRateScraper
-    from app.services.data_hub.rera_complaints import ReraComplaintScraper
+    from app.services.data_hub.aggregator_misc import AggregatorMiscAuctionScraper
     from app.services.data_hub.baanknet_auctions import BaankNetAuctionScraper
-    from app.services.data_hub.ibbi_auctions import IBBIAuctionScraper
+    from app.services.data_hub.bank_rates import BankRateScraper
+    from app.services.data_hub.bank_specific_auctions import BankSpecificAuctionScraper
     from app.services.data_hub.dfc_delhi_auctions import DFCDelhiAuctionScraper
     from app.services.data_hub.drt_auctions import DRTAuctionScraper
     from app.services.data_hub.hsvp_procure247_auctions import HSVPProcure247AuctionScraper
-    from app.services.data_hub.aggregator_misc import AggregatorMiscAuctionScraper
-    from app.services.data_hub.bank_specific_auctions import BankSpecificAuctionScraper
+    from app.services.data_hub.ibbi_auctions import IBBIAuctionScraper
+    from app.services.data_hub.rera_complaints import ReraComplaintScraper
+    from app.services.data_hub.rera_projects import ReraProjectScraper
 
     scrapers = [
         ReraProjectScraper(),
@@ -90,7 +90,7 @@ async def _run_weekly_scrapers() -> None:
         BankSpecificAuctionScraper(),
     ]
     results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
-    for scraper, result in zip(scrapers, results):
+    for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Weekly scraper %s failed: %s", scraper.name, result, exc_info=result)
         else:
@@ -107,7 +107,7 @@ async def _run_quarterly_scrapers() -> None:
         ZoningScraper(),
     ]
     results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
-    for scraper, result in zip(scrapers, results):
+    for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Quarterly scraper %s failed: %s", scraper.name, result, exc_info=result)
         else:

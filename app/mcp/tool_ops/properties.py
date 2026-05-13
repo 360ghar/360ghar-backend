@@ -2,30 +2,30 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.enums import LeaseStatus, PropertyType, PropertyPurpose
-from app.models.pm_leases import Lease
-from app.models.properties import Property, PropertyAmenity
-from app.models.users import User as UserModel
+from app.mcp.tool_ops import _user_schema
 from app.mcp.utils import (
+    serialize_lease,
     serialize_property_basic,
     serialize_property_full,
-    serialize_lease,
     serialize_user_basic,
 )
-from app.mcp.tool_ops import _user_schema
+from app.models.enums import LeaseStatus, PropertyPurpose, PropertyType
+from app.models.pm_leases import Lease
+from app.models.properties import PropertyAmenity
+from app.models.users import User as UserModel
 from app.schemas.property import PropertyCreate
+from app.services.pm_authz import assert_can_access_property
 from app.services.pm_properties import (
     create_managed_property,
     get_managed_property_detail,
     list_managed_properties,
 )
-from app.services.pm_authz import assert_can_access_property
 from app.services.user import get_user_by_id
 
 logger = get_logger(__name__)
@@ -86,8 +86,8 @@ async def list_properties_enriched(
     *,
     actor,
     owner_id: int,
-    occupancy: Optional[str] = None,
-    q: Optional[str] = None,
+    occupancy: str | None = None,
+    q: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> dict:
@@ -130,28 +130,28 @@ async def create_property(
     latitude: float,
     longitude: float,
     base_price: float,
-    description: Optional[str] = None,
-    sub_locality: Optional[str] = None,
-    pincode: Optional[str] = None,
-    state: Optional[str] = None,
-    monthly_rent: Optional[float] = None,
-    daily_rate: Optional[float] = None,
-    security_deposit: Optional[float] = None,
-    maintenance_charges: Optional[float] = None,
-    area_sqft: Optional[float] = None,
-    bedrooms: Optional[int] = None,
-    bathrooms: Optional[int] = None,
-    balconies: Optional[int] = None,
-    parking_spaces: Optional[int] = None,
-    floor_number: Optional[int] = None,
-    total_floors: Optional[int] = None,
-    max_occupancy: Optional[int] = None,
-    minimum_stay_days: Optional[int] = None,
-    main_image_url: Optional[str] = None,
-    virtual_tour_url: Optional[str] = None,
-    amenity_ids: Optional[List[int]] = None,
-    payment_due_day: Optional[int] = None,
-    grace_period_days: Optional[int] = None,
+    description: str | None = None,
+    sub_locality: str | None = None,
+    pincode: str | None = None,
+    state: str | None = None,
+    monthly_rent: float | None = None,
+    daily_rate: float | None = None,
+    security_deposit: float | None = None,
+    maintenance_charges: float | None = None,
+    area_sqft: float | None = None,
+    bedrooms: int | None = None,
+    bathrooms: int | None = None,
+    balconies: int | None = None,
+    parking_spaces: int | None = None,
+    floor_number: int | None = None,
+    total_floors: int | None = None,
+    max_occupancy: int | None = None,
+    minimum_stay_days: int | None = None,
+    main_image_url: str | None = None,
+    virtual_tour_url: str | None = None,
+    amenity_ids: list[int] | None = None,
+    payment_due_day: int | None = None,
+    grace_period_days: int | None = None,
 ) -> dict:
     """Create a managed property listing."""
     try:

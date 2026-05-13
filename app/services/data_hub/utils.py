@@ -1,8 +1,7 @@
 import hashlib
+import logging
 import re
 import unicodedata
-from typing import Optional
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
     """Extract text from PDF bytes using pdfplumber."""
     try:
         import io
+
         import pdfplumber
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages)

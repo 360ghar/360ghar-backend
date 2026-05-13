@@ -1,20 +1,16 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 import ipaddress
 import secrets
 import socket
-import uuid
 from html import escape
-from typing import Any, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import anyio
 import httpx
-from pydantic import BaseModel, HttpUrl, field_validator
+from pydantic import BaseModel, HttpUrl
 
-from app.config import settings
 from app.core.logging import get_logger
 from app.services.oauth_token_store import oauth_token_store
 
@@ -45,22 +41,22 @@ CHATGPT_REDIRECT_PREFIXES = [
 class OAuthAuthorizeRequest(BaseModel):
     response_type: str
     client_id: str
-    redirect_uri: Optional[HttpUrl] = None
-    scope: Optional[str] = None
-    state: Optional[str] = None
-    code_challenge: Optional[str] = None  # PKCE
-    code_challenge_method: Optional[str] = None  # PKCE
-    resource: Optional[str] = None
+    redirect_uri: HttpUrl | None = None
+    scope: str | None = None
+    state: str | None = None
+    code_challenge: str | None = None  # PKCE
+    code_challenge_method: str | None = None  # PKCE
+    resource: str | None = None
 
 
 class OAuthTokenRequest(BaseModel):
     grant_type: str
-    code: Optional[str] = None
-    redirect_uri: Optional[HttpUrl] = None
-    client_id: Optional[str] = None
-    refresh_token: Optional[str] = None
-    code_verifier: Optional[str] = None  # PKCE
-    resource: Optional[str] = None
+    code: str | None = None
+    redirect_uri: HttpUrl | None = None
+    client_id: str | None = None
+    refresh_token: str | None = None
+    code_verifier: str | None = None  # PKCE
+    resource: str | None = None
 
 
 # =============================================================================
@@ -95,7 +91,7 @@ def is_loopback_redirect_uri(uri: str) -> bool:
     return host in {"localhost", "127.0.0.1", "::1"}
 
 
-def is_redirect_uri_allowed_for_client(client: Dict[str, Any], redirect_uri: str) -> bool:
+def is_redirect_uri_allowed_for_client(client: dict[str, Any], redirect_uri: str) -> bool:
     """Validate redirect_uri against client policy with ChatGPT compatibility."""
     if redirect_uri in CHATGPT_REDIRECT_URIS:
         return True
@@ -119,13 +115,13 @@ def is_redirect_uri_allowed_for_client(client: Dict[str, Any], redirect_uri: str
 def render_consent_html(
     *,
     session_id: str,
-    oauth_session: Optional[Dict[str, Any]] = None,
-    error_message: Optional[str] = None,
+    oauth_session: dict[str, Any] | None = None,
+    error_message: str | None = None,
 ) -> str:
     """Render OAuth consent/login page with optional error state."""
     client_name = escape((oauth_session or {}).get("client_name", "MCP client"))
-    client_id = escape((oauth_session or {}).get("client_id", "unknown-client"))
-    resource = escape((oauth_session or {}).get("resource", ""))
+    escape((oauth_session or {}).get("client_id", "unknown-client"))
+    escape((oauth_session or {}).get("resource", ""))
     scopes = [
         escape(s) for s in ((oauth_session or {}).get("scope", "mcp:read mcp:write")).split() if s
     ]
@@ -374,7 +370,7 @@ def render_consent_html(
     """
 
 
-async def fetch_client_metadata(client_id: str) -> Optional[Dict[str, Any]]:
+async def fetch_client_metadata(client_id: str) -> dict[str, Any] | None:
     """Fetch and validate Client ID Metadata Document for URL-based client_ids."""
     if not client_id.startswith("https://"):
         return None
@@ -445,7 +441,7 @@ async def fetch_client_metadata(client_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def validate_client(client_id: str) -> Optional[Dict[str, Any]]:
+async def validate_client(client_id: str) -> dict[str, Any] | None:
     """Validate a client_id using first-party, DCR, or metadata discovery."""
     if client_id == "ghar360-mcp":
         return {

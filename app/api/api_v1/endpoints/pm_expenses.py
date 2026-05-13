@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import ExpenseCategory, UserRole
-from app.schemas.pm_expense import Expense as ExpenseSchema, ExpenseCreate, ExpenseUpdate
+from app.schemas.pm_expense import Expense as ExpenseSchema
+from app.schemas.pm_expense import ExpenseCreate, ExpenseUpdate
 from app.schemas.user import User as UserSchema
 from app.services.pm_expenses import create_expense, list_expenses, update_expense
 
@@ -51,11 +51,11 @@ async def create_pm_expense(
 
 @router.get("", response_model=list[ExpenseSchema])
 async def list_pm_expenses(
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    property_id: Optional[int] = Query(None),
-    category: Optional[ExpenseCategory] = Query(None),
-    start_date: Optional[date] = Query(None),
-    end_date: Optional[date] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    property_id: int | None = Query(None),
+    category: ExpenseCategory | None = Query(None),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: UserSchema = Depends(get_current_active_user),

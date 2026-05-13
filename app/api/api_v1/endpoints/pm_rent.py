@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,8 +9,10 @@ from app.models.enums import RentChargeStatus
 from app.schemas.pm_rent import (
     RentChargeGenerateRequest,
     RentChargeWithTotals,
-    RentPayment as RentPaymentSchema,
     RentPaymentCreate,
+)
+from app.schemas.pm_rent import (
+    RentPayment as RentPaymentSchema,
 )
 from app.schemas.user import User as UserSchema
 from app.services.pm_rent import (
@@ -44,10 +44,10 @@ async def generate_charges(
 @router.get("/charges", response_model=list[RentChargeWithTotals])
 async def get_charges(
     as_tenant: bool = Query(False, description="If true, return charges for the current tenant user"),
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    lease_id: Optional[int] = Query(None),
-    property_id: Optional[int] = Query(None),
-    status: Optional[RentChargeStatus] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    lease_id: int | None = Query(None),
+    property_id: int | None = Query(None),
+    status: RentChargeStatus | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -120,9 +120,9 @@ async def tenant_payment_intent(
 @router.get("/payments", response_model=list[RentPaymentSchema])
 async def list_payments(
     as_tenant: bool = Query(False),
-    owner_id: Optional[int] = Query(None, description="Owner id (agent/admin only)"),
-    lease_id: Optional[int] = Query(None),
-    property_id: Optional[int] = Query(None),
+    owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
+    lease_id: int | None = Query(None),
+    property_id: int | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     current_user: UserSchema = Depends(get_current_active_user),

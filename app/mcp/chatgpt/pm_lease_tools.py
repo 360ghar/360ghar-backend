@@ -10,7 +10,6 @@ from app.core.logging import get_logger
 from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError, build_widget_tool_meta
 from app.mcp.chatgpt import get_widget_for_tool
 from app.mcp.chatgpt.pm_shared import _format_lease_summary, _get_optional_user, _serialize_lease
-from app.models.enums import LeaseStatus
 from app.mcp.chatgpt.response_formatter import (
     format_auth_required_response,
     format_chatgpt_response,
@@ -18,6 +17,7 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
+from app.models.enums import LeaseStatus
 
 logger = get_logger(__name__)
 

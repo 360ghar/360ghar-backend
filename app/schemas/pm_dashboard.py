@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
 from pydantic import BaseModel
 
 
@@ -19,9 +17,9 @@ class DashboardOverview(BaseModel):
 class ActivityItem(BaseModel):
     type: str
     at: str
-    id: Optional[int] = None
-    property_id: Optional[int] = None
-    lease_id: Optional[int] = None
-    amount: Optional[float] = None
-    status: Optional[str] = None
+    id: int | None = None
+    property_id: int | None = None
+    lease_id: int | None = None
+    amount: float | None = None
+    status: str | None = None
 

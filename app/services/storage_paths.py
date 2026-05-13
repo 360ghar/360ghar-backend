@@ -6,7 +6,6 @@ This ensures proper organization and enables RLS policies.
 """
 import re
 from enum import Enum
-from typing import Optional
 from uuid import uuid4
 
 from app.core.exceptions import BadRequestException
@@ -99,12 +98,12 @@ def sanitize_filename(filename: str, max_length: int = 50) -> str:
 def generate_storage_path(
     user_id: int,
     folder: StorageFolder,
-    original_filename: Optional[str] = None,
-    extension: Optional[str] = None,
-    property_id: Optional[int] = None,
-    tour_id: Optional[str] = None,
-    scene_id: Optional[str] = None,
-    agent_id: Optional[int] = None,
+    original_filename: str | None = None,
+    extension: str | None = None,
+    property_id: int | None = None,
+    tour_id: str | None = None,
+    scene_id: str | None = None,
+    agent_id: int | None = None,
 ) -> str:
     """
     Generate a user-scoped storage path.
@@ -196,7 +195,7 @@ def get_folder_for_content_type(content_type: str) -> StorageFolder:
         return StorageFolder.GENERIC_UPLOAD
 
 
-def parse_user_id_from_path(path: str) -> Optional[int]:
+def parse_user_id_from_path(path: str) -> int | None:
     """
     Extract user ID from a storage path.
 

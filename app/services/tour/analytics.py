@@ -6,7 +6,7 @@ event recording, and realtime dashboard metrics.
 """
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,8 +34,8 @@ async def get_tour_analytics(
     db: AsyncSession,
     tour_id: str,
     user_id: int,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> TourAnalytics:
     """Get analytics for a tour."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
@@ -61,10 +61,10 @@ async def get_tour_analytics(
     country_counts: dict = {}
     daily_views_map: dict = {}
     unique_sessions: set = set()
-    heatmap_points: List[dict] = []
+    heatmap_points: list[dict] = []
     share_breakdown: dict = {}
     session_starts: dict = {}
-    session_durations: List[float] = []
+    session_durations: list[float] = []
 
     for event in events:
         event_payload = event.event_data or {}
@@ -190,10 +190,10 @@ async def get_dashboard_stats(db: AsyncSession, user_id: int) -> DashboardStats:
 async def get_tour_heatmap(
     db: AsyncSession,
     tour_id: str,
-    scene_id: Optional[str] = None,
-    start_date: Optional[date] = None,
-    end_date: Optional[date] = None,
-) -> Dict[str, List[Dict[str, Any]]]:
+    scene_id: str | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     """
     Get aggregated heatmap data for a tour.
 
@@ -231,7 +231,7 @@ async def get_tour_heatmap(
     events = result.scalars().all()
 
     # Group heatmap points by scene and aggregate by grid cells
-    scene_heatmaps: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    scene_heatmaps: dict[str, dict[str, dict[str, Any]]] = {}
 
     for event in events:
         event_data = event.event_data or {}
@@ -258,7 +258,7 @@ async def get_tour_heatmap(
         scene_heatmaps[scene_key][grid_key]["count"] += 1
 
     # Convert to output format with normalized intensity
-    output: Dict[str, List[Dict[str, Any]]] = {}
+    output: dict[str, list[dict[str, Any]]] = {}
 
     for scene_key, grid_cells in scene_heatmaps.items():
         points = list(grid_cells.values())
@@ -279,14 +279,14 @@ async def record_analytics_event(
     db: AsyncSession,
     tour_id: str,
     event_type: str,
-    scene_id: Optional[str] = None,
-    hotspot_id: Optional[str] = None,
-    user_agent: Optional[str] = None,
-    ip_address: Optional[str] = None,
-    device_type: Optional[str] = None,
-    session_id: Optional[str] = None,
-    country: Optional[str] = None,
-    event_data: Optional[dict] = None,
+    scene_id: str | None = None,
+    hotspot_id: str | None = None,
+    user_agent: str | None = None,
+    ip_address: str | None = None,
+    device_type: str | None = None,
+    session_id: str | None = None,
+    country: str | None = None,
+    event_data: dict | None = None,
     increment_counts: bool = True,
 ) -> None:
     """Record an analytics event for a tour."""
@@ -365,7 +365,7 @@ async def get_dashboard_realtime_stats(
     shares_last_hour = sum(1 for event in events if event.event_type == "share")
 
     session_starts: dict = {}
-    session_durations: List[float] = []
+    session_durations: list[float] = []
     for event in events:
         if event.event_type == "session_start" and event.session_id:
             session_starts[event.session_id] = event.created_at

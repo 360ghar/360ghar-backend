@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,16 +22,16 @@ logger = get_logger(__name__)
 
 def _get_user_channels_from_settings(
     *,
-    settings_json: Optional[Dict[str, Any]],
+    settings_json: dict[str, Any] | None,
     category: NotificationCategory,
-    marketing_opt_in_key: Optional[str],
-) -> Set[NotificationChannel]:
+    marketing_opt_in_key: str | None,
+) -> set[NotificationChannel]:
     """Determine which channels are enabled for the user.
 
     This function is tolerant of different shapes coming from the
     360 Ghar app and the Stays app.
     """
-    enabled: Set[NotificationChannel] = set()
+    enabled: set[NotificationChannel] = set()
     cfg = settings_json or {}
 
     # Global channel toggles
@@ -87,9 +87,9 @@ async def dispatch_notification_to_user(
     type_key: str,
     title: str,
     body: str,
-    data: Optional[Dict[str, str]] = None,
-    deep_link: Optional[str] = None,
-) -> Dict[str, Any]:
+    data: dict[str, str] | None = None,
+    deep_link: str | None = None,
+) -> dict[str, Any]:
     """Dispatch a typed notification to a single user across channels.
 
     - Respects per-type configuration from NOTIFICATION_TYPES
@@ -103,7 +103,7 @@ async def dispatch_notification_to_user(
         # Treat unknown types as admin broadcasts
         cfg = NOTIFICATION_TYPES["admin_broadcast"]
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "type_key": cfg.key,
         "title": title,
         "body": body,
@@ -112,7 +112,7 @@ async def dispatch_notification_to_user(
     }
 
     res = await db.execute(select(UserModel).where(UserModel.id == user_db_id))
-    user: Optional[UserModel] = res.scalar_one_or_none()
+    user: UserModel | None = res.scalar_one_or_none()
     if not user:
         logger.warning("dispatch_notification_to_user: user not found", extra={"user_db_id": user_db_id})
         result["error"] = "user_not_found"
@@ -189,19 +189,19 @@ async def dispatch_notification_to_user(
 async def dispatch_notification_to_users(
     db: AsyncSession,
     *,
-    user_db_ids: List[int],
+    user_db_ids: list[int],
     type_key: str,
     title: str,
     body: str,
-    data: Optional[Dict[str, str]] = None,
-    deep_link: Optional[str] = None,
-) -> Dict[str, Any]:
+    data: dict[str, str] | None = None,
+    deep_link: str | None = None,
+) -> dict[str, Any]:
     """Dispatch a notification to many users by DB id.
 
     This is a thin loop over dispatch_notification_to_user; for large
     audiences a background job system should be used instead.
     """
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     success = 0
     for uid in user_db_ids:
         try:
@@ -234,10 +234,10 @@ async def dispatch_notification_to_users(
 async def find_user_ids_for_segment(
     db: AsyncSession,
     *,
-    role: Optional[str] = None,
-    agent_id: Optional[int] = None,
-    is_active: Optional[bool] = True,
-) -> List[int]:
+    role: str | None = None,
+    agent_id: int | None = None,
+    is_active: bool | None = True,
+) -> list[int]:
     """Resolve a simple audience segment to a list of user ids."""
     stmt = select(UserModel.id)
     conditions = []

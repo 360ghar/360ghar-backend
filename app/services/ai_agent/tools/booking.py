@@ -6,7 +6,7 @@ Includes both user-facing booking tools and admin booking management tools.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 from pydantic_ai import RunContext
 from sqlalchemy import select
@@ -67,7 +67,7 @@ async def bookings_create(
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    special_requests: Optional[str] = None,
+    special_requests: str | None = None,
 ) -> dict[str, Any]:
     """Create a new booking for a short-stay property."""
     from app.schemas.booking import BookingCreate
@@ -98,7 +98,7 @@ async def bookings_list(
     ctx: RunContext[AgentDeps],
     page: int = 1,
     limit: int = 20,
-    status: Optional[str] = None,
+    status: str | None = None,
 ) -> dict[str, Any]:
     """List the current user's bookings."""
     from app.services import booking as booking_svc
@@ -188,9 +188,9 @@ async def user_system_status(
 
 async def agent_bookings_list_all(
     ctx: RunContext[AgentDeps],
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    status: Optional[str] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    status: str | None = None,
     page: int = 1,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -218,7 +218,7 @@ async def agent_bookings_update_status(
     ctx: RunContext[AgentDeps],
     booking_id: int,
     status: str,
-    notes: Optional[str] = None,
+    notes: str | None = None,
 ) -> dict[str, Any]:
     """Update the status of a booking."""
     from app.models.bookings import Booking

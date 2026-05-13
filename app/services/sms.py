@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, Dict, Any
+from typing import Any
 
 import httpx
 
@@ -14,7 +14,7 @@ async def send_sms(
     *,
     phone_number: str,
     message: str,
-    metadata: Optional[Dict[str, Any]] = None,
+    metadata: dict[str, Any] | None = None,
 ) -> bool:
     """Send an SMS via a generic HTTP API provider.
 
@@ -33,7 +33,7 @@ async def send_sms(
         )
         return False
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "to": phone_number,
         "message": message,
     }

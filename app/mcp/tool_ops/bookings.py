@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.properties import Property
 from app.mcp.utils import serialize_booking, serialize_property_basic
-from app.schemas.booking import BookingCreate, BookingUpdate
+from app.models.properties import Property
+from app.schemas.booking import BookingCreate
 from app.services import booking as booking_svc
 
 logger = get_logger(__name__)
@@ -67,7 +66,7 @@ async def create_booking(
     check_in_date: str,
     check_out_date: str,
     guests: int = 1,
-    special_requests: Optional[str] = None,
+    special_requests: str | None = None,
 ) -> dict:
     """Create a short-stay booking."""
     try:
@@ -159,7 +158,7 @@ async def list_user_bookings(
     user_id: int,
     page: int = 1,
     limit: int = 20,
-    status: Optional[str] = None,
+    status: str | None = None,
 ) -> dict:
     """List bookings for a user."""
     limit = min(max(1, limit), 100)

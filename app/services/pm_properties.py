@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -24,7 +22,7 @@ async def create_managed_property(
     management_status: ManagedPropertyStatus = ManagedPropertyStatus.active,
     payment_due_day: int = 1,
     grace_period_days: int = 5,
-    late_fee_policy: Optional[dict] = None,
+    late_fee_policy: dict | None = None,
 ) -> Property:
     await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
@@ -60,9 +58,9 @@ async def list_managed_properties(
     db: AsyncSession,
     *,
     actor: UserSchema,
-    owner_id: Optional[int] = None,
-    occupancy: Optional[str] = None,  # occupied|vacant
-    q: Optional[str] = None,
+    owner_id: int | None = None,
+    occupancy: str | None = None,  # occupied|vacant
+    q: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Property]:
@@ -75,7 +73,7 @@ async def list_managed_properties(
     if owner_id is not None:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
-    stmt = select(Property).options(selectinload(Property.images)).where(Property.is_managed == True)
+    stmt = select(Property).options(selectinload(Property.images)).where(Property.is_managed)
     if owner_id is not None:
         stmt = stmt.where(Property.owner_id == owner_id)
 
@@ -129,12 +127,12 @@ async def update_managed_property(
     *,
     actor: UserSchema,
     property_id: int,
-    management_status: Optional[ManagedPropertyStatus] = None,
-    payment_due_day: Optional[int] = None,
-    grace_period_days: Optional[int] = None,
-    late_fee_policy: Optional[dict] = None,
-    images: Optional[List[str]] = None,
-    floor_plans: Optional[List[str]] = None,
+    management_status: ManagedPropertyStatus | None = None,
+    payment_due_day: int | None = None,
+    grace_period_days: int | None = None,
+    late_fee_policy: dict | None = None,
+    images: list[str] | None = None,
+    floor_plans: list[str] | None = None,
 ) -> Property:
     prop = await assert_can_access_property(db, actor=actor, property_id=property_id)
 

@@ -4,7 +4,6 @@ Floor plan CRUD service functions.
 Create, read, update, delete floor plans, and update markers.
 """
 
-from typing import List
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -20,7 +19,7 @@ from app.services.tour.tours import get_tour
 logger = get_logger(__name__)
 
 
-async def get_floor_plans(db: AsyncSession, tour_id: str, user_id: int) -> List[FloorPlan]:
+async def get_floor_plans(db: AsyncSession, tour_id: str, user_id: int) -> list[FloorPlan]:
     """Get all floor plans for a tour."""
     # Verify tour access
     await get_tour(db, tour_id, user_id, include_scenes=False)
@@ -95,7 +94,7 @@ async def update_floor_plan(
 
 
 async def update_floor_plan_markers(
-    db: AsyncSession, floor_plan_id: str, user_id: int, markers: List[dict]
+    db: AsyncSession, floor_plan_id: str, user_id: int, markers: list[dict]
 ) -> FloorPlan:
     """Update only the markers of a floor plan."""
     floor_plan = await get_floor_plan(db, floor_plan_id, user_id)

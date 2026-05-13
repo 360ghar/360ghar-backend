@@ -4,7 +4,6 @@ Validation helpers for the storage service.
 MIME type checks, file size checks, and extension inference.
 """
 import os
-from typing import Optional
 
 from fastapi import UploadFile
 
@@ -82,7 +81,7 @@ def is_valid_content_type(content_type: str, *, allow_documents: bool = False) -
     return content_type in valid
 
 
-def infer_content_type_from_extension(ext: str) -> Optional[str]:
+def infer_content_type_from_extension(ext: str) -> str | None:
     """Infer MIME type from a file extension.
 
     Args:
@@ -114,7 +113,7 @@ def infer_content_type_from_extension(ext: str) -> Optional[str]:
     return None
 
 
-def get_file_extension(filename: str, *, content_type: Optional[str] = None) -> str:
+def get_file_extension(filename: str, *, content_type: str | None = None) -> str:
     """Get file extension from filename, with a safe fallback by content-type.
 
     Args:

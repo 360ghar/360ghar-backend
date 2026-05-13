@@ -1,6 +1,8 @@
 
+from __future__ import annotations
+
 from datetime import datetime
-from typing import List, Optional
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     JSON,
@@ -21,84 +23,91 @@ from sqlalchemy.types import Enum as SQLEnum
 from app.core.database import Base
 from app.models.enums import FlatmatesMode, FlatmatesProfileStatus, UserRole
 
+if TYPE_CHECKING:
+    from app.models.agents import Agent
+    from app.models.bookings import Booking
+    from app.models.properties import Property, Visit
+    from app.models.social import UserSwipe
+    from app.models.tours import Tour
+
 
 class User(Base):
     __tablename__ = "users"
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     supabase_user_id: Mapped[str] = mapped_column(String, unique=True, index=True)
-    email: Mapped[Optional[str]] = mapped_column(String, index=True, nullable=True)
-    phone: Mapped[Optional[str]] = mapped_column(String, unique=True, index=True, nullable=True)
-    full_name: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    date_of_birth: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    profile_image_url: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    email: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
+    phone: Mapped[str | None] = mapped_column(String, unique=True, index=True, nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    date_of_birth: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    profile_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     # RBAC role for the user
     role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole, name='user_role'), default=UserRole.user)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    preferences: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
-    current_latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    current_longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    notification_settings: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
-    privacy_settings: Mapped[Optional[dict]] = mapped_column(JSON, default=dict)
-    flatmates_mode: Mapped[Optional[FlatmatesMode]] = mapped_column(SQLEnum(FlatmatesMode, name='flatmates_mode'), nullable=True)
+    preferences: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    current_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    current_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    notification_settings: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    privacy_settings: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    flatmates_mode: Mapped[FlatmatesMode | None] = mapped_column(SQLEnum(FlatmatesMode, name='flatmates_mode'), nullable=True)
     flatmates_profile_status: Mapped[FlatmatesProfileStatus] = mapped_column(SQLEnum(FlatmatesProfileStatus, name='flatmates_profile_status'), default=FlatmatesProfileStatus.draft)
     flatmates_onboarding_completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    flatmates_bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    flatmates_budget_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    flatmates_budget_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    flatmates_move_in_timeline: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_city: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    flatmates_locality: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    flatmates_sleep_schedule: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_cleanliness: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_food_habits: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_smoking_drinking: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_guests_policy: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_work_style: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    flatmates_last_active_at: Mapped[Optional[datetime]] = mapped_column(
+    flatmates_bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flatmates_budget_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flatmates_budget_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    flatmates_move_in_timeline: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_city: Mapped[str | None] = mapped_column(String, nullable=True)
+    flatmates_locality: Mapped[str | None] = mapped_column(String, nullable=True)
+    flatmates_sleep_schedule: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_cleanliness: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_food_habits: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_smoking_drinking: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_guests_policy: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_work_style: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    flatmates_last_active_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
-    agent_id: Mapped[Optional[int]] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
     # Relationships
-    agent: Mapped[Optional["Agent"]] = relationship(back_populates="users")
-    owned_properties: Mapped[List["Property"]] = relationship(
+    agent: Mapped[Agent | None] = relationship(back_populates="users")
+    owned_properties: Mapped[list[Property]] = relationship(
         "Property",
         back_populates="owner",
         foreign_keys="Property.owner_id",
     )
-    swipes: Mapped[List["UserSwipe"]] = relationship(
+    swipes: Mapped[list[UserSwipe]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="UserSwipe.user_id",
     )
-    visits: Mapped[List["Visit"]] = relationship(
+    visits: Mapped[list[Visit]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="Visit.user_id",
     )
-    bookings: Mapped[List["Booking"]] = relationship(back_populates="user", cascade="all, delete-orphan")
-    tours: Mapped[List["Tour"]] = relationship("Tour", back_populates="user", cascade="all, delete-orphan")
+    bookings: Mapped[list[Booking]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    tours: Mapped[list[Tour]] = relationship("Tour", back_populates="user", cascade="all, delete-orphan")
 
 
 class UserSearchHistory(Base):
     __tablename__ = "user_search_history"
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    search_query: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    search_filters: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
-    search_location: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    search_radius: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    results_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    user_location_lat: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    user_location_lng: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    search_type: Mapped[Optional[str]] = mapped_column(String, nullable=True)
-    session_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    search_query: Mapped[str | None] = mapped_column(String, nullable=True)
+    search_filters: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    search_location: Mapped[str | None] = mapped_column(String, nullable=True)
+    search_radius: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    results_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_location_lat: Mapped[float | None] = mapped_column(Float, nullable=True)
+    user_location_lng: Mapped[float | None] = mapped_column(Float, nullable=True)
+    search_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -115,18 +124,18 @@ class UserSwipe(Base):
             postgresql_where=text('target_user_id IS NOT NULL'),
         ),
     )
-    
+
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    property_id: Mapped[Optional[int]] = mapped_column(
+    property_id: Mapped[int | None] = mapped_column(
         ForeignKey("properties.id", ondelete="CASCADE"),
         nullable=True,
     )
-    target_user_id: Mapped[Optional[int]] = mapped_column(
+    target_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=True,
     )
-    context_property_id: Mapped[Optional[int]] = mapped_column(
+    context_property_id: Mapped[int | None] = mapped_column(
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -134,14 +143,14 @@ class UserSwipe(Base):
     swipe_action: Mapped[str] = mapped_column(String(20), default="like")
     is_liked: Mapped[bool] = mapped_column(Boolean, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
-    
-    user: Mapped["User"] = relationship(back_populates="swipes", foreign_keys=[user_id])
-    property: Mapped[Optional["Property"]] = relationship(
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    user: Mapped[User] = relationship(back_populates="swipes", foreign_keys=[user_id])
+    property: Mapped[Property | None] = relationship(
         back_populates="swipes",
         foreign_keys=[property_id],
     )
-    target_user: Mapped[Optional["User"]] = relationship(foreign_keys=[target_user_id])
-    context_property: Mapped[Optional["Property"]] = relationship(
+    target_user: Mapped[User | None] = relationship(foreign_keys=[target_user_id])
+    context_property: Mapped[Property | None] = relationship(
         foreign_keys=[context_property_id],
     )

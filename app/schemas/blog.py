@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional, List, Any
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class BlogSource(BaseModel):
@@ -8,23 +8,23 @@ class BlogSource(BaseModel):
     url: str = Field(..., min_length=1, description="Source URL")
     name: str = Field("", description="Display name of the source (e.g. 'Economic Times')")
     type: str = Field("article", description="Source type: primary, article, government, data, image, video, other")
-    retrieved_at: Optional[str] = Field(None, description="ISO 8601 date when the source was accessed")
+    retrieved_at: str | None = Field(None, description="ISO 8601 date when the source was accessed")
 
 
 class BlogSEOMetadata(BaseModel):
     """Flexible SEO metadata container."""
-    schema_markup: Optional[dict] = Field(None, description="JSON-LD structured data (Article, FAQPage, etc.)")
-    keyword_analysis: Optional[dict] = Field(None, description="Keyword research data: volume, difficulty, related terms")
-    trending_score: Optional[float] = Field(None, description="0-100 score indicating trend virality")
-    secondary_keywords: Optional[List[str]] = Field(None, description="Additional target keywords")
-    internal_links: Optional[List[str]] = Field(None, description="Slugs of related blog posts for internal linking")
-    custom_data: Optional[dict] = Field(None, description="Any additional SEO data")
+    schema_markup: dict | None = Field(None, description="JSON-LD structured data (Article, FAQPage, etc.)")
+    keyword_analysis: dict | None = Field(None, description="Keyword research data: volume, difficulty, related terms")
+    trending_score: float | None = Field(None, description="0-100 score indicating trend virality")
+    secondary_keywords: list[str] | None = Field(None, description="Additional target keywords")
+    internal_links: list[str] | None = Field(None, description="Slugs of related blog posts for internal linking")
+    custom_data: dict | None = Field(None, description="Any additional SEO data")
 
 
 class BlogCategoryBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200, description="Category name")
-    slug: Optional[str] = Field(None, description="URL-friendly slug (auto-generated if not provided)")
-    description: Optional[str] = Field(None, max_length=1000, description="Category description")
+    slug: str | None = Field(None, description="URL-friendly slug (auto-generated if not provided)")
+    description: str | None = Field(None, max_length=1000, description="Category description")
 
 
 class BlogCategoryCreate(BlogCategoryBase):
@@ -32,20 +32,20 @@ class BlogCategoryCreate(BlogCategoryBase):
 
 
 class BlogCategoryUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=200, description="Category name")
-    description: Optional[str] = Field(None, max_length=1000, description="Category description")
+    name: str | None = Field(None, min_length=1, max_length=200, description="Category name")
+    description: str | None = Field(None, max_length=1000, description="Category description")
 
 
 class BlogCategory(BlogCategoryBase):
     id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BlogCategoryListResponse(BaseModel):
-    items: List[BlogCategory]
+    items: list[BlogCategory]
     total: int
     page: int
     limit: int
@@ -56,7 +56,7 @@ class BlogCategoryListResponse(BaseModel):
 
 class BlogTagBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Tag name")
-    slug: Optional[str] = Field(None, description="URL-friendly slug (auto-generated if not provided)")
+    slug: str | None = Field(None, description="URL-friendly slug (auto-generated if not provided)")
 
 
 class BlogTagCreate(BlogTagBase):
@@ -64,19 +64,19 @@ class BlogTagCreate(BlogTagBase):
 
 
 class BlogTagUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=100, description="Tag name")
+    name: str | None = Field(None, min_length=1, max_length=100, description="Tag name")
 
 
 class BlogTag(BlogTagBase):
     id: int
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BlogTagListResponse(BaseModel):
-    items: List[BlogTag]
+    items: list[BlogTag]
     total: int
     page: int
     limit: int
@@ -88,48 +88,48 @@ class BlogTagListResponse(BaseModel):
 class BlogPostBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=500, description="Post title")
     content: str = Field(..., min_length=10, description="Post content (HTML/markdown)")
-    excerpt: Optional[str] = Field(None, max_length=1000, description="Post excerpt/summary")
-    cover_image_url: Optional[str] = Field(None, description="Cover image URL")
+    excerpt: str | None = Field(None, max_length=1000, description="Post excerpt/summary")
+    cover_image_url: str | None = Field(None, description="Cover image URL")
 
     # Accept category and tag identifiers (slugs or names)
-    categories: Optional[List[str]] = Field(default=None, description="Category slugs or names")
-    tags: Optional[List[str]] = Field(default=None, description="Tag slugs or names")
+    categories: list[str] | None = Field(default=None, description="Category slugs or names")
+    tags: list[str] | None = Field(default=None, description="Tag slugs or names")
 
     # SEO fields
-    meta_title: Optional[str] = Field(None, max_length=60, description="SEO title tag (distinct from display title)")
-    meta_description: Optional[str] = Field(None, max_length=160, description="SERP snippet text")
-    focus_keyword: Optional[str] = Field(None, max_length=200, description="Primary target keyword")
-    canonical_url: Optional[str] = Field(None, max_length=500, description="Canonical URL for duplicate content")
-    og_image_url: Optional[str] = Field(None, max_length=500, description="Open Graph / social share image URL")
+    meta_title: str | None = Field(None, max_length=60, description="SEO title tag (distinct from display title)")
+    meta_description: str | None = Field(None, max_length=160, description="SERP snippet text")
+    focus_keyword: str | None = Field(None, max_length=200, description="Primary target keyword")
+    canonical_url: str | None = Field(None, max_length=500, description="Canonical URL for duplicate content")
+    og_image_url: str | None = Field(None, max_length=500, description="Open Graph / social share image URL")
 
     # Structured sources
-    sources: Optional[List[BlogSource]] = Field(default=None, description="Cited sources for the blog post")
+    sources: list[BlogSource] | None = Field(default=None, description="Cited sources for the blog post")
 
     # Flexible SEO metadata
-    seo_metadata: Optional[BlogSEOMetadata] = Field(None, description="SEO analysis, schema markup, etc.")
+    seo_metadata: BlogSEOMetadata | None = Field(None, description="SEO analysis, schema markup, etc.")
 
 
 class BlogPostCreate(BlogPostBase):
-    active: Optional[bool] = Field(default=False, description="Publish status (defaults to draft)")
-    published_at: Optional[datetime] = Field(None, description="Explicit publish timestamp (defaults to now if active=True)")
+    active: bool | None = Field(default=False, description="Publish status (defaults to draft)")
+    published_at: datetime | None = Field(None, description="Explicit publish timestamp (defaults to now if active=True)")
 
 
 class BlogPostUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=500, description="Post title")
-    content: Optional[str] = Field(None, min_length=10, description="Post content (HTML/markdown)")
-    excerpt: Optional[str] = Field(None, max_length=1000, description="Post excerpt/summary")
-    cover_image_url: Optional[str] = Field(None, description="Cover image URL")
-    categories: Optional[List[str]] = Field(default=None, description="Category slugs or names")
-    tags: Optional[List[str]] = Field(default=None, description="Tag slugs or names")
-    active: Optional[bool] = Field(default=None, description="Publish status")
-    meta_title: Optional[str] = Field(None, max_length=60, description="SEO title tag")
-    meta_description: Optional[str] = Field(None, max_length=160, description="SERP snippet text")
-    focus_keyword: Optional[str] = Field(None, max_length=200, description="Primary target keyword")
-    canonical_url: Optional[str] = Field(None, max_length=500, description="Canonical URL")
-    og_image_url: Optional[str] = Field(None, max_length=500, description="Open Graph image URL")
-    sources: Optional[List[BlogSource]] = Field(default=None, description="Cited sources")
-    seo_metadata: Optional[BlogSEOMetadata] = Field(None, description="SEO metadata")
-    published_at: Optional[datetime] = Field(None, description="Publish timestamp")
+    title: str | None = Field(None, min_length=1, max_length=500, description="Post title")
+    content: str | None = Field(None, min_length=10, description="Post content (HTML/markdown)")
+    excerpt: str | None = Field(None, max_length=1000, description="Post excerpt/summary")
+    cover_image_url: str | None = Field(None, description="Cover image URL")
+    categories: list[str] | None = Field(default=None, description="Category slugs or names")
+    tags: list[str] | None = Field(default=None, description="Tag slugs or names")
+    active: bool | None = Field(default=None, description="Publish status")
+    meta_title: str | None = Field(None, max_length=60, description="SEO title tag")
+    meta_description: str | None = Field(None, max_length=160, description="SERP snippet text")
+    focus_keyword: str | None = Field(None, max_length=200, description="Primary target keyword")
+    canonical_url: str | None = Field(None, max_length=500, description="Canonical URL")
+    og_image_url: str | None = Field(None, max_length=500, description="Open Graph image URL")
+    sources: list[BlogSource] | None = Field(default=None, description="Cited sources")
+    seo_metadata: BlogSEOMetadata | None = Field(None, description="SEO metadata")
+    published_at: datetime | None = Field(None, description="Publish timestamp")
 
 
 class BlogPostInDB(BlogPostBase):
@@ -137,30 +137,30 @@ class BlogPostInDB(BlogPostBase):
     slug: str
     active: bool
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    meta_title: Optional[str] = None
-    meta_description: Optional[str] = None
-    focus_keyword: Optional[str] = None
-    canonical_url: Optional[str] = None
-    og_image_url: Optional[str] = None
-    reading_time_minutes: Optional[int] = None
-    word_count: Optional[int] = None
-    published_at: Optional[datetime] = None
-    sources: List[dict] = Field(default_factory=list)
+    updated_at: datetime | None = None
+    meta_title: str | None = None
+    meta_description: str | None = None
+    focus_keyword: str | None = None
+    canonical_url: str | None = None
+    og_image_url: str | None = None
+    reading_time_minutes: int | None = None
+    word_count: int | None = None
+    published_at: datetime | None = None
+    sources: list[dict] = Field(default_factory=list)
     seo_metadata: dict = Field(default_factory=dict)
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BlogPost(BlogPostInDB):
-    categories: Optional[List[BlogCategory]] = None
-    tags: Optional[List[BlogTag]] = None
+    categories: list[BlogCategory] | None = None
+    tags: list[BlogTag] | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BlogPostListResponse(BaseModel):
-    items: List[BlogPost]
+    items: list[BlogPost]
     total: int
     page: int
     limit: int
@@ -180,4 +180,4 @@ class BlogGenerateBulkRequest(BaseModel):
 
 class BlogGenerationResult(BaseModel):
     blog: BlogPost
-    images: List[str]
+    images: list[str]

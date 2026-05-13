@@ -24,8 +24,7 @@ from app.schemas.ai_agent import (
     ConversationSummary,
     GuestChatRequest,
 )
-from app.services.ai_agent import get_agent_service
-from app.services.ai_agent import conversation_store
+from app.services.ai_agent import conversation_store, get_agent_service
 
 _public_chat_limiter = EndpointRateLimiter(calls=10, period=60)
 
@@ -234,8 +233,9 @@ async def get_conversation_messages(
 ):
     """Get messages for a specific conversation."""
     # Verify ownership
-    from app.models.ai_conversations import AIConversation
     from sqlalchemy import select
+
+    from app.models.ai_conversations import AIConversation
 
     conv = (await db.execute(
         select(AIConversation).where(

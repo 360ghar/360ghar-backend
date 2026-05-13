@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-from datetime import datetime
 import hashlib
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -15,7 +16,7 @@ def compute_text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-async def get_existing_hash(db: AsyncSession, property_id: int) -> Optional[str]:
+async def get_existing_hash(db: AsyncSession, property_id: int) -> str | None:
     q = text(
         "SELECT emb_text_hash FROM public.property_embeddings WHERE property_id = :pid"
     )
@@ -24,7 +25,7 @@ async def get_existing_hash(db: AsyncSession, property_id: int) -> Optional[str]
     return row[0] if row else None
 
 
-def _vector_literal(vec: List[float]) -> str:
+def _vector_literal(vec: list[float]) -> str:
     # pgvector expects a literal like: [0.1, 0.2, ...]
     return "[" + ",".join(f"{x:.8f}" for x in vec) + "]"
 
@@ -36,8 +37,8 @@ def _zero_vector_literal(dim: int = 768) -> str:
 async def upsert_embedding(
     db: AsyncSession,
     property_id: int,
-    embedding: List[float] | None,
-    metadata: Dict[str, Any],
+    embedding: list[float] | None,
+    metadata: dict[str, Any],
     emb_text_hash: str,
 ) -> None:
     """Upsert embedding and metadata.
@@ -76,7 +77,7 @@ async def upsert_embedding(
         await db.execute(q, {"pid": property_id, "md_json": _json.dumps(metadata), "hash": emb_text_hash, "zero_vec": zero_vec})
 
 
-async def read_watermark(db: AsyncSession) -> Optional[datetime]:
+async def read_watermark(db: AsyncSession) -> datetime | None:
     q = text("SELECT last_watermark FROM public.vector_sync_state WHERE key = 'properties'")
     res = await db.execute(q)
     row = res.first()

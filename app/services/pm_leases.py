@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
+from app.core.exceptions import BadRequestException, InsufficientPermissionsError
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property
 from app.models.users import User
-from app.services.pm_authz import assert_can_access_property, assert_can_access_lease, assert_can_manage_owner_portfolio
+from app.services.pm_authz import (
+    assert_can_access_lease,
+    assert_can_access_property,
+    assert_can_manage_owner_portfolio,
+)
 
 
 async def create_lease(
@@ -22,22 +25,22 @@ async def create_lease(
     actor: User,
     owner_id: int,
     property_id: int,
-    tenant_user_id: Optional[int],
-    tenant_name: Optional[str],
-    tenant_phone: Optional[str],
-    tenant_email: Optional[str],
+    tenant_user_id: int | None,
+    tenant_name: str | None,
+    tenant_phone: str | None,
+    tenant_email: str | None,
     status: LeaseStatus = LeaseStatus.draft,
     start_date: date,
     end_date: date,
     monthly_rent: float,
     security_deposit: float,
-    late_fee_amount: Optional[float] = None,
-    late_fee_percentage: Optional[float] = None,
+    late_fee_amount: float | None = None,
+    late_fee_percentage: float | None = None,
     grace_period_days: int = 5,
     payment_due_day: int = 1,
-    lease_terms: Optional[dict] = None,
-    special_clauses: Optional[str] = None,
-    lease_document_id: Optional[int] = None,
+    lease_terms: dict | None = None,
+    special_clauses: str | None = None,
+    lease_document_id: int | None = None,
 ) -> Lease:
     await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
     prop = await assert_can_access_property(db, actor=actor, property_id=property_id)
@@ -84,7 +87,7 @@ async def create_lease(
             db.add(lease)
             await db.flush()
     except IntegrityError:
-        raise BadRequestException(detail="Property already has an active lease (concurrent conflict)")
+        raise BadRequestException(detail="Property already has an active lease (concurrent conflict)") from None
     await db.refresh(lease)
 
     # Mark property as managed and set convenience pointers when lease is active.
@@ -101,10 +104,10 @@ async def list_leases(
     db: AsyncSession,
     *,
     actor: User,
-    owner_id: Optional[int] = None,
-    property_id: Optional[int] = None,
-    tenant_user_id: Optional[int] = None,
-    status: Optional[LeaseStatus] = None,
+    owner_id: int | None = None,
+    property_id: int | None = None,
+    tenant_user_id: int | None = None,
+    status: LeaseStatus | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[Lease]:
@@ -168,8 +171,8 @@ async def terminate_lease(
     *,
     actor: User,
     lease_id: int,
-    termination_date: Optional[date] = None,
-    reason: Optional[str] = None,
+    termination_date: date | None = None,
+    reason: str | None = None,
 ) -> Lease:
     lease = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
 
@@ -210,8 +213,8 @@ async def renew_lease(
     lease_id: int,
     start_date: date,
     end_date: date,
-    monthly_rent: Optional[float] = None,
-    security_deposit: Optional[float] = None,
+    monthly_rent: float | None = None,
+    security_deposit: float | None = None,
     make_active: bool = False,
 ) -> Lease:
     old = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)

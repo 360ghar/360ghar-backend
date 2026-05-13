@@ -18,18 +18,21 @@ Usage:
 """
 
 from enum import Enum
-from typing import Optional
 
 from app.config import settings
-from app.core.constants import DEFAULT_VISION_MODEL_GEMINI, DEFAULT_VISION_MODEL_GLM, DEFAULT_VISION_PROVIDER
+from app.core.constants import (
+    DEFAULT_VISION_MODEL_GEMINI,
+    DEFAULT_VISION_MODEL_GLM,
+    DEFAULT_VISION_PROVIDER,
+)
 from app.core.logging import get_logger
 from app.services.ai.base import (
+    AIMessage,
     AIProvider,
     AIProviderConfig,
-    AIMessage,
+    AIProviderError,
     AIRole,
     VisionInput,
-    AIProviderError,
 )
 
 logger = get_logger(__name__)

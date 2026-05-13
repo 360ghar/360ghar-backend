@@ -256,13 +256,62 @@ async def get_properties(
 - Use `X | None` for nullable fields (not `Optional[X]`); `list[X]` and `dict[K, V]` (not `List`, `Dict`); `from __future__ import annotations` at module top
 - Validation with `@field_validator` decorators
 
+### Ruff Lint Rules (enforced in CI)
+
+All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lint` job) runs ruff and will fail on any violation. Key rules to follow:
+
+**Import style (I001, UP035, F401, E402):**
+- Always add `from __future__ import annotations` as the first import in every `.py` file (after any module docstring). This makes forward references work and is required by ruff.
+- Use `list`, `dict`, `set`, `tuple`, `type` instead of `typing.List`, `typing.Dict`, `typing.Set`, `typing.Tuple`, `typing.Type` (ruff UP035/UP006).
+- Import `Callable`, `Awaitable`, `AsyncIterator`, `Sequence` from `collections.abc`, not `typing` (ruff UP035).
+- Remove unused imports immediately — ruff F401 is enforced. Never leave "just in case" imports.
+- All imports must be at the top of the file before any non-import code (E402). If a circular import requires a late import, add `# noqa: E402` with a comment explaining why.
+
+**Type annotations (UP045, UP006, UP007, UP037):**
+- Use `X | None` instead of `Optional[X]` everywhere (UP045).
+- Use `X | Y` instead of `Union[X, Y]` (UP007).
+- Use `list[X]` instead of `List[X]`, `dict[K, V]` instead of `Dict[K, V]`, etc. (UP006).
+- Remove unnecessary quotes in type annotations, e.g. `"User"` → `User` (UP037).
+- For forward references in models, add `from __future__ import annotations` and import the type under `TYPE_CHECKING`:
+  ```python
+  from __future__ import annotations
+  from typing import TYPE_CHECKING
+  if TYPE_CHECKING:
+      from app.models.users import User
+  ```
+
+**Exception handling (B904):**
+- Within `except` blocks, always chain exceptions with `from e` or `from None` (B904). Use `from None` when logging the original exception and raising a new user-facing one (suppresses noisy traceback chaining). Use `from e` when the original exception provides useful debugging context.
+
+**Equality comparisons (E712):**
+- Never compare booleans with `== True` or `== False`. Use the column directly: `Model.is_active` instead of `Model.is_active == True`, `~Model.is_active` or `not_(Model.is_active)` instead of `Model.is_active == False`.
+
+**Variable naming (E741):**
+- Never use single-letter `l` as a variable name — it is visually indistinguishable from `1`. Use descriptive names like `lease`, `line`, `link`, etc.
+
+**Unused variables (F841):**
+- Never assign to a variable and not use it. If you need to ignore a return value, use `_` or `_name`.
+
+**Whitespace (W291, W292, W293):**
+- No trailing whitespace on any line (W291).
+- No whitespace on blank lines (W293).
+- Every file must end with a newline (W292).
+
+**Other enforced rules:**
+- `zip()` must use `strict=` parameter (B905): `zip(a, b, strict=True)`.
+- Use set comprehensions instead of generator expressions passed to `set()` (C401).
+- Remove `f` prefix from f-strings that have no placeholders (F541).
+- Do not redefine a name that is already imported (F811).
+
 ## Dependency & Documentation Policy
 
-- **Always use latest stable versions**: When adding or upgrading dependencies, research the latest stable release. Never pin to outdated versions based on cached knowledge.
-- **Research before integrating**: Before implementing any 3rd party integration (APIs, SDKs, libraries), look up the current official documentation. Do not rely on training data alone — docs change frequently.
-- **Use Context7 MCP or web search**: Use the `context7` MCP tools (`resolve-library-id` + `query-docs`) or `WebSearch`/`WebFetch` to retrieve up-to-date documentation and code examples for any library or service being used.
+- **Always use latest stable versions**: When adding or upgrading dependencies, AI models, SDKs, API versions, or protocol versions, always research and use the latest stable release. Never pin to outdated versions, model names, API signatures, or protocol versions based on cached/training knowledge — these change frequently and are often wrong if not verified.
+- **Research before integrating**: Before implementing any 3rd party integration (APIs, SDKs, libraries, AI models, protocols), look up the current official documentation and latest version. Do not rely on training data alone — docs, APIs, model names, and SDKs change frequently. Always verify from official sources.
+- **Use Context7 MCP or web search**: Use the `context7` MCP tools (`resolve-library-id` + `query-docs`) or `WebSearch`/`WebFetch`/`google_search` to retrieve up-to-date documentation, latest version numbers, API references, and code examples for any library, service, model, or SDK being used.
+- **Verify everything latest**: When referencing package versions, AI/LLM model names, API endpoints or signatures, SDK methods, protocol versions (e.g., MCP protocol version), or any external service reference, always confirm the latest from official sources (docs sites, GitHub releases, PyPI, npm, official changelogs). Never assume a version or API shape from memory.
 - **Verify compatibility**: Confirm that new dependencies are compatible with the project's Python 3.10+ requirement and existing stack (FastAPI, SQLAlchemy 2.x async, Pydantic v2).
 - **Check changelogs for breaking changes**: When upgrading a dependency, review its changelog/migration guide to avoid breaking changes.
+- **Stay current with ecosystem**: Periodically check for newer versions of key dependencies (FastAPI, SQLAlchemy, Pydantic, Supabase, FastMCP, etc.) and update when safe. Prefer latest docs and examples over outdated tutorials or blog posts.
 
 ## Database Models
 

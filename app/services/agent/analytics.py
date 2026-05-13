@@ -1,16 +1,18 @@
-from sqlalchemy import select, func, and_
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
 
 from app.models.agents import Agent
 from app.models.properties import Visit
 from app.models.users import User
 from app.schemas.agent import (
     Agent as AgentSchema,
+)
+from app.schemas.agent import (
     AgentStats,
+    AgentSystemStats,
     AgentWithStats,
     AgentWorkload,
-    AgentSystemStats,
 )
 from app.services.agent.interactions import get_daily_interactions, get_weekly_interactions
 
@@ -20,19 +22,19 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
     stmt = select(Agent).where(Agent.id == agent_id)
     result = await db.execute(stmt)
     agent = result.scalar_one_or_none()
-    
+
     if not agent:
         return None
-    
+
     # Get current active users count
     stmt = select(func.count(User.id)).where(User.agent_id == agent_id)
     result = await db.execute(stmt)
     current_users = result.scalar() or 0
-    
+
     # Get visit stats for efficiency calculation
     stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
     result = await db.execute(stmt)
-    total_visits = result.scalar() or 0
+    result.scalar() or 0
 
     # Get real interaction counts
     daily_interactions = await get_daily_interactions(db, agent_id)
@@ -46,7 +48,7 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
         weekly_interactions=weekly_interactions,
         efficiency_score=_calculate_efficiency_score(agent, current_users)
     )
-    
+
     agent_schema = AgentSchema.model_validate(agent.__dict__)
     return AgentWithStats(
         **agent_schema.model_dump(),
@@ -54,7 +56,7 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
     )
 
 
-async def get_workload_distribution(db: AsyncSession) -> List[AgentWorkload]:
+async def get_workload_distribution(db: AsyncSession) -> list[AgentWorkload]:
     """Get workload distribution across all active agents"""
     stmt = select(
         Agent,
@@ -62,17 +64,17 @@ async def get_workload_distribution(db: AsyncSession) -> List[AgentWorkload]:
     ).outerjoin(
         User, Agent.id == User.agent_id
     ).where(
-        Agent.is_active == True
+        Agent.is_active
     ).group_by(Agent.id)
-    
+
     result = await db.execute(stmt)
     agent_workloads = result.all()
-    
+
     workload = []
     for agent, current_users in agent_workloads:
         max_users = 50  # Default max users
         utilization = (current_users / max_users * 100) if max_users > 0 else 0
-        
+
         workload.append(AgentWorkload(
             agent_id=agent.id,
             agent_name=agent.name,
@@ -81,7 +83,7 @@ async def get_workload_distribution(db: AsyncSession) -> List[AgentWorkload]:
             is_available=agent.is_available,
             queue_length=max(0, current_users - max_users) if current_users > max_users else 0
         ))
-    
+
     return workload
 
 
@@ -91,34 +93,34 @@ async def get_system_stats(db: AsyncSession) -> AgentSystemStats:
     stmt = select(func.count(Agent.id))
     result = await db.execute(stmt)
     total_agents = result.scalar() or 0
-    
+
     # Get active agents count
-    stmt = select(func.count(Agent.id)).where(Agent.is_active == True)
+    stmt = select(func.count(Agent.id)).where(Agent.is_active)
     result = await db.execute(stmt)
     active_agents = result.scalar() or 0
-    
+
     # Get total users served
-    stmt = select(func.sum(Agent.total_users_assigned)).where(Agent.is_active == True)
+    stmt = select(func.sum(Agent.total_users_assigned)).where(Agent.is_active)
     result = await db.execute(stmt)
     total_users_served = result.scalar() or 0
-    
+
     # Get average stats
     stmt = select(
         func.avg(Agent.user_satisfaction_rating)
-    ).where(Agent.is_active == True)
+    ).where(Agent.is_active)
     result = await db.execute(stmt)
     avg_satisfaction = result.scalar() or 0
-    
+
     # Count agents by type
     stmt = select(Agent.agent_type, func.count(Agent.id)).where(
-        Agent.is_active == True
+        Agent.is_active
     ).group_by(Agent.agent_type)
     result = await db.execute(stmt)
     agents_by_type = dict(result.all())
-    
+
     # Get workload distribution
     workload = await get_workload_distribution(db)
-    
+
     return AgentSystemStats(
         total_agents=total_agents,
         active_agents=active_agents,
@@ -135,19 +137,19 @@ def _calculate_efficiency_score(agent: Agent, current_users: int) -> float:
         satisfaction = float(agent.user_satisfaction_rating or 0.0)
         max_users = 50  # Default max users
         utilization = (current_users / max_users * 100) if max_users > 0 else 0
-        
+
         # Default response score since we don't track response time anymore
         response_score = 75  # Assume average performance
-        
+
         # Satisfaction score (0-5 scale, convert to 0-100)
         satisfaction_score = (satisfaction / 5.0) * 100 if satisfaction > 0 else 50
-        
+
         # Utilization score (optimal around 70-80%)
         if utilization <= 80:
             utilization_score = utilization * 1.25  # Reward good utilization
         else:
             utilization_score = max(0, 100 - (utilization - 80) * 2)  # Penalize overload
-        
+
         # Weighted average
         efficiency = (response_score * 0.3 + satisfaction_score * 0.4 + utilization_score * 0.3)
         return round(efficiency, 2)

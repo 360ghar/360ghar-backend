@@ -2,13 +2,14 @@
 import asyncio
 import logging
 from datetime import date
+
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.data_hub import ReraProject
 from app.services.data_hub.base_scraper import BaseScraper
 from app.services.data_hub.utils import generate_slug
-from app.models.data_hub import ReraProject
 
 logger = logging.getLogger(__name__)
 
