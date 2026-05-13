@@ -9,6 +9,7 @@ import app.models.enums as enum_module
 from app.mcp.apps_sdk import AuthRequiredError
 from app.mcp.chatgpt.pm_lease_tools import owner_leases_terminate
 from app.mcp.chatgpt.pm_rent_tools import owner_rent_record_payment, owner_rent_status
+from app.models.enums import RentChargeStatus
 
 
 class _SessionContext:
@@ -239,8 +240,9 @@ async def test_owner_rent_record_payment_success_commits_and_serializes_payment(
 async def test_owner_rent_status_summary_all_current_when_no_outstanding_balance():
     db = AsyncMock()
     user = _build_user()
-    charges = [_build_charge(amount_due=1000, amount_paid=1000, status="paid")]
-    mock_list = AsyncMock(return_value=charges)
+
+    # No unpaid charges returned for any status
+    mock_list = AsyncMock(return_value=[])
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
@@ -252,15 +254,25 @@ async def test_owner_rent_status_summary_all_current_when_no_outstanding_balance
 
     assert _content_text(result) == "All rent is current. No outstanding balances."
     assert result.structured_content["totals"]["total_due"] == 0
-    assert mock_list.await_args.kwargs["status"] == ["pending", "partial", "overdue"]
+    # list_rent_charges is called once per unpaid status
+    assert mock_list.await_count == 3
+    called_statuses = [c.kwargs["status"] for c in mock_list.await_args_list]
+    assert called_statuses == [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
 
 
 @pytest.mark.asyncio
 async def test_owner_rent_status_includes_overdue_counts_in_summary():
     db = AsyncMock()
     user = _build_user()
-    charges = [_build_charge(amount_due=2000, amount_paid=500, status="overdue")]
-    mock_list = AsyncMock(return_value=charges)
+    overdue_charge = _build_charge(amount_due=2000, amount_paid=500, status="overdue")
+
+    async def _list_by_status(*args, **kwargs):
+        status = kwargs.get("status")
+        if status == RentChargeStatus.overdue:
+            return [overdue_charge]
+        return []
+
+    mock_list = AsyncMock(side_effect=_list_by_status)
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
@@ -272,6 +284,8 @@ async def test_owner_rent_status_includes_overdue_counts_in_summary():
 
     assert "1 overdue charges require attention" in _content_text(result)
     assert result.structured_content["totals"]["overdue_count"] == 1
+    # list_rent_charges is called once per unpaid status
+    assert mock_list.await_count == 3
 
 
 @pytest.mark.asyncio

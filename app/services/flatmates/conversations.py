@@ -43,9 +43,9 @@ async def _ensure_conversation(
     if conversation:
         if context_property_id is not None:
             conversation.context_property_id = context_property_id
-        if conversation.status != ConversationStatus.active.value:
-            conversation.status = ConversationStatus.active.value
-        if source == ConversationSource.profile_match.value:
+        if conversation.status != ConversationStatus.active:
+            conversation.status = ConversationStatus.active
+        if source == ConversationSource.profile_match:
             conversation.source = source
         return conversation
 
@@ -287,7 +287,7 @@ async def send_message(
     payload: MessageCreate,
 ) -> UserMessage:
     conversation = await get_conversation(db, conversation_id, user_id)
-    if conversation.status != ConversationStatus.active.value:
+    if conversation.status != ConversationStatus.active:
         raise BadRequestException(detail="Conversation is not active")
 
     body = payload.body.strip() if payload.body else None
@@ -296,7 +296,7 @@ async def send_message(
         sender_id=user_id,
         body=body,
         attachment_url=payload.attachment_url,
-        message_type=payload.message_type.value,
+        message_type=payload.message_type,
         message_metadata=payload.metadata,
     )
     db.add(message)
@@ -366,11 +366,6 @@ async def mark_conversation_read(
             UserMessage.read_at.is_(None),
         )
         .values(read_at=now)
-    )
-    await db.execute(
-        update(UserConversation)
-        .where(UserConversation.id == conversation_id)
-        .values(last_message_at=now)
     )
     await db.commit()
 

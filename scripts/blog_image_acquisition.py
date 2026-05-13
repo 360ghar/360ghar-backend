@@ -100,7 +100,6 @@ def _slugify_search(title: str, focus_keyword: str | None = None, categories: li
         ("virtual reality property", ["virtual tour", "360 tour"]),
         ("green building sustainable", ["sustainability", "green building"]),
         ("home interior design", ["home decor", "interior design"]),
-        ("home garden green", ["garden", "terrace garden"]),
 
         # Infrastructure / policy (specific)
         ("metro city real estate", ["metro"]),

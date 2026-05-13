@@ -405,7 +405,6 @@ class DailyPerplexityBlogPublisher:
 
         # Build structured sources
         sources = []
-        today_str = self._format_perplexity_date(self._today_ist())
         for url in citations:
             parsed = urlparse(url)
             sources.append(BlogSource(

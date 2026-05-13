@@ -239,6 +239,15 @@ class LeaseStatus(str, Enum):
     renewed = "renewed"
 
 
+class PaymentMethod(str, Enum):
+    cash = "cash"
+    bank_transfer = "bank_transfer"
+    upi = "upi"
+    cheque = "cheque"
+    online = "online"
+    other = "other"
+
+
 class RentChargeStatus(str, Enum):
     pending = "pending"
     partial = "partial"

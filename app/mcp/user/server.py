@@ -6,6 +6,8 @@ helper functions used across all user tool sub-modules.
 """
 from __future__ import annotations
 
+from typing import NoReturn
+
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
     AppsSDKFastMCP,
@@ -24,7 +26,7 @@ async def _get_user(db):
     return await get_user_from_mcp_context(db)
 
 
-def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> None:
+def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> NoReturn:
     raise_auth_required(
         message=message,
         error_description=message,

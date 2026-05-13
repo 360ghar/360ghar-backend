@@ -42,13 +42,11 @@ logger = get_logger(__name__)
 
 
 class _AgentRunError(Exception):
-    """Internal error raised when an agent run fails, carrying partial state for fallback."""
+    """Internal error raised when an agent run fails, for fallback handling."""
 
-    def __init__(self, message: str, partial_text: str, tool_calls: int):
+    def __init__(self, message: str):
         super().__init__(message)
         self.message = message
-        self.partial_text = partial_text
-        self.tool_calls = tool_calls
 
 
 def _sse_event(event: str, data: dict[str, Any]) -> str:
@@ -137,7 +135,6 @@ class PydanticAIAgentService:
             base_url=settings.AI_AGENT_API_BASE,
             api_key=settings.AI_AGENT_API_KEY or settings.GLM_API_KEY,
         )
-        self._agent_cache: dict[str, Agent[AgentDeps, str]] = {}
 
     def _create_model(self) -> OpenAIChatModel:
         """Create the primary GLM model with OpenAI-compatible provider."""
@@ -186,18 +183,6 @@ class PydanticAIAgentService:
             agent.tool(func, name=name, description=description)
         return agent
 
-    def _get_agent(self, user_role: str) -> Agent[AgentDeps, str]:
-        """Get or create a cached Agent for the given role.
-
-        Agent instances are reused across requests to avoid repeated
-        allocation of model objects, tool schemas, and system prompts.
-        """
-        if user_role not in self._agent_cache:
-            model = self._create_model()
-            agent = self._build_agent(user_role, model)
-            self._agent_cache[user_role] = agent
-        return self._agent_cache[user_role]
-
     async def _run_agent_stream(
         self,
         agent: Agent[AgentDeps, str],
@@ -205,9 +190,11 @@ class PydanticAIAgentService:
         deps: AgentDeps,
         message_history: list[ModelMessage],
         conversation_id: int | None,
+        *,
+        emit_conversation_info: bool = True,
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         """Core agent streaming logic. Yields (event_name, data) tuples."""
-        if conversation_id is not None:
+        if emit_conversation_info and conversation_id is not None:
             yield ("conversation_info", {"conversation_id": conversation_id})
 
         full_text = ""
@@ -285,7 +272,7 @@ class PydanticAIAgentService:
                 pass
 
         except Exception as e:
-            raise _AgentRunError(str(e), full_text, tool_calls_count) from e
+            raise _AgentRunError(str(e)) from e
 
         done_data: dict[str, Any] = {
             "tool_calls_count": tool_calls_count,
@@ -357,6 +344,7 @@ class PydanticAIAgentService:
             try:
                 async for event_name, event_data in self._run_agent_stream(
                     agent, user_message, deps, message_history, conversation_id,
+                    emit_conversation_info=(idx == 0),
                 ):
                     yield _sse_event(event_name, event_data)
                 return  # Success — stop trying fallbacks

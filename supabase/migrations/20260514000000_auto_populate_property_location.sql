@@ -20,7 +20,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql IMMUTABLE;
+$$ LANGUAGE plpgsql VOLATILE;
 
 -- 3. Attach the trigger to fire before INSERT and UPDATE
 DROP TRIGGER IF EXISTS properties_set_location_trigger ON properties;

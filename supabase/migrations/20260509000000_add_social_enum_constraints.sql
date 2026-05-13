@@ -23,3 +23,11 @@ ALTER TABLE user_reports
         CHECK (reason IN ('spam', 'fake_profile', 'abuse', 'inappropriate', 'other')) NOT VALID,
     ADD CONSTRAINT ck_user_reports_status
         CHECK (status IN ('open', 'reviewed', 'dismissed', 'actioned')) NOT VALID;
+
+-- Validate constraints now that existing data is known clean
+ALTER TABLE user_matches VALIDATE CONSTRAINT ck_user_matches_status;
+ALTER TABLE user_conversations VALIDATE CONSTRAINT ck_user_conversations_source;
+ALTER TABLE user_conversations VALIDATE CONSTRAINT ck_user_conversations_status;
+ALTER TABLE user_messages VALIDATE CONSTRAINT ck_user_messages_message_type;
+ALTER TABLE user_reports VALIDATE CONSTRAINT ck_user_reports_reason;
+ALTER TABLE user_reports VALIDATE CONSTRAINT ck_user_reports_status;

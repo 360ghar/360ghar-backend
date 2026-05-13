@@ -69,12 +69,12 @@ class EnumStringType(TypeDecorator[str]):
             return self.enum_cls(value)
         except ValueError:
             logger.warning(
-                "Unknown %s value %r in database; returning first enum member. "
+                "Unknown %s value %r in database; returning raw string. "
                 "Run a data-cleaning pass to resolve.",
                 self.enum_cls.__name__,
                 value,
             )
-            return next(iter(self.enum_cls))
+            return value
 
 
 def enum_check_constraint(column_name: str, enum_cls: type[SocialEnum], name: str) -> CheckConstraint:

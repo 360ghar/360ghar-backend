@@ -52,6 +52,7 @@ async def owner_rent_status(
 ) -> dict[str, Any]:
     """View rent charges and collection totals for the authenticated owner."""
     try:
+        from app.models.enums import RentChargeStatus
         from app.schemas.user import User as UserSchema
         from app.services.pm_rent import list_rent_charges
 
@@ -69,17 +70,40 @@ async def owner_rent_status(
 
             user_schema = UserSchema.model_validate(user)
 
-            # Get rent charges
-            status_filter = None if include_paid else ["pending", "partial", "overdue"]
-            charges = await list_rent_charges(
-                db,
-                actor=user_schema,
-                owner_id=user.id,
-                property_id=property_id,
-                status=status_filter,
-                limit=limit,
-                offset=(page - 1) * limit,
-            )
+            # list_rent_charges accepts a single RentChargeStatus, not a list.
+            # When excluding paid charges, query each unpaid status and merge.
+            if include_paid:
+                charges = await list_rent_charges(
+                    db,
+                    actor=user_schema,
+                    owner_id=user.id,
+                    property_id=property_id,
+                    status=None,
+                    limit=limit,
+                    offset=(page - 1) * limit,
+                )
+            else:
+                unpaid_statuses = [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
+                all_charges: list = []
+                for s in unpaid_statuses:
+                    batch = await list_rent_charges(
+                        db,
+                        actor=user_schema,
+                        owner_id=user.id,
+                        property_id=property_id,
+                        status=s,
+                        limit=limit,
+                        offset=0,
+                    )
+                    all_charges.extend(batch)
+                # Sort by due_date ascending (matching service default) and paginate
+                def _sort_key(c: Any) -> Any:
+                    charge_obj = c.get("charge") if isinstance(c, dict) and "charge" in c else c
+                    return getattr(charge_obj, "due_date", None) or ""
+
+                all_charges.sort(key=_sort_key)
+                offset = (page - 1) * limit
+                charges = all_charges[offset : offset + limit]
 
             serialized = [_serialize_rent_charge(c) for c in charges]
 
