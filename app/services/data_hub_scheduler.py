@@ -7,7 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

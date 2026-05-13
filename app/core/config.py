@@ -1,9 +1,18 @@
+import os
 from pathlib import Path
 
 from pydantic import ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
+
+_ENV_FILE_MAP = {
+    "development": ".env.dev",
+    "test": ".env.test",
+    "production": ".env.prod",
+}
+_CURRENT_ENV = os.getenv("ENVIRONMENT", "development")
+_ENV_FILE = _ENV_FILE_MAP.get(_CURRENT_ENV, ".env.dev")
 
 
 class Settings(BaseSettings):
@@ -130,29 +139,41 @@ class Settings(BaseSettings):
     # ── AI Providers ─────────────────────────────────────────────────────────────
     # Gemini
     GOOGLE_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3-flash-preview"
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
     GEMINI_EMBED_MODEL: str = "text-embedding-004"
     # GLM (ZhipuAI) — used for Vastu and other AI features
     GLM_API_KEY: str | None = None
-    GLM_API_URL: str = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
-    GLM_MODEL: str = "glm-4.6v-flash"
+    GLM_API_URL: str = "https://api.z.ai/api/coding/paas/v4/chat/completions"
+    GLM_MODEL: str = "glm-5v-turbo"
     # Vastu analyzer
     VASTU_DEFAULT_PROVIDER: str = "glm"  # "gemini" or "glm"
     VASTU_FALLBACK_PROVIDER: str = ""  # Auto-derived if empty (swaps to the other provider)
-    # Pydantic AI Agent
-    AI_AGENT_MODEL: str = "glm-4.7-flash"  # ZhipuAI GLM-4.7-Flash
-    # Note: Base URL excludes /chat/completions as Pydantic AI adds it automatically
-    AI_AGENT_API_BASE: str = "https://open.bigmodel.cn/api/paas/v4"  # ZhipuAI base URL
+    # Pydantic AI Agent — fallback chain: GLM -> Gemini -> Groq
+    AI_AGENT_MODEL: str = "glm-4.7-flash"  # ZhipuAI GLM-4.7-Flash (primary)
+    AI_AGENT_API_BASE: str = "https://api.z.ai/api/coding/paas/v4"
+    AI_AGENT_API_KEY: str | None = None  # Defaults to GLM_API_KEY
     AI_AGENT_FALLBACK_MODEL: str | None = None
+    AI_AGENT_FALLBACK_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    AI_AGENT_FALLBACK_API_KEY: str | None = None  # Defaults to GOOGLE_API_KEY
+    AI_AGENT_FALLBACK2_MODEL: str = "llama-3.3-70b-versatile"
+    AI_AGENT_FALLBACK2_API_BASE: str = "https://api.groq.com/openai/v1"
+    AI_AGENT_FALLBACK2_API_KEY: str | None = None  # Groq API key
     AI_AGENT_MAX_TOKENS: int = 64096
     AI_AGENT_TEMPERATURE: float = 0.7
     AI_AGENT_MAX_HISTORY: int = 50
+    # Groq
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    GROQ_API_BASE: str = "https://api.groq.com/openai/v1"
     # Perplexity (web search for blog & agent)
     PERPLEXITY_API_KEY: str | None = None
     PERPLEXITY_MODEL: str = "sonar"
     # SerpAPI (Google Images search for blog)
     SERPAPI_API_KEY: str | None = None
     SERPAPI_SEARCH_ENDPOINT: str = "https://serpapi.com/search.json"
+    # Image APIs (blog cover image acquisition)
+    PIXABAY_API_KEY: str | None = None
+    PEXELS_API_KEY: str | None = None
 
     # ── Blog Auto-Publish ────────────────────────────────────────────────────────
     AUTO_BLOG_ENABLED: bool = False
@@ -211,8 +232,9 @@ class Settings(BaseSettings):
     VECTOR_SYNC_MAX_RETRIES: int = 3
 
     model_config = SettingsConfigDict(
-        env_file=str(BASE_DIR / ".env"),
+        env_file=str(BASE_DIR / _ENV_FILE),
         case_sensitive=True,
+        extra="ignore",
     )
 
 

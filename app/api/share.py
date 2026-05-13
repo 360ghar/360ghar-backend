@@ -17,7 +17,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
+from app.config import settings
 from app.core.database import get_db
 from app.models.enums import TourStatus
 from app.models.tours import Scene, Tour

@@ -104,6 +104,9 @@ celerybeat.pid
 
 # Environments
 .env
+.env.dev
+.env.test
+.env.prod
 .venv
 env/
 venv/
@@ -155,3 +158,20 @@ mcp.json
 .mcp.json
 .agents/
 /tools/
+
+# Generated seed data (Category 3 — recreated at runtime)
+seed_data/generated/
+
+# Supabase database backups (large, regenerated on demand)
+supabase-backup/
+seed_data/
+
+# Playwright MCP local config
+.playwright-mcp/
+
+# Supabase temp files
+supabase/.temp/
+
+# Local screenshot artifacts
+blog_check_1886.png
+blog_verify_full.png

@@ -103,7 +103,8 @@ app/
 supabase/
 └── migrations/          # Database schema migrations
 
-populate_data/           # Data population scripts
+populate_data/           # Legacy data files (preserved for reference)
+seed_data/               # Data seeding system (hardcoded, seed, generated categories)
 tests/                   # Test files
 ```
 
@@ -233,11 +234,15 @@ All endpoints are prefixed with `/api/v1`.
 
 7. **Load sample data (optional):**
    ```bash
-   # Quick load (~51 properties)
-   uv run python populate_data/load_comprehensive_data.py --quick
+   # Load all seed data (hardcoded + generated)
+   uv run python seed_data/01_load_all.py
 
-   # Full load (~300 properties)
-   uv run python populate_data/load_comprehensive_data.py
+   # Quick mode — skip generated activity
+   uv run python seed_data/01_load_all.py --only hardcoded,seed
+
+   # Clear and reload
+   uv run python seed_data/02_clear_data.py --confirm
+   uv run python seed_data/01_load_all.py
    ```
 
 8. **Start the application:**
@@ -355,7 +360,7 @@ NOTIF_SCHED_TZ=Asia/Kolkata
 
 # Vector Embeddings / Semantic Search
 GOOGLE_API_KEY=
-GEMINI_MODEL=gemini-3-flash-preview
+GEMINI_MODEL=gemini-3.1-flash-lite-preview
 GEMINI_EMBED_MODEL=text-embedding-004
 VECTOR_SYNC_ENABLED=true
 # Either provide CRON schedule or interval seconds (defaults to CRON below)

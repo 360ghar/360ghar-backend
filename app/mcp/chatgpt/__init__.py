@@ -21,7 +21,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import RESOURCE_MIME_TYPE
 

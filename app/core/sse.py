@@ -45,6 +45,7 @@ class SSEEventBus:
 
         Must be called from an async context (e.g., ``await sse_bus.emit(...)``).
         """
+        should_reap = False
         async with self._lock:
             queues = self._queues.get(user_id)
             if not queues:
@@ -62,26 +63,36 @@ class SSEEventBus:
                     except asyncio.QueueFull:
                         logger.warning("SSE queue full for user %s, dropping event", user_id)
 
-            # Every 100 emits, sweep dead queues across all users
             self._emit_count += 1
             if self._emit_count % 100 == 0:
-                self._reap_dead_queues()
+                should_reap = True
 
-    def _reap_dead_queues(self) -> None:
-        """Remove queues that have been full (abandoned consumers).
+        if should_reap:
+            await self._reap_dead_queues_async()
 
-        A queue that is merely slow (not full) will be left alone.
-        If all queues for a user are full, the user entry is removed entirely.
-        """
-        stale_users = []
-        for user_id, queues in self._queues.items():
+    async def _reap_dead_queues_async(self) -> None:
+        """Collect stale queue info under a brief lock, then reap."""
+        async with self._lock:
+            snapshot = {
+                uid: list(queues) for uid, queues in self._queues.items()
+            }
+
+        stale_users: list[int] = []
+        for uid, queues in snapshot.items():
             alive = [q for q in queues if not q.full()]
             if alive:
-                queues[:] = alive
+                async with self._lock:
+                    current = self._queues.get(uid)
+                    if current is not None:
+                        current[:] = alive
             else:
-                stale_users.append(user_id)
-        for uid in stale_users:
-            del self._queues[uid]
+                stale_users.append(uid)
+
+        if stale_users:
+            async with self._lock:
+                for uid in stale_users:
+                    if uid in self._queues and not self._queues[uid]:
+                        del self._queues[uid]
 
 
 sse_bus = SSEEventBus()

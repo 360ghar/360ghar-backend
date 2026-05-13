@@ -5,7 +5,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.vector.sync import run_property_vector_sync
 

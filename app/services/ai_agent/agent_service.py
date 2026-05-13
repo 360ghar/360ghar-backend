@@ -32,13 +32,23 @@ from pydantic_ai.messages import (
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.mcp.chatgpt import get_widget_name_for_tool
 from app.services.ai_agent.system_prompt import get_system_prompt
 from app.services.ai_agent.tools import AgentDeps, get_tools_for_role
 
 logger = get_logger(__name__)
+
+
+class _AgentRunError(Exception):
+    """Internal error raised when an agent run fails, carrying partial state for fallback."""
+
+    def __init__(self, message: str, partial_text: str, tool_calls: int):
+        super().__init__(message)
+        self.message = message
+        self.partial_text = partial_text
+        self.tool_calls = tool_calls
 
 
 def _sse_event(event: str, data: dict[str, Any]) -> str:
@@ -115,22 +125,66 @@ def _build_message_history(
 
 
 class PydanticAIAgentService:
-    """Manages a Pydantic AI Agent instance per model configuration."""
+    """Manages a Pydantic AI Agent instance per model configuration.
+
+    Fallback chain: GLM (primary) -> Gemini -> Groq.
+    If the primary provider fails, the next provider in the chain is tried.
+    """
 
     def __init__(self, model: str | None = None):
         self.model_name = model or settings.AI_AGENT_MODEL
-        self._provider = OpenAIProvider(
+        self._primary_provider = OpenAIProvider(
             base_url=settings.AI_AGENT_API_BASE,
-            api_key=settings.GLM_API_KEY,
+            api_key=settings.AI_AGENT_API_KEY or settings.GLM_API_KEY,
         )
         self._agent_cache: dict[str, Agent[AgentDeps, str]] = {}
 
     def _create_model(self) -> OpenAIChatModel:
-        """Create the GLM model with OpenAI-compatible provider."""
+        """Create the primary GLM model with OpenAI-compatible provider."""
         return OpenAIChatModel(
             self.model_name,
-            provider=self._provider,
+            provider=self._primary_provider,
         )
+
+    def _get_fallback_model(self) -> OpenAIChatModel | None:
+        """Create the Gemini fallback model if configured."""
+        fb_model = settings.AI_AGENT_FALLBACK_MODEL
+        if not fb_model:
+            return None
+        fb_key = settings.AI_AGENT_FALLBACK_API_KEY or settings.GOOGLE_API_KEY
+        if not fb_key:
+            return None
+        provider = OpenAIProvider(
+            base_url=settings.AI_AGENT_FALLBACK_API_BASE,
+            api_key=fb_key,
+        )
+        return OpenAIChatModel(fb_model, provider=provider)
+
+    def _get_fallback2_model(self) -> OpenAIChatModel | None:
+        """Create the Groq fallback model if configured."""
+        fb2_model = settings.AI_AGENT_FALLBACK2_MODEL
+        if not fb2_model:
+            return None
+        fb2_key = settings.AI_AGENT_FALLBACK2_API_KEY or settings.GROQ_API_KEY
+        if not fb2_key:
+            return None
+        provider = OpenAIProvider(
+            base_url=settings.AI_AGENT_FALLBACK2_API_BASE,
+            api_key=fb2_key,
+        )
+        return OpenAIChatModel(fb2_model, provider=provider)
+
+    def _build_agent(self, user_role: str, model: OpenAIChatModel) -> Agent[AgentDeps, str]:
+        """Build an Agent with the given model and role-specific tools."""
+        tools = get_tools_for_role(user_role)
+        agent: Agent[AgentDeps, str] = Agent(
+            model,
+            system_prompt=get_system_prompt(user_role),
+            retries=2,
+        )
+        for name, func, description in tools:
+            agent.tool(func, name=name, description=description)
+        return agent
 
     def _get_agent(self, user_role: str) -> Agent[AgentDeps, str]:
         """Get or create a cached Agent for the given role.
@@ -139,17 +193,107 @@ class PydanticAIAgentService:
         allocation of model objects, tool schemas, and system prompts.
         """
         if user_role not in self._agent_cache:
-            tools = get_tools_for_role(user_role)
             model = self._create_model()
-            agent: Agent[AgentDeps, str] = Agent(
-                model,
-                system_prompt=get_system_prompt(user_role),
-                retries=2,
-            )
-            for name, func, description in tools:
-                agent.tool(func, name=name, description=description)
+            agent = self._build_agent(user_role, model)
             self._agent_cache[user_role] = agent
         return self._agent_cache[user_role]
+
+    async def _run_agent_stream(
+        self,
+        agent: Agent[AgentDeps, str],
+        user_message: str,
+        deps: AgentDeps,
+        message_history: list[ModelMessage],
+        conversation_id: int | None,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """Core agent streaming logic. Yields (event_name, data) tuples."""
+        if conversation_id is not None:
+            yield ("conversation_info", {"conversation_id": conversation_id})
+
+        full_text = ""
+        tool_calls_count = 0
+
+        try:
+            async with agent.iter(
+                user_message,
+                deps=deps,
+                message_history=message_history,
+            ) as run:
+                async for node in run:
+                    if Agent.is_model_request_node(node):
+                        async with node.stream(run.ctx) as request_stream:
+                            async for event in request_stream:
+                                if isinstance(event, PartStartEvent):
+                                    if isinstance(event.part, TextPart) and event.part.content:
+                                        text = event.part.content
+                                        full_text += text
+                                        yield ("text_chunk", {"text": text})
+                                elif isinstance(event, PartDeltaEvent):
+                                    if isinstance(event.delta, TextPartDelta):
+                                        text = event.delta.content_delta
+                                        full_text += text
+                                        yield ("text_chunk", {"text": text})
+
+                    elif Agent.is_call_tools_node(node):
+                        async with node.stream(run.ctx) as handle_stream:
+                            async for event in handle_stream:
+                                if isinstance(event, FunctionToolCallEvent):
+                                    call_id = (
+                                        event.part.tool_call_id
+                                        or f"tc_{uuid.uuid4().hex[:8]}"
+                                    )
+                                    tool_calls_count += 1
+                                    yield ("tool_call_start", {
+                                        "call_id": call_id,
+                                        "tool": event.part.tool_name,
+                                    })
+                                elif isinstance(event, FunctionToolResultEvent):
+                                    call_id = event.tool_call_id or "unknown"
+                                    result_part = event.result
+                                    is_retry = isinstance(result_part, RetryPromptPart)
+                                    tool_name = getattr(result_part, "tool_name", None) or "unknown"
+                                    yield ("tool_call_end", {
+                                        "call_id": call_id,
+                                        "tool": tool_name,
+                                        "success": not is_retry,
+                                        "summary": _summarize_result(
+                                            getattr(result_part, "content", "")
+                                        ),
+                                    })
+                                    if not is_retry:
+                                        widget_name = get_widget_name_for_tool(tool_name)
+                                        if widget_name:
+                                            result_data = result_part.content
+                                            if isinstance(result_data, str):
+                                                try:
+                                                    result_data = json.loads(result_data)
+                                                except (json.JSONDecodeError, TypeError):
+                                                    result_data = {"raw": result_data}
+                                            yield ("widget", {
+                                                "widget_name": widget_name,
+                                                "structured_content": result_data,
+                                            })
+
+            try:
+                final_output = run.result.output
+                if isinstance(final_output, str) and final_output:
+                    if not full_text:
+                        yield ("text_chunk", {"text": final_output})
+                    if len(final_output) >= len(full_text):
+                        full_text = final_output
+            except Exception:
+                pass
+
+        except Exception as e:
+            raise _AgentRunError(str(e), full_text, tool_calls_count) from e
+
+        done_data: dict[str, Any] = {
+            "tool_calls_count": tool_calls_count,
+            "response_text": full_text,
+        }
+        if conversation_id is not None:
+            done_data["conversation_id"] = conversation_id
+        yield ("done", done_data)
 
     async def stream_response(
         self,
@@ -166,6 +310,9 @@ class PydanticAIAgentService:
         Uses agent.iter() for node-by-node streaming so tool call events
         are interleaved with text chunks in real time.
 
+        Fallback chain: GLM (primary) -> Gemini -> Groq.
+        If the primary provider fails, the next in chain is tried.
+
         Pass user_role="guest" with user=None for unauthenticated requests.
         conversation_id=None is allowed for stateless (guest) sessions.
 
@@ -174,121 +321,56 @@ class PydanticAIAgentService:
             text_chunk         — partial text from the model
             tool_call_start    — agent is invoking a tool
             tool_call_end      — tool returned a result
+            fallback           — primary failed, switching to fallback provider
             done               — stream finished
-            error              — something went wrong
+            error              — all providers failed
         """
         role = user_role or getattr(user, "role", "user")
-        agent = self._get_agent(role)
         deps = AgentDeps(user=user, db=db, user_role=role)
-
-        # Build message history for context
         message_history = _build_message_history(conversation_history)
 
-        if conversation_id is not None:
-            yield _sse_event("conversation_info", {
-                "conversation_id": conversation_id,
-            })
+        # Build the fallback chain of (label, agent) pairs
+        candidates: list[tuple[str, Agent[AgentDeps, str]]] = []
+        primary_model = self._create_model()
+        candidates.append((self.model_name, self._build_agent(role, primary_model)))
 
-        full_text = ""
-        tool_calls_count = 0
-        had_error = False
+        fb1_model = self._get_fallback_model()
+        if fb1_model:
+            fb1_name = settings.AI_AGENT_FALLBACK_MODEL
+            candidates.append((fb1_name, self._build_agent(role, fb1_model)))
 
-        try:
-            async with agent.iter(
-                user_message,
-                deps=deps,
-                message_history=message_history,
-            ) as run:
-                async for node in run:
-                    if Agent.is_model_request_node(node):
-                        # Stream text deltas from the model
-                        async with node.stream(run.ctx) as request_stream:
-                            async for event in request_stream:
-                                if isinstance(event, PartStartEvent):
-                                    if isinstance(event.part, TextPart) and event.part.content:
-                                        text = event.part.content
-                                        full_text += text
-                                        yield _sse_event(
-                                            "text_chunk", {"text": text}
-                                        )
-                                elif isinstance(event, PartDeltaEvent):
-                                    if isinstance(event.delta, TextPartDelta):
-                                        text = event.delta.content_delta
-                                        full_text += text
-                                        yield _sse_event(
-                                            "text_chunk", {"text": text}
-                                        )
+        fb2_model = self._get_fallback2_model()
+        if fb2_model:
+            fb2_name = settings.AI_AGENT_FALLBACK2_MODEL
+            candidates.append((fb2_name, self._build_agent(role, fb2_model)))
 
-                    elif Agent.is_call_tools_node(node):
-                        # Stream tool call/result events
-                        async with node.stream(run.ctx) as handle_stream:
-                            async for event in handle_stream:
-                                if isinstance(event, FunctionToolCallEvent):
-                                    call_id = (
-                                        event.part.tool_call_id
-                                        or f"tc_{uuid.uuid4().hex[:8]}"
-                                    )
-                                    tool_calls_count += 1
-                                    yield _sse_event("tool_call_start", {
-                                        "call_id": call_id,
-                                        "tool": event.part.tool_name,
-                                    })
-                                elif isinstance(event, FunctionToolResultEvent):
-                                    call_id = event.tool_call_id or "unknown"
-                                    result_part = event.result
-                                    is_retry = isinstance(result_part, RetryPromptPart)
-                                    tool_name = getattr(result_part, "tool_name", None) or "unknown"
-                                    yield _sse_event("tool_call_end", {
-                                        "call_id": call_id,
-                                        "tool": tool_name,
-                                        "success": not is_retry,
-                                        "summary": _summarize_result(
-                                            getattr(result_part, "content", "")
-                                        ),
-                                    })
-                                    # Emit widget event if tool has an associated widget
-                                    if not is_retry:
-                                        widget_name = get_widget_name_for_tool(tool_name)
-                                        if widget_name:
-                                            result_data = result_part.content
-                                            if isinstance(result_data, str):
-                                                try:
-                                                    result_data = json.loads(result_data)
-                                                except (json.JSONDecodeError, TypeError):
-                                                    result_data = {"raw": result_data}
-                                            yield _sse_event("widget", {
-                                                "widget_name": widget_name,
-                                                "structured_content": result_data,
-                                            })
+        last_error: str | None = None
 
-            # Use run.result.output as the authoritative final text
+        for idx, (label, agent) in enumerate(candidates):
+            if idx > 0:
+                logger.warning("Primary agent failed; falling back to %s", label)
+                yield _sse_event("fallback", {
+                    "provider": label,
+                    "reason": last_error or "unknown",
+                })
+
             try:
-                final_output = run.result.output
-                if isinstance(final_output, str) and final_output:
-                    if not full_text:
-                        yield _sse_event("text_chunk", {"text": final_output})
-                    if len(final_output) >= len(full_text):
-                        full_text = final_output
-            except Exception:
-                pass
+                async for event_name, event_data in self._run_agent_stream(
+                    agent, user_message, deps, message_history, conversation_id,
+                ):
+                    yield _sse_event(event_name, event_data)
+                return  # Success — stop trying fallbacks
+            except _AgentRunError as exc:
+                last_error = exc.message
+                logger.error("Agent run error with %s: %s", label, exc.message)
+                continue
 
-        except Exception as e:
-            logger.error("Agent stream error: %s", e, exc_info=True)
-            had_error = True
-            yield _sse_event("error", {
-                "code": "AGENT_ERROR",
-                "message": str(e)[:200],
-                "recoverable": True,
-            })
-
-        if not had_error:
-            done_data: dict[str, Any] = {
-                "tool_calls_count": tool_calls_count,
-                "response_text": full_text,
-            }
-            if conversation_id is not None:
-                done_data["conversation_id"] = conversation_id
-            yield _sse_event("done", done_data)
+        # All providers failed
+        yield _sse_event("error", {
+            "code": "AGENT_ERROR",
+            "message": f"All providers failed. Last error: {last_error}"[:200],
+            "recoverable": False,
+        })
 
 
 def _summarize_result(content: Any, max_len: int = 100) -> str:

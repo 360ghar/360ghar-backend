@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_supabase_storage_client
-from app.core.config import settings
+from app.config import settings
 from app.core.exceptions import (
     BaseAPIException,
     BadRequestException,

@@ -8,7 +8,7 @@ from typing import Optional
 
 from fastapi import UploadFile
 
-from app.core.config import settings
+from app.config import settings
 
 # ── Valid MIME type sets ────────────────────────────────────────────────
 

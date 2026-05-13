@@ -11,7 +11,7 @@ from fastapi.responses import Response
 from sentry_sdk.integrations.logging import LoggingIntegration
 from sqlalchemy import text
 
-from app.core.config import settings
+from app.config import settings
 from app.core.db_resilience import is_transient_db_error
 from app.core.logging import get_logger, setup_logging
 from app.core.utils import utc_now_iso

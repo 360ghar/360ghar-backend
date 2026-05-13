@@ -14,7 +14,7 @@ import anyio
 import httpx
 from pydantic import BaseModel, HttpUrl, field_validator
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.services.oauth_token_store import oauth_token_store
 

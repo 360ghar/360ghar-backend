@@ -46,6 +46,9 @@ class StorageFolder(Enum):
     # Agent avatars (NOT user-scoped - at root level)
     AGENT_AVATAR = "agents/{agent_id}/avatars"
 
+    # Blog cover images (NOT user-scoped - at root level)
+    BLOG_COVER = "blog-covers"
+
 
 def sanitize_filename(filename: str, max_length: int = 50) -> str:
     """

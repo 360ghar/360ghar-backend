@@ -5,7 +5,7 @@ from typing import Optional, Sequence
 
 from fastmcp.server.auth import AccessToken, RemoteAuthProvider, TokenVerifier
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 
 

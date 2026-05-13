@@ -16,7 +16,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
+from app.config import settings
 from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
 from app.models.blogs import BlogPost
@@ -394,11 +394,41 @@ class DailyPerplexityBlogPublisher:
         )
 
     def _build_blog_payload(self, *, item: DiscoveredNewsItem, draft: GeneratedBlogDraft) -> BlogPostCreate:
+        from app.schemas.blog import BlogSEOMetadata, BlogSource
+
         citations = self._unique_urls([*draft.citations, *item.citations, item.source_url])
         content_html = self._append_sources_section(draft.content_html, citations)
         sanitized_content = ValidationUtils.sanitize_html(content_html)
         excerpt = draft.excerpt.strip() or self._build_excerpt(sanitized_content)
         tags = self._merge_tags(DEFAULT_TAGS, item.tags, draft.tags)
+        today_iso = self._today_ist().isoformat()
+
+        # Build structured sources
+        sources = []
+        today_str = self._format_perplexity_date(self._today_ist())
+        for url in citations:
+            parsed = urlparse(url)
+            sources.append(BlogSource(
+                url=url,
+                name=parsed.netloc or url,
+                type="article",
+                retrieved_at=today_iso,
+            ))
+        # Mark the primary source
+        if item.source_url:
+            for s in sources:
+                if s.url == item.source_url:
+                    s.type = "primary"
+                    break
+
+        # Build SEO metadata
+        meta_title = draft.title.strip()[:60]
+        meta_description = excerpt[:160]
+        focus_keyword = " ".join(item.tags[:2]) if item.tags else None
+        seo_metadata = BlogSEOMetadata(
+            trending_score=70.0,  # Default trending score for auto-discovered news
+            secondary_keywords=item.tags,
+        )
 
         return BlogPostCreate(
             title=draft.title.strip(),
@@ -408,6 +438,11 @@ class DailyPerplexityBlogPublisher:
             categories=list(DEFAULT_CATEGORIES),
             tags=tags,
             active=True,
+            meta_title=meta_title,
+            meta_description=meta_description,
+            focus_keyword=focus_keyword,
+            sources=sources,
+            seo_metadata=seo_metadata,
         )
 
     def _filter_discovered_items(

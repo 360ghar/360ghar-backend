@@ -6,7 +6,7 @@ import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
-from app.core.config import settings
+from app.config import settings
 from app.core.exceptions import BaseAPIException
 from app.core.logging import get_logger
 

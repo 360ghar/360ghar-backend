@@ -21,7 +21,7 @@ from fastmcp.server.dependencies import get_http_request
 from fastmcp.tools.tool import ToolResult
 from mcp import types as mcp_types
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

@@ -299,7 +299,7 @@ async def get_tour_qr_code(
         )
 
     # Generate tour URL - use PUBLIC_BASE_URL if configured
-    from app.core.config import settings
+    from app.config import settings
     base_url = settings.PUBLIC_BASE_URL or "https://360ghar.com"
     tour_url = f"{base_url}/tour/{tour_id}"
 

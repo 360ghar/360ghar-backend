@@ -152,7 +152,7 @@ async def test_app(db_session: AsyncSession):
     but not in the factory.
     """
     from app.core.database import get_db
-    from app.core.config import settings
+    from app.config import settings
 
     app = create_app(testing=True)
 

@@ -59,8 +59,8 @@ async def analyze_floor_plan(
     - `unknown`: Not sure (AI will attempt to detect)
 
     **AI Provider Options:**
-    - `gemini`: Google Gemini (recommended, default)
-    - `glm`: ZhipuAI GLM-4.6V-Flash
+    - `glm`: ZhipuAI GLM-5V-Turbo (default)
+    - `gemini`: Google Gemini 3.1 Flash-Lite
     """
     # Validate file type
     content_type = image.content_type or ""

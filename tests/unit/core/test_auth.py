@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.core.auth import SupabaseClientManager
-from app.core.config import settings
+from app.config import settings
 
 
 class TestGetSupabaseClients:

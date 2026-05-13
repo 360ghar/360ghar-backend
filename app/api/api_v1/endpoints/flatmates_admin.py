@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
+from app.core.logging import get_logger
 from app.models.enums import (
     ListingModerationStatus,
     ModerationAction,
@@ -26,6 +27,8 @@ from app.schemas.flatmates_admin import (
 from app.schemas.flatmates_admin import serialize_report as _serialize_report
 from app.schemas.user import User as UserSchema
 from app.services.flatmates import pause_expired_flatmate_listings, prescreen_flatmate_listing
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -180,7 +183,7 @@ async def moderate_listing(
             },
         )
     except Exception:  # noqa: BLE001
-        pass  # best-effort
+        logger.warning("SSE emit for listing_status_changed failed (best-effort)")
 
     from app.services.push_notification import notify_listing_approved
 

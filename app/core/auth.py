@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from supabase import Client, ClientOptions, create_client
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.models.enums import UserRole
 from app.mcp.apps_sdk import (

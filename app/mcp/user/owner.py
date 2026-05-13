@@ -96,6 +96,7 @@ async def owner_properties_list(
                     },
                 )
 
+            clamped_limit = min(max(1, limit), 100)
             return await list_properties_enriched(
                 db,
                 actor=user,
@@ -103,7 +104,7 @@ async def owner_properties_list(
                 occupancy=occupancy,
                 q=q,
                 page=page,
-                limit=limit,
+                limit=clamped_limit,
             )
     except AuthRequiredError:
         raise

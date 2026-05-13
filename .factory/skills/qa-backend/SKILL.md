@@ -219,7 +219,7 @@ Authorization: Bearer <supabase-jwt-token>
 
 5. **AI provider timeouts.** Vastu analysis and AI agent calls may take 10-30 seconds. Use `--max-time 60` with curl for these endpoints.
 
-6. **Empty database.** Property search returns empty if no data is loaded. Run `uv run python populate_data/load_comprehensive_data.py --quick` to seed test data.
+6. **Empty database.** Property search returns empty if no data is loaded. Run `uv run python seed_data/01_load_all.py --only hardcoded,seed` to seed test data.
 
 7. **MCP tool auth challenge format.** MCP tools requiring auth return a 401 with `WWW-Authenticate: Bearer resource_metadata="..."` header. This is expected -- not a failure.
 

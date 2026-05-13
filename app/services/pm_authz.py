@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +19,14 @@ from app.models.properties import Property, PropertyAmenity
 from app.models.users import User
 
 
-def _get_actor_role(actor) -> UserRole:
+@runtime_checkable
+class _Actor(Protocol):
+    id: int
+    role: UserRole | str
+    agent_id: int | None
+
+
+def _get_actor_role(actor: _Actor) -> UserRole:
     """Return the UserRole for the given actor.
 
     The model column now stores a UserRole enum directly.
@@ -35,7 +43,7 @@ def _get_actor_role(actor) -> UserRole:
 
 
 async def assert_can_manage_owner_portfolio(
-    db: AsyncSession, *, actor: User, owner_id: int
+    db: AsyncSession, *, actor: _Actor, owner_id: int
 ) -> None:
     """Assert the actor can manage an owner's portfolio (PM scope)."""
     role = _get_actor_role(actor)
@@ -67,7 +75,7 @@ async def assert_can_manage_owner_portfolio(
 async def assert_can_access_property(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: _Actor,
     property_id: int,
     allow_tenant: bool = False,
 ) -> Property:
@@ -123,7 +131,7 @@ async def assert_can_access_property(
 async def assert_can_access_lease(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: _Actor,
     lease_id: int,
 ) -> Lease:
     """Assert the actor can access a lease."""
@@ -164,7 +172,7 @@ async def assert_can_access_lease(
     raise InsufficientPermissionsError("Not authorized for this lease")
 
 
-async def get_accessible_owner_ids(db: AsyncSession, *, actor: User) -> Sequence[int] | None:
+async def get_accessible_owner_ids(db: AsyncSession, *, actor: _Actor) -> Sequence[int] | None:
     """Return owner ids the actor can access for PM list endpoints.
 
     - admin: None (no filtering)
@@ -185,7 +193,7 @@ async def get_accessible_owner_ids(db: AsyncSession, *, actor: User) -> Sequence
 async def can_access_booking(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: _Actor,
     booking_user_id: int,
     booking_property_id: int,
 ) -> bool:
@@ -218,7 +226,7 @@ async def can_access_booking(
 async def can_access_visit(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: _Actor,
     visit_user_id: int,
     visit_property_id: int,
     visit_counterparty_user_id: int | None = None,

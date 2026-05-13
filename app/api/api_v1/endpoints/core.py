@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 logger = logging.getLogger(__name__)
 
 from app.core.database import get_db
-from app.core.config import settings
+from app.config import settings
 from app.core.cache import CacheKeyPatterns, cached, invalidate_cache
 from app.api.api_v1.dependencies.auth import get_current_active_user, get_current_admin
 from app.models.enums import UserRole

@@ -35,7 +35,7 @@ def get_cache_manager() -> CacheManager:
     """
     global _cache_manager
     if _cache_manager is None:
-        from app.core.config import settings
+        from app.config import settings
 
         _cache_manager = CacheManager.create_from_config(settings)
     return _cache_manager

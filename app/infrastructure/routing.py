@@ -10,7 +10,7 @@ from app.api.api_v1.api import api_router
 from app.api.api_v1.endpoints.oauth import oauth_mcp_router, oauth_wellknown_router
 from app.api.api_v1.endpoints.websocket import router as ws_router
 from app.api.share import router as share_router
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)

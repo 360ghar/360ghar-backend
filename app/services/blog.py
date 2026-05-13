@@ -2,7 +2,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import selectinload
 from typing import Optional, List, Tuple
-from app.core.config import settings
+from datetime import datetime, UTC
+import re as _re
+from app.config import settings
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.cache import cached, CacheKeyPatterns
 from app.core.logging import get_logger
@@ -23,6 +25,68 @@ def _slugify(value: str) -> str:
     value = re.sub(r"\s+", "-", value)
     value = re.sub(r"-+", "-", value)
     return value
+
+
+def _compute_word_count(content: str) -> int:
+    text = _re.sub(r"<[^>]+>", " ", content or "")
+    text = _re.sub(r"\s+", " ", text).strip()
+    return len(text.split()) if text else 0
+
+
+def _compute_reading_time(word_count: int) -> int:
+    return max(1, (word_count + 199) // 200)
+
+
+def _auto_meta_title(title: str) -> str:
+    title = title.strip()
+    if len(title) <= 57:
+        return title
+    cut = title[:57]
+    last_space = cut.rfind(" ")
+    if last_space > 34:
+        return title[:last_space] + "…"
+    return cut.rstrip() + "…"
+
+
+def _auto_meta_description(excerpt: str | None, content: str) -> str:
+    if excerpt and excerpt.strip():
+        src = excerpt.strip()
+    else:
+        src = _re.sub(r"<[^>]+>", " ", content or "")
+        src = _re.sub(r"\s+", " ", src).strip()
+    if len(src) <= 157:
+        return src
+    cut = src[:157]
+    last_space = cut.rfind(" ")
+    if last_space > 94:
+        return src[:last_space] + "…"
+    return cut.rstrip() + "…"
+
+
+def _serialize_sources(sources) -> list[dict]:
+    """Convert BlogSource objects or dicts to plain dicts for JSONB storage."""
+    if not sources:
+        return []
+    result = []
+    for s in sources:
+        if isinstance(s, dict):
+            result.append(s)
+        elif hasattr(s, "model_dump"):
+            result.append(s.model_dump())
+        else:
+            result.append({"url": str(s)})
+    return result
+
+
+def _serialize_seo_metadata(seo_metadata) -> dict:
+    """Convert BlogSEOMetadata object or dict to plain dict for JSONB storage."""
+    if not seo_metadata:
+        return {}
+    if isinstance(seo_metadata, dict):
+        return seo_metadata
+    if hasattr(seo_metadata, "model_dump"):
+        return seo_metadata.model_dump(exclude_none=True)
+    return {}
 
 
 async def _get_or_create_categories(db: AsyncSession, identifiers: List[str]) -> List[BlogCategory]:
@@ -101,14 +165,45 @@ async def create_blog_post(db: AsyncSession, data, actor) -> "app.schemas.blog.B
     categories = await _get_or_create_categories(db, data.categories or [])
     tags = await _get_or_create_tags(db, data.tags or [])
 
+    # Auto-compute reading analytics
+    word_count = _compute_word_count(data.content)
+    reading_time = _compute_reading_time(word_count)
+
+    # Auto-generate meta fields if not provided
+    meta_title = getattr(data, "meta_title", None) or _auto_meta_title(data.title)
+    meta_description = getattr(data, "meta_description", None) or _auto_meta_description(
+        getattr(data, "excerpt", None), data.content
+    )
+    og_image_url = getattr(data, "og_image_url", None) or getattr(data, "cover_image_url", None) or None
+
+    # Serialize structured data for JSONB
+    sources = _serialize_sources(getattr(data, "sources", None) or [])
+    seo_metadata = _serialize_seo_metadata(getattr(data, "seo_metadata", None))
+
+    # Determine published_at
+    is_active = getattr(data, "active", False) or False
+    published_at = getattr(data, "published_at", None)
+    if is_active and not published_at:
+        published_at = datetime.now(UTC)
+
     post = BlogPost(
         title=data.title,
         slug=slug,
         content=data.content,
         excerpt=data.excerpt,
         cover_image_url=data.cover_image_url,
-        active=getattr(data, "active", False) or False,
+        active=is_active,
         author_id=getattr(actor, "id", None),
+        meta_title=meta_title,
+        meta_description=meta_description,
+        focus_keyword=getattr(data, "focus_keyword", None),
+        canonical_url=getattr(data, "canonical_url", None),
+        og_image_url=og_image_url,
+        reading_time_minutes=reading_time,
+        word_count=word_count,
+        published_at=published_at,
+        sources=sources,
+        seo_metadata=seo_metadata,
     )
     db.add(post)
     await db.flush()
@@ -465,12 +560,36 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> "a
 
     if data.content:
         post.content = data.content
+        # Recompute reading analytics when content changes
+        post.word_count = _compute_word_count(data.content)
+        post.reading_time_minutes = _compute_reading_time(post.word_count)
     if data.excerpt is not None:
         post.excerpt = data.excerpt
     if data.cover_image_url is not None:
         post.cover_image_url = data.cover_image_url
     if getattr(data, "active", None) is not None:
         post.active = bool(data.active)
+        # Set published_at when first activating
+        if post.active and not post.published_at:
+            post.published_at = datetime.now(UTC)
+
+    # Update SEO fields if provided
+    if getattr(data, "meta_title", None) is not None:
+        post.meta_title = data.meta_title
+    if getattr(data, "meta_description", None) is not None:
+        post.meta_description = data.meta_description
+    if getattr(data, "focus_keyword", None) is not None:
+        post.focus_keyword = data.focus_keyword
+    if getattr(data, "canonical_url", None) is not None:
+        post.canonical_url = data.canonical_url
+    if getattr(data, "og_image_url", None) is not None:
+        post.og_image_url = data.og_image_url
+    if getattr(data, "sources", None) is not None:
+        post.sources = _serialize_sources(data.sources)
+    if getattr(data, "seo_metadata", None) is not None:
+        post.seo_metadata = _serialize_seo_metadata(data.seo_metadata)
+    if getattr(data, "published_at", None) is not None:
+        post.published_at = data.published_at
 
     # Update categories and tags if provided
     if data.categories is not None:

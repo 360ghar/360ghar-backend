@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.data_hub.base_scraper import BaseScraper
 from app.models.data_hub import JamabandiCache
-from app.core.config import settings
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 

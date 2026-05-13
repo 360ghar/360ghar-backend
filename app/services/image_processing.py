@@ -305,6 +305,9 @@ def get_image_info(
         Dictionary with dimensions, format, mode, and EXIF data
     """
     try:
+        if image_bytes is None and img is None:
+            raise ValueError("Either image_bytes or img must be provided")
+
         if img is not None:
             width, height = img.size
             aspect_ratio = width / height if height > 0 else 0

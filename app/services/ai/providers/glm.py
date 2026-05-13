@@ -2,7 +2,7 @@
 ZhipuAI GLM Provider with Vision support.
 
 This module implements the AIProvider interface for ZhipuAI's GLM models,
-supporting both text and vision (image) inputs via the GLM-4.6V-Flash model.
+supporting both text and vision (image) inputs via the GLM-5V-Turbo model.
 All HTTP requests use the retry-enabled ``_make_request`` from the base class.
 """
 
@@ -12,7 +12,7 @@ import json
 import time
 from typing import Any
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.services.ai.base import (
     AIMessage,
@@ -30,11 +30,13 @@ class GLMProvider(AIProvider):
     ZhipuAI GLM provider with vision support.
 
     Supports models like:
-    - glm-4.6v-flash (vision model, recommended)
+    - glm-5v-turbo (vision + coding model, recommended)
+    - glm-4.6v-flash (vision model, free tier)
     - glm-4.6v (vision model)
+    - glm-4.1v-thinking (vision + reasoning)
     - glm-4.5 (text only)
     - glm-4.6 (text only)
-    - glm-4.7 (text only, latest)
+    - glm-4.7 (text only)
     """
 
     @property
@@ -43,7 +45,8 @@ class GLMProvider(AIProvider):
 
     @property
     def supports_vision(self) -> bool:
-        return "4.6v" in self.config.model.lower()
+        m = self.config.model.lower()
+        return "4.6v" in m or "5v" in m or "4v" in m or "4.1v" in m
 
     @property
     def supports_json_mode(self) -> bool:
@@ -51,7 +54,7 @@ class GLMProvider(AIProvider):
 
     def _get_api_url(self) -> str:
         """Get the API URL from settings or use default."""
-        return getattr(settings, "GLM_API_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+        return getattr(settings, "GLM_API_URL", "https://api.z.ai/api/coding/paas/v4/chat/completions")
 
     def _build_headers(self) -> dict[str, str]:
         """Build common request headers."""

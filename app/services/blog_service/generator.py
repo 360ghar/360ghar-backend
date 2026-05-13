@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Tuple
 
 import httpx
 
-from app.core.config import settings
+from app.config import settings
 from app.core.exceptions import BaseAPIException, ExternalServiceError, ServiceUnavailableException
 from app.core.logging import get_logger
 from app.schemas.blog import BlogPostCreate

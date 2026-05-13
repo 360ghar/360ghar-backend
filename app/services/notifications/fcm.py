@@ -10,7 +10,7 @@ import httpx
 if TYPE_CHECKING:
     from google.oauth2 import service_account
 
-from app.core.config import settings
+from app.config import settings
 from app.core.exceptions import BadRequestException
 from app.core.logging import get_logger
 

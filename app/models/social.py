@@ -65,15 +65,16 @@ class EnumStringType(TypeDecorator[str]):
     def process_result_value(self, value, dialect):  # noqa: ANN001
         if value is None:
             return None
-        if value not in self.valid_values:
+        try:
+            return self.enum_cls(value)
+        except ValueError:
             logger.warning(
-                "Unknown %s value %r in database; returning raw string. "
+                "Unknown %s value %r in database; returning first enum member. "
                 "Run a data-cleaning pass to resolve.",
                 self.enum_cls.__name__,
                 value,
             )
-            return value
-        return self.enum_cls(value)
+            return next(iter(self.enum_cls))
 
 
 def enum_check_constraint(column_name: str, enum_cls: type[SocialEnum], name: str) -> CheckConstraint:

@@ -1,8 +1,14 @@
-from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, Index, Boolean
+from __future__ import annotations
+
+import re
+from datetime import datetime
+from typing import Optional, List
+
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from typing import Optional, List
-from datetime import datetime
+
 from app.core.database import Base
 
 
@@ -64,6 +70,26 @@ class BlogPost(Base):
     author_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    # SEO fields
+    meta_title: Mapped[Optional[str]] = mapped_column(String(60), nullable=True)
+    meta_description: Mapped[Optional[str]] = mapped_column(String(160), nullable=True)
+    focus_keyword: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    canonical_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    og_image_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Reading analytics
+    reading_time_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    word_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    # Publishing timestamp (separate from created_at for scheduling)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Structured sources: JSONB array of {url, name, type, retrieved_at}
+    sources: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+
+    # Flexible SEO metadata: schema_markup, keyword_analysis, trending_score, etc.
+    seo_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
 
     categories: Mapped[List[BlogCategory]] = relationship(
         back_populates="posts",

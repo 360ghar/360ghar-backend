@@ -291,7 +291,7 @@ def schedule_scene_processing(
         image_url: URL of the scene image
         user_id: User ID for user-scoped storage paths
     """
-    from app.core.config import settings
+    from app.config import settings
 
     if not image_url:
         logger.warning("No image URL provided for scene %s", scene_id)

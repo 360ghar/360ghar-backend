@@ -9,7 +9,7 @@ All servers share the same OAuth authentication infrastructure.
 
 from fastapi import FastAPI
 
-from app.core.config import settings
+from app.config import settings
 from app.core.logging import get_logger
 from app.infrastructure.errors import register_exception_handlers
 from app.infrastructure.lifespan import create_lifespan

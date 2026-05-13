@@ -29,7 +29,7 @@ class GeminiProvider(AIProvider):
     Google Gemini AI provider with vision support.
 
     Supports models like:
-    - gemini-3-flash-preview (recommended for all tasks including vision)
+    - gemini-3.1-flash-lite-preview (recommended, vision + fast)
     """
 
     API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"

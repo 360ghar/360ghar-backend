@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from logging.config import dictConfig
 from typing import Any
 
-from app.core.config import settings
+from app.config import settings
 
 _current_request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
     "request_id", default=""

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import select
 
-from app.core.config import settings
+from app.config import settings
 from app.models.blogs import BlogPost
 from app.schemas.blog import BlogPostCreate
 from app.services.blog import create_blog_post

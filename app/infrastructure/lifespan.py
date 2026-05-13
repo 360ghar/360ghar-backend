@@ -9,7 +9,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from app.core.cache import initialize_cache, shutdown_cache
-from app.core.config import settings
+from app.config import settings
 from app.core.database import bg_engine, engine
 from app.core.logging import get_logger
 

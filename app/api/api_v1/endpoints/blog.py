@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 from app.core.cache import cached, invalidate_cache, CacheKeyPatterns
-from app.core.config import settings
+from app.config import settings
 from app.core.database import get_db
 from app.core.db_resilience import extract_db_error_code, is_transient_db_error
 from app.core.exceptions import ServiceUnavailableException
