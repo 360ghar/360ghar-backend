@@ -14,7 +14,8 @@ router = APIRouter()
 @cached("amenities:all", ttl=settings.CACHE_TTL_AMENITIES)
 async def get_amenities_cached(db: AsyncSession) -> list[Amenity]:
     """Cached version of get_all_amenities."""
-    return await get_all_amenities(db)
+    raw = await get_all_amenities(db)
+    return [Amenity.model_validate(item) if isinstance(item, dict) else item for item in raw]
 
 
 @router.get("", response_model=list[Amenity])

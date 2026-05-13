@@ -38,7 +38,7 @@ async def create_pm_lease(
 
     lease = await create_lease(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=target_owner_id,
         property_id=payload.property_id,
         tenant_user_id=payload.tenant_user_id,
@@ -74,7 +74,7 @@ async def list_pm_leases(
 ):
     leases = await list_leases(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         tenant_user_id=tenant_user_id,
@@ -91,7 +91,7 @@ async def get_pm_lease(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    lease = await get_lease(db, actor=current_user, lease_id=lease_id)
+    lease = await get_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
 
 
@@ -104,7 +104,7 @@ async def upload_signed(
 ):
     lease = await upload_signed_lease(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         lease_id=lease_id,
         lease_document_id=payload.lease_document_id,
         signed_by_owner=payload.signed_by_owner,
@@ -122,7 +122,7 @@ async def renew(
 ):
     lease = await renew_lease(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         lease_id=lease_id,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -139,6 +139,6 @@ async def terminate(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    lease = await terminate_lease(db, actor=current_user, lease_id=lease_id)
+    lease = await terminate_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
 

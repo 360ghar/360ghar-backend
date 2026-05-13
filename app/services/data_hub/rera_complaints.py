@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 from datetime import date
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy import select, update
@@ -82,7 +83,7 @@ class ReraComplaintScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec = {"raw_data": {"headers": headers, "cells": cells}}
+                rec: dict[str, Any] = {"raw_data": {"headers": headers, "cells": cells}}
                 for i, h in enumerate(headers):
                     if i >= len(cells):
                         break

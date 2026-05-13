@@ -69,7 +69,8 @@ class AlertMatcherService(BaseScraper):
             )
             new_court_auctions = court_result.scalars().all()
 
-            for auction in [*new_bank_auctions, *new_court_auctions]:
+            auctions: list[BankAuction | CourtAuction] = [*new_bank_auctions, *new_court_auctions]
+            for auction in auctions:
                 matches.append({
                     "alert_id": alert.id,
                     "user_id": alert.user_id,

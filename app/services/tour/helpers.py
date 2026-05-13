@@ -7,7 +7,7 @@ content normalization, and other utilities used across sub-modules.
 
 from urllib.parse import parse_qs, urlparse
 
-import bleach
+import bleach  # type: ignore[import-untyped]
 
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.models.enums import HotspotType
@@ -78,13 +78,13 @@ def _is_safe_http_url(url: str) -> bool:
 
 
 def _sanitize_hotspot_html(value: str) -> str:
-    return bleach.clean(
+    return str(bleach.clean(
         value,
         tags=_HOTSPOT_HTML_ALLOWED_TAGS,
         attributes=_HOTSPOT_HTML_ALLOWED_ATTRIBUTES,
         protocols=_HOTSPOT_HTML_ALLOWED_PROTOCOLS,
         strip=True,
-    )
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +145,7 @@ def _extract_session_duration(event, session_starts: dict) -> float | None:
     payload = event.event_data or {}
     duration = payload.get("duration_seconds")
     if duration is None and payload.get("duration_ms") is not None:
-        duration = payload.get("duration_ms") / 1000
+        duration = float(payload.get("duration_ms") or 0) / 1000
     if duration is None and payload.get("duration") is not None:
         duration = payload.get("duration")
     if duration is None and event.session_id and event.session_id in session_starts:

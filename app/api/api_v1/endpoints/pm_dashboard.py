@@ -18,7 +18,7 @@ async def dashboard_overview(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    data = await get_dashboard_overview(db, actor=current_user, owner_id=owner_id)
+    data = await get_dashboard_overview(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
     return data
 
 
@@ -29,6 +29,6 @@ async def dashboard_activity(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    items = await get_recent_activity(db, actor=current_user, owner_id=owner_id, limit=limit)
+    items = await get_recent_activity(db, actor=current_user, owner_id=owner_id, limit=limit)  # type: ignore[arg-type]
     return items
 

@@ -75,7 +75,7 @@ async def _call_ai_with_retry(
     Raises:
         AIProviderError: After all retries are exhausted
     """
-    return await ai_provider.generate(messages=messages, vision_inputs=vision_inputs)
+    return str(await ai_provider.generate(messages=messages, vision_inputs=vision_inputs))
 
 
 @_create_retry_decorator()
@@ -98,7 +98,7 @@ async def _complete_json_with_retry(
     Raises:
         AIProviderError: After all retries are exhausted
     """
-    return await ai_provider.complete_json(messages, vision_input)
+    return dict(await ai_provider.complete_json(messages, vision_input))
 
 
 # Room type mappings for scene analysis

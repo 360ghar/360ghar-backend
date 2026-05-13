@@ -116,7 +116,7 @@ class CacheManager:
         """
         if getattr(settings, "SERVERLESS_ENABLED", False):
             logger.info("Serverless mode — using in-memory cache (no Redis keep-alive)")
-            primary = InMemoryCacheBackend(
+            primary: CacheBackend = InMemoryCacheBackend(
                 max_size=getattr(settings, "CACHE_MEMORY_MAX_SIZE", 1000),
                 default_ttl=getattr(settings, "CACHE_DEFAULT_TTL", 300),
             )

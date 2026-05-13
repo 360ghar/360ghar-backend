@@ -418,7 +418,7 @@ async def update_tag_endpoint(
 ):
     """Update a tag by ID or slug (admin only). Invalidates tag cache."""
     try:
-        return await update_tag(db, identifier, payload.name)
+        return await update_tag(db, identifier, payload.name or "")
     except HTTPException:
         raise
     except Exception as e:

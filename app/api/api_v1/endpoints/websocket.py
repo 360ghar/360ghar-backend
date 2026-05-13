@@ -206,7 +206,8 @@ async def websocket_user_updates(
     except Exception as e:
         logger.error("WebSocket error for user %s: %s", user_id, e, exc_info=True)
     finally:
-        await manager.disconnect_user(websocket, user_id)
+        if user_id is not None:
+            await manager.disconnect_user(websocket, user_id)
 
 
 @router.websocket("/ws/tours/{tour_id}")

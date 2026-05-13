@@ -34,7 +34,7 @@ async def rent_roll(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await rent_roll_report(db, actor=current_user, owner_id=owner_id)
+    return await rent_roll_report(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
 
 
 @router.get("/income", response_model=IncomeReport)
@@ -45,7 +45,7 @@ async def income(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await income_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)
+    return await income_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)  # type: ignore[arg-type]
 
 
 @router.get("/expenses", response_model=ExpenseReport)
@@ -56,7 +56,7 @@ async def expenses(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await expense_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)
+    return await expense_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)  # type: ignore[arg-type]
 
 
 @router.get("/pnl", response_model=PnLReport)
@@ -67,7 +67,7 @@ async def pnl(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await pnl_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)
+    return await pnl_report(db, actor=current_user, owner_id=owner_id, start=start, end=end)  # type: ignore[arg-type]
 
 
 @router.get("/occupancy", response_model=OccupancyReport)
@@ -76,7 +76,7 @@ async def occupancy(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await occupancy_report(db, actor=current_user, owner_id=owner_id)
+    return await occupancy_report(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
 
 
 @router.get("/maintenance", response_model=MaintenanceReport)
@@ -85,5 +85,5 @@ async def maintenance(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await maintenance_report(db, actor=current_user, owner_id=owner_id)
+    return await maintenance_report(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
 

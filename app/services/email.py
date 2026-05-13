@@ -46,7 +46,7 @@ async def send_email(
     if html_body:
         msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    async def _send() -> bool:
+    def _send() -> bool:
         try:
             with smtplib.SMTP(host, port) as server:
                 server.starttls()
@@ -60,5 +60,5 @@ async def send_email(
             )
             return False
 
-    return await asyncio.to_thread(_send)
+    return await asyncio.to_thread(lambda: _send())
 

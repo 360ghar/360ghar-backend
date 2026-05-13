@@ -109,6 +109,7 @@ async def agent_properties_list(
     except Exception as e:
         logger.error("Error in agent.properties.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list properties: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_properties_get",
@@ -196,6 +197,7 @@ async def agent_properties_get(
     except Exception as e:
         logger.error("Error in agent.properties.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_properties_create_for_owner",
@@ -315,6 +317,7 @@ async def agent_properties_create_for_owner(
     except Exception as e:
         logger.error("Error in agent.properties.create_for_owner: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_properties_verify",
@@ -371,7 +374,7 @@ async def agent_properties_verify(
                     "You do not have access to this property"
                 ).model_dump()
 
-            prop.is_verified = is_verified
+            prop.is_verified = is_verified  # type: ignore[attr-defined]
             if verification_notes:
                 # Store in features JSON if no dedicated field
                 features = prop.features or {}
@@ -394,3 +397,4 @@ async def agent_properties_verify(
     except Exception as e:
         logger.error("Error in agent.properties.verify: %s", e, exc_info=True)
         return internal_error_response(f"Failed to verify property: {str(e)}")
+    return {}

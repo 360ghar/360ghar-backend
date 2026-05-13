@@ -181,7 +181,7 @@ class PydanticAIAgentService:
             retries=2,
         )
         for name, func, description in tools:
-            agent.tool(func, name=name, description=description)
+            agent.tool(func, name=name, description=description)  # type: ignore[call-overload]
         return agent
 
     async def _run_agent_stream(
@@ -224,7 +224,7 @@ class PydanticAIAgentService:
 
                     elif Agent.is_call_tools_node(node):
                         async with node.stream(run.ctx) as handle_stream:
-                            async for event in handle_stream:
+                            async for event in handle_stream:  # type: ignore[assignment]
                                 if isinstance(event, FunctionToolCallEvent):
                                     call_id = (
                                         event.part.tool_call_id
@@ -263,7 +263,7 @@ class PydanticAIAgentService:
                                             })
 
             try:
-                final_output = run.result.output
+                final_output = run.result.output  # type: ignore[union-attr]
                 if isinstance(final_output, str) and final_output:
                     if not full_text:
                         yield ("text_chunk", {"text": final_output})
@@ -313,7 +313,7 @@ class PydanticAIAgentService:
             done               — stream finished
             error              — all providers failed
         """
-        role = user_role or getattr(user, "role", "user")
+        role = str(user_role or getattr(user, "role", "user"))
         deps = AgentDeps(user=user, db=db, user_role=role)
         message_history = _build_message_history(conversation_history)
 
@@ -324,12 +324,12 @@ class PydanticAIAgentService:
 
         fb1_model = self._get_fallback_model()
         if fb1_model:
-            fb1_name = settings.AI_AGENT_FALLBACK_MODEL
+            fb1_name = str(settings.AI_AGENT_FALLBACK_MODEL)
             candidates.append((fb1_name, self._build_agent(role, fb1_model)))
 
         fb2_model = self._get_fallback2_model()
         if fb2_model:
-            fb2_name = settings.AI_AGENT_FALLBACK2_MODEL
+            fb2_name = str(settings.AI_AGENT_FALLBACK2_MODEL)
             candidates.append((fb2_name, self._build_agent(role, fb2_model)))
 
         last_error: str | None = None

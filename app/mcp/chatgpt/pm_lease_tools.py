@@ -48,7 +48,6 @@ async def owner_leases_list(
 ) -> dict[str, Any]:
     """List leases for the authenticated owner's properties."""
     try:
-        from app.schemas.user import User as UserSchema
         from app.services.pm_leases import list_leases
 
         limit = min(max(1, limit), 50)
@@ -63,15 +62,13 @@ async def owner_leases_list(
                     message="To view your leases, please log in to your 360Ghar account.",
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             # Convert status string to LeaseStatus enum for the service layer
             lease_status = LeaseStatus(status) if status else None
 
             # Get leases for owner's properties
             leases = await list_leases(
                 db,
-                actor=user_schema,
+                actor=user,
                 owner_id=user.id,
                 property_id=property_id,
                 status=lease_status,
@@ -131,7 +128,6 @@ async def owner_leases_get(
 ) -> dict[str, Any]:
     """Get lease details for an authenticated owner or tenant."""
     try:
-        from app.schemas.user import User as UserSchema
         from app.services.pm_leases import get_lease
 
         async with AsyncSessionLocal() as db:
@@ -143,10 +139,8 @@ async def owner_leases_get(
                     message="To view lease details, please log in to your 360Ghar account.",
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             try:
-                lease = await get_lease(db, actor=user_schema, lease_id=lease_id)
+                lease = await get_lease(db, actor=user, lease_id=lease_id)
             except Exception as e:
                 if "not found" in str(e).lower() or "permission" in str(e).lower():
                     return format_chatgpt_response(
@@ -196,7 +190,6 @@ async def owner_leases_terminate(
 ) -> dict[str, Any]:
     """Terminate an active lease early."""
     try:
-        from app.schemas.user import User as UserSchema
         from app.services.pm_leases import terminate_lease
 
         async with AsyncSessionLocal() as db:
@@ -218,12 +211,10 @@ async def owner_leases_terminate(
                     widget_uri=get_widget_for_tool("owner_leases_terminate"),
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             try:
                 await terminate_lease(
                     db,
-                    actor=user_schema,
+                    actor=user,
                     lease_id=lease_id,
                     termination_date=term_date,
                     reason=reason,

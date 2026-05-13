@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.core.logging import get_logger
 from app.mcp.utils import serialize_booking, serialize_property_basic
+from app.models.enums import BookingStatus
 from app.services.ai_agent.tools.helpers import AgentDeps
 
 logger = get_logger(__name__)
@@ -88,6 +89,9 @@ async def bookings_create(
         db, user.id,
         BookingCreate(property_id=property_id, check_in_date=check_in,
                       check_out_date=check_out, guests=guests,
+                      primary_guest_name="Guest",
+                      primary_guest_phone="N/A",
+                      primary_guest_email="guest@360ghar.com",
                       special_requests=special_requests),
     )
     await db.commit()
@@ -234,7 +238,7 @@ async def agent_bookings_update_status(
     if not booking:
         return {"error": True, "message": f"Booking {booking_id} not found"}
 
-    booking.booking_status = status
+    booking.booking_status = BookingStatus(status)
     if notes:
         booking.internal_notes = notes
     if status == "cancelled":

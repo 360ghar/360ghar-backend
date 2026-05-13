@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -60,11 +61,11 @@ class DFCDelhiAuctionScraper(BaseScraper):
 
                 # Try to extract a detail link
                 link_tag = row.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else ""
+                link_url = str(link_tag["href"]) if link_tag else ""
                 if link_url and not link_url.startswith("http"):
                     link_url = f"https://dfc.delhi.gov.in{link_url}"
 
-                record = {
+                record: dict[str, Any] = {
                     "source": AuctionSource.dfc_delhi,
                     "bank_name": "DSIDC/DFC Delhi",
                     "property_description": cells[0] if cells else "",
@@ -123,14 +124,9 @@ class DFCDelhiAuctionScraper(BaseScraper):
                 if not text or len(text) < 15:
                     continue
                 link_tag = item.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else source_url
+                link_url = str(link_tag["href"]) if link_tag else source_url
                 if link_url and not link_url.startswith("http"):
                     link_url = f"https://dfc.delhi.gov.in{link_url}"
-
-                # Only include items that mention auction/bidding keywords
-                text_lower = text.lower()
-                if not any(kw in text_lower for kw in ["auction", "bid", "tender", "e-auction"]):
-                    continue
 
                 record = {
                     "source": AuctionSource.dfc_delhi,

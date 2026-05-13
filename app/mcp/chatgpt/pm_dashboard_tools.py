@@ -54,7 +54,6 @@ async def owner_dashboard_overview() -> dict[str, Any]:
         Dashboard metrics including properties, leases, rent, and maintenance.
     """
     try:
-        from app.schemas.user import User as UserSchema
         from app.services.pm_dashboard import get_dashboard_overview
 
         async with AsyncSessionLocal() as db:
@@ -66,9 +65,7 @@ async def owner_dashboard_overview() -> dict[str, Any]:
                     message="To view your dashboard, please log in to your 360Ghar account.",
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
-            dashboard = await get_dashboard_overview(db, actor=user_schema, owner_id=user.id)
+            dashboard = await get_dashboard_overview(db, actor=user, owner_id=user.id)
 
             # Format summary
             total_props = dashboard.get("properties", {}).get("total", 0)

@@ -140,4 +140,4 @@ async def delete_conversation(
     )
     result = await db.execute(stmt)
     await db.flush()
-    return result.rowcount > 0
+    return bool(result.rowcount) > 0  # type: ignore[attr-defined]

@@ -157,7 +157,7 @@ class SupabaseClientManager:
             "apikey": settings.SUPABASE_SECRET_KEY,
             "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
         }
-        params = {"phone": phone, "per_page": 1}
+        params: dict[str, str | int] = {"phone": phone, "per_page": 1}
         try:
             client = self.get_auth_http_client()
             resp = await client.get(url, headers=headers, params=params)

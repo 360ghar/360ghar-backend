@@ -13,6 +13,7 @@ from app.api.api_v1.endpoints import (
     dashboard,
     # Data Hub
     data_hub,
+    design_studio,
     flatmates,
     flatmates_admin,
     floor_plans,
@@ -77,6 +78,9 @@ api_router.include_router(pm_maintenance.router, prefix="/pm/maintenance", tags=
 api_router.include_router(pm_documents.router, prefix="/pm/documents", tags=["pm-documents"])
 api_router.include_router(pm_inspections.router, prefix="/pm/inspections", tags=["pm-inspections"])
 api_router.include_router(pm_reports.router, prefix="/pm/reports", tags=["pm-reports"])
+
+# AI Design Studio - image generation (auth required)
+api_router.include_router(design_studio.router, prefix="/design-studio", tags=["design-studio"])
 
 # Vastu Checker - public endpoint (no auth required)
 api_router.include_router(vastu.router, prefix="/vastu", tags=["vastu"])

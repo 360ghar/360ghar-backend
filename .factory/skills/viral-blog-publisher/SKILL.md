@@ -1,6 +1,6 @@
 ---
 name: viral-blog-publisher
-description: "Discover trending real estate news, gossip, and viral topics from the web; check 360 Ghar's existing blog coverage in Supabase (past 1 week); deep-research the topic with unique 360 Ghar platform angles; perform SEO keyword analysis; write a human-sounding (non-AI) SEO-optimized blog post with structured sources and citations; publish to Supabase via direct DB insert. Use when the user asks to write a blog, find trending topics, create viral content, research and publish a blog post, or generate SEO-optimized real estate articles for 360 Ghar."
+description: "Discover trending real estate news, gossip, and viral topics from the web; check 360 Ghar's existing blog coverage in Supabase (past 15 days); deep-research the topic with unique 360 Ghar platform angles; perform SEO keyword analysis; write a human-sounding (non-AI) SEO-optimized blog post with structured sources and citations; revalidate against Supabase before publishing to prevent duplicates; publish to Supabase via direct DB insert. Use when the user asks to write a blog, find trending topics, create viral content, research and publish a blog post, or generate SEO-optimized real estate articles for 360 Ghar."
 ---
 
 # Viral Blog Publisher
@@ -11,20 +11,23 @@ End-to-end pipeline to discover, research, write, and publish trending real esta
 
 ```mermaid
 flowchart TD
-    A[1. Trend Discovery] --> B[2. Dedup Check]
+    A[1. Trend Discovery] --> B[2. Dedup Check 15 days]
     B --> C[3. Topic Selection]
     C --> D[4. Deep Research]
     D --> E[5. SEO Optimization]
     E --> F[6. Image Research]
     F --> G[7. Human-Sounding Writing]
     G --> H[8. Source Compilation]
-    H --> I[9. Publish to Supabase]
+    H --> J[2b. Revalidate Against DB]
+    J -->|No duplicate| I[9. Publish to Supabase]
+    J -->|Duplicate found| C
 ```
 
 ### Step 1: Trend Discovery
 
-Use `WebSearch` with multiple queries to find what's trending RIGHT NOW:
+Use `WebSearch` with multiple queries to find what's trending RIGHT NOW.
 
+**Standard Market Queries:**
 - `"Gurgaon real estate news today 2026"` — latest news
 - `"Gurugram property market trending"` — viral discussions
 - `"site:news.google.com Gurgaon property"` — Google News
@@ -32,34 +35,101 @@ Use `WebSearch` with multiple queries to find what's trending RIGHT NOW:
 - `"Delhi NCR real estate viral"` — gossip/famous topics
 - `"Gurgaon circle rate change 2026"` — data-driven stories
 
+**Viral News Queries (HIGH PRIORITY — drives maximum traffic):**
+- `"Gurgaon IT raid tehsil property 2026"` — I-T department searches, tax evasion probes
+- `"Gurgaon builder fraud arrested 2026"` — developer arrests, cheating cases
+- `"Gurgaon demolition drive illegal construction 2026"` — HC/SC orders, anti-encroachment
+- `"ED attaches Gurgaon property money laundering 2026"` — Enforcement Directorate actions
+- `"Gurgaon land mafia demolished 2026"` — land mafia crackdowns, GMDA/HSVP drives
+- `"Gurgaon stilt plus 4 ban HC order 2026"` — regulatory shocks, construction policy
+- `"Gurgaon property scam fraud crore 2026"` — large-scale scams, investor fraud
+- `"Gurgaon property price bubble crash correction 2026"` — market controversy debates
+- `"Gurgaon celebrity property purchase 2026"` — celebrity homes, high-profile transactions
+
 Target 5-10 candidate topics per run. Prioritize stories with:
 - High search volume indicators (multiple outlets covering same story)
 - Recency (published today or yesterday)
 - 360 Ghar platform relevance (areas/sectors where we have listings, data hub coverage)
 
+**Topic Type Classification** — classify each discovered topic into one of these types (affects trending_score and writing style):
+
+| Type | Description | Trending Score Range | Example |
+|------|-------------|---------------------|---------|
+| `breaking_scandal` | I-T raids, fraud arrests, ED attachments, scam exposes | 90-100 | "I-T dept detects ₹45K cr transaction discrepancies at Gurgaon tehsil" |
+| `regulatory_shock` | HC/SC orders, demolition drives, policy bans, construction halts | 85-95 | "HC stays stilt+4 construction, 7,500 structures face demolition" |
+| `market_controversy` | Bubble debates, price correction calls, affordability crises | 75-85 | "After 150% rally, is Gurgaon heading for a correction?" |
+| `data_reveal` | Circle rate data, transaction discrepancies, registration stats | 70-80 | "Gurgaon circle rates hiked up to 75%" |
+| `market_analysis` | Standard pricing, investment guides, sector comparisons | 60-80 | "Best sectors under 50 lakh in Gurgaon" |
+
+Viral news types (`breaking_scandal`, `regulatory_shock`) should ALWAYS be prioritized over `market_analysis` when present — they drive 3-5x more traffic.
+
 ### Step 2: Dedup Check
 
-Fetch existing blog posts from the last 7 days using one of:
+Fetch existing blog posts from the **last 15 days** using one of:
 
 **Option A — REST API (preferred when server is running):**
 ```
-GET /api/v1/blog/posts?limit=50
+GET /api/v1/blog/posts?limit=100
 ```
-Filter to posts with `created_at` within last 7 days.
+Filter to posts with `created_at` within last 15 days.
 
 **Option B — Direct DB query (when running script locally):**
-Run `scripts/publish_blog.py --dry-run` to verify DB access, then query:
-```python
-from app.models.blogs import BlogPost
-# SELECT title, slug, focus_keyword FROM blog_posts WHERE active=true AND created_at >= NOW() - INTERVAL '7 days'
+```bash
+uv run python -c "
+import asyncio
+from app.core.database import AsyncSessionLocal
+from sqlalchemy import text
+async def check():
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(text(\"SELECT title, focus_keyword FROM blog_posts WHERE active=true AND created_at >= NOW() - INTERVAL '15 days' ORDER BY created_at DESC\"))
+        for r in result.fetchall():
+            print(f'Title: {r[0]} | Focus: {r[1]}')
+asyncio.run(check())
+"
 ```
 
 Compare discovered topics against existing posts by:
-- Title similarity (exact match and keyword overlap of 3+ shared terms)
-- Source URL overlap
-- Focus keyword overlap
+- **Title overlap** — 3+ shared words with an existing title (case-insensitive)
+- **Focus keyword overlap** — same or very similar focus_keyword
+- **Topic-level overlap** — covering the same event/story even with a different angle (e.g., "circle rate hike impact" vs "circle rate sector-wise breakdown" are the same story)
 
-Skip any topic already covered.
+Only titles and focus keywords are needed for dedup — no need to fetch full blog content. Skip any topic already covered. **The 15-day window catches repeats from parallel agents and recent runs — not just 7 days.**
+
+### Step 2b: Post-Generation Revalidation (CRITICAL)
+
+**Before publishing each blog, run a second dedup check.** This catches duplicates that slip through when multiple agents work in parallel (agents may select the same topic independently).
+
+After writing the blog content and building the JSON payload, but **before** running `publish_blog.py`:
+
+```bash
+uv run python -c "
+import asyncio
+from app.core.database import AsyncSessionLocal
+from sqlalchemy import text
+async def revalidate():
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(text(\"SELECT title, focus_keyword FROM blog_posts WHERE active=true AND created_at >= NOW() - INTERVAL '15 days'\"))
+        existing = result.fetchall()
+        new_title = 'YOUR_BLOG_TITLE_HERE'
+        new_keyword = 'YOUR_FOCUS_KEYWORD_HERE'
+        for r in existing:
+            title_overlap = len(set(new_title.lower().split()) & set(r[0].lower().split()))
+            keyword_match = new_keyword.lower() == (r[1] or '').lower()
+            if title_overlap >= 3 or keyword_match:
+                print(f'DUPLICATE DETECTED: {r[0]} (keyword: {r[1]})')
+                break
+        else:
+            print('NO DUPLICATE - SAFE TO PUBLISH')
+asyncio.run(revalidate())
+"
+```
+
+If a duplicate is detected:
+1. **Do NOT publish** the duplicate blog
+2. Pick a different topic from your candidate list (go back to Step 3)
+3. If no alternative topic is available, skip this blog and report the skip
+
+This revalidation step is **mandatory** — it prevents the same story from being published twice when running multiple agents in parallel.
 
 ### Step 3: Topic Selection
 

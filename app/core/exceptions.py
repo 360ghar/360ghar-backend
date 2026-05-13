@@ -18,7 +18,7 @@ class BaseAPIException(HTTPException):
     status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
     error_code = "INTERNAL_ERROR"
     detail = "An error occurred"
-    headers = None
+    headers: dict[str, str] | None = None
 
     def __init__(
         self,

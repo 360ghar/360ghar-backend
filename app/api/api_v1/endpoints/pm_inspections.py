@@ -41,7 +41,7 @@ async def create_inspection(
 
     checklist = await create_inspection_checklist(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=target_owner_id,
         lease_id=payload.lease_id,
         inspection_type=payload.inspection_type,
@@ -64,7 +64,7 @@ async def list_inspection_checklists(
 ):
     rows = await list_inspections(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         lease_id=lease_id,
         property_id=property_id,
@@ -80,7 +80,7 @@ async def get_inspection_checklist(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    checklist = await get_inspection(db, actor=current_user, inspection_id=inspection_id)
+    checklist = await get_inspection(db, actor=current_user, inspection_id=inspection_id)  # type: ignore[arg-type]
     return InspectionChecklistSchema.model_validate(checklist)
 
 
@@ -93,7 +93,7 @@ async def sign(
 ):
     checklist = await sign_inspection(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         inspection_id=inspection_id,
         tenant_signature_document_id=payload.tenant_signature_document_id,
         owner_signature_document_id=payload.owner_signature_document_id,

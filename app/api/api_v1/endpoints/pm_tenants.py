@@ -21,7 +21,7 @@ async def list_owner_tenants(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    rows = await list_tenants(db, actor=current_user, owner_id=owner_id, limit=limit, offset=offset)
+    rows = await list_tenants(db, actor=current_user, owner_id=owner_id, limit=limit, offset=offset)  # type: ignore[arg-type]
     return [TenantSummary(**r) for r in rows]
 
 
@@ -32,7 +32,7 @@ async def tenant_details(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    res = await get_tenant_detail(db, actor=current_user, tenant_user_id=tenant_user_id, owner_id=owner_id)
+    res = await get_tenant_detail(db, actor=current_user, tenant_user_id=tenant_user_id, owner_id=owner_id)  # type: ignore[arg-type]
     leases = [LeaseSchema.model_validate(lease) for lease in res["leases"]]
     return TenantDetail(
         user_id=res["user_id"],

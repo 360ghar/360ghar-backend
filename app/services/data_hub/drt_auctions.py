@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -73,11 +74,11 @@ class DRTAuctionScraper(BaseScraper):
 
                 # Extract detail link if available
                 link_tag = row.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else ""
+                link_url = str(link_tag["href"]) if link_tag else ""
                 if link_url and not link_url.startswith("http"):
                     link_url = f"{_DRT_BASE_URL}/{link_url.lstrip('/')}"
 
-                record = {
+                record: dict[str, Any] = {
                     "source": AuctionSource.drt,
                     "bank_name": bench_cfg["bench"],
                     "property_description": cells[0] if cells else "",
@@ -136,7 +137,7 @@ class DRTAuctionScraper(BaseScraper):
                 if not text or len(text) < 15:
                     continue
                 link_tag = item.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else bench_cfg["url"]
+                link_url = str(link_tag["href"]) if link_tag else bench_cfg["url"]
 
                 record = {
                     "source": AuctionSource.drt,
@@ -168,7 +169,7 @@ class DRTAuctionScraper(BaseScraper):
                     continue
 
                 link_tag = row.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else _DRT_SEARCH_URL
+                link_url = str(link_tag["href"]) if link_tag else _DRT_SEARCH_URL
 
                 record = {
                     "source": AuctionSource.drt,

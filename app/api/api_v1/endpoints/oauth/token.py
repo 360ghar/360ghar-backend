@@ -305,7 +305,7 @@ async def revoke_token(
             token_client_id = token_data.get("client_id")
             if not token_client_id:
                 return True
-            return client_id == token_client_id
+            return bool(client_id == token_client_id)
 
         if token_type_hint == "refresh_token":
             refresh_data = await oauth_token_store.get_refresh_token(token)

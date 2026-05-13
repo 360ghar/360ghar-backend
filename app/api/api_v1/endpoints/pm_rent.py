@@ -33,7 +33,7 @@ async def generate_charges(
 ):
     return await generate_rent_charges(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=payload.owner_id,
         lease_id=payload.lease_id,
         start_month=payload.start_month,
@@ -55,7 +55,7 @@ async def get_charges(
 ):
     items = await list_rent_charges(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         as_tenant=as_tenant,
         owner_id=owner_id,
         lease_id=lease_id,
@@ -84,7 +84,7 @@ async def create_payment(
 ):
     payment = await record_rent_payment(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         charge_id=payload.charge_id,
         amount_paid=payload.amount_paid,
         paid_at=payload.paid_at,
@@ -105,7 +105,7 @@ async def tenant_payment_intent(
 ):
     payment = await record_rent_payment(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         charge_id=charge_id,
         amount_paid=payload.amount_paid,
         paid_at=payload.paid_at,
@@ -130,7 +130,7 @@ async def list_payments(
 ):
     payments = await list_rent_payments(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         as_tenant=as_tenant,
         owner_id=owner_id,
         lease_id=lease_id,

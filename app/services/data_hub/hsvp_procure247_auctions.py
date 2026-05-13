@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -86,11 +87,11 @@ class HSVPProcure247AuctionScraper(BaseScraper):
                     continue
 
                 link_tag = row.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else ""
+                link_url = str(link_tag["href"]) if link_tag else ""
                 if link_url and not link_url.startswith("http"):
                     link_url = f"{_HSVP_PROCURE247_URL}{link_url.lstrip('/')}"
 
-                record = {
+                record: dict[str, Any] = {
                     "source": AuctionSource.hsvp_procure247,
                     "bank_name": "HSVP",
                     "property_description": cells[0] if cells else "",
@@ -144,7 +145,7 @@ class HSVPProcure247AuctionScraper(BaseScraper):
                 if not text or len(text) < 15:
                     continue
                 link_tag = card.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else source_url
+                link_url = str(link_tag["href"]) if link_tag else source_url
 
                 record = {
                     "source": AuctionSource.hsvp_procure247,
@@ -165,9 +166,11 @@ class HSVPProcure247AuctionScraper(BaseScraper):
         records = []
 
         # Look for any links/sections mentioning auctions or tenders
-        for link in soup.find_all("a", href=True, string=re.compile(r"auction|tender|e-auction", re.I)):
+        for link in soup.find_all("a", href=True):
             text = link.get_text(strip=True)
-            href = link["href"]
+            if not re.search(r"auction|tender|e-auction", text, re.I):
+                continue
+            href = str(link["href"])
             if href and not href.startswith("http"):
                 href = f"{_HSVP_PROCURE247_URL}/{href.lstrip('/')}"
 

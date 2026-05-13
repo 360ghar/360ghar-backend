@@ -16,7 +16,7 @@ def _ensure_client():
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not configured for Gemini embeddings")
     try:
-        import google.generativeai as genai  # type: ignore
+        import google.generativeai as genai
     except ImportError as e:
         raise RuntimeError("google-generativeai package not installed") from e
     genai.configure(api_key=api_key)
@@ -37,9 +37,9 @@ def _embed_one(genai, model: str, text: str, *, task_type: str = "retrieval_docu
             )
             if isinstance(resp, dict) and "embedding" in resp:
                 emb = resp["embedding"]["values"] if isinstance(resp["embedding"], dict) else resp["embedding"]
-                return emb
+                return list(emb)
             # Fallback attribute style
-            return resp.embedding.values  # type: ignore[attr-defined]
+            return list(resp.embedding.values)
         except Exception as e:  # noqa: BLE001
             last_err = e
             logger.warning("Gemini embed retry due to error: %s", e, exc_info=True)
@@ -56,7 +56,7 @@ def embed_sync(texts: list[str]) -> list[list[float]]:
     Returns a list of vectors (lists of floats). Length should be 768 for text-embedding-004.
     """
     _ensure_client()
-    import google.generativeai as genai  # type: ignore
+    import google.generativeai as genai
 
     model = settings.GEMINI_EMBED_MODEL
     vectors: list[list[float]] = []
@@ -79,7 +79,7 @@ async def embed(texts: list[str]) -> list[list[float]]:
 def embed_query_sync(text: str) -> list[float]:
     """Embed a single query using Gemini retrieval_query mode."""
     _ensure_client()
-    import google.generativeai as genai  # type: ignore
+    import google.generativeai as genai
 
     model = settings.GEMINI_EMBED_MODEL
     return _embed_one(genai, model, text, task_type="retrieval_query")

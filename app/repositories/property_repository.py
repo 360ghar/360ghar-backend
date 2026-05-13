@@ -92,7 +92,7 @@ class PropertyRepository(BaseRepository[Property]):
         stmt = stmt.offset(skip).limit(limit)
 
         result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def get_properties_within_radius(
         self,
@@ -118,13 +118,13 @@ class PropertyRepository(BaseRepository[Property]):
         stmt = stmt.offset(skip).limit(limit)
 
         result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
     async def count_filtered(self, filters: dict[str, Any]) -> int:
         stmt = select(func.count(Property.id))
         stmt = self._apply_filters(stmt, filters)
         result = await self.session.execute(stmt)
-        return result.scalar_one()
+        return int(result.scalar_one())
 
     def _apply_filters(self, stmt, filters: dict[str, Any]):
         """Apply dynamic filters to a SQLAlchemy statement"""

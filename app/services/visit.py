@@ -6,7 +6,7 @@ from sqlalchemy.orm import aliased, selectinload
 
 from app.core.exceptions import BadRequestException
 from app.core.utils import make_tz_aware
-from app.models.enums import ConversationStatus, UserMatchStatus, VisitContext
+from app.models.enums import ConversationStatus, UserMatchStatus, VisitContext, VisitStatus
 from app.models.properties import Property, Visit
 from app.models.social import UserConversation, UserMatch
 from app.models.users import User
@@ -175,10 +175,10 @@ async def get_user_visits(db: AsyncSession, user_id: int):
     upcoming = sum(
         1
         for v in visits
-        if v.status in ["scheduled", "confirmed", "rescheduled"] and make_tz_aware(v.scheduled_date) > now
+        if v.status in [VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled] and v.scheduled_date is not None and (sd := make_tz_aware(v.scheduled_date)) is not None and sd > now
     )
-    completed = sum(1 for v in visits if v.status == "completed")
-    cancelled = sum(1 for v in visits if v.status == "cancelled")
+    completed = sum(1 for v in visits if v.status == VisitStatus.completed)
+    cancelled = sum(1 for v in visits if v.status == VisitStatus.cancelled)
 
     return {
         "visits": visits,
@@ -197,7 +197,7 @@ async def get_user_upcoming_visits(db: AsyncSession, user_id: int):
         .where(
             or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id),
             Visit.scheduled_date > now,
-            Visit.status.in_(["scheduled", "confirmed", "rescheduled"])
+            Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled])
         )
         .order_by(Visit.scheduled_date)
     )
@@ -245,7 +245,7 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
 
         # --- Push notification on visit confirmation ---
         new_status = update_data.get("status")
-        if new_status == "confirmed" and old_status != "confirmed" and updated_visit:
+        if new_status == VisitStatus.confirmed and old_status != VisitStatus.confirmed and updated_visit:
             try:
                 from app.services.push_notification import notify_visit_confirmed
                 scheduled_str = updated_visit.scheduled_date.isoformat() if updated_visit.scheduled_date else "TBD"
@@ -286,10 +286,10 @@ async def cancel_visit(db: AsyncSession, visit_id: int, reason: str):
         return None
 
     # Disallow cancellation for already cancelled or completed visits
-    if visit.status in ["cancelled", "completed"]:
+    if visit.status in [VisitStatus.cancelled, VisitStatus.completed]:
         return None
 
-    visit.status = "cancelled"
+    visit.status = VisitStatus.cancelled
     visit.cancellation_reason = reason
     await db.flush()
 
@@ -316,7 +316,7 @@ async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, 
         return None
 
     # Disallow rescheduling for already cancelled or completed visits
-    if visit.status in ["cancelled", "completed"]:
+    if visit.status in [VisitStatus.cancelled, VisitStatus.completed]:
         return None
 
     # Ensure new date is timezone-aware and in the future
@@ -328,7 +328,7 @@ async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, 
 
     visit.rescheduled_from = visit.scheduled_date
     visit.scheduled_date = new_date
-    visit.status = "rescheduled"
+    visit.status = VisitStatus.rescheduled
     if reason:
         # Store reason; field name kept for compatibility
         visit.cancellation_reason = reason
@@ -380,14 +380,14 @@ async def get_agent_visits(db: AsyncSession, agent_id: int, page: int = 1, limit
         "has_prev": has_prev,
     }
 
-async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str = None, feedback: str = None):
+async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str | None = None, feedback: str | None = None):
     """Mark a visit as completed"""
     stmt = select(Visit).where(Visit.id == visit_id)
     result = await db.execute(stmt)
     visit = result.scalar_one_or_none()
 
     if visit:
-        visit.status = "completed"
+        visit.status = VisitStatus.completed
         visit.actual_date = datetime.now(timezone.utc)
         if notes:
             visit.visit_notes = notes
@@ -412,7 +412,7 @@ async def get_user_property_visit_stats(db: AsyncSession, user_id: int, property
             Visit.user_id == user_id,
             Visit.property_id == property_id,
             Visit.scheduled_date >= now,
-            Visit.status.in_(["scheduled", "confirmed", "rescheduled"]),
+            Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled]),
         )
         .order_by(Visit.scheduled_date.asc())
     )

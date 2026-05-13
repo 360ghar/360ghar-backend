@@ -53,7 +53,6 @@ async def owner_rent_status(
     """View rent charges and collection totals for the authenticated owner."""
     try:
         from app.models.enums import RentChargeStatus
-        from app.schemas.user import User as UserSchema
         from app.services.pm_rent import list_rent_charges
 
         limit = min(max(1, limit), 50)
@@ -68,14 +67,12 @@ async def owner_rent_status(
                     message="To view rent status, please log in to your 360Ghar account.",
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             # list_rent_charges accepts a single RentChargeStatus, not a list.
             # When excluding paid charges, query each unpaid status and merge.
             if include_paid:
                 charges = await list_rent_charges(
                     db,
-                    actor=user_schema,
+                    actor=user,
                     owner_id=user.id,
                     property_id=property_id,
                     status=None,
@@ -88,7 +85,7 @@ async def owner_rent_status(
                 for s in unpaid_statuses:
                     batch = await list_rent_charges(
                         db,
-                        actor=user_schema,
+                        actor=user,
                         owner_id=user.id,
                         property_id=property_id,
                         status=s,
@@ -163,7 +160,6 @@ async def owner_rent_record_payment(
     """Record a rent payment against an outstanding charge."""
     try:
         from app.models.enums import PaymentMethod
-        from app.schemas.user import User as UserSchema
         from app.services.pm_rent import record_rent_payment
 
         async with AsyncSessionLocal() as db:
@@ -196,15 +192,13 @@ async def owner_rent_record_payment(
                     widget_uri=get_widget_for_tool("owner_rent_record_payment"),
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             try:
                 payment = await record_rent_payment(
                     db,
-                    actor=user_schema,
+                    actor=user,
                     charge_id=rent_charge_id,
                     amount_paid=amount,
-                    paid_at=pay_date,
+                    paid_at=datetime.combine(pay_date, datetime.min.time()),
                     payment_method=method,
                     reference=transaction_id,
                     notes=notes,
@@ -258,7 +252,6 @@ async def owner_rent_history(
 ) -> dict[str, Any]:
     """View rent payment history for the authenticated owner's properties."""
     try:
-        from app.schemas.user import User as UserSchema
         from app.services.pm_rent import list_rent_payments
 
         limit = min(max(1, limit), 50)
@@ -273,11 +266,9 @@ async def owner_rent_history(
                     message="To view payment history, please log in to your 360Ghar account.",
                 )
 
-            user_schema = UserSchema.model_validate(user)
-
             payments = await list_rent_payments(
                 db,
-                actor=user_schema,
+                actor=user,
                 owner_id=user.id,
                 property_id=property_id,
                 lease_id=lease_id,

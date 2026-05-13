@@ -49,7 +49,7 @@ async def _record_notification(
             "topic": topic,
         }
 
-    return await _run_sync(_sync_record)
+    return dict(await _run_sync(_sync_record))
 
 
 async def list_notifications_for_user(
@@ -74,7 +74,7 @@ async def list_notifications_for_user(
         )
         return res.data or []
 
-    return await _run_sync(_sync_list)
+    return list(await _run_sync(_sync_list))
 
 
 async def mark_delivery_opened(
@@ -134,4 +134,4 @@ async def mark_delivery_opened(
         ).eq("id", delivery_id).execute()
         return {"ok": True}
 
-    return await _run_sync(_sync_mark_opened)
+    return dict(await _run_sync(_sync_mark_opened))

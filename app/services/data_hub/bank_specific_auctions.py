@@ -9,6 +9,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -95,7 +96,7 @@ class BankSpecificAuctionScraper(BaseScraper):
                 link_tag = row.find("a", href=True)
                 link_url = link_tag["href"] if link_tag else source_url
 
-                record = {
+                record: dict[str, Any] = {
                     "source": bank_cfg["source"],
                     "bank_name": bank_cfg["bank_name"],
                     "property_description": cells[0] if cells else "",
@@ -169,7 +170,7 @@ class BankSpecificAuctionScraper(BaseScraper):
 
         # --- Strategy 3: PDF links (some banks link to PDF notices) ---
         for link in soup.find_all("a", href=re.compile(r"\.pdf", re.I)):
-            pdf_url = link["href"]
+            pdf_url = str(link["href"])
             if not pdf_url.startswith("http"):
                 # Resolve relative URL
                 base = source_url.rsplit("/", 1)[0]
@@ -177,14 +178,14 @@ class BankSpecificAuctionScraper(BaseScraper):
 
             link_text = link.get_text(strip=True) or "Auction Notice PDF"
             record = {
-                "source": bank_cfg["source"],
-                "bank_name": bank_cfg["bank_name"],
-                "property_description": link_text,
-                "full_address": link_text,
-                "city": "Gurugram",
-                "source_url": pdf_url,
-                "raw_data": {"pdf_url": pdf_url, "bank": bank_cfg["name"]},
-            }
+                    "source": bank_cfg["source"],
+                    "bank_name": bank_cfg["bank_name"],
+                    "property_description": link_text,
+                    "full_address": link_text,
+                    "city": "Gurugram",
+                    "source_url": pdf_url,
+                    "raw_data": {"pdf_url": pdf_url, "bank": bank_cfg["name"]},
+                }
             records.append(record)
 
         return records

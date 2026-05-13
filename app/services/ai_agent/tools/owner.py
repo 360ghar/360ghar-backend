@@ -417,8 +417,8 @@ async def agent_leases_terminate(
         return {"error": True, "message": f"Lease {lease_id} not found"}
 
     lease.status = LeaseStatus.terminated
-    existing_notes = lease.notes or ""
-    lease.notes = f"{existing_notes}\n[Terminated] {reason}".strip()
+    existing_notes = lease.notes or ""  # type: ignore[attr-defined]
+    lease.notes = f"{existing_notes}\n[Terminated] {reason}".strip()  # type: ignore[attr-defined]
     await db.flush()
     await db.commit()
     return {"message": "Lease terminated", "lease_id": lease_id}
@@ -573,9 +573,9 @@ async def agent_maintenance_update_status(
         req.work_order_status = WorkOrderStatus.cancelled
 
     if vendor_name:
-        req.vendor_name = vendor_name
+        req.vendor_name = vendor_name  # type: ignore[attr-defined]
     if vendor_contact:
-        req.vendor_contact = vendor_contact
+        req.vendor_contact = vendor_contact  # type: ignore[attr-defined]
     if estimated_cost is not None:
         req.estimated_cost = estimated_cost
     if actual_cost is not None:

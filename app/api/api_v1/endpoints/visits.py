@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import UserRole
+from app.models.users import User
 from app.schemas.common import PaginatedResponse
-from app.schemas.user import User as UserSchema
 from app.schemas.visit import (
     Visit,
     VisitCancel,
@@ -34,21 +34,21 @@ router = APIRouter()
 @router.post("", response_model=Visit)
 async def schedule_visit(
     visit: VisitCreate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     return await create_visit(db, current_user.id, visit)
 
 @router.get("", response_model=VisitList)
 async def get_my_visits(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     return await get_user_visits(db, current_user.id)
 
 @router.get("/upcoming", response_model=VisitSlice)
 async def get_upcoming_visits(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     from app.services.visit import get_user_upcoming_visits
@@ -56,7 +56,7 @@ async def get_upcoming_visits(
 
 @router.get("/past", response_model=VisitSlice)
 async def get_past_visits(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     from app.services.visit import get_user_past_visits
@@ -70,7 +70,7 @@ async def list_all_visits(
     agent_id: int | None = Query(None, description="Admin only: filter by agent id"),
     property_id: int | None = Query(None),
     user_id: int | None = Query(None),
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Global visits listing. Admins see all; agents see their managed users/properties."""
@@ -97,7 +97,7 @@ async def list_all_visits(
 @router.get("/{visit_id}", response_model=Visit)
 async def get_visit_details(
     visit_id: int,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     visit = await get_visit(db, visit_id)
@@ -113,7 +113,7 @@ async def get_visit_details(
 async def update_visit_details(
     visit_id: int,
     visit_update: VisitUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     visit = await get_visit(db, visit_id)
@@ -129,7 +129,7 @@ async def update_visit_details(
 async def reschedule_visit_date(
     visit_id: int,
     reschedule_data: VisitReschedule,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     visit = await get_visit(db, visit_id)
@@ -148,7 +148,7 @@ async def reschedule_visit_date(
 async def cancel_visit_request(
     visit_id: int,
     cancel_data: VisitCancel,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     visit = await get_visit(db, visit_id)
@@ -168,7 +168,7 @@ async def cancel_visit_request(
 async def complete_visit(
     visit_id: int,
     payload: VisitComplete | None = None,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Mark a visit as completed. Admins or responsible Agents only."""

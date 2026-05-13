@@ -11,7 +11,7 @@ Compatible with FastMCP 3.0+.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import NotFoundError, ToolError
@@ -77,10 +77,10 @@ class AppsSDKToolResult(ToolResult):
                 content=self.content,
                 structuredContent=self.structured_content,
                 isError=self.is_error,
-                _meta=self.meta,  # type: ignore[call-arg]
+                _meta=self.meta,
             )
         if self.structured_content is None:
-            return self.content
+            return list(self.content)
         return self.content, self.structured_content
 
 
@@ -184,7 +184,7 @@ def raise_auth_required(
     error_description: str,
     scope: str = "mcp:read mcp:write",
     structured_content: dict[str, Any] | None = None,
-) -> None:
+) -> NoReturn:
     """Convenience helper to raise an AuthRequiredError with correct metadata."""
     www_authenticate = build_www_authenticate(
         error="insufficient_scope",
@@ -296,9 +296,9 @@ class AppsSDKFastMCP(FastMCP):
                 experimental_capabilities=caps,
             )
 
-        self._mcp_server.create_initialization_options = _patched_create_init
+        self._mcp_server.create_initialization_options = _patched_create_init  # type: ignore[assignment]
 
-    async def _call_tool_mcp(  # type: ignore[override]
+    async def _call_tool_mcp(
         self, key: str, arguments: dict[str, Any]
     ) -> (
         list[mcp_types.ContentBlock]

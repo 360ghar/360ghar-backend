@@ -142,3 +142,4 @@ async def agent_dashboard_overview(
     except Exception as e:
         logger.error("Error in agent.dashboard.overview: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get dashboard: {str(e)}")
+    return {}

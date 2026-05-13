@@ -25,6 +25,9 @@ from app.mcp.errors import (
     not_found_response,
 )
 from app.mcp.tool_ops import (
+    TOOL_OPS_FORBIDDEN,
+    TOOL_OPS_NOT_FOUND,
+    TOOL_OPS_OPERATION_FAILED,
     cancel_booking,
     check_availability,
     create_booking,
@@ -103,6 +106,7 @@ async def bookings_create(
     except Exception as e:
         logger.error("Error in bookings.create: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create booking: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -156,6 +160,7 @@ async def bookings_list(
     except Exception as e:
         logger.error("Error in bookings.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -193,13 +198,16 @@ async def bookings_get(
             )
 
             if result.get("error"):
+                code = result.get("code", "")
                 msg = result.get("message", "")
-                if "not found" in msg.lower():
+                if code == TOOL_OPS_NOT_FOUND:
                     return not_found_response("Booking", booking_id)
-                return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    msg,
-                ).model_dump()
+                if code == TOOL_OPS_FORBIDDEN:
+                    return MCPResponse.failure(
+                        MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                        msg,
+                    ).model_dump()
+                return internal_error_response(msg)
 
             return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
@@ -207,6 +215,7 @@ async def bookings_get(
     except Exception as e:
         logger.error("Error in bookings.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get booking: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -247,15 +256,16 @@ async def bookings_cancel(
             )
 
             if result.get("error"):
+                code = result.get("code", "")
                 msg = result.get("message", "")
-                if "not found" in msg.lower():
+                if code == TOOL_OPS_NOT_FOUND:
                     return not_found_response("Booking", booking_id)
-                if "only" in msg.lower() and "own" in msg.lower():
+                if code == TOOL_OPS_FORBIDDEN:
                     return MCPResponse.failure(
                         MCPErrorCode.INSUFFICIENT_PERMISSIONS,
                         msg,
                     ).model_dump()
-                if "cannot cancel" in msg.lower():
+                if code == TOOL_OPS_OPERATION_FAILED:
                     return MCPResponse.failure(
                         MCPErrorCode.OPERATION_FAILED,
                         msg,
@@ -268,6 +278,7 @@ async def bookings_cancel(
     except Exception as e:
         logger.error("Error in bookings.cancel: %s", e, exc_info=True)
         return internal_error_response(f"Failed to cancel booking: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -310,6 +321,7 @@ async def bookings_check_availability(
     except Exception as e:
         logger.error("Error in bookings.check_availability: %s", e, exc_info=True)
         return internal_error_response(f"Failed to check availability: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -358,3 +370,4 @@ async def bookings_get_pricing(
     except Exception as e:
         logger.error("Error in bookings.get_pricing: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get pricing: {str(e)}")
+    return {}

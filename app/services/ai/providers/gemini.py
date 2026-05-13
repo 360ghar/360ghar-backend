@@ -70,7 +70,7 @@ class GeminiProvider(AIProvider):
                 continue
 
             role = "user" if msg.role == AIRole.USER else "model"
-            parts = []
+            parts: list[dict[str, Any]] = []
 
             if msg.content:
                 parts.append({"text": msg.content})
@@ -102,7 +102,7 @@ class GeminiProvider(AIProvider):
 
     def _build_generation_config(self, json_mode: bool = False) -> dict[str, Any]:
         """Build generation configuration."""
-        config = {
+        config: dict[str, Any] = {
             "temperature": self.config.temperature,
             "maxOutputTokens": self.config.max_tokens,
         }

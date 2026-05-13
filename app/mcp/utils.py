@@ -181,7 +181,7 @@ def serialize_property_full(prop: Property) -> dict:
     Handles both SQLAlchemy models and Pydantic models.
     """
     if hasattr(prop, "model_dump"):
-        return prop.model_dump()
+        return dict(prop.model_dump())
 
     basic = serialize_property_basic(prop)
 
@@ -304,10 +304,10 @@ def serialize_lease(lease: Lease) -> dict:
 def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
     """Serialize a maintenance request for MCP responses."""
     category = getattr(req, "category", None)
-    category_value = category.value if hasattr(category, "value") else category
+    category_value = category.value if category is not None and hasattr(category, "value") else category
 
     urgency = getattr(req, "urgency", None)
-    urgency_value = urgency.value if hasattr(urgency, "value") else urgency
+    urgency_value = urgency.value if urgency is not None and hasattr(urgency, "value") else urgency
 
     # Widget expects priority values: low|medium|high|urgent.
     # Our DB enum uses urgency: low|medium|high|emergency.
@@ -315,12 +315,12 @@ def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
 
     request_status = getattr(req, "request_status", None)
     request_status_value = (
-        request_status.value if hasattr(request_status, "value") else request_status
+        request_status.value if request_status is not None and hasattr(request_status, "value") else request_status
     )
 
     work_order_status = getattr(req, "work_order_status", None)
     work_order_status_value = (
-        work_order_status.value if hasattr(work_order_status, "value") else work_order_status
+        work_order_status.value if work_order_status is not None and hasattr(work_order_status, "value") else work_order_status
     )
 
     scheduled_for = getattr(req, "scheduled_for", None)

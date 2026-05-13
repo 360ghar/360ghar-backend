@@ -15,6 +15,10 @@ AppsSDKToolResult, etc.).
 """
 
 from app.mcp.tool_ops.bookings import (
+    TOOL_OPS_FORBIDDEN,
+    TOOL_OPS_INVALID_INPUT,
+    TOOL_OPS_NOT_FOUND,
+    TOOL_OPS_OPERATION_FAILED,
     cancel_booking,
     check_availability,
     create_booking,
@@ -48,15 +52,13 @@ from app.mcp.tool_ops.rent import (
     get_rent_history,
     record_rent_payment,
 )
-from app.schemas.user import User as UserSchema
-
-
-def _user_schema(user) -> UserSchema:
-    """Convert a SQLAlchemy User to a Pydantic UserSchema."""
-    return UserSchema.model_validate(user)
-
 
 __all__ = [
+    # Shared error codes
+    "TOOL_OPS_NOT_FOUND",
+    "TOOL_OPS_FORBIDDEN",
+    "TOOL_OPS_OPERATION_FAILED",
+    "TOOL_OPS_INVALID_INPUT",
     # Properties
     "create_property",
     "enrich_properties_with_lease_info",

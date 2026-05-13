@@ -1,6 +1,8 @@
 """Circle rate endpoints."""
 
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,7 +35,7 @@ async def list_circle_rates(
     db: AsyncSession = Depends(get_db),
 ):
     """List circle rates with optional filters."""
-    filters = []
+    filters: list[Any] = []
     if sector:
         filters.append(CircleRate.sector.ilike(f"%{sector}%"))
     if year:

@@ -7,8 +7,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import (
+    InsufficientPermissionsError,
+    PropertyNotFoundException,
+)
 from app.core.logging import get_logger
-from app.mcp.tool_ops import _user_schema
 from app.mcp.utils import (
     serialize_lease,
     serialize_property_basic,
@@ -20,6 +23,7 @@ from app.models.pm_leases import Lease
 from app.models.properties import PropertyAmenity
 from app.models.users import User as UserModel
 from app.schemas.property import PropertyCreate
+from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_property
 from app.services.pm_properties import (
     create_managed_property,
@@ -29,6 +33,15 @@ from app.services.pm_properties import (
 from app.services.user import get_user_by_id
 
 logger = get_logger(__name__)
+
+TOOL_OPS_NOT_FOUND = "NOT_FOUND"
+TOOL_OPS_FORBIDDEN = "FORBIDDEN"
+TOOL_OPS_OPERATION_FAILED = "OPERATION_FAILED"
+TOOL_OPS_INVALID_INPUT = "INVALID_INPUT"
+
+
+def _user_schema(user) -> UserSchema:
+    return UserSchema.model_validate(user)
 
 
 async def enrich_properties_with_lease_info(
@@ -204,7 +217,7 @@ async def create_property(
         extra["grace_period_days"] = grace_period_days
 
     prop = await create_managed_property(
-        db, actor=actor_schema, owner_id=owner_id, property_data=property_data, **extra
+        db, actor=actor_schema, owner_id=owner_id, property_data=property_data, **extra  # type: ignore[arg-type]
     )
 
     # Add amenities if provided
@@ -234,9 +247,10 @@ async def get_property_detail(
 
     try:
         result = await get_managed_property_detail(db, actor=actor_schema, property_id=property_id)
-    except Exception as e:
-        logger.error("Error getting property detail: %s", e, exc_info=True)
-        return {"error": True, "message": f"Property {property_id} not found."}
+    except PropertyNotFoundException:
+        return {"error": True, "code": TOOL_OPS_NOT_FOUND, "message": f"Property {property_id} not found."}
+    except InsufficientPermissionsError:
+        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "You do not have access to this property."}
 
     prop = result["property"]
     active_lease = result.get("active_lease")

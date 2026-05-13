@@ -75,7 +75,7 @@ async def upload_scene_image(
             # Generate thumbnail from the open image
             rgb_img = img
             if img.mode in ("RGBA", "P"):
-                rgb_img = img.convert("RGB")
+                rgb_img = img.convert("RGB")  # type: ignore[assignment]
             thumbnail_bytes = _thumbnail_from_image(rgb_img, max_size=512)
 
             # Generate WebP from the open image

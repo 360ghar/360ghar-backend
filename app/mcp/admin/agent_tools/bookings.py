@@ -101,6 +101,7 @@ async def agent_bookings_list_all(
     except Exception as e:
         logger.error("Error in agent.bookings.list_all: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_bookings_update_status",
@@ -168,3 +169,4 @@ async def agent_bookings_update_status(
     except Exception as e:
         logger.error("Error in agent.bookings.update_status: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update booking status: {str(e)}")
+    return {}

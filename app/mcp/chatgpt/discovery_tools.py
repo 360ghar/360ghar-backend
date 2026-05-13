@@ -32,7 +32,7 @@ from app.mcp.utils import (
     serialize_property_basic,
     serialize_property_full,
 )
-from app.schemas.property import PropertySwipe, UnifiedPropertyFilter
+from app.schemas.property import PropertyPurpose, PropertySwipe, PropertyType, UnifiedPropertyFilter
 
 logger = get_logger(__name__)
 
@@ -146,25 +146,29 @@ async def discovery_search(
             user_id = user.id if user else None
 
             # Build filter object
-            filter_data = {
-                "search_query": query,
-                "latitude": latitude,
-                "longitude": longitude,
-                "property_type": property_type,
-                "purpose": purpose,
-                "price_min": price_min,
-                "price_max": price_max,
-                "bedrooms_min": bedrooms_min,
-                "bedrooms_max": bedrooms_max,
-                "amenities": amenities,
-                "city": city,
-                "locality": locality,
-            }
-            # Only include radius_km when location search is active
-            if latitude and longitude:
-                filter_data["radius_km"] = radius_km
+            purpose_val: PropertyPurpose | None = None
+            if purpose:
+                purpose_val = PropertyPurpose(purpose)
 
-            filters = UnifiedPropertyFilter(**filter_data)
+            property_type_val: list[PropertyType] | None = None
+            if property_type:
+                property_type_val = [PropertyType(property_type)]
+
+            filters = UnifiedPropertyFilter(
+                search_query=query,
+                latitude=latitude,
+                longitude=longitude,
+                property_type=property_type_val,
+                purpose=purpose_val,
+                price_min=price_min,
+                price_max=price_max,
+                bedrooms_min=bedrooms_min,
+                bedrooms_max=bedrooms_max,
+                amenities=amenities,
+                city=city,
+                locality=locality,
+                radius_km=radius_km if (latitude and longitude) else 5,
+            )
 
             # Execute search
             result = await get_unified_properties_optimized(
@@ -256,7 +260,7 @@ async def discovery_property_get(
             property_obj = await get_property(db, property_id)
 
             # Serialize with full details
-            property_data = serialize_property_full(property_obj)
+            property_data = serialize_property_full(property_obj)  # type: ignore[arg-type]
 
             # Check if user has liked this property
             if user:
@@ -330,11 +334,15 @@ async def discovery_feed(
             user_id = user.id if user else None
 
             # Build filters
+            purpose_val: PropertyPurpose | None = None
+            if purpose:
+                purpose_val = PropertyPurpose(purpose)
+
             filters = UnifiedPropertyFilter(
                 latitude=latitude,
                 longitude=longitude,
-                radius_km=50 if latitude and longitude else None,  # Wider radius for feed
-                purpose=purpose,
+                radius_km=50,  # Wider radius for feed
+                purpose=purpose_val,
             )
 
             # Get properties
@@ -395,14 +403,14 @@ async def discovery_amenities() -> dict[str, Any]:
             result = await db.execute(select(Amenity).order_by(Amenity.title))
             amenities = result.scalars().all()
 
-            amenity_list = [
+            amenity_list: list[dict[str, Any]] = [
                 {"id": a.id, "name": a.title, "icon": a.icon}
                 for a in amenities
             ]
 
             return format_chatgpt_response(
                 data={"amenities": amenity_list, "count": len(amenity_list)},
-                content_summary=f"There are {len(amenity_list)} amenities available for filtering, including {', '.join([a['name'] for a in amenity_list[:5]])} and more.",
+                content_summary=f"There are {len(amenity_list)} amenities available for filtering, including {', '.join([str(a['name']) for a in amenity_list[:5]])} and more.",
                 widget_uri=get_widget_for_tool("discovery_amenities"),
             )
 
@@ -635,8 +643,6 @@ async def discovery_recommendations(
             recommendations = await get_property_recommendations(
                 db,
                 user_id=user.id,
-                latitude=latitude,
-                longitude=longitude,
                 limit=limit,
             )
 

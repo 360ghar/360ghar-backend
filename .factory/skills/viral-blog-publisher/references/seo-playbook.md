@@ -28,6 +28,18 @@ Use WebSearch to research before writing. Process:
 - "[Policy] impact on [city] real estate" (news + analysis)
 - "how to [action] in [city]" (guides)
 
+**Viral news keyword patterns (HIGH TRAFFIC):**
+- "[scandal type] Gurgaon [year]" — e.g., "IT raid Gurgaon tehsil 2026", "builder fraud Gurgaon 2026"
+- "[builder name] fraud Gurgaon" — e.g., "32nd Avenue fraud Gurgaon", "M3M fraud case"
+- "Gurgaon demolition drive [sector/area]" — e.g., "Gurgaon demolition DLF 2026"
+- "Gurgaon property scam [amount]" — e.g., "Gurgaon property scam 500 crore"
+- "[regulatory body] order Gurgaon property" — e.g., "HC order stilt 4 Gurgaon"
+- "ED attaches [builder] property Gurgaon" — e.g., "ED attaches Ansal property"
+- "Gurgaon property [bubble/crash/correction] [year]" — e.g., "Gurgaon property bubble 2026"
+- "land mafia Gurgaon [area]" — e.g., "land mafia Gurgaon Budhera"
+
+These viral patterns typically have 2-3x higher CTR than standard market analysis keywords.
+
 ## Title Optimization
 
 Formula: `[Primary Keyword] — [Unique Hook] | [Location/Year]`
@@ -123,7 +135,7 @@ Include in `seo_metadata.schema_markup`. Choose based on content type:
 ## Tag & Category Strategy
 
 **Categories** (broad, max 2 per post):
-- Real Estate, Gurgaon, News, Policy, Guides, Market Analysis, Luxury, Affordable Housing, NRI, Commercial, Investment
+- Real Estate, Gurgaon, News, Policy, Guides, Market Analysis, Luxury, Affordable Housing, NRI, Commercial, Investment, Scandal, Fraud, Demolition, Regulation
 
 **Tags** (specific, 5-8 per post):
 - Include: locality name, topic, year, relevant project/developer names

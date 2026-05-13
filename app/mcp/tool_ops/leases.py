@@ -8,15 +8,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.mcp.tool_ops import _user_schema
 from app.mcp.utils import serialize_lease
 from app.models.enums import LeaseStatus
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_lease, assert_can_access_property
 from app.services.user import get_user_by_id
 
 logger = get_logger(__name__)
+
+
+def _user_schema(user) -> UserSchema:
+    return UserSchema.model_validate(user)
 
 
 async def get_tenant_current_lease(

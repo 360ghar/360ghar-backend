@@ -96,7 +96,7 @@ class OAuthTokenStore:
                 logger.debug("Auth code expired")
                 return None
             logger.debug("Auth code retrieved and consumed", extra={"user_id": data.get("user_id")})
-            return data
+            return dict[str, Any](data)
         except Exception as e:
             logger.error("Failed to get auth code: %s", e)
             return None
@@ -183,7 +183,7 @@ class OAuthTokenStore:
                 logger.debug("Access token expired")
                 return None
             logger.debug("Access token found", extra={"user_id": data.get("user_id")})
-            return data
+            return dict[str, Any](data)
         except Exception as e:
             logger.error("Failed to get access token: %s", e)
             return None
@@ -197,7 +197,7 @@ class OAuthTokenStore:
             if time.time() > data.get("expires_at", 0):
                 await cache.delete(self._key("refresh_token", refresh_token))
                 return None
-            return data
+            return dict[str, Any](data)
         except Exception as e:
             logger.error("Failed to get refresh token: %s", e)
             return None
@@ -301,7 +301,7 @@ class OAuthTokenStore:
             if time.time() > data.get("expires_at", 0):
                 await cache.delete(self._key("session", session_id))
                 return None
-            return data
+            return dict[str, Any](data)
         except Exception as e:
             logger.error("Failed to get OAuth session: %s", e)
             return None
@@ -357,7 +357,7 @@ class OAuthTokenStore:
             for field in ["client_uri", "logo_uri"]:
                 if field in data and data[field] is None:
                     data[field] = ""
-            return data
+            return dict[str, Any](data)
         except Exception as e:
             logger.error("Failed to get OAuth client: %s", e)
             return None

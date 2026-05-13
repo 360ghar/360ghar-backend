@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 from datetime import date
+from typing import Any
 
 import httpx
 from bs4 import BeautifulSoup
@@ -60,7 +61,7 @@ class GazetteScraper(BaseScraper):
             if len(cells) < 2:
                 continue
             pdf_link = row.find("a", href=True)
-            item = {
+            item: dict[str, Any] = {
                 "title": cells[0] if cells else "Untitled",
                 "department": cells[1] if len(cells) > 1 else None,
                 "source_url": _GAZETTE_URL,
@@ -79,7 +80,7 @@ class GazetteScraper(BaseScraper):
                         pass
                     break
             if pdf_link:
-                href = pdf_link["href"]
+                href = str(pdf_link["href"])
                 if not href.startswith("http"):
                     href = _GAZETTE_URL.rstrip("/") + "/" + href.lstrip("/")
                 item["pdf_url"] = href

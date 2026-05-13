@@ -10,14 +10,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.utils import utc_now
-from app.mcp.tool_ops import _user_schema
 from app.models.enums import LeaseStatus
 from app.models.pm_finance import RentPayment
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_lease
 
 logger = get_logger(__name__)
+
+
+def _user_schema(user) -> UserSchema:
+    return UserSchema.model_validate(user)
 
 
 async def compute_rent_due_items(
@@ -214,7 +218,7 @@ async def get_rent_history(
             "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
         })
 
-    total_collected = sum(p["amount"] for p in items)
+    total_collected = sum(float(p.get("amount") or 0) for p in items)
 
     return {
         "payments": items,

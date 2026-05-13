@@ -84,7 +84,7 @@ async def guest_property_details(
     from app.services.property import get_property
 
     property_obj = await get_property(ctx.deps.db, property_id)
-    return {"property": serialize_property_full(property_obj)}
+    return {"property": dict(serialize_property_full(property_obj))}  # type: ignore[arg-type]
 
 
 async def guest_property_recommendations(

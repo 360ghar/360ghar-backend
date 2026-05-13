@@ -56,7 +56,7 @@ class RedisCacheBackend:
                 decode_responses=False,  # Handle bytes for pickle
                 max_connections=self._max_connections,
             )
-            await self._client.ping()
+            await self._client.ping()  # type: ignore[misc]
             logger.info("Redis cache connected successfully")
         except Exception as e:
             logger.error("Failed to connect to Redis: %s", e)
@@ -138,7 +138,7 @@ class RedisCacheBackend:
             full_key = self._make_key(key)
             # Try GETDEL first (Redis 6.2+)
             try:
-                data = await self._client.getdel(full_key)  # type: ignore[attr-defined]
+                data = await self._client.getdel(full_key)
             except (AttributeError, Exception):
                 # Fallback: Lua script for atomic get-and-delete
                 lua_script = """
@@ -148,7 +148,7 @@ class RedisCacheBackend:
                 end
                 return value
                 """
-                data = await self._client.eval(lua_script, 1, full_key)
+                data = await self._client.eval(lua_script, 1, full_key)  # type: ignore[misc]
 
             if data is None:
                 self.stats.misses += 1

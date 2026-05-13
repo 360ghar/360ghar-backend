@@ -33,7 +33,7 @@ async def create_pm_expense(
 
     expense = await create_expense(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=target_owner_id,
         property_id=payload.property_id,
         category=payload.category,
@@ -63,7 +63,7 @@ async def list_pm_expenses(
 ):
     expenses = await list_expenses(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         category=category,
@@ -84,7 +84,7 @@ async def patch_pm_expense(
 ):
     exp = await update_expense(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         expense_id=expense_id,
         property_id=payload.property_id,
         category=payload.category,

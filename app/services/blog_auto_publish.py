@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from html import escape
 from typing import Any
 from urllib.parse import urlparse
@@ -260,7 +260,7 @@ class DailyPerplexityBlogPublisher:
         return user
 
     async def _get_recent_published_posts(self, db: AsyncSession) -> list[RecentPublishedPost]:
-        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=RECENT_POST_LOOKBACK_DAYS)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RECENT_POST_LOOKBACK_DAYS)
         result = await db.execute(
             select(BlogPost)
             .where(BlogPost.active.is_(True), BlogPost.created_at >= cutoff)
@@ -425,8 +425,12 @@ class DailyPerplexityBlogPublisher:
         meta_description = excerpt[:160]
         focus_keyword = " ".join(item.tags[:2]) if item.tags else None
         seo_metadata = BlogSEOMetadata(
-            trending_score=70.0,  # Default trending score for auto-discovered news
+            trending_score=70.0,
             secondary_keywords=item.tags,
+            schema_markup=None,
+            keyword_analysis=None,
+            internal_links=None,
+            custom_data=None,
         )
 
         return BlogPostCreate(
@@ -442,6 +446,9 @@ class DailyPerplexityBlogPublisher:
             focus_keyword=focus_keyword,
             sources=sources,
             seo_metadata=seo_metadata,
+            canonical_url=None,
+            og_image_url=None,
+            published_at=None,
         )
 
     def _filter_discovered_items(

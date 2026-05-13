@@ -191,9 +191,10 @@ async def _is_blocked(db: AsyncSession, user_id: int, other_user_id: int) -> boo
 
 
 def _notification_type(row: dict[str, Any]) -> str:
-    data = row.get("data") or {}
-    meta = data.get("_meta") if isinstance(data.get("_meta"), dict) else {}
-    return meta.get("type_key") or data.get("type") or data.get("type_key") or "general"
+    data: dict[str, Any] = row.get("data") or {}
+    raw_meta = data.get("_meta")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
+    return str(meta.get("type_key") or data.get("type") or data.get("type_key") or "general")
 
 
 def _notification_reference_id(row: dict[str, Any]) -> int | None:
@@ -241,14 +242,14 @@ async def _ensure_match(
         if context_property_id is not None:
             match.context_property_id = context_property_id
         if match.status != UserMatchStatus.active.value:
-            match.status = UserMatchStatus.active.value
+            match.status = UserMatchStatus.active
         return match
 
     match = UserMatch(
         user_one_id=user_one_id,
         user_two_id=user_two_id,
         context_property_id=context_property_id,
-        status=UserMatchStatus.active.value,
+        status=UserMatchStatus.active,
     )
     db.add(match)
     await db.flush()

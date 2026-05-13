@@ -45,7 +45,7 @@ def generate_thumbnail(
         with Image.open(io.BytesIO(image_bytes)) as img:
             # Convert to RGB if necessary (for JPEG/WebP output)
             if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
+                img = img.convert("RGB")  # type: ignore[assignment]
 
             # Calculate thumbnail size maintaining aspect ratio
             # For 360 panoramas, we want to preserve the 2:1 ratio
@@ -95,7 +95,7 @@ def convert_to_webp(
         with Image.open(io.BytesIO(image_bytes)) as img:
             # Convert to RGB if necessary
             if img.mode in ("RGBA", "P"):
-                img = img.convert("RGB")
+                img = img.convert("RGB")  # type: ignore[assignment]
 
             # Resize if max_dimension is specified
             if max_dimension:
@@ -108,7 +108,7 @@ def convert_to_webp(
                     else:
                         new_height = max_dimension
                         new_width = int(max_dimension * aspect_ratio)
-                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)  # type: ignore[assignment]
 
             # Save as WebP
             output = io.BytesIO()
@@ -380,7 +380,7 @@ async def process_scene_image(image_bytes: bytes) -> dict[str, Any]:
             # Convert to RGB once if needed
             rgb_img = img
             if img.mode in ("RGBA", "P"):
-                rgb_img = img.convert("RGB")
+                rgb_img = img.convert("RGB")  # type: ignore[assignment]
 
             # --- Thumbnail (512px max) ---
             thumb_img = rgb_img.copy()

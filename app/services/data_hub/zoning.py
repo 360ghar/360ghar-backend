@@ -1,6 +1,7 @@
 """Zoning data scraper — TCP Haryana tables + supports CSV admin import."""
 import asyncio
 import logging
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -48,7 +49,7 @@ class ZoningScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec = {
+                rec: dict[str, Any] = {
                     "district": "Gurugram",
                     "source_url": _TCP_URL,
                     "raw_data": {"headers": headers, "cells": cells},
@@ -85,7 +86,7 @@ class ZoningScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec = {
+                rec: dict[str, Any] = {
                     "source_url": _GMDA_URL,
                     "raw_data": {"headers": headers, "cells": cells},
                     "_table": "zoning_data",  # marker

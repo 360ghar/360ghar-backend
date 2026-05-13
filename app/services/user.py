@@ -78,7 +78,7 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
         full_name = (supabase_user_data.get("user_metadata") or {}).get("full_name")
         is_verified = bool(supabase_user_data.get("email_verified", False))
 
-        user = await get_user_by_supabase_id(db, supabase_id)
+        user = await get_user_by_supabase_id(db, supabase_id or "")
 
         if not user:
             # Prioritize phone lookup over email since phone is now the primary identifier
@@ -93,7 +93,7 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
             if user:
                 # Update with Supabase ID
                 logger.info("Updating existing user %s with Supabase ID", user.id)
-                user.supabase_user_id = supabase_id
+                user.supabase_user_id = str(supabase_id)
                 # Optionally backfill missing phone/full_name
                 if phone and not user.phone:
                     user.phone = phone
@@ -121,7 +121,7 @@ async def get_or_create_user_from_supabase(db: AsyncSession, supabase_user_data:
                 )
                 await db.rollback()
                 # Another request likely created the user already; fetch and return it
-                user = await get_user_by_supabase_id(db, supabase_id)
+                user = await get_user_by_supabase_id(db, str(supabase_id or ""))
                 if not user:
                     # Re-raise if still not found; something else went wrong
                     raise
@@ -171,7 +171,7 @@ async def get_all_users(
             count_stmt = count_stmt.where(and_(*conditions))
         stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
         result = await db.execute(stmt)
-        users = result.scalars().all()
+        users = list(result.scalars().all())
 
         count_result = await db.execute(count_stmt)
         total = count_result.scalar_one()

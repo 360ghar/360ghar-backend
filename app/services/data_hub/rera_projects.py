@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import date
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -70,7 +71,7 @@ class ReraProjectScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec = {"district": "Gurugram", "raw_data": {"headers": headers, "cells": cells}}
+                rec: dict[str, Any] = {"district": "Gurugram", "raw_data": {"headers": headers, "cells": cells}}
                 for i, h in enumerate(headers):
                     if i >= len(cells):
                         break

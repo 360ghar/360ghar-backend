@@ -121,3 +121,84 @@ Before finalizing, verify:
 - [ ] Does the opening hook make you want to keep reading?
 - [ ] Are prices/areas/sectors specific (not generic)?
 - [ ] Is there at least one opinion or unique angle not found in competitor articles?
+
+---
+
+## Viral News Writing Addendum
+
+For `breaking_scandal`, `regulatory_shock`, and `market_controversy` topic types, apply these additional rules on top of the base style guide.
+
+### Opening: Lead With the Dramatic Number
+
+Viral news blogs must open with the headline number — the crore amount, the percentage, the body count of structures demolished. No setup, no context, just the shock value first.
+
+**Good:** "₹45,000 crore. That's the scale of transaction discrepancies the I-T department just flagged at Gurgaon's tehsil office on Tuesday."
+**Bad:** "The Income Tax department recently conducted a survey at the tehsil office in Gurgaon and found some discrepancies."
+
+### Name Names
+
+When information is publicly reported (arrested builders, named officials, court orders), use the actual names. This is journalism, not speculation.
+
+- "Dhruv Dutt Sharma, CEO of 32nd Avenue, was arrested on 7 February for allegedly selling the same commercial floor to 25 buyers."
+- "The Punjab and Haryana High Court's April 2 order stayed stilt-plus-4-storey constructions across Haryana."
+- "GMDA demolished an illegal building in Budhera village linked to criminal Narendra alias Pawwa."
+
+Do NOT name individuals in ongoing investigations where names aren't public. Use "a Sector 15-based developer" or "the accused" instead.
+
+### Timeline Structure
+
+For unfolding events (demolition drives, court proceedings, fraud investigations), use a chronological timeline format:
+
+```
+<h2>How It Unfolded</h2>
+<ul>
+  <li><strong>2 April 2026</strong> — Punjab and Haryana HC stays stilt+4 construction</li>
+  <li><strong>19 April</strong> — Haryana anti-encroachment drive begins in 44 sectors</li>
+  <li><strong>27 April</strong> — 7,500 structures razed in five-day drive</li>
+  <li><strong>27 April</strong> — SC refuses to entertain plea against demolitions</li>
+  <li><strong>7 May</strong> — 2,000 notices issued for violations; 50% drop in builder plot enquiries</li>
+</ul>
+```
+
+### "What This Means For You" Section
+
+Every scandal/fraud/demolition blog MUST include a section explaining the practical impact on regular buyers/investors. This is your unique value — competitors report the news, you translate it into action.
+
+```
+<h2>What This Means For You</h2>
+<p>If you're a buyer looking at builder floors in DLF phases...</p>
+<ul>
+  <li><strong>Verify before you buy</strong> — Check with the Town and Country Planning department...</li>
+  <li><strong>Check RERA registration</strong> — Any project with 8+ units must be RERA-registered...</li>
+</ul>
+```
+
+### "How to Protect Yourself" Checklist
+
+For fraud/scam stories, add a practical checklist:
+
+```
+<h2>How to Protect Yourself</h2>
+<ol>
+  <li><strong>Demand a certified copy of the registry</strong> — Cross-check with the sub-registrar office</li>
+  <li><strong>Verify RERA registration</strong> at haryanarera.gov.in before booking</li>
+  <li><strong>Never pay more than 10% without a registered agreement</strong></li>
+  <li><strong>Check for existing encumbrances</strong> — Ask for the encumbrance certificate</li>
+</ol>
+```
+
+### Reference Legal Frameworks
+
+For regulatory/legal stories, reference the specific law or section:
+- I-T Act Section 285BA (statement of financial transactions)
+- PMLA (Prevention of Money Laundering Act) for ED cases
+- Haryana Development and Regulation of Urban Areas Act, 1975
+- RERA Section 18 (compensation for delay)
+- Punjab and Haryana High Court specific order numbers when available
+
+### Higher Energy Tone
+
+Viral news writing should feel more urgent than market analysis. Shorter sentences. More bold text. More rhetorical questions. The reader should feel the heat.
+
+**Market analysis tone:** "Sector 79 has emerged as a strong contender for first-time buyers in the ₹80 lakh to ₹1.5 crore bracket."
+**Viral news tone:** "Sector 79 just got hit with a 75% circle rate hike. A flat that cost ₹85 lakh to register last month now costs ₹1.1 crore. And that's before you factor in stamp duty."

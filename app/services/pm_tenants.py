@@ -21,7 +21,7 @@ async def list_tenants(
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     """List tenant users across an owner's (or RM's) accessible portfolio."""
-    owner_ids = None
+    owner_ids: list[int] | None = None
     if actor.role == UserRole.user.value:
         owner_ids = [actor.id]
     elif actor.role == UserRole.agent.value:
@@ -29,7 +29,7 @@ async def list_tenants(
             await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
             owner_ids = [owner_id]
         else:
-            owner_ids = await get_accessible_owner_ids(db, actor=actor) or []
+            owner_ids = list(await get_accessible_owner_ids(db, actor=actor) or [])
     elif actor.role == UserRole.admin.value:
         owner_ids = [owner_id] if owner_id is not None else None
     else:
@@ -79,6 +79,7 @@ async def get_tenant_detail(
     owner_id: int | None = None,
 ) -> dict[str, Any]:
     # Determine owner scope
+    owner_ids: list[int] | None
     if actor.role == UserRole.user.value:
         owner_ids = [actor.id]
     elif actor.role == UserRole.agent.value:

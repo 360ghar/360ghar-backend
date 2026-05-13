@@ -23,6 +23,11 @@ from app.models.pm_maintenance import MaintenanceRequest
 
 logger = get_logger(__name__)
 
+TOOL_OPS_NOT_FOUND = "NOT_FOUND"
+TOOL_OPS_FORBIDDEN = "FORBIDDEN"
+TOOL_OPS_OPERATION_FAILED = "OPERATION_FAILED"
+TOOL_OPS_INVALID_INPUT = "INVALID_INPUT"
+
 
 # Priority keyword → urgency enum mapping (used by create and update operations)
 _PRIORITY_TO_URGENCY: dict[str, MaintenanceUrgency] = {
@@ -145,14 +150,14 @@ async def create_maintenance_request(
         cat = MaintenanceCategory(category.lower())
     except ValueError:
         valid = [c.value for c in MaintenanceCategory]
-        return {"error": True, "message": f"Invalid category. Valid: {', '.join(valid)}"}
+        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid category. Valid: {', '.join(valid)}"}
 
     # Map priority to urgency
     priority_norm = priority.lower().strip()
     urgency = _PRIORITY_TO_URGENCY.get(priority_norm)
     if urgency is None:
         valid = list(_PRIORITY_TO_URGENCY.keys())
-        return {"error": True, "message": f"Invalid priority. Valid: {', '.join(valid)}"}
+        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid priority. Valid: {', '.join(valid)}"}
 
     # Verify tenant has active lease on this property
     lease = (
@@ -168,6 +173,7 @@ async def create_maintenance_request(
     if not lease:
         return {
             "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
             "message": "No active lease found for this property. Only tenants can submit maintenance requests.",
         }
 

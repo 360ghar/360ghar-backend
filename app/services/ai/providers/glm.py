@@ -195,7 +195,7 @@ class GLMProvider(AIProvider):
                     provider=self.name,
                 )
 
-            return content
+            return str(content)
 
         except (KeyError, IndexError) as e:
             logger.error("Failed to extract text from GLM response: %s", e)

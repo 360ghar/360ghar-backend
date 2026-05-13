@@ -6,9 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import DocumentType, UserRole
+from app.models.users import User
 from app.schemas.pm_document import Document as DocumentSchema
 from app.schemas.pm_document import DocumentDownload, DocumentUpdate
-from app.schemas.user import User as UserSchema
 from app.services.pm_documents import create_document, list_documents, update_document
 from app.services.storage import storage_service
 
@@ -28,7 +28,7 @@ async def upload_document(
     rental_application_id: int | None = Form(None),
     shared_with_tenant: bool = Form(False),
     shared_with_agent: bool = Form(False),
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     target_owner_id = current_user.id
@@ -41,7 +41,7 @@ async def upload_document(
             raise InsufficientPermissionsError("Only admins/agents can set owner_id")
 
     upload_res = await storage_service.upload_document(
-        file, folder=f"pm/{target_owner_id}", user_id=target_owner_id
+        file, user_id=target_owner_id
     )
 
     doc = await create_document(
@@ -76,7 +76,7 @@ async def get_documents(
     document_type: DocumentType | None = None,
     limit: int = 50,
     offset: int = 0,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     docs = await list_documents(
@@ -99,7 +99,7 @@ async def get_documents(
 async def patch_document(
     document_id: int,
     payload: DocumentUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     doc = await update_document(
@@ -116,10 +116,9 @@ async def patch_document(
 @router.get("/{document_id}/download", response_model=DocumentDownload)
 async def download_document(
     document_id: int,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # MVP: return stored file_url; private buckets can be added later via signed URLs.
     from app.services.pm_documents import assert_can_access_document
 
     doc = await assert_can_access_document(db, actor=current_user, document_id=document_id)

@@ -7,8 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_admin
 from app.core.database import get_db
 from app.models.data_hub import NeighbourhoodScore
+from app.models.users import User
 from app.schemas.data_hub import NeighbourhoodScoreResponse
-from app.schemas.user import User as UserSchema
 
 router = APIRouter()
 
@@ -33,7 +33,7 @@ async def get_neighbourhood_score(listing_id: int, db: AsyncSession = Depends(ge
         education_score=category_scores.get("education"),
         health_score=category_scores.get("health"),
         retail_score=category_scores.get("retail"),
-        nearby_places=row.nearby_places,
+        nearby_places=row.nearby_places if isinstance(row.nearby_places, dict) else {},
         stale_after=row.stale_after,
         last_fetched_at=row.last_fetched_at,
         created_at=row.created_at,
@@ -45,7 +45,7 @@ async def get_neighbourhood_score(listing_id: int, db: AsyncSession = Depends(ge
 async def refresh_neighbourhood_score(
     listing_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: UserSchema = Depends(get_current_admin),
+    current_user: User = Depends(get_current_admin),
 ):
     """Trigger a neighbourhood score refresh for a listing (admin only)."""
     from app.services.data_hub.neighbourhood import NeighbourhoodScraper

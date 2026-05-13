@@ -131,11 +131,11 @@ class PropertyQueryBuilder:
 
         # --- gender preference ---
         if f.gender_preference:
-            conditions.append(Property.gender_preference == f.gender_preference)
+            conditions.append(Property.gender_preference == f.gender_preference)  # type: ignore[attr-defined]
 
         # --- sharing type ---
         if f.sharing_type:
-            conditions.append(Property.sharing_type == f.sharing_type)
+            conditions.append(Property.sharing_type == f.sharing_type)  # type: ignore[attr-defined]
 
         # --- guests / max_occupancy ---
         if f.guests is not None:

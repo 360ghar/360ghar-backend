@@ -79,7 +79,13 @@ class Settings(BaseSettings):
         """Override CORS_ORIGINS from CORS_ORIGINS_STR if provided."""
         origins_str = info.data.get("CORS_ORIGINS_STR", "")
         if origins_str and origins_str.strip():
-            return [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+            origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+            for origin in origins:
+                if not origin.startswith(("http://", "https://")):
+                    raise ValueError(
+                        f"Invalid CORS origin: {origin!r}. Must start with http:// or https://"
+                    )
+            return origins
         return value
 
     @field_validator("SECRET_KEY", mode="after")
@@ -238,4 +244,4 @@ class Settings(BaseSettings):
     )
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

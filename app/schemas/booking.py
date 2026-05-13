@@ -26,6 +26,7 @@ class BookingCreate(BookingBase):
         return self
 
 class BookingUpdate(BaseModel):
+    booking_status: str | None = None
     check_in_date: datetime | None = None
     check_out_date: datetime | None = None
     guests: int | None = None
@@ -34,6 +35,7 @@ class BookingUpdate(BaseModel):
     primary_guest_email: EmailStr | None = None
     special_requests: str | None = None
     guest_details: dict[str, Any] | None = None
+    notes: str | None = None
 
 class BookingCancel(BaseModel):
     booking_id: int

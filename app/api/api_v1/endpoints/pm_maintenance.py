@@ -31,7 +31,7 @@ async def submit_request(
 ):
     req = await create_maintenance_request(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         property_id=payload.property_id,
         category=payload.category,
         urgency=payload.urgency,
@@ -57,7 +57,7 @@ async def list_requests(
 ):
     rows = await list_maintenance_requests(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         lease_id=lease_id,
@@ -78,7 +78,7 @@ async def update_request(
 ):
     req = await update_maintenance_request(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         request_id=request_id,
         request_status=payload.request_status,
         assigned_agent_id=payload.assigned_agent_id,

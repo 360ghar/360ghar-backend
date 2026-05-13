@@ -3,7 +3,7 @@ import re
 from datetime import date
 from typing import Any
 
-import bleach
+import bleach  # type: ignore[import-untyped]
 
 from app.core.exceptions import ValidationException
 
@@ -51,12 +51,12 @@ class ValidationUtils:
         if not value:
             return value
 
-        return bleach.clean(
+        return str(bleach.clean(
             value,
             tags=ValidationUtils.ALLOWED_TAGS,
             attributes=ValidationUtils.ALLOWED_ATTRIBUTES,
             strip=True
-        )
+        ))
 
     @staticmethod
     def validate_phone(phone: str) -> str:

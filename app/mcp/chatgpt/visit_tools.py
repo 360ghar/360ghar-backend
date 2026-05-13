@@ -156,7 +156,7 @@ async def visits_schedule(
             visit_data = VisitCreate(
                 property_id=property_id,
                 scheduled_date=parsed_date,
-                notes=notes,
+                special_requirements=notes,
             )
             visit = await create_visit(db, user.id, visit_data)
             await db.commit()
@@ -419,7 +419,7 @@ async def visits_cancel(
                 )
 
             # Cancel visit
-            await cancel_visit(db, visit_id, reason)
+            await cancel_visit(db, visit_id, reason or "")
             await db.commit()
 
             return format_chatgpt_response(

@@ -146,15 +146,15 @@ class BlogPostInDB(BlogPostBase):
     reading_time_minutes: int | None = None
     word_count: int | None = None
     published_at: datetime | None = None
-    sources: list[dict] = Field(default_factory=list)
-    seo_metadata: dict = Field(default_factory=dict)
+    sources: list[dict] = Field(default_factory=list)  # type: ignore[assignment]
+    seo_metadata: dict = Field(default_factory=dict)  # type: ignore[assignment]
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class BlogPost(BlogPostInDB):
-    categories: list[BlogCategory] | None = None
-    tags: list[BlogTag] | None = None
+    categories: list[BlogCategory] | None = None  # type: ignore[assignment]
+    tags: list[BlogTag] | None = None  # type: ignore[assignment]
 
     model_config = ConfigDict(from_attributes=True)
 

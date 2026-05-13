@@ -27,14 +27,14 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
         return None
 
     # Get current active users count
-    stmt = select(func.count(User.id)).where(User.agent_id == agent_id)
-    result = await db.execute(stmt)
-    current_users = result.scalar() or 0
+    count_stmt = select(func.count(User.id)).where(User.agent_id == agent_id)
+    count_result = await db.execute(count_stmt)
+    current_users = int(count_result.scalar() or 0)
 
     # Get visit stats for efficiency calculation
-    stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
-    result = await db.execute(stmt)
-    result.scalar() or 0
+    count_stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
+    count_result = await db.execute(count_stmt)
+    count_result.scalar() or 0
 
     # Get real interaction counts
     daily_interactions = await get_daily_interactions(db, agent_id)
@@ -112,11 +112,13 @@ async def get_system_stats(db: AsyncSession) -> AgentSystemStats:
     avg_satisfaction = result.scalar() or 0
 
     # Count agents by type
-    stmt = select(Agent.agent_type, func.count(Agent.id)).where(
+    type_stmt = select(Agent.agent_type, func.count(Agent.id)).where(
         Agent.is_active
     ).group_by(Agent.agent_type)
-    result = await db.execute(stmt)
-    agents_by_type = dict(result.all())
+    result = await db.execute(type_stmt)
+    agents_by_type: dict[str, int] = {}
+    for at, count in result.all():
+        agents_by_type[at.value] = count
 
     # Get workload distribution
     workload = await get_workload_distribution(db)

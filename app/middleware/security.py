@@ -216,7 +216,7 @@ class APIKeyMiddleware:
         cache_key = f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
         cached = await cache.get(cache_key)
         if cached is not None:
-            return cached
+            return bool(cached)
 
         # In production, check against database
         # For now, check against environment variable
@@ -332,11 +332,11 @@ class IPWhitelistMiddleware:
         headers = dict(scope.get("headers", []))
         forwarded = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="ignore")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return str(forwarded.split(",")[0].strip())
 
         real_ip = headers.get(b"x-real-ip", b"").decode("utf-8", errors="ignore")
         if real_ip:
-            return real_ip
+            return str(real_ip)
 
         client = scope.get("client")
         return client[0] if client else "unknown"

@@ -131,6 +131,7 @@ async def agent_maintenance_list(
     except Exception as e:
         logger.error("Error in agent.maintenance.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_maintenance_update_status",
@@ -264,3 +265,4 @@ async def agent_maintenance_update_status(
     except Exception as e:
         logger.error("Error in agent.maintenance.update_status: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update maintenance request: {str(e)}")
+    return {}

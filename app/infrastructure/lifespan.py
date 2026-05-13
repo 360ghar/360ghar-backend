@@ -15,7 +15,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-LifespanFactory = Callable[[FastAPI], AsyncIterator[None]]
+LifespanFactory = Callable[[FastAPI], Any]
 
 
 def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> LifespanFactory:

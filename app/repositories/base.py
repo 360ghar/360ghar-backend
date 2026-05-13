@@ -31,7 +31,7 @@ class BaseRepository(Generic[T]):
         """Get entity by ID"""
         return await self.session.get(self.model, id)
 
-    async def get_with_relations(self, id: int, relations: list[str] = None) -> T | None:
+    async def get_with_relations(self, id: int, relations: list[str] | None = None) -> T | None:
         """
         Get entity by ID with eager-loaded relationships
 
@@ -39,7 +39,7 @@ class BaseRepository(Generic[T]):
             id: Entity ID
             relations: List of relationship attribute names to load
         """
-        stmt = select(self.model).where(self.model.id == id)
+        stmt = select(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
 
         if relations:
             for relation in relations:
@@ -50,10 +50,10 @@ class BaseRepository(Generic[T]):
 
     async def list(
         self,
-        filters: dict[str, Any] = None,
+        filters: dict[str, Any] | None = None,
         skip: int = 0,
         limit: int = 100,
-        order_by: str = None
+        order_by: str | None = None
     ) -> list[T]:
         """
         List entities with optional filtering and pagination
@@ -83,9 +83,9 @@ class BaseRepository(Generic[T]):
         stmt = stmt.offset(skip).limit(limit)
 
         result = await self.session.execute(stmt)
-        return result.scalars().all()
+        return list(result.scalars().all())
 
-    async def count(self, filters: dict[str, Any] = None) -> int:
+    async def count(self, filters: dict[str, Any] | None = None) -> int:
         """Count entities with optional filtering"""
         stmt = select(func.count()).select_from(self.model)
 
@@ -108,7 +108,7 @@ class BaseRepository(Generic[T]):
         """Update entity by ID"""
         stmt = (
             update(self.model)
-            .where(self.model.id == id)
+            .where(self.model.id == id)  # type: ignore[attr-defined]
             .values(**data)
             .returning(self.model)
         )
@@ -127,6 +127,6 @@ class BaseRepository(Generic[T]):
 
     async def exists(self, id: int) -> bool:
         """Check if entity exists"""
-        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)
+        stmt = select(func.count()).select_from(self.model).where(self.model.id == id)  # type: ignore[attr-defined]
         result = await self.session.execute(stmt)
         return result.scalar_one() > 0

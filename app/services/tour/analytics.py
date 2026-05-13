@@ -19,6 +19,7 @@ from app.schemas.tour import (
     DailyView,
     DashboardStats,
     DeviceBreakdown,
+    HeatmapPoint,
     TourAnalytics,
 )
 from app.services.tour.helpers import (
@@ -61,7 +62,7 @@ async def get_tour_analytics(
     country_counts: dict = {}
     daily_views_map: dict = {}
     unique_sessions: set = set()
-    heatmap_points: list[dict] = []
+    heatmap_points: list[HeatmapPoint] = []
     share_breakdown: dict = {}
     session_starts: dict = {}
     session_durations: list[float] = []
@@ -80,14 +81,14 @@ async def get_tour_analytics(
 
         if event.event_type == "heatmap":
             heatmap_points.append(
-                {
-                    "scene_id": event.scene_id,
-                    "yaw": event_payload.get("yaw"),
-                    "pitch": event_payload.get("pitch"),
-                    "x": event_payload.get("x"),
-                    "y": event_payload.get("y"),
-                    "intensity": event_payload.get("intensity", 1.0),
-                }
+                HeatmapPoint(
+                    scene_id=event.scene_id,
+                    yaw=float(event_payload.get("yaw", 0.0)) if event_payload.get("yaw") is not None else None,
+                    pitch=float(event_payload.get("pitch", 0.0)) if event_payload.get("pitch") is not None else None,
+                    x=float(event_payload.get("x", 0.0)) if event_payload.get("x") is not None else None,
+                    y=float(event_payload.get("y", 0.0)) if event_payload.get("y") is not None else None,
+                    intensity=float(event_payload.get("intensity", 1.0)),
+                )
             )
 
         if event.event_type == "share":

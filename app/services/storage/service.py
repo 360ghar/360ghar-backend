@@ -224,7 +224,7 @@ class StorageService:
             if not is_valid_upload(file):
                 raise InvalidFileException(detail="Invalid file type")
 
-            file_extension = get_file_extension(file.filename, content_type=file.content_type)
+            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
             unique_filename = f"{uuid.uuid4()}{file_extension}"
             file_path = f"agents/{agent_id}/avatars/{unique_filename}"
 
@@ -613,7 +613,7 @@ class StorageService:
     def get_file_url(self, file_path: str, bucket_name: str | None = None) -> str:
         """Get public URL for file."""
         target_bucket = bucket_name or self.bucket_name
-        return self.supabase.storage.from_(target_bucket).get_public_url(file_path)
+        return str(self.supabase.storage.from_(target_bucket).get_public_url(file_path))
 
     def list_files(self, folder: str, bucket_name: str | None = None) -> list[dict[str, Any]]:
         """List files in a folder."""
@@ -648,7 +648,7 @@ class StorageService:
                 raise InvalidFileException(detail="Invalid file type")
 
             # Generate unique filename
-            file_extension = get_file_extension(file.filename, content_type=file.content_type)
+            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
             unique_filename = f"{uuid.uuid4()}{file_extension}"
             file_path = f"{folder}/{unique_filename}"
 

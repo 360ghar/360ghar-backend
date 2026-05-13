@@ -330,7 +330,7 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
     )
     conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
     if conversation:
-        conversation.status = ConversationStatus.blocked.value
+        conversation.status = ConversationStatus.blocked
 
     match_stmt = select(UserMatch).where(
         UserMatch.user_one_id == user_one_id,
@@ -338,7 +338,7 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
     )
     match = (await db.execute(match_stmt)).scalar_one_or_none()
     if match:
-        match.status = UserMatchStatus.blocked.value
+        match.status = UserMatchStatus.blocked
 
     await db.flush()
     return block

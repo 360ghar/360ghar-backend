@@ -130,6 +130,7 @@ async def agent_leases_list(
     except Exception as e:
         logger.error("Error in agent.leases.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list leases: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_leases_create",
@@ -248,6 +249,7 @@ async def agent_leases_create(
     except Exception as e:
         logger.error("Error in agent.leases.create: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create lease: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_leases_terminate",
@@ -321,7 +323,7 @@ async def agent_leases_terminate(
 
             lease.status = LeaseStatus.terminated
             lease.end_date = term_date
-            lease.notes = f"{lease.notes or ''}\nTerminated: {reason}".strip()
+            lease.notes = f"{lease.notes or ''}\nTerminated: {reason}".strip()  # type: ignore[attr-defined]
 
             await db.flush()
             await db.commit()
@@ -336,3 +338,4 @@ async def agent_leases_terminate(
     except Exception as e:
         logger.error("Error in agent.leases.terminate: %s", e, exc_info=True)
         return internal_error_response(f"Failed to terminate lease: {str(e)}")
+    return {}

@@ -8,7 +8,7 @@ ChatGPT Apps expect tool responses in a specific format:
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 from app.mcp.apps_sdk import AppsSDKToolResult
 
@@ -50,7 +50,7 @@ def format_auth_required_response(
     action: str,
     message: str | None = None,
     context: dict[str, Any] | None = None,
-) -> None:
+) -> NoReturn:
     """Format a response that prompts the user to authenticate.
 
     Raises an AuthRequiredError which will be turned into a CallToolResult with
@@ -63,9 +63,6 @@ def format_auth_required_response(
         action: The action that requires authentication (e.g., "swipe", "schedule_visit")
         message: Optional custom message. Defaults to a standard prompt.
         context: Optional context data to include (e.g., property_id being acted on)
-
-    Returns:
-        None (always raises).
     """
     from app.mcp.apps_sdk import raise_auth_required
 
@@ -87,6 +84,7 @@ def format_auth_required_response(
         error_description=f"Authentication required to {action}",
         structured_content=data,
     )
+    raise AssertionError("unreachable")
 
 
 def format_property_list_summary(
@@ -108,7 +106,11 @@ def format_property_list_summary(
         return "No properties found matching your criteria."
 
     # Extract price range
-    prices = [p.get("base_price") or p.get("monthly_rent") for p in properties if p.get("base_price") or p.get("monthly_rent")]
+    prices: list[float] = [
+        v
+        for p in properties
+        if (v := p.get("base_price") or p.get("monthly_rent")) is not None
+    ]
     if prices:
         min_price = min(prices)
         max_price = max(prices)

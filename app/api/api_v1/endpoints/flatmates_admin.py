@@ -16,6 +16,7 @@ from app.models.enums import (
     PropertyPurpose,
     PropertyType,
     ReportAction,
+    UserReportStatus,
 )
 from app.models.properties import Property
 from app.models.social import UserReport
@@ -25,7 +26,6 @@ from app.schemas.flatmates_admin import (
     serialize_flatmate_listing as _serialize_flatmate_listing,
 )
 from app.schemas.flatmates_admin import serialize_report as _serialize_report
-from app.schemas.user import User as UserSchema
 from app.services.flatmates import pause_expired_flatmate_listings, prescreen_flatmate_listing
 
 logger = get_logger(__name__)
@@ -35,7 +35,7 @@ router = APIRouter()
 FLATMATE_LISTING_TYPES = (PropertyType.flatmate, PropertyType.pg)
 
 
-def _is_admin_user(user: UserSchema) -> bool:
+def _is_admin_user(user: User) -> bool:
     return getattr(user, "role", None) == "admin"
 
 
@@ -82,7 +82,7 @@ async def get_pending_listings(
     status: str = Query(default="pending_review", description="Filter by status"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get listings pending moderation review. Requires admin role."""
@@ -118,7 +118,7 @@ async def get_pending_listings(
 async def moderate_listing(
     listing_id: int,
     payload: ListingModerationAction,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Moderate a listing: approve, reject, or request edit. Requires admin role."""
@@ -140,13 +140,13 @@ async def moderate_listing(
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    status_map = {
+    status_map: dict[ModerationAction, ListingModerationStatus] = {
         ModerationAction.approve: ListingModerationStatus.live,
         ModerationAction.reject: ListingModerationStatus.rejected,
         ModerationAction.request_edit: ListingModerationStatus.pending_review,
     }
-    moderation_status = status_map[payload.action].value
-    listing.is_available = payload.action == ModerationAction.approve
+    moderation_status = status_map[ModerationAction(payload.action)].value
+    listing.is_available = payload.action == "approve"
 
     preferences = (
         dict(listing.listing_preferences) if isinstance(listing.listing_preferences, dict) else {}
@@ -158,7 +158,7 @@ async def moderate_listing(
     preferences["moderated_at"] = moderated_at.isoformat()
     if reason:
         preferences["moderation_reason"] = reason
-    if payload.action == ModerationAction.approve and not preferences.get("approval_boost_granted_at"):
+    if payload.action == "approve" and not preferences.get("approval_boost_granted_at"):
         approval_boost_granted = True
         preferences["first_approved_at"] = moderated_at.isoformat()
         preferences["approval_boost_granted_at"] = moderated_at.isoformat()
@@ -187,14 +187,14 @@ async def moderate_listing(
 
     from app.services.push_notification import notify_listing_approved
 
-    if payload.action == ModerationAction.approve:
+    if payload.action == "approve":
         await notify_listing_approved(
             db,
             recipient_db_id=listing.owner_id,
             listing_title=listing.title or "Your listing",
             boosted_for_hours=24 if approval_boost_granted else None,
         )
-    elif payload.action == ModerationAction.reject:
+    elif payload.action == "reject":
         await _dispatch_moderation_notification(
             db,
             recipient_db_id=listing.owner_id,
@@ -218,7 +218,7 @@ async def get_pending_reports(
     status: str = Query(default="open", description="Filter by status"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get user reports pending review. Requires admin role."""
@@ -260,7 +260,7 @@ async def get_pending_reports(
 async def moderate_report(
     report_id: int,
     payload: ReportModerationAction,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Moderate a user report. Requires admin role."""
@@ -282,13 +282,13 @@ async def moderate_report(
         ReportAction.suspend_user: "actioned",
         ReportAction.escalate: "reviewed",
     }
-    report.status = report_status_map[payload.action]
+    report.status = UserReportStatus(report_status_map[ReportAction(payload.action)])
     if notes:
         report.notes = notes
 
     from app.services.push_notification import _dispatch
 
-    if payload.action == ReportAction.suspend_user:
+    if payload.action == "suspend_user":
         reported_user = await db.execute(select(User).where(User.id == report.reported_user_id))
         user = reported_user.scalar_one_or_none()
         if user:
@@ -298,7 +298,7 @@ async def moderate_report(
     await db.commit()
     await db.refresh(report)
 
-    if payload.action == ReportAction.suspend_user:
+    if payload.action == "suspend_user":
         await _dispatch(
             db,
             user_db_id=report.reported_user_id,
@@ -317,7 +317,7 @@ async def moderate_report(
             data={"route": "/chats"},
             deep_link="/chats",
         )
-    elif payload.action == ReportAction.warn_user:
+    elif payload.action == "warn_user":
         await _dispatch(
             db,
             user_db_id=report.reported_user_id,
@@ -336,7 +336,7 @@ async def moderate_report(
             data={"route": "/chats"},
             deep_link="/chats",
         )
-    elif payload.action == ReportAction.dismiss:
+    elif payload.action == "dismiss":
         await _dispatch(
             db,
             user_db_id=report.reporter_user_id,
@@ -358,7 +358,7 @@ async def moderate_report(
 @router.post("/moderation/prescreen/{listing_id}")
 async def prescreen_listing(
     listing_id: int,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Run deterministic AI pre-screening for a flatmates listing. Requires admin role."""

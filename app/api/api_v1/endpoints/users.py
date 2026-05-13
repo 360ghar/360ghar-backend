@@ -7,6 +7,7 @@ from app.api.api_v1.dependencies.auth import (
 )
 from app.core.database import get_db
 from app.models.enums import UserRole
+from app.models.users import User
 from app.schemas.common import (
     AssignAgentPayload,
     MessageResponse,
@@ -30,15 +31,15 @@ from app.services.user import (
 router = APIRouter()
 
 @router.get("/me", response_model=UserSchema)
-async def get_user_me(current_user: UserSchema = Depends(get_current_active_user)):
+async def get_user_me(current_user: User = Depends(get_current_active_user)):
     """Get current user profile (alias for /profile)."""
-    return current_user
+    return UserSchema.model_validate(current_user)
 
 
 @router.put("/me", response_model=UserSchema)
 async def update_user_me(
     user_update: UserUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Update current user profile (alias for /profile)."""
@@ -49,26 +50,26 @@ async def update_user_me(
 
 
 @router.get("/profile", response_model=UserSchema)
-async def get_user_profile(current_user: UserSchema = Depends(get_current_active_user)):
+async def get_user_profile(current_user: User = Depends(get_current_active_user)):
     """Get current user profile"""
-    return current_user
+    return UserSchema.model_validate(current_user)
 
 @router.put("/profile", response_model=UserSchema)
 async def update_user_profile(
     user_update: UserUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user profile"""
     updated_user = await update_user(db, current_user.id, user_update, actor=current_user)
     if not updated_user:
         raise HTTPException(status_code=404, detail="User not found")
-    return updated_user
+    return UserSchema.model_validate(updated_user)
 
 @router.put("/preferences", response_model=MessageResponse)
 async def update_preferences(
     preferences: UserPreferences,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user preferences"""
@@ -82,7 +83,7 @@ async def update_preferences(
 @router.put("/location", response_model=MessageResponse)
 async def update_location(
     location_update: LocationUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Update user's current location"""
@@ -97,7 +98,7 @@ async def update_location(
 
 @router.get("/notification-settings", response_model=NotificationSettings)
 async def get_notification_settings(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> NotificationSettings:
     """Return the current user's notification settings.
@@ -114,7 +115,7 @@ async def get_notification_settings(
 @router.put("/notification-settings", response_model=MessageResponse)
 async def update_notification_settings(
     settings: NotificationSettings,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Update the current user's notification settings (360 Ghar app)."""
@@ -129,7 +130,7 @@ async def update_notification_settings(
 @router.put("/notifications", response_model=UserSchema)
 async def update_notifications_compat(
     settings: dict,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserSchema:
     """Compatibility endpoint for the stays app.
@@ -144,7 +145,7 @@ async def update_notifications_compat(
 
 @router.get("/privacy-settings", response_model=PrivacySettings)
 async def get_privacy_settings(
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> PrivacySettings:
     """Return the current user's privacy settings."""
@@ -156,7 +157,7 @@ async def get_privacy_settings(
 @router.put("/privacy-settings", response_model=MessageResponse)
 async def update_privacy_settings(
     settings: PrivacySettings,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     """Update the current user's privacy settings (360 Ghar app)."""
@@ -167,7 +168,7 @@ async def update_privacy_settings(
 @router.put("/privacy", response_model=UserSchema)
 async def update_privacy_compat(
     settings: dict,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ) -> UserSchema:
     """Compatibility endpoint for the stays app privacy settings."""
@@ -184,7 +185,7 @@ async def list_users(
     limit: int = Query(20, ge=1, le=100),
     q: str | None = Query(None, description="Search by name/email/phone"),
     agent_id: int | None = Query(None, description="Filter by agent id (admin only)"),
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List users. Admins see all (optionally filter by agent). Agents see their assigned users."""
@@ -225,7 +226,7 @@ async def list_users(
 @router.get("/{user_id}", response_model=UserSchema)
 async def get_user_details(
     user_id: int,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     user = await get_user_by_id(db, user_id)
@@ -246,7 +247,7 @@ async def get_user_details(
 async def update_user_details(
     user_id: int,
     user_update: UserUpdate,
-    current_user: UserSchema = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
     # Admin can update any user; Agent can update limited fields for assigned users
@@ -260,7 +261,7 @@ async def update_user_details(
 async def assign_agent_to_specific_user(
     user_id: int,
     payload: AssignAgentPayload,
-    current_user: UserSchema = Depends(get_current_admin),
+    current_user: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db)
 ):
     assignment = await assign_agent_to_user(db, user_id, payload.agent_id)

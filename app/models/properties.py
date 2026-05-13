@@ -30,8 +30,7 @@ if TYPE_CHECKING:
     from app.models.pm_inspections import InspectionChecklist
     from app.models.pm_leases import Lease
     from app.models.pm_maintenance import MaintenanceRequest
-    from app.models.social import UserSwipe
-    from app.models.users import User
+    from app.models.users import User, UserSwipe
 
 
 # GeoAlchemy2's Geography type isn't supported by SQLite (used in tests).
@@ -160,6 +159,7 @@ class Property(Base):
     images: Mapped[list[PropertyImage]] = relationship(back_populates="property", cascade="all, delete-orphan")
     property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="property", cascade="all, delete-orphan")
     swipes: Mapped[list[UserSwipe]] = relationship(
+        "UserSwipe",
         back_populates="property",
         foreign_keys="UserSwipe.property_id",
     )

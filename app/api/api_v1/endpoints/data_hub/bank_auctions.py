@@ -1,6 +1,7 @@
 """Bank and court auction endpoints."""
 
 from datetime import date as date_type
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select, union_all
@@ -150,7 +151,7 @@ async def list_auctions(
     offset = (page - 1) * limit
 
     if type == "court":
-        filters = []
+        filters: list[Any] = []
         if city:
             filters.append(CourtAuction.city.ilike(f"%{city}%"))
         if property_type:
@@ -191,7 +192,7 @@ async def list_auctions(
                     reserve_price=float(r.reserve_price) if r.reserve_price else None,
                     emd_amount=None,
                     auction_date=r.auction_date,
-                    emd_deadline=None,
+                    auction_end_date=None,
                     contact_info=r.contact_details,
                     source=r.source,
                     source_url=r.source_url,
@@ -211,29 +212,29 @@ async def list_auctions(
         }
     else:
         # Default: bank auctions
-        filters = []
+        bank_filters: list[Any] = []
         if bank:
-            filters.append(BankAuction.bank_name.ilike(f"%{bank}%"))
+            bank_filters.append(BankAuction.bank_name.ilike(f"%{bank}%"))
         if city:
-            filters.append(BankAuction.city.ilike(f"%{city}%"))
+            bank_filters.append(BankAuction.city.ilike(f"%{city}%"))
         if source:
-            filters.append(BankAuction.source == source)
+            bank_filters.append(BankAuction.source == source)
         if property_type:
-            filters.append(BankAuction.property_type.ilike(f"%{property_type}%"))
+            bank_filters.append(BankAuction.property_type.ilike(f"%{property_type}%"))
         if min_price:
-            filters.append(BankAuction.reserve_price >= min_price)
+            bank_filters.append(BankAuction.reserve_price >= min_price)
         if max_price:
-            filters.append(BankAuction.reserve_price <= max_price)
+            bank_filters.append(BankAuction.reserve_price <= max_price)
         if date_from:
-            filters.append(BankAuction.auction_date >= date_from)
+            bank_filters.append(BankAuction.auction_date >= date_from)
         if date_to:
-            filters.append(BankAuction.auction_date <= date_to)
+            bank_filters.append(BankAuction.auction_date <= date_to)
 
         count_q = select(func.count()).select_from(BankAuction)
         data_q = select(BankAuction)
-        if filters:
-            count_q = count_q.where(and_(*filters))
-            data_q = data_q.where(and_(*filters))
+        if bank_filters:
+            count_q = count_q.where(and_(*bank_filters))
+            data_q = data_q.where(and_(*bank_filters))
 
         rows, total, meta = await _safe_list_query(db, BankAuction, count_q, data_q, offset, limit, page)
         return {

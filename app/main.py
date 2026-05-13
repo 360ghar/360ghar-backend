@@ -4,7 +4,7 @@ import logging
 import sentry_sdk
 import sentry_sdk.integrations.fastapi
 import sentry_sdk.integrations.sqlalchemy
-import yaml
+import yaml  # type: ignore[import-untyped]
 from dotenv import load_dotenv
 from fastapi import HTTPException
 from fastapi.responses import Response

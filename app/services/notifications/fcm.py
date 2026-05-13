@@ -30,8 +30,8 @@ def _access_token() -> str:
     global _fcm_credentials, _fcm_token_expiry
 
     # Lazy import to avoid hard dependency at app import time
-    from google.auth.transport.requests import Request  # type: ignore
-    from google.oauth2 import service_account  # type: ignore
+    from google.auth.transport.requests import Request
+    from google.oauth2 import service_account
 
     if not settings.FIREBASE_PROJECT_ID:
         raise RuntimeError("FIREBASE_PROJECT_ID is not configured")
@@ -54,7 +54,7 @@ def _access_token() -> str:
         # Tokens typically last 1 hour; refresh 5 minutes early
         _fcm_token_expiry = now + 3300
 
-    return _fcm_credentials.token
+    return str(_fcm_credentials.token)
 
 
 def build_message(
@@ -126,4 +126,4 @@ async def send_message(message: dict[str, Any]) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(url, headers={"Authorization": f"Bearer {token}"}, json=message)
         resp.raise_for_status()
-        return resp.json()
+        return dict(resp.json())

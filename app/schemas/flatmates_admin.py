@@ -50,7 +50,7 @@ def serialize_flatmate_listing(listing: Property) -> dict[str, Any]:
             continue
         seen_image_urls.add(raw_url)
         image_urls.append(raw_url)
-    raw_features = listing.features or []
+    raw_features: Any = listing.features or []
     if isinstance(raw_features, list):
         features = [str(feature) for feature in raw_features]
     elif isinstance(raw_features, dict):

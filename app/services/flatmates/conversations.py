@@ -46,7 +46,7 @@ async def _ensure_conversation(
         if conversation.status != ConversationStatus.active:
             conversation.status = ConversationStatus.active
         if source == ConversationSource.profile_match:
-            conversation.source = source
+            conversation.source = ConversationSource.profile_match
         return conversation
 
     conversation = UserConversation(
@@ -330,7 +330,7 @@ async def send_message(
         from app.services.push_notification import notify_new_message
 
         sender = await db.get(User, user_id)
-        sender_name = sender.full_name or "Someone"
+        sender_name = (sender.full_name if sender else None) or "Someone"
         await notify_new_message(
             db,
             recipient_db_id=peer_id,

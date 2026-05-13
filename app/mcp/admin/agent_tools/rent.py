@@ -144,6 +144,7 @@ async def agent_rent_list_due(
     except Exception as e:
         logger.error("Error in agent.rent.list_due: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list due rent: {str(e)}")
+    return {}
 
 @admin_mcp.tool(
     "agent_rent_record_payment",
@@ -243,7 +244,7 @@ async def agent_rent_record_payment(
                     "amount": float(payment.amount_paid),
                     "payment_date": payment.paid_at.isoformat() if payment.paid_at else None,
                     "payment_method": payment.payment_method,
-                    "status": payment.status,
+                    "status": payment.status,  # type: ignore[attr-defined]
                 },
             }).model_dump()
     except AuthRequiredError:
@@ -251,3 +252,4 @@ async def agent_rent_record_payment(
     except Exception as e:
         logger.error("Error in agent.rent.record_payment: %s", e, exc_info=True)
         return internal_error_response(f"Failed to record payment: {str(e)}")
+    return {}

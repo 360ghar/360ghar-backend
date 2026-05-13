@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import re as _re
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -88,15 +88,15 @@ def _serialize_sources(sources) -> list[dict]:
     return result
 
 
-def _serialize_seo_metadata(seo_metadata) -> dict:
+def _serialize_seo_metadata(seo_metadata: dict[str, Any] | None = None) -> dict[str, Any]:
     """Convert BlogSEOMetadata object or dict to plain dict for JSONB storage."""
     if not seo_metadata:
         return {}
     if isinstance(seo_metadata, dict):
         return seo_metadata
     if hasattr(seo_metadata, "model_dump"):
-        return seo_metadata.model_dump(exclude_none=True)
-    return {}
+        return dict(seo_metadata.model_dump(exclude_none=True))
+    return dict(seo_metadata) if isinstance(seo_metadata, dict) else {}
 
 
 async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) -> list[BlogCategory]:
@@ -194,7 +194,7 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
     is_active = getattr(data, "active", False) or False
     published_at = getattr(data, "published_at", None)
     if is_active and not published_at:
-        published_at = datetime.now(UTC)
+        published_at = datetime.now(timezone.utc)
 
     post = BlogPost(
         title=data.title,
@@ -284,7 +284,7 @@ async def list_blog_posts(
     query = select(BlogPost).options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
     count_query = select(func.count(BlogPost.id))
 
-    conditions = []
+    conditions: list[Any] = []
 
     if not include_inactive:
         conditions.append(BlogPost.active.is_(True))
@@ -581,7 +581,7 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
         post.active = bool(data.active)
         # Set published_at when first activating
         if post.active and not post.published_at:
-            post.published_at = datetime.now(UTC)
+            post.published_at = datetime.now(timezone.utc)
 
     # Update SEO fields if provided
     if getattr(data, "meta_title", None) is not None:
@@ -616,10 +616,10 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
 
     if data.tags is not None:
         # Remove existing tags
-        delete_rel_stmt = select(BlogPostTag).where(BlogPostTag.post_id == post.id)
-        existing_rels = (await db.execute(delete_rel_stmt)).scalars().all()
-        for rel in existing_rels:
-            await db.delete(rel)
+        delete_tag_rel_stmt = select(BlogPostTag).where(BlogPostTag.post_id == post.id)
+        existing_tag_rels = (await db.execute(delete_tag_rel_stmt)).scalars().all()
+        for tag_rel in existing_tag_rels:
+            await db.delete(tag_rel)
 
         # Add new tags
         tags = await _get_or_create_tags(db, data.tags)

@@ -2,6 +2,7 @@
 import asyncio
 import logging
 from datetime import date
+from typing import Any
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,7 +66,7 @@ class CircleRateScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec = {
+                rec: dict[str, Any] = {
                     "district": "Gurugram",
                     "revision_year": revision_year,
                     "property_type": "residential",

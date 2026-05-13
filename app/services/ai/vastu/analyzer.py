@@ -68,12 +68,12 @@ def _get_fallback_provider(primary: str) -> str | None:
     """Return the fallback provider name given the primary, or None if unavailable."""
     # Explicitly configured fallback takes priority
     if VASTU_FALLBACK_PROVIDER and VASTU_FALLBACK_PROVIDER != primary:
-        return VASTU_FALLBACK_PROVIDER
+        return str(VASTU_FALLBACK_PROVIDER)
 
     # Default logic: swap between the two supported providers
     for candidate in VALID_VISION_PROVIDERS:
         if candidate != primary:
-            return candidate
+            return str(candidate)
     return None
 
 
@@ -89,10 +89,10 @@ async def _call_provider_with_json_retry(
     with a corrective nudge appended to the last user message.
     """
     try:
-        return await provider.complete_json(
+        return dict(await provider.complete_json(
             messages=messages,
             vision_input=vision_input,
-        )
+        ))
     except AIProviderError as exc:
         # Only retry on JSON parse failures, not on HTTP/auth errors
         if "Failed to parse JSON" not in str(exc):
@@ -110,10 +110,10 @@ async def _call_provider_with_json_retry(
                 content=original.content + _JSON_RETRY_NUDGE,
             )
 
-        return await provider.complete_json(
+        return dict(await provider.complete_json(
             messages=nudged_messages,
             vision_input=vision_input,
-        )
+        ))
 
 
 async def analyze_vastu(

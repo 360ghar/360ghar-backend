@@ -155,14 +155,14 @@ async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
 async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = True) -> AgentSchema | None:
     """Get the assigned agent for a user, auto-assign if none exists"""
     # Check if user already has an agent
-    stmt = select(User).where(User.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user_stmt = select(User).where(User.id == user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
 
     if user and user.agent_id:
-        stmt = select(Agent).where(Agent.id == user.agent_id)
-        result = await db.execute(stmt)
-        agent = result.scalar_one_or_none()
+        agent_stmt = select(Agent).where(Agent.id == user.agent_id)
+        agent_result = await db.execute(agent_stmt)
+        agent = agent_result.scalar_one_or_none()
         if agent:
             return AgentSchema.model_validate(agent.__dict__)
 
@@ -178,18 +178,18 @@ async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = Tru
 async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | None = None) -> AgentAssignment | None:
     """Assign an agent to a user (auto-assign if no agent_id provided)"""
     # Check if user already has an agent
-    stmt = select(User).where(User.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+    user_stmt = select(User).where(User.id == user_id)
+    user_result = await db.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
 
     if not user:
         logger.warning("User %s not found", user_id)
         return None
 
     if user.agent_id:
-        stmt = select(Agent).where(Agent.id == user.agent_id)
-        result = await db.execute(stmt)
-        existing_agent = result.scalar_one_or_none()
+        agent_stmt = select(Agent).where(Agent.id == user.agent_id)
+        agent_result = await db.execute(agent_stmt)
+        existing_agent = agent_result.scalar_one_or_none()
         if existing_agent:
             agent_schema = AgentSchema.model_validate(existing_agent.__dict__)
             return AgentAssignment(
@@ -202,22 +202,22 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
     # Determine which agent to assign
     if agent_id:
         # Specific agent requested
-        stmt = select(Agent).where(Agent.id == agent_id)
-        result = await db.execute(stmt)
-        agent = result.scalar_one_or_none()
+        agent_stmt = select(Agent).where(Agent.id == agent_id)
+        agent_result = await db.execute(agent_stmt)
+        agent = agent_result.scalar_one_or_none()
         if not agent or not agent.is_active or not agent.is_available:
             logger.warning("Requested agent %s is not available", agent_id)
             return None
     else:
         # Auto-assign based on load balancing - get agent with least users
-        stmt = select(Agent, func.count(User.id).label('user_count')).outerjoin(
+        load_stmt = select(Agent, func.count(User.id).label('user_count')).outerjoin(
             User, Agent.id == User.agent_id
         ).where(
             and_(Agent.is_active, Agent.is_available)
         ).group_by(Agent.id).order_by(func.count(User.id).asc()).limit(1)
 
-        result = await db.execute(stmt)
-        agent_with_count = result.first()
+        load_result = await db.execute(load_stmt)
+        agent_with_count = load_result.first()
 
         if not agent_with_count:
             logger.warning("No available agents for assignment")

@@ -222,7 +222,7 @@ class AIProvider(ABC):
         3. The first balanced JSON object embedded in the text
         """
         try:
-            return json.loads(text)
+            return dict[str, Any](json.loads(text))
         except json.JSONDecodeError:
             pass
 
@@ -230,7 +230,7 @@ class AIProvider(ABC):
         fence_match = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
         if fence_match:
             try:
-                return json.loads(fence_match.group(1).strip())
+                return dict[str, Any](json.loads(fence_match.group(1).strip()))
             except json.JSONDecodeError:
                 pass
 
@@ -238,7 +238,7 @@ class AIProvider(ABC):
         json_object = self._extract_balanced_json_object(text)
         if json_object:
             try:
-                return json.loads(json_object)
+                return dict[str, Any](json.loads(json_object))
             except json.JSONDecodeError:
                 pass
 

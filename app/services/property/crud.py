@@ -436,12 +436,12 @@ async def increment_property_view_count(db: AsyncSession, property_id: int):
         result = await db.execute(stmt)
         await db.flush()
 
-        if result.rowcount > 0:
+        if getattr(result, 'rowcount', 0) > 0:
             logger.debug("View count incremented for property %s", property_id)
         else:
             logger.warning("Property %s not found for view count increment", property_id)
 
-        return result.rowcount > 0
+        return getattr(result, 'rowcount', 0) > 0
     except Exception as e:
         logger.error(
             "Failed to increment view count for property %s: %s", property_id, e, exc_info=True
@@ -455,7 +455,7 @@ async def get_all_amenities(db: AsyncSession) -> list[dict]:
         stmt = select(Amenity).where(Amenity.is_active).order_by(Amenity.title.asc())
         result = await db.execute(stmt)
         amenities = result.scalars().all()
-        return [AmenitySchema.model_validate(a) for a in amenities]
+        return [AmenitySchema.model_validate(a).model_dump() for a in amenities]
     except Exception as e:
         logger.error("Failed to list amenities: %s", e, exc_info=True)
         raise

@@ -24,6 +24,8 @@ from app.mcp.errors import (
     invalid_input_response,
 )
 from app.mcp.tool_ops import (
+    TOOL_OPS_FORBIDDEN,
+    TOOL_OPS_INVALID_INPUT,
     create_maintenance_request,
     get_rent_history,
     get_tenant_current_lease,
@@ -95,6 +97,7 @@ async def tenant_lease_current() -> dict[str, Any]:
     except Exception as e:
         logger.error("Error in tenant.lease.current: %s", e, exc_info=True)
         return internal_error_response("Failed to get current lease.")
+    return {}
 
 
 @user_mcp.tool(
@@ -138,6 +141,7 @@ async def tenant_rent_history(
     except Exception as e:
         logger.error("Error in tenant.rent.history: %s", e, exc_info=True)
         return internal_error_response("Failed to get rent history.")
+    return {}
 
 
 @user_mcp.tool(
@@ -188,24 +192,26 @@ async def tenant_maintenance_create(
             )
 
             if result.get("error"):
+                code = result.get("code", "")
                 msg = result.get("message", "")
-                if "No active lease" in msg:
+                if code == TOOL_OPS_FORBIDDEN:
                     return MCPResponse.failure(
                         MCPErrorCode.INSUFFICIENT_PERMISSIONS,
                         "You do not have an active lease for this property.",
                     ).model_dump()
-                if "Invalid category" in msg:
-                    from app.models.enums import MaintenanceCategory
-                    valid_categories = [c.value for c in MaintenanceCategory]
-                    return invalid_input_response(
-                        f"Invalid category: {category}.",
-                        details={"valid_categories": valid_categories},
-                    )
-                if "Invalid priority" in msg:
-                    return invalid_input_response(
-                        f"Invalid priority: {priority}.",
-                        details={"valid_priorities": ["low", "medium", "high", "urgent"]},
-                    )
+                if code == TOOL_OPS_INVALID_INPUT:
+                    if "category" in msg.lower():
+                        from app.models.enums import MaintenanceCategory
+                        valid_categories = [c.value for c in MaintenanceCategory]
+                        return invalid_input_response(
+                            f"Invalid category: {category}.",
+                            details={"valid_categories": valid_categories},
+                        )
+                    if "priority" in msg.lower():
+                        return invalid_input_response(
+                            f"Invalid priority: {priority}.",
+                            details={"valid_priorities": ["low", "medium", "high", "urgent"]},
+                        )
                 return internal_error_response(msg)
 
             return MCPResponse.success(result).model_dump()
@@ -214,6 +220,7 @@ async def tenant_maintenance_create(
     except Exception as e:
         logger.error("Error in tenant.maintenance.create: %s", e, exc_info=True)
         return internal_error_response("Failed to create maintenance request.")
+    return {}
 
 
 @user_mcp.tool(
@@ -270,3 +277,4 @@ async def tenant_maintenance_list(
     except Exception as e:
         logger.error("Error in tenant.maintenance.list: %s", e, exc_info=True)
         return internal_error_response("Failed to list maintenance requests.")
+    return {}

@@ -165,8 +165,8 @@ class CoreService:
             and_(
                 Page.unique_name == unique_name,
                 Page.is_active,
-                not Page.is_draft,
-                not Page.is_private,
+                Page.is_draft.is_(False),
+                Page.is_private.is_(False),
             )
         )
 
@@ -242,6 +242,8 @@ class CoreService:
 
         # Return updated page
         updated_page = await self.get_page_by_unique_name(unique_name)
+        if updated_page is None:
+            raise NotFoundException(f"Page with unique_name '{unique_name}' not found after update")
         return updated_page
 
     async def delete_page(self, unique_name: str) -> bool:
@@ -255,7 +257,7 @@ class CoreService:
         result = await self.db.execute(query)
         await self.db.commit()
 
-        return result.rowcount > 0
+        return bool(result.rowcount)  # type: ignore[attr-defined]
 
     # App Version Methods
     async def create_app_version(self, version_data: AppVersionCreate) -> AppVersionResponse:
@@ -306,7 +308,7 @@ class CoreService:
             is_mandatory=latest_version_entry.is_mandatory or is_below_min,
             latest_version=latest_version,
             download_url=latest_version_entry.download_url,
-            release_notes=latest_version_entry.release_notes,
+            release_notes=str(latest_version_entry.release_notes) if latest_version_entry.release_notes is not None else None,
             min_supported_version=min_supported,
         )
 
@@ -434,4 +436,4 @@ class CoreService:
         )
         result = await self.db.execute(query)
         await self.db.commit()
-        return result.rowcount > 0
+        return bool(result.rowcount)  # type: ignore[attr-defined]

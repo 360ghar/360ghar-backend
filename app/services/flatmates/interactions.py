@@ -80,23 +80,25 @@ async def record_society_tag_vote(
         dict(listing.listing_preferences) if isinstance(listing.listing_preferences, dict) else {}
     )
     vote_counts = (
-        dict(preferences.get("society_tag_vote_counts"))
+        dict(preferences.get("society_tag_vote_counts"))  # type: ignore[arg-type]
         if isinstance(preferences.get("society_tag_vote_counts"), dict)
         else {}
     )
     user_votes = (
-        dict(preferences.get("society_tag_user_votes"))
+        dict(preferences.get("society_tag_user_votes"))  # type: ignore[arg-type]
         if isinstance(preferences.get("society_tag_user_votes"), dict)
         else {}
     )
 
-    current_counts = dict(vote_counts.get(tag)) if isinstance(vote_counts.get(tag), dict) else {}
+    current_counts = dict(vote_counts.get(tag)) if isinstance(vote_counts.get(tag), dict) else {}  # type: ignore[arg-type]
     upvotes = _count(current_counts.get("up"))
     downvotes = _count(current_counts.get("down"))
 
     user_key = str(user_id)
     previous_votes = (
-        dict(user_votes.get(user_key)) if isinstance(user_votes.get(user_key), dict) else {}
+        dict(user_votes.get(user_key))  # type: ignore[arg-type]
+        if isinstance(user_votes.get(user_key), dict)
+        else {}
     )
     previous_vote = previous_votes.get(tag)
     if previous_vote != payload.vote:
@@ -118,7 +120,7 @@ async def record_society_tag_vote(
     preferences["society_tag_user_votes"] = user_votes
 
     disputes = (
-        dict(preferences.get("society_tag_disputes"))
+        dict(preferences.get("society_tag_disputes"))  # type: ignore[arg-type]
         if isinstance(preferences.get("society_tag_disputes"), dict)
         else {}
     )

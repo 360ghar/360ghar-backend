@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +22,7 @@ from app.models.users import User
 @runtime_checkable
 class _Actor(Protocol):
     id: int
-    role: UserRole | str
+    role: Any
     agent_id: int | None
 
 

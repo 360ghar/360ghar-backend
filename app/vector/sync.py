@@ -206,7 +206,8 @@ async def run_property_vector_sync() -> dict[str, int | bool]:
 
             stats["updated"] = len(changed)
 
-            new_wm = max([p.get("updated_at") or p.get("created_at") for p in changed])
+            timestamps = [t for p in changed if (t := p.get("updated_at") or p.get("created_at")) is not None]
+            new_wm = max(timestamps)
             if isinstance(new_wm, datetime):
                 await write_watermark(db, new_wm)
                 await db.commit()

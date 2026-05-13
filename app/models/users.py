@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from app.models.agents import Agent
     from app.models.bookings import Booking
     from app.models.properties import Property, Visit
-    from app.models.social import UserSwipe
     from app.models.tours import Tour
 
 
@@ -81,6 +80,7 @@ class User(Base):
         foreign_keys="Property.owner_id",
     )
     swipes: Mapped[list[UserSwipe]] = relationship(
+        "UserSwipe",
         back_populates="user",
         cascade="all, delete-orphan",
         foreign_keys="UserSwipe.user_id",

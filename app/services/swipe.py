@@ -44,10 +44,10 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
 
         # Update property like count
         if swipe_data.is_liked:
-            stmt = update(Property).where(Property.id == swipe_data.property_id).values(
+            update_stmt = update(Property).where(Property.id == swipe_data.property_id).values(
                 like_count=Property.like_count + 1
             )
-            await db.execute(stmt)
+            await db.execute(update_stmt)
 
     await db.flush()
     return True
@@ -230,7 +230,7 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
         rows = result.all()
         swipes = [row[0] for row in rows]  # First column is the UserSwipe object
     else:
-        swipes = result.scalars().all()
+        swipes = list(result.scalars().all())
 
     total_count = count_result.scalar()
 
@@ -260,10 +260,10 @@ async def undo_last_swipe(db: AsyncSession, user_id: int):
         # Use savepoint to ensure like count decrement + delete are atomic
         async with db.begin_nested():
             if last_swipe.is_liked:
-                stmt = update(Property).where(Property.id == last_swipe.property_id).values(
+                update_stmt = update(Property).where(Property.id == last_swipe.property_id).values(
                     like_count=Property.like_count - 1
                 )
-                await db.execute(stmt)
+                await db.execute(update_stmt)
             await db.delete(last_swipe)
         await db.flush()
         return last_swipe
@@ -281,14 +281,14 @@ async def toggle_swipe(db: AsyncSession, swipe_id: int, user_id: int):
         # Use savepoint to ensure toggle + like count update are atomic
         async with db.begin_nested():
             if swipe.is_liked:
-                stmt = update(Property).where(Property.id == swipe.property_id).values(
+                update_stmt = update(Property).where(Property.id == swipe.property_id).values(
                     like_count=Property.like_count + 1
                 )
             else:
-                stmt = update(Property).where(Property.id == swipe.property_id).values(
+                update_stmt = update(Property).where(Property.id == swipe.property_id).values(
                     like_count=Property.like_count - 1
                 )
-            await db.execute(stmt)
+            await db.execute(update_stmt)
 
         await db.flush()
         return {"new_status": swipe.is_liked, "property_id": swipe.property_id}
@@ -300,7 +300,7 @@ async def get_swipe_stats(db: AsyncSession, user_id: int):
     stmt = select(
         func.count(UserSwipe.id).label('total_swipes'),
         func.sum(case((UserSwipe.is_liked, 1), else_=0)).label('liked_count'),
-        func.sum(case((not UserSwipe.is_liked, 1), else_=0)).label('disliked_count')
+        func.sum(case((~UserSwipe.is_liked, 1), else_=0)).label('disliked_count')
     ).where(UserSwipe.user_id == user_id)
 
     result = await db.execute(stmt)

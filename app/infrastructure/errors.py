@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import sentry_sdk
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
@@ -86,7 +88,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(BaseAPIException)
     async def base_api_exception_handler(request, exc: BaseAPIException):
         """Handle custom API exceptions with standardized error format."""
-        content = {
+        content: dict[str, Any] = {
             "error": {
                 "code": exc.error_code,
                 "message": exc.detail,

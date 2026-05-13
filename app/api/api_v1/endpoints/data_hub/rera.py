@@ -244,6 +244,6 @@ async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
         total_projects=total_projects,
         total_complaints=total_complaints,
         builder_score=score,
-        rera_projects=list(projects),
-        recent_complaints=list(complaints),
+        rera_projects=list(projects),  # type: ignore[arg-type]
+        recent_complaints=list(complaints),  # type: ignore[arg-type]
     )

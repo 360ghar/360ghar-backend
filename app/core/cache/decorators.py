@@ -85,7 +85,7 @@ def cached(
                 cached_value = await cache.get(cache_key)
                 if cached_value is not None:
                     logger.debug("Cache hit: %s", cache_key)
-                    return cached_value
+                    return cached_value  # type: ignore[no-any-return]
             except Exception as e:
                 logger.warning("Cache get error: %s", e)
 

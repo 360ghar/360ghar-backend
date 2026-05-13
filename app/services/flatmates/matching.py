@@ -162,6 +162,7 @@ async def record_swipe(
     )
     existing = (await db.execute(stmt)).scalar_one_or_none()
     if payload.action == SwipeAction.super_like:
+        assert payload.target_user_id is not None
         await _consume_super_like_quota(
             db,
             user_id=user_id,
@@ -196,6 +197,7 @@ async def record_swipe(
         )
         reciprocal = (await db.execute(reciprocal_stmt)).scalar_one_or_none()
         if reciprocal:
+            assert payload.target_user_id is not None
             match = await _ensure_match(
                 db,
                 user_id=user_id,
@@ -207,7 +209,7 @@ async def record_swipe(
                 user_id=user_id,
                 other_user_id=payload.target_user_id,
                 created_by_user_id=user_id,
-                source=ConversationSource.profile_match.value,
+                source=ConversationSource.profile_match,
                 context_property_id=payload.context_property_id,
             )
             did_match = True
@@ -222,6 +224,7 @@ async def record_swipe(
                 target = await db.get(User, payload.target_user_id)
                 swiper_name = swiper.full_name or "Someone" if swiper else "Someone"
                 target_name = target.full_name or "Someone" if target else "Someone"
+                assert payload.target_user_id is not None
                 await notify_new_match(
                     db,
                     recipient_db_id=payload.target_user_id,
@@ -243,7 +246,8 @@ async def record_swipe(
                 from app.core.sse import sse_bus
 
                 for uid in (user_id, payload.target_user_id):
-                    await sse_bus.emit(
+                    if uid is not None:
+                        await sse_bus.emit(
                         uid,
                         {"type": "new_match", "match_id": match_id, "conversation_id": conversation_id},
                     )
@@ -311,7 +315,7 @@ async def list_matches(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
         .options(selectinload(UserMatch.context_property))
         .where(
             or_(UserMatch.user_one_id == user_id, UserMatch.user_two_id == user_id),
-            UserMatch.status == UserMatchStatus.active.value,
+            UserMatch.status == UserMatchStatus.active,
         )
         .order_by(UserMatch.created_at.desc())
     )
@@ -360,17 +364,17 @@ async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) 
     match = (await db.execute(match_stmt)).scalar_one_or_none()
     if match is None:
         raise BadRequestException(detail="Match not found")
-    if match.status == UserMatchStatus.unmatched.value:
+    if match.status == UserMatchStatus.unmatched:
         return {"id": match.id, "status": match.status, "unmatched": True}
 
-    match.status = UserMatchStatus.unmatched.value
+    match.status = UserMatchStatus.unmatched
     conversation_stmt = select(UserConversation).where(
         UserConversation.user_one_id == user_one_id,
         UserConversation.user_two_id == user_two_id,
     )
     conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
     if conversation:
-        conversation.status = ConversationStatus.closed.value
+        conversation.status = ConversationStatus.closed
     await db.flush()
     return {"id": match.id, "status": match.status, "unmatched": True}
 
@@ -382,10 +386,10 @@ async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[s
         raise BadRequestException(detail="Match not found")
     if user_id not in {match.user_one_id, match.user_two_id}:
         raise BadRequestException(detail="Match not found")
-    if match.status == UserMatchStatus.unmatched.value:
+    if match.status == UserMatchStatus.unmatched:
         raise BadRequestException(detail="Match is already unmatched")
 
-    match.status = UserMatchStatus.unmatched.value
+    match.status = UserMatchStatus.unmatched
 
     # Close the associated conversation
     user_one_id, user_two_id = match.user_one_id, match.user_two_id
@@ -395,7 +399,7 @@ async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[s
     )
     conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
     if conversation:
-        conversation.status = ConversationStatus.closed.value
+        conversation.status = ConversationStatus.closed
 
     await db.flush()
     return {"id": match.id, "status": match.status, "unmatched": True}

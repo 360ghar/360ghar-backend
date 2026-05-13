@@ -174,10 +174,10 @@ async def reorder_scenes(
     for index, scene_id in enumerate(scene_ids):
         query = select(Scene).where(and_(Scene.id == scene_id, Scene.tour_id == tour_id))
         result = await db.execute(query)
-        scene = result.scalar_one_or_none()
+        scene_obj = result.scalar_one_or_none()
 
-        if scene:
-            scene.order_index = index
+        if scene_obj is not None and hasattr(scene_obj, 'order_index'):
+            scene_obj.order_index = index
 
     await db.commit()
 

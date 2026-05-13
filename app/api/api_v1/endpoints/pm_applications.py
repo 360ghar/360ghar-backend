@@ -49,7 +49,7 @@ async def create_form(
 
     form = await create_application_form(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=target_owner_id,
         title=payload.title,
         description=payload.description,
@@ -74,7 +74,7 @@ async def list_forms(
 ):
     forms = await list_application_forms(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         q=q,
@@ -90,7 +90,7 @@ async def get_form(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    form = await get_application_form(db, actor=current_user, form_id=form_id)
+    form = await get_application_form(db, actor=current_user, form_id=form_id)  # type: ignore[arg-type]
     return RentalApplicationForm.model_validate(form)
 
 
@@ -108,7 +108,7 @@ async def list_inbox(
 ):
     apps = await list_applications(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         status=status,
@@ -126,7 +126,7 @@ async def get_application_detail(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    app = await get_application(db, actor=current_user, application_id=application_id)
+    app = await get_application(db, actor=current_user, application_id=application_id)  # type: ignore[arg-type]
     return RentalApplication.model_validate(app)
 
 
@@ -171,7 +171,7 @@ async def decide(
 
     application = await decide_application(
         db,
-        actor=current_user,
+        actor=current_user,  # type: ignore[arg-type]
         application_id=application_id,
         decision=payload.decision,
     )

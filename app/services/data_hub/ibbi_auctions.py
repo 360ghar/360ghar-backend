@@ -3,6 +3,7 @@ import asyncio
 import logging
 import re
 from datetime import date, datetime
+from typing import Any
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -54,11 +55,11 @@ class IBBIAuctionScraper(BaseScraper):
 
                 # Try to extract a link from the row
                 link_tag = row.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else ""
+                link_url = str(link_tag["href"]) if link_tag else ""
                 if link_url and not link_url.startswith("http"):
                     link_url = f"https://ibbi.gov.in{link_url}"
 
-                record = {
+                record: dict[str, Any] = {
                     "source": AuctionSource.ibbi,
                     "bank_name": "IBBI",
                     "property_description": cells[0] if cells else "",
@@ -110,7 +111,7 @@ class IBBIAuctionScraper(BaseScraper):
                 if not text or len(text) < 10:
                     continue
                 link_tag = card.find("a", href=True)
-                link_url = link_tag["href"] if link_tag else source_url
+                link_url = str(link_tag["href"]) if link_tag else source_url
 
                 record = {
                     "source": AuctionSource.ibbi,

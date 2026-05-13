@@ -213,10 +213,16 @@ async def generate_draft_from_topic(db, *, topic: str, actor) -> dict[str, Any]:
         content=content_html,
         excerpt=excerpt,
         cover_image_url=cover_image,
-        # Seed with brand- and city-aware categories/tags for 360 Ghar
         categories=["Gurgaon", "Real Estate", "Virtual Tours", "360 Ghar"],
         tags=["Gurgaon", "Real Estate", "Virtual Tours", "VR Real Estate", "360 Ghar"],
         active=False,
+        meta_title=None,
+        meta_description=None,
+        focus_keyword=None,
+        canonical_url=None,
+        og_image_url=None,
+        seo_metadata=None,
+        published_at=None,
     )
 
     created = await create_blog_post(db, payload, actor)

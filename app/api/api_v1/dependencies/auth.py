@@ -8,7 +8,7 @@ from app.core.auth import verify_supabase_token
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.enums import UserRole
-from app.schemas.user import User as UserSchema
+from app.models.users import User
 from app.services.user import get_or_create_user_from_supabase
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ async def get_current_user(
     request: Request,
     authorization: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
-) -> UserSchema:
+) -> User:
     """Resolve the current user from the Authorization bearer token."""
     token = _parse_bearer_token(authorization)
 
@@ -109,8 +109,8 @@ async def get_current_user(
 
 
 async def get_current_active_user(
-    current_user: UserSchema = Depends(get_current_user),
-) -> UserSchema:
+    current_user: User = Depends(get_current_user),
+) -> User:
     """Return the current user only if active."""
     if not getattr(current_user, "is_active", False):
         raise HTTPException(
@@ -127,7 +127,7 @@ async def get_current_user_optional(
     request: Request,
     authorization: str | None = Header(None),
     db: AsyncSession = Depends(get_db),
-) -> UserSchema | None:
+) -> User | None:
     """Return the authenticated user if present; otherwise None."""
     if not authorization:
         return None
@@ -153,8 +153,8 @@ async def get_current_user_optional(
 
 
 async def get_current_agent(
-    current_user: UserSchema = Depends(get_current_active_user),
-) -> UserSchema:
+    current_user: User = Depends(get_current_active_user),
+) -> User:
     """Ensure the current user has agent role."""
     if getattr(current_user, "role", None) != UserRole.agent:
         raise HTTPException(
@@ -168,8 +168,8 @@ async def get_current_agent(
 
 
 async def get_current_admin(
-    current_user: UserSchema = Depends(get_current_active_user),
-) -> UserSchema:
+    current_user: User = Depends(get_current_active_user),
+) -> User:
     """Ensure the current user has admin role."""
     if getattr(current_user, "role", None) != UserRole.admin:
         raise HTTPException(

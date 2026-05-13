@@ -15,7 +15,7 @@ def get_public_base_url() -> str:
     """Return the public base URL (scheme+host) for OAuth metadata and resource binding."""
     public_base_url = getattr(settings, "PUBLIC_BASE_URL", None)
     if public_base_url:
-        return public_base_url.rstrip("/")
+        return str(public_base_url.rstrip("/"))
 
     if settings.ENVIRONMENT == "production":
         return "https://api.360ghar.com"
@@ -203,10 +203,10 @@ class SupabaseAuthProvider(RemoteAuthProvider):
 
         super().__init__(
             token_verifier=token_verifier,
-            authorization_servers=[auth_server_url],
+            authorization_servers=[auth_server_url],  # type: ignore[list-item]
             base_url=resource_base_url,
             resource_name="360Ghar MCP API",
-            resource_documentation=f"{public_base_url}/docs",
+            resource_documentation=f"{public_base_url}/docs",  # type: ignore[arg-type]
         )
 
 

@@ -91,7 +91,7 @@ def get_ai_provider(
             temperature=config_overrides.pop("temperature", 0.7),
             timeout=config_overrides.pop("timeout", 120),
         )
-        provider = GeminiProvider(config)
+        provider: AIProvider = GeminiProvider(config)
 
     elif provider_type == AIProviderType.GLM:
         from app.services.ai.providers.glm import GLMProvider

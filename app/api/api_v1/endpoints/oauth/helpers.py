@@ -396,7 +396,7 @@ async def fetch_client_metadata(client_id: str) -> dict[str, Any] | None:
 
         def _resolve_ips() -> list[str]:
             infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-            return [info[4][0] for info in infos if info and info[4]]
+            return [str(info[4][0]) for info in infos if info and info[4]]
 
         try:
             ips = await anyio.to_thread.run_sync(_resolve_ips)
@@ -431,7 +431,7 @@ async def fetch_client_metadata(client_id: str) -> dict[str, Any] | None:
                 if metadata.get("client_id") == client_id:
                     if "redirect_uris" in metadata and "client_name" in metadata:
                         logger.info("Fetched client metadata from %s", client_id)
-                        return metadata
+                        return dict[str, Any](metadata)
                     logger.warning("Client metadata missing required fields: %s", client_id)
                 else:
                     logger.warning("Client ID mismatch in metadata document: %s", client_id)

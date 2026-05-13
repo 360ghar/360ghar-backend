@@ -31,6 +31,8 @@ from app.mcp.errors import (
     not_found_response,
 )
 from app.mcp.tool_ops import (
+    TOOL_OPS_FORBIDDEN,
+    TOOL_OPS_NOT_FOUND,
     create_property,
     get_property_detail,
     list_properties_enriched,
@@ -97,7 +99,7 @@ async def owner_properties_list(
                 )
 
             clamped_limit = min(max(1, limit), 100)
-            return await list_properties_enriched(
+            result = await list_properties_enriched(
                 db,
                 actor=user,
                 owner_id=user.id,
@@ -106,11 +108,13 @@ async def owner_properties_list(
                 page=page,
                 limit=clamped_limit,
             )
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:
         logger.error("Error in owner.properties.list: %s", e, exc_info=True)
         return internal_error_response("Failed to list properties.")
+    return {}
 
 
 @user_mcp.tool(
@@ -224,6 +228,7 @@ async def owner_properties_create(
     except Exception as e:
         logger.error("Error in owner.properties.create: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -261,7 +266,15 @@ async def owner_properties_get(
             )
 
             if result.get("error"):
-                return not_found_response("Property", property_id)
+                code = result.get("code", "")
+                if code == TOOL_OPS_NOT_FOUND:
+                    return not_found_response("Property", property_id)
+                if code == TOOL_OPS_FORBIDDEN:
+                    return MCPResponse.failure(
+                        MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                        result.get("message", "Access denied"),
+                    ).model_dump()
+                return internal_error_response(result.get("message", "Failed to get property"))
 
             return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
@@ -269,6 +282,7 @@ async def owner_properties_get(
     except Exception as e:
         logger.error("Error in owner.properties.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -342,6 +356,7 @@ async def owner_properties_update(
     except Exception as e:
         logger.error("Error in owner.properties.update: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update property: {str(e)}")
+    return {}
 
 
 @user_mcp.tool(
@@ -395,3 +410,4 @@ async def owner_properties_toggle_availability(
     except Exception as e:
         logger.error("Error in owner.properties.toggle_availability: %s", e, exc_info=True)
         return internal_error_response(f"Failed to toggle availability: {str(e)}")
+    return {}
