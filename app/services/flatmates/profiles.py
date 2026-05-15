@@ -66,6 +66,7 @@ async def list_discoverable_profiles(
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     from app.models.social import UserBlock  # noqa: WPS433 – avoid top-level circular risk
+    from app.models.users import UserSwipe
 
     blocked_stmt = select(UserBlock.blocked_user_id).where(
         UserBlock.blocker_user_id == user_id,
@@ -76,6 +77,12 @@ async def list_discoverable_profiles(
     blocked_ids = list((await db.execute(blocked_stmt)).scalars().all())
     blocker_ids = list((await db.execute(blocker_stmt)).scalars().all())
     excluded = {user_id, *blocked_ids, *blocker_ids}
+
+    swiped_subq = select(UserSwipe.target_user_id).where(
+        UserSwipe.user_id == user_id,
+        UserSwipe.target_type == "user",
+        UserSwipe.target_user_id.is_not(None),
+    )
 
     # --- Deal-breaker (non-negotiables) filtering (P0-4) ---
     requesting_user = await db.get(User, user_id)
@@ -89,6 +96,7 @@ async def list_discoverable_profiles(
 
     filters = [
         User.id.notin_(excluded),
+        User.id.notin_(swiped_subq),
         User.flatmates_onboarding_completed.is_(True),
         User.flatmates_profile_status == FlatmatesProfileStatus.active,
     ]

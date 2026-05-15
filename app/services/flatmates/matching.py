@@ -308,6 +308,45 @@ async def list_incoming_likes(
     return items
 
 
+async def list_outgoing_likes(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    """Return profiles the current user has liked (outgoing likes)."""
+    current_user = await db.get(User, user_id)
+    stmt = (
+        select(UserSwipe)
+        .options(selectinload(UserSwipe.target_user), selectinload(UserSwipe.context_property))
+        .where(
+            UserSwipe.user_id == user_id,
+            UserSwipe.target_type == SwipeTargetType.user.value,
+            UserSwipe.is_liked.is_(True),
+            UserSwipe.target_user_id.is_not(None),
+        )
+        .order_by(UserSwipe.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    outgoing_swipes = list((await db.execute(stmt)).scalars().all())
+
+    items: list[dict[str, Any]] = []
+    for swipe in outgoing_swipes:
+        if swipe.target_user is None or await _is_blocked(db, user_id, swipe.target_user_id):
+            continue
+        items.append(
+            {
+                "id": swipe.id,
+                "peer": _build_peer_payload(swipe.target_user, current_user),
+                "context_property": _build_property_context(swipe.context_property),
+                "created_at": swipe.created_at,
+            }
+        )
+    return items
+
+
 async def list_matches(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
     current_user = await db.get(User, user_id)
     stmt = (

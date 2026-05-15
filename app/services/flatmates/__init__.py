@@ -19,6 +19,7 @@ from app.services.flatmates.interactions import (
 from app.services.flatmates.matching import (
     list_incoming_likes,
     list_matches,
+    list_outgoing_likes,
     record_swipe,
     unmatch_match,
     unmatch_user_pair,
@@ -60,6 +61,7 @@ __all__ = [
     # matching
     "record_swipe",
     "list_incoming_likes",
+    "list_outgoing_likes",
     "list_matches",
     "unmatch_user_pair",
     "unmatch_match",

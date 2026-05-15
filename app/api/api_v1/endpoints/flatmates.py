@@ -52,6 +52,7 @@ from app.services.flatmates import (
     list_incoming_likes,
     list_matches,
     list_messages,
+    list_outgoing_likes,
     mark_all_flatmates_notifications_read,
     mark_conversation_read,
     mark_flatmates_notification_read,
@@ -190,6 +191,16 @@ async def get_incoming_likes(
     db: AsyncSession = Depends(get_db),
 ):
     return await list_incoming_likes(db, current_user.id, limit=limit, offset=offset)
+
+
+@router.get("/outgoing-likes", response_model=list[IncomingLikeSummary])
+async def get_outgoing_likes(
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await list_outgoing_likes(db, current_user.id, limit=limit, offset=offset)
 
 
 @router.post("/profile-views", response_model=ProfileViewEventOut)

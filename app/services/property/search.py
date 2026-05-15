@@ -589,17 +589,23 @@ async def get_unified_properties_optimized(
         if has_additional_columns:
             rows = result.all()
             for row in rows:
-                mapping = row._mapping if hasattr(row, "_mapping") else {}
-                prop = mapping.get("Property") or mapping.get(Property)
-                if prop is None:
-                    prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
-                if mapping and prop:
-                    if "distance_km" in mapping and mapping["distance_km"] is not None:
-                        prop.distance_km = mapping["distance_km"]
-                    if "vector_distance" in mapping and mapping["vector_distance"] is not None:
-                        prop.vector_distance = mapping["vector_distance"]
-                    if "relevance_score" in mapping and mapping["relevance_score"] is not None:
-                        prop.relevance_score = mapping["relevance_score"]
+                prop = row[0]
+                if not isinstance(prop, Property):
+                    mapping = row._mapping if hasattr(row, "_mapping") else {}
+                    prop = mapping.get("Property") or mapping.get(Property)
+                    if prop is None:
+                        prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
+                if isinstance(prop, Property):
+                    try:
+                        mapping = row._mapping if hasattr(row, "_mapping") else {}
+                        if "distance_km" in mapping and mapping["distance_km"] is not None:
+                            prop.distance_km = float(mapping["distance_km"])
+                        if "vector_distance" in mapping and mapping["vector_distance"] is not None:
+                            prop.vector_distance = float(mapping["vector_distance"])
+                        if "relevance_score" in mapping and mapping["relevance_score"] is not None:
+                            prop.relevance_score = float(mapping["relevance_score"])
+                    except (TypeError, ValueError, KeyError):
+                        pass
                 if prop:
                     properties.append(cast(Property, prop))  # type: ignore[arg-type]
         else:
