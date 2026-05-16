@@ -589,25 +589,23 @@ async def get_unified_properties_optimized(
         if has_additional_columns:
             rows = result.all()
             for row in rows:
+                mapping = row._mapping if hasattr(row, "_mapping") else {}
                 prop = row[0]
                 if not isinstance(prop, Property):
-                    mapping = row._mapping if hasattr(row, "_mapping") else {}
                     prop = mapping.get("Property") or mapping.get(Property)
                     if prop is None:
                         prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
                 if isinstance(prop, Property):
                     try:
-                        mapping = row._mapping if hasattr(row, "_mapping") else {}
                         if "distance_km" in mapping and mapping["distance_km"] is not None:
-                            prop.distance_km = float(mapping["distance_km"])
+                            prop.distance_km = float(mapping["distance_km"])  # type: ignore[attr-defined]
                         if "vector_distance" in mapping and mapping["vector_distance"] is not None:
-                            prop.vector_distance = float(mapping["vector_distance"])
+                            prop.vector_distance = float(mapping["vector_distance"])  # type: ignore[attr-defined]
                         if "relevance_score" in mapping and mapping["relevance_score"] is not None:
-                            prop.relevance_score = float(mapping["relevance_score"])
+                            prop.relevance_score = float(mapping["relevance_score"])  # type: ignore[attr-defined]
                     except (TypeError, ValueError, KeyError) as exc:
                         logger.debug("Failed to cast property score fields: %s", exc)
-                if prop:
-                    properties.append(cast(Property, prop))  # type: ignore[arg-type]
+                    properties.append(prop)
         else:
             properties = list(result.scalars().all())
 
