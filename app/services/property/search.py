@@ -126,7 +126,9 @@ async def get_unified_properties_optimized(
             "user_id": user_id,
             "page": page,
             "limit": limit,
-            "property_type": [t.value if hasattr(t, "value") else t for t in filters.property_type] if filters.property_type else None,
+            "property_type": [t.value if hasattr(t, "value") else t for t in filters.property_type]
+            if filters.property_type
+            else None,
             "purpose": filters.purpose.value if filters.purpose else None,
             "city": filters.city,
             "locality": filters.locality,
@@ -498,7 +500,12 @@ async def get_unified_properties_optimized(
                     "Semantic embedding generation failed, falling back to text search: %s", e
                 )
 
-        if search_query_obj is not None and search_vector is not None and not text_filter_applied and not semantic_enabled:
+        if (
+            search_query_obj is not None
+            and search_vector is not None
+            and not text_filter_applied
+            and not semantic_enabled
+        ):
             conditions.append(search_vector.op("@@")(search_query_obj))
             text_filter_applied = True
 

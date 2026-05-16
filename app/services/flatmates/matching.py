@@ -248,9 +248,13 @@ async def record_swipe(
                 for uid in (user_id, payload.target_user_id):
                     if uid is not None:
                         await sse_bus.emit(
-                        uid,
-                        {"type": "new_match", "match_id": match_id, "conversation_id": conversation_id},
-                    )
+                            uid,
+                            {
+                                "type": "new_match",
+                                "match_id": match_id,
+                                "conversation_id": conversation_id,
+                            },
+                        )
             except Exception:  # noqa: BLE001
                 pass  # best-effort
 
