@@ -28,6 +28,7 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                 try:
                     if not testing:
                         await _initialize_cache()
+                        await _apply_pending_migrations()
                         _start_schedulers(app)
                 except Exception as exc:
                     logger.error("Application startup failed: %s", exc)
@@ -58,6 +59,24 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                 logger.info("API shutdown", extra={"event": "shutdown"})
 
     return lifespan
+
+
+async def _apply_pending_migrations() -> None:
+    """Run lightweight one-off DDL that cannot be applied via Supabase CLI migrations."""
+    from sqlalchemy import text
+
+    async with engine.begin() as conn:
+        for label, sql in (
+            (
+                "image_category: add floor_plan",
+                "ALTER TYPE image_category ADD VALUE IF NOT EXISTS 'floor_plan'",
+            ),
+        ):
+            try:
+                await conn.execute(text(sql))
+                logger.info("Startup migration applied: %s", label)
+            except Exception as exc:
+                logger.warning("Startup migration skipped (%s): %s", label, exc)
 
 
 async def _initialize_cache() -> None:
