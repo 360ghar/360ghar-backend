@@ -604,8 +604,8 @@ async def get_unified_properties_optimized(
                             prop.vector_distance = float(mapping["vector_distance"])
                         if "relevance_score" in mapping and mapping["relevance_score"] is not None:
                             prop.relevance_score = float(mapping["relevance_score"])
-                    except (TypeError, ValueError, KeyError):
-                        pass
+                    except (TypeError, ValueError, KeyError) as exc:
+                        logger.debug("Failed to cast property score fields: %s", exc)
                 if prop:
                     properties.append(cast(Property, prop))  # type: ignore[arg-type]
         else:

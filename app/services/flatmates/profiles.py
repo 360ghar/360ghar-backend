@@ -15,10 +15,11 @@ from app.models.enums import (
     FlatmatesProfileStatus,
     PropertyPurpose,
     PropertyType,
+    SwipeTargetType,
 )
 from app.models.properties import Property
 from app.models.social import AppCatalog, UserConversation, UserMessage
-from app.models.users import User
+from app.models.users import User, UserSwipe
 from app.schemas.flatmates import FlatmatesProfileUpdate
 from app.services.flatmates.helpers import (
     _build_peer_payload,
@@ -66,7 +67,6 @@ async def list_discoverable_profiles(
     offset: int = 0,
 ) -> list[dict[str, Any]]:
     from app.models.social import UserBlock  # noqa: WPS433 – avoid top-level circular risk
-    from app.models.users import UserSwipe
 
     blocked_stmt = select(UserBlock.blocked_user_id).where(
         UserBlock.blocker_user_id == user_id,
@@ -80,7 +80,7 @@ async def list_discoverable_profiles(
 
     swiped_subq = select(UserSwipe.target_user_id).where(
         UserSwipe.user_id == user_id,
-        UserSwipe.target_type == "user",
+        UserSwipe.target_type == SwipeTargetType.user.value,
         UserSwipe.target_user_id.is_not(None),
     )
 

@@ -20,7 +20,7 @@ from app.models.enums import (
     UserMatchStatus,
 )
 from app.models.properties import Property
-from app.models.social import FlatmateSuperLikeUsage, UserConversation, UserMatch
+from app.models.social import FlatmateSuperLikeUsage, UserBlock, UserConversation, UserMatch
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import SwipeRequest
 from app.services.flatmates.conversations import _ensure_conversation
@@ -332,9 +332,19 @@ async def list_outgoing_likes(
     )
     outgoing_swipes = list((await db.execute(stmt)).scalars().all())
 
+    blocked_ids_stmt = select(UserBlock.blocked_user_id).where(
+        UserBlock.blocker_user_id == user_id,
+    )
+    blocker_ids_stmt = select(UserBlock.blocker_user_id).where(
+        UserBlock.blocked_user_id == user_id,
+    )
+    blocked_ids = set((await db.execute(blocked_ids_stmt)).scalars().all())
+    blocker_ids = set((await db.execute(blocker_ids_stmt)).scalars().all())
+    excluded_ids = blocked_ids | blocker_ids
+
     items: list[dict[str, Any]] = []
     for swipe in outgoing_swipes:
-        if swipe.target_user is None or await _is_blocked(db, user_id, swipe.target_user_id):
+        if swipe.target_user is None or swipe.target_user_id in excluded_ids:
             continue
         items.append(
             {
