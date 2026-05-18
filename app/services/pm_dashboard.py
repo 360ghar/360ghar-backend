@@ -7,13 +7,17 @@ from typing import Any
 from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db_resilience import execute_with_transient_retry
 from app.core.exceptions import InsufficientPermissionsError
+from app.core.logging import get_logger
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_finance import Expense, RentCharge, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
+
+logger = get_logger(__name__)
 
 
 async def _resolve_owner_scope(
@@ -156,12 +160,14 @@ async def get_recent_activity(
 
     activities: list[dict[str, Any]] = []
 
+    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
+    if owner_ids is not None:
+        pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
     try:
-        pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
-        if owner_ids is not None:
-            pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
-        payments = list((await db.execute(pay_stmt)).scalars().all())
-        for p in payments:
+        pay_result = await execute_with_transient_retry(
+            db, operation=lambda: db.execute(pay_stmt), operation_name="fetch_rent_payments",
+        )
+        for p in pay_result.scalars().all():
             activities.append(
                 {
                     "type": "rent_payment",
@@ -175,15 +181,16 @@ async def get_recent_activity(
                 }
             )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Failed to fetch rent payments for activity: %s", e)
+        logger.error("Failed to fetch rent payments for activity: %s", e)
 
+    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
+    if owner_ids is not None:
+        maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     try:
-        maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
-        if owner_ids is not None:
-            maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
-        requests = list((await db.execute(maint_stmt)).scalars().all())
-        for r in requests:
+        maint_result = await execute_with_transient_retry(
+            db, operation=lambda: db.execute(maint_stmt), operation_name="fetch_maintenance_requests",
+        )
+        for r in maint_result.scalars().all():
             status_val = getattr(r.request_status, "value", r.request_status)
             activities.append(
                 {
@@ -198,15 +205,16 @@ async def get_recent_activity(
                 }
             )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Failed to fetch maintenance requests for activity: %s", e)
+        logger.error("Failed to fetch maintenance requests for activity: %s", e)
 
+    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
+    if owner_ids is not None:
+        lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     try:
-        lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
-        if owner_ids is not None:
-            lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
-        leases = list((await db.execute(lease_stmt)).scalars().all())
-        for lease in leases:
+        lease_result = await execute_with_transient_retry(
+            db, operation=lambda: db.execute(lease_stmt), operation_name="fetch_leases",
+        )
+        for lease in lease_result.scalars().all():
             status_val = getattr(lease.status, "value", lease.status)
             activities.append(
                 {
@@ -220,8 +228,7 @@ async def get_recent_activity(
                 }
             )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error("Failed to fetch leases for activity: %s", e)
+        logger.error("Failed to fetch leases for activity: %s", e)
 
     activities.sort(key=lambda x: x.get("at") or "", reverse=True)
     return activities[:limit]
