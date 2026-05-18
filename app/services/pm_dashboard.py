@@ -156,52 +156,72 @@ async def get_recent_activity(
 
     activities: list[dict[str, Any]] = []
 
-    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
-    if owner_ids is not None:
-        pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
-    payments = list((await db.execute(pay_stmt)).scalars().all())
-    for p in payments:
-        activities.append(
-            {
-                "type": "rent_payment",
-                "at": p.paid_at.isoformat(),
-                "property_id": p.property_id,
-                "lease_id": p.lease_id,
-                "amount": p.amount_paid,
-                "id": p.id,
-            }
-        )
+    try:
+        pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
+        if owner_ids is not None:
+            pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
+        payments = list((await db.execute(pay_stmt)).scalars().all())
+        for p in payments:
+            activities.append(
+                {
+                    "type": "rent_payment",
+                    "at": p.paid_at.isoformat(),
+                    "title": "Payment Received",
+                    "message": f"₹{p.amount_paid:,.0f} payment recorded",
+                    "property_id": p.property_id,
+                    "lease_id": p.lease_id,
+                    "amount": p.amount_paid,
+                    "id": p.id,
+                }
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Failed to fetch rent payments for activity: %s", e)
 
-    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
-    if owner_ids is not None:
-        maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
-    requests = list((await db.execute(maint_stmt)).scalars().all())
-    for r in requests:
-        activities.append(
-            {
-                "type": "maintenance_request",
-                "at": r.created_at.isoformat(),
-                "property_id": r.property_id,
-                "lease_id": r.lease_id,
-                "status": getattr(r.request_status, "value", r.request_status),
-                "id": r.id,
-            }
-        )
+    try:
+        maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
+        if owner_ids is not None:
+            maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
+        requests = list((await db.execute(maint_stmt)).scalars().all())
+        for r in requests:
+            status_val = getattr(r.request_status, "value", r.request_status)
+            activities.append(
+                {
+                    "type": "maintenance_request",
+                    "at": r.created_at.isoformat(),
+                    "title": r.title or "Maintenance Request",
+                    "message": f"Status: {status_val.replace('_', ' ').title()}",
+                    "property_id": r.property_id,
+                    "lease_id": r.lease_id,
+                    "status": status_val,
+                    "id": r.id,
+                }
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Failed to fetch maintenance requests for activity: %s", e)
 
-    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
-    if owner_ids is not None:
-        lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
-    leases = list((await db.execute(lease_stmt)).scalars().all())
-    for lease in leases:
-        activities.append(
-            {
-                "type": "lease",
-                "at": lease.created_at.isoformat(),
-                "property_id": lease.property_id,
-                "lease_id": lease.id,
-                "status": getattr(lease.status, "value", lease.status),
-            }
-        )
+    try:
+        lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
+        if owner_ids is not None:
+            lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
+        leases = list((await db.execute(lease_stmt)).scalars().all())
+        for lease in leases:
+            status_val = getattr(lease.status, "value", lease.status)
+            activities.append(
+                {
+                    "type": "lease",
+                    "at": lease.created_at.isoformat(),
+                    "title": "Lease Update",
+                    "message": f"Status: {status_val.replace('_', ' ').title()}",
+                    "property_id": lease.property_id,
+                    "lease_id": lease.id,
+                    "status": status_val,
+                }
+            )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("Failed to fetch leases for activity: %s", e)
 
     activities.sort(key=lambda x: x.get("at") or "", reverse=True)
     return activities[:limit]

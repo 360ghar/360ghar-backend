@@ -18,6 +18,8 @@ class ActivityItem(BaseModel):
     type: str
     at: str
     id: int | None = None
+    title: str | None = None
+    message: str | None = None
     property_id: int | None = None
     lease_id: int | None = None
     amount: float | None = None
