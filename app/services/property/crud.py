@@ -334,7 +334,9 @@ async def update_property(
         await db.flush()
         if final_property_type in PG_FLATMATE_TYPES:
             await geocode_listing(db, property_id)
-        await db.refresh(property_obj)
+        # Re-fetch with relationships to avoid MissingGreenlet on property_amenities
+        repo = PropertyRepository(db)
+        property_obj = await repo.get_property_with_owner(property_id)
         await PropertyCacheManager.invalidate_property_caches(property_id)
 
         logger.info("Property %s updated successfully", property_id)

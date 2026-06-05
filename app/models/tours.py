@@ -423,7 +423,7 @@ class FloorPlan(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     image_url: Mapped[str] = mapped_column(String(512), nullable=False)
     floor_number: Mapped[int] = mapped_column(Integer, default=1)
-    markers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    markers: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

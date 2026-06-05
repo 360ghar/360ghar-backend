@@ -7,7 +7,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError
 from app.models.enums import ImageCategory, LeaseStatus, ManagedPropertyStatus, UserRole
 from app.models.pm_leases import Lease
-from app.models.properties import Property, PropertyImage
+from app.models.properties import Property, PropertyAmenity, PropertyImage
 from app.schemas.property import PropertyCreate
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
@@ -49,7 +49,7 @@ async def create_managed_property(
     prop = Property(**property_dict)
     db.add(prop)
     await db.flush()
-    await db.refresh(prop, ["images"])
+    await db.refresh(prop, ["images", "property_amenities"])
 
     return prop
 
@@ -73,7 +73,10 @@ async def list_managed_properties(
     if owner_id is not None:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
-    stmt = select(Property).options(selectinload(Property.images)).where(Property.is_managed)
+    stmt = select(Property).options(
+        selectinload(Property.images),
+        selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+    ).where(Property.is_managed)
     if owner_id is not None:
         stmt = stmt.where(Property.owner_id == owner_id)
 

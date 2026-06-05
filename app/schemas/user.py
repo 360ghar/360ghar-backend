@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, datetime
 from typing import Any
 
@@ -104,11 +106,18 @@ class UserInDB(UserBase):
     preferences: dict[str, Any] | None = None
     current_latitude: float | None = None
     current_longitude: float | None = None
-    notification_settings: dict[str, bool] | None = None
+    notification_settings: dict[str, Any] | None = None
     privacy_settings: dict[str, Any] | None = None
     agent_id: int | None = None
     created_at: datetime
     updated_at: datetime | None = None
+
+    @field_validator('date_of_birth', mode='before')
+    @classmethod
+    def coerce_dob(cls, v: Any) -> Any:
+        if isinstance(v, datetime):
+            return v.date()
+        return v
 
     model_config = ConfigDict(from_attributes=True)
 

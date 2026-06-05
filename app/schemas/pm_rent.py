@@ -25,9 +25,9 @@ class RentCharge(BaseModel):
     period_end: date
     due_date: date
     amount_due: float
-    late_fee_assessed: float
+    late_fee_assessed: float = 0.0
     status: RentChargeStatus
-    created_at: datetime
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -63,7 +63,7 @@ class RentPayment(BaseModel):
     reference: str | None = None
     notes: str | None = None
     receipt_document_id: int | None = None
-    created_at: datetime
+    created_at: datetime | None = None
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

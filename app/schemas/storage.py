@@ -39,7 +39,7 @@ class MediaFileResponse(BaseModel):
     folder: str | None = None
     visibility: str
     is_processed: bool
-    processing_metadata: dict[str, Any] | None = None
+    processing_metadata: dict[str, Any] | list[Any] | None = None
     created_at: datetime
     expires_at: datetime | None = None
     # New tracking fields

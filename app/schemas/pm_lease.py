@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import LeaseStatus
 
@@ -44,9 +45,9 @@ class Lease(BaseModel):
     status: LeaseStatus
     start_date: date
     end_date: date
-    monthly_rent: float
-    security_deposit: float
-    late_fee_amount: float | None = None
+    monthly_rent: Decimal
+    security_deposit: Decimal
+    late_fee_amount: Decimal | None = None
     late_fee_percentage: float | None = None
     grace_period_days: int
     payment_due_day: int
@@ -54,11 +55,20 @@ class Lease(BaseModel):
     special_clauses: str | None = None
     signed_by_tenant_at: datetime | None = None
     signed_by_owner_at: datetime | None = None
+    termination_date: date | None = None
+    termination_reason: str | None = None
     lease_document_id: int | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("lease_terms", mode="before")
+    @classmethod
+    def ensure_dict(cls, v: Any) -> Any:
+        if v is not None and not isinstance(v, dict):
+            raise ValueError("lease_terms must be a JSON object, not a list")
+        return v
 
 
 class LeaseUploadSigned(BaseModel):

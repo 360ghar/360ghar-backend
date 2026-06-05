@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
-from datetime import date, datetime
+from datetime import date
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -13,7 +12,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash
+from app.services.data_hub.utils import (
+    _extract_city_from_text,
+    _infer_property_type,
+    _parse_area_sqft,
+    _parse_auction_with_fallback,
+    _parse_currency,
+    _parse_date,
+    address_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +31,15 @@ _HSVP_CATEGORY_MAP: dict[str, str] = {
     "industrial plot": "industrial",
     "institutional": "commercial",
 }
+
+# HSVP districts/cities in Haryana
+_HSVP_CITIES = [
+    "Gurugram", "Faridabad", "Panchkula", "Ambala", "Yamunanagar",
+    "Kurukshetra", "Kaithal", "Karnal", "Panipat", "Sonipat",
+    "Rohtak", "Jhajjar", "Rewari", "Mahendragarh", "Bhiwani",
+    "Hisar", "Fatehabad", "Sirsa", "Jind", "Palwal", "Nuh",
+    "Charkhi Dadri",
+]
 
 # Known HSVP e-auction pages (best-effort, gracefully returns [] on failure)
 _SOURCES = [
@@ -50,39 +66,6 @@ _SOURCES = [
 ]
 
 
-def _normalize_category(raw: str) -> str | None:
-    """Map HSVP category text to a normalized property_type value."""
-    if not raw:
-        return None
-    key = raw.strip().lower()
-    return _HSVP_CATEGORY_MAP.get(key)
-
-
-def _parse_price(val: str) -> float | None:
-    """Extract a numeric price from a string like '₹ 1,25,00,000' or '12500000'."""
-    if not val:
-        return None
-    cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
-    # Remove any remaining non-numeric chars except dot
-    cleaned = re.sub(r"[^\d.]", "", cleaned)
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def _parse_date(val: str) -> date | None:
-    """Try common Indian date formats."""
-    if not val:
-        return None
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%d %b %Y", "%d %B %Y"):
-        try:
-            return datetime.strptime(val.strip(), fmt).date()
-        except ValueError:
-            continue
-    return None
-
-
 class HsvpAuctionScraper(BaseScraper):
     name = "hsvp_auctions"
 
@@ -99,97 +82,198 @@ class HsvpAuctionScraper(BaseScraper):
         return results
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
-        """Best-effort parse of HSVP auction table rows."""
+        """Parse HSVP auction HTML using multi-strategy approach with fallback."""
         soup = BeautifulSoup(html, "html.parser")
-        records: list[dict] = []
+        base_url = source_cfg["url"]
 
-        for table in soup.find_all("table"):
-            headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-            for row in table.find_all("tr")[1:]:  # skip header row
-                cells = [td.get_text(strip=True) for td in row.find_all("td")]
-                if len(cells) < 2:
+        def strategy_table(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 1: Parse auction tables with header validation."""
+            records = []
+            expected_headers = ["estate", "sector", "plot", "category", "area", "reserve", "price", "emd", "date", "location", "address"]
+            for table in soup.find_all("table"):
+                headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+                # Validate headers match expected pattern
+                matched = sum(1 for eh in expected_headers if any(eh in h for h in headers))
+                if matched < 2:
                     continue
+                for row in table.find_all("tr")[1:]:
+                    cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                    if len(cells) < 2:
+                        continue
+                    record = self._parse_table_row(cfg, headers, cells)
+                    if record:
+                        records.append(record)
+            return records
 
-                record: dict = {
-                    "source": source_cfg["source"],
-                    "bank_name": source_cfg["bank_name"],
-                    "city": "Gurugram",
-                    "property_description": cells[0] if cells else "",
-                    "source_url": source_cfg["url"],
-                    "raw_data": {"headers": headers, "cells": cells},
-                }
+        def strategy_estate_location(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 2: Parse estate/location based listings (e.g., 'Sector 12, Faridabad')."""
+            records = []
+            # Look for estate location patterns in text content
+            for elem in soup.find_all(["div", "span", "td", "li", "p"]):
+                text = elem.get_text(strip=True)
+                if not text or len(text) < 10:
+                    continue
+                # Check for HSVP estate pattern: "Sector XX, City" or "Estate Name, City"
+                import re
+                estate_match = re.search(r"(?:sector|estate|scheme)\s+[\w\s]+,\s*(\w+)", text, re.IGNORECASE)
+                if estate_match:
+                    city = estate_match.group(1)
+                    if city in _HSVP_CITIES:
+                        # Find nearby auction details
+                        record = self._extract_from_location_context(elem, cfg, city)
+                        if record:
+                            records.append(record)
+            return records
 
-                # Map common column names to record fields
-                for i, h in enumerate(headers):
-                    if i >= len(cells):
-                        break
-                    val = cells[i]
+        return _parse_auction_with_fallback(
+            html,
+            source_cfg,
+            [strategy_table, strategy_estate_location],
+        )
 
-                    if "reserve" in h or "price" in h or "base" in h:
-                        price = _parse_price(val)
-                        if price is not None:
-                            record["reserve_price"] = price
-                    elif "emd" in h:
-                        price = _parse_price(val)
-                        if price is not None:
-                            record["emd_amount"] = price
-                    elif "date" in h and ("auction" in h or "bid" in h or "eauction" in h):
-                        parsed_date = _parse_date(val)
-                        if parsed_date:
-                            record["auction_date"] = parsed_date
-                    elif "address" in h or "location" in h or "sector" in h or "locality" in h:
-                        record["locality"] = val
-                        if not record.get("full_address"):
-                            record["full_address"] = val
-                    elif "property" in h or "type" in h or "category" in h or "scheme" in h:
-                        normalized = _normalize_category(val)
-                        if normalized:
-                            record["property_type"] = normalized
-                        # Also use as description if first cell is empty
-                        if val and not record["property_description"]:
-                            record["property_description"] = val
-                    elif "area" in h or "size" in h or "sq" in h or "yard" in h or "sqm" in h:
-                        # Try to parse area in sqft
-                        area_match = re.search(r"[\d,]+\.?\d*", val.replace(",", ""))
-                        if area_match:
-                            try:
-                                area_val = float(area_match.group().replace(",", ""))
-                                # If the unit is sqyd or yard, convert to sqft (1 sqyd = 9 sqft)
-                                if "sqyd" in val.lower() or "yard" in val.lower() or "sq. yard" in val.lower():
-                                    area_val *= 9
-                                elif "sqm" in val.lower() or "sq. m" in val.lower():
-                                    area_val *= 10.7639
-                                record["area_sqft"] = area_val
-                            except ValueError:
-                                pass
+    def _parse_table_row(self, source_cfg: dict, headers: list[str], cells: list[str]) -> dict | None:
+        """Parse a single table row into a record."""
+        record: dict = {
+            "source": source_cfg["source"],
+            "bank_name": source_cfg["bank_name"],
+            "property_description": cells[0] if cells else "",
+            "source_url": source_cfg["url"],
+            "raw_data": {"headers": headers, "cells": cells},
+        }
 
-                # Fallback: if no auction_date found, use sentinel
-                if "auction_date" not in record:
-                    record["auction_date"] = date(1970, 1, 1)
+        estate_location = None
 
-                # Build a usable property description if missing
-                if not record.get("property_description"):
-                    parts = [record.get("locality", ""), record.get("property_type", "")]
-                    record["property_description"] = " - ".join(p for p in parts if p) or "HSVP Auction Property"
+        for i, h in enumerate(headers):
+            if i >= len(cells):
+                break
+            val = cells[i]
+            h_lower = h.lower()
 
-                # Try to infer property_type from description if still missing
-                if "property_type" not in record:
-                    desc_lower = record["property_description"].lower()
-                    if "residential" in desc_lower or "plot" in desc_lower:
-                        record["property_type"] = "plot"
-                    elif "commercial" in desc_lower or "shop" in desc_lower or "booth" in desc_lower:
-                        record["property_type"] = "commercial"
-                    elif "industrial" in desc_lower:
-                        record["property_type"] = "industrial"
-
-                # Set full_address from locality + city if not already set
+            if "reserve" in h_lower or "price" in h_lower or "base" in h_lower:
+                price = _parse_currency(val)
+                if price is not None:
+                    record["reserve_price"] = price
+            elif "emd" in h_lower:
+                price = _parse_currency(val)
+                if price is not None:
+                    record["emd_amount"] = price
+            elif "date" in h_lower and ("auction" in h_lower or "bid" in h_lower or "eauction" in h_lower):
+                parsed = _parse_date(val)
+                if parsed:
+                    record["auction_date"] = parsed
+            elif "address" in h_lower or "location" in h_lower or "sector" in h_lower or "locality" in h_lower:
+                record["locality"] = val
                 if not record.get("full_address"):
-                    locality = record.get("locality", "")
-                    record["full_address"] = f"{locality}, Gurugram".strip(", ").strip()
+                    record["full_address"] = val
+                # Capture estate_location for city extraction
+                if "estate" in h_lower or "location" in h_lower:
+                    estate_location = val
+            elif "property" in h_lower or "type" in h_lower or "category" in h_lower or "scheme" in h_lower:
+                normalized = _infer_property_type(val, _HSVP_CATEGORY_MAP)
+                if normalized:
+                    record["property_type"] = normalized
+                if val and not record["property_description"]:
+                    record["property_description"] = val
+            elif "area" in h_lower or "size" in h_lower or "sq" in h_lower or "yard" in h_lower or "sqm" in h_lower:
+                area = _parse_area_sqft(val)
+                if area is not None:
+                    record["area_sqft"] = area
 
-                records.append(record)
+        # Fallback: if no auction_date found, use sentinel
+        if "auction_date" not in record:
+            record["auction_date"] = date(1970, 1, 1).isoformat()
 
-        return records
+        # Build property description if missing
+        if not record.get("property_description"):
+            parts = [record.get("locality", ""), record.get("property_type", "")]
+            record["property_description"] = " - ".join(p for p in parts if p) or "HSVP Auction Property"
+
+        # Infer property_type from description if still missing
+        if "property_type" not in record:
+            desc_lower = record["property_description"].lower()
+            if "residential" in desc_lower or "plot" in desc_lower:
+                record["property_type"] = "plot"
+            elif "commercial" in desc_lower or "shop" in desc_lower or "booth" in desc_lower:
+                record["property_type"] = "commercial"
+            elif "industrial" in desc_lower:
+                record["property_type"] = "industrial"
+
+        # Extract city from estate_location column or other text
+        if "city" not in record:
+            # First try estate_location column
+            if estate_location:
+                city = _extract_city_from_text(estate_location, _HSVP_CITIES)
+                if city:
+                    record["city"] = city
+            # Then try other fields
+            if "city" not in record:
+                full_text = " ".join([
+                    record.get("property_description", ""),
+                    record.get("locality", ""),
+                    record.get("full_address", ""),
+                ])
+                city = _extract_city_from_text(full_text, _HSVP_CITIES)
+                if city:
+                    record["city"] = city
+            # Fallback
+            if "city" not in record:
+                record["city"] = "Gurugram"
+
+        # Set full_address from locality + city if not already set
+        if not record.get("full_address"):
+            locality = record.get("locality", "")
+            city = record.get("city", "Gurugram")
+            record["full_address"] = f"{locality}, {city}".strip(", ").strip()
+
+        return record if record.get("property_description") else None
+
+    def _extract_from_location_context(self, elem, source_cfg: dict, city: str) -> dict | None:
+        """Extract auction details from elements near a location match."""
+        # Look for sibling/parent elements that might contain auction data
+        parent = elem.parent if elem.parent else elem
+        text = parent.get_text(strip=True) if parent else ""
+        if not text:
+            return None
+
+        record: dict = {
+            "source": source_cfg["source"],
+            "bank_name": source_cfg["bank_name"],
+            "city": city,
+            "property_description": text[:500],
+            "source_url": source_cfg["url"],
+            "raw_data": {"extracted_from": text[:200]},
+        }
+
+        # Parse common fields from the context text
+        import re
+        date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", text)
+        if date_match:
+            parsed = _parse_date(date_match.group(1))
+            if parsed:
+                record["auction_date"] = parsed
+
+        price_match = re.search(r"(?:reserve|base|price)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        if price_match:
+            record["reserve_price"] = _parse_currency(price_match.group(1))
+
+        emd_match = re.search(r"emd[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        if emd_match:
+            record["emd_amount"] = _parse_currency(emd_match.group(1))
+
+        area_match = re.search(r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yard|meter|acre)))", text, re.IGNORECASE)
+        if area_match:
+            record["area_sqft"] = _parse_area_sqft(area_match.group(1))
+
+        # Extract locality/sector
+        sector_match = re.search(r"(?:sector|scheme|estate)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE)
+        if sector_match:
+            record["locality"] = sector_match.group(1).strip()
+
+        if not record.get("auction_date"):
+            record["auction_date"] = date(1970, 1, 1).isoformat()
+
+        record["full_address"] = f"{record.get('locality', '')}, {city}".strip(", ").strip()
+        return record
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
         found = len(records)
@@ -201,7 +285,15 @@ class HsvpAuctionScraper(BaseScraper):
                 rec["normalized_address_hash"] = address_hash(addr)
                 rec.setdefault("city", "Gurugram")
                 rec.setdefault("is_active", True)
-                rec.setdefault("auction_date", date(1970, 1, 1))
+                # Ensure auction_date is a date object
+                if isinstance(rec.get("auction_date"), str):
+                    from datetime import datetime
+                    try:
+                        rec["auction_date"] = datetime.fromisoformat(rec["auction_date"]).date()
+                    except ValueError:
+                        rec["auction_date"] = date(1970, 1, 1)
+                else:
+                    rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
                     **{
                         k: v

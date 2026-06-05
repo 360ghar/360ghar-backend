@@ -10,7 +10,7 @@ from app.core.cache import get_cache_manager
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.logging import get_logger
 from app.models.enums import PG_FLATMATE_TYPES
-from app.models.properties import Property
+from app.models.properties import Property, PropertyAmenity
 from app.schemas.property import Property as PropertySchema
 
 logger = get_logger(__name__)
@@ -42,7 +42,10 @@ async def get_property_recommendations(db: AsyncSession, user_id: int | None, li
         # TODO: Implement proper recommendation algorithm based on user preferences
         query = (
             select(Property)
-            .options(selectinload(Property.images))
+            .options(
+                selectinload(Property.images),
+                selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+            )
             .where(
                 Property.is_available,
                 or_(

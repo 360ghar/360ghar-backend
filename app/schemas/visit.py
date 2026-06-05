@@ -1,6 +1,9 @@
-from datetime import datetime
+from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.models.enums import VisitContext, VisitStatus
 from app.schemas.property import Property as PropertySchema
@@ -62,7 +65,7 @@ class Visit(VisitBase):
     visit_notes: str | None = None
     visitor_feedback: str | None = None
     interest_level: str | None = None
-    follow_up_required: bool
+    follow_up_required: bool = False
     follow_up_date: datetime | None = None
     cancellation_reason: str | None = None
     rescheduled_from: datetime | None = None
@@ -72,6 +75,14 @@ class Visit(VisitBase):
     counterparty_user: UserSchema | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("visit_context", mode="before")
+    @classmethod
+    def coerce_visit_context(cls, v: Any) -> VisitContext:
+        try:
+            return VisitContext(v)
+        except ValueError:
+            return VisitContext.property_tour
 
 class VisitList(BaseModel):
     visits: list[Visit]

@@ -4,7 +4,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from app.models.enums import (
     PG_FLATMATE_TYPES,
@@ -267,6 +267,45 @@ class PropertyInDB(PropertyBase):
         if isinstance(v, dict):
             return [k for k in v if isinstance(k, str)]
         return v  # type: ignore[return-value]
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def coerce_tags(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return [str(i) for i in v if i is not None]
+        return None
+
+    @field_validator("video_urls", mode="before")
+    @classmethod
+    def coerce_video_urls(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return [str(i) for i in v if i is not None]
+        return None
+
+    @field_validator("management_status", mode="before")
+    @classmethod
+    def coerce_management_status(cls, v: object) -> ManagedPropertyStatus:
+        if v is None:
+            return ManagedPropertyStatus.active
+        return v  # type: ignore[return-value]
+
+    @field_validator("payment_due_day", "grace_period_days", mode="before")
+    @classmethod
+    def coerce_pm_int_defaults(cls, v: object, info: ValidationInfo) -> int:
+        if v is None:
+            return 1 if info.field_name == "payment_due_day" else 5
+        return v  # type: ignore[return-value]
+
+    @field_validator("calendar_data", "late_fee_policy", mode="before")
+    @classmethod
+    def coerce_json_dict(cls, v: object) -> dict | None:
+        if isinstance(v, dict):
+            return v
+        return None
 
     @field_validator(
         "base_price",

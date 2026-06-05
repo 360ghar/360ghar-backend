@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date, datetime
+import re
+from datetime import date
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -12,7 +14,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash
+from app.services.data_hub.utils import (
+    _parse_auction_with_fallback,
+    _parse_currency,
+    _parse_date,
+    address_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,52 +59,131 @@ class BankAuctionScraper(BaseScraper):
         return results
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
-        """Best-effort parse of auction table rows."""
+        """Parse auction HTML using multi-strategy approach with fallback."""
         soup = BeautifulSoup(html, "html.parser")
-        records = []
-        # Look for common table patterns on auction sites
-        for table in soup.find_all("table"):
-            headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-            for row in table.find_all("tr")[1:]:  # skip header
-                cells = [td.get_text(strip=True) for td in row.find_all("td")]
-                if len(cells) < 2:
+        base_url = source_cfg["url"]
+
+        def strategy_table(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 1: Parse auction tables with header mapping."""
+            records = []
+            for table in soup.find_all("table"):
+                headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+                for row in table.find_all("tr")[1:]:
+                    cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                    if len(cells) < 2:
+                        continue
+                    record = {
+                        "source": cfg["source"],
+                        "bank_name": cfg["bank"],
+                        "property_description": cells[0] if cells else "",
+                        "source_url": cfg["url"],
+                        "raw_data": {"headers": headers, "cells": cells},
+                    }
+                    for i, h in enumerate(headers):
+                        if i >= len(cells):
+                            break
+                        val = cells[i]
+                        h_lower = h.lower()
+                        if "reserve" in h_lower or "price" in h_lower:
+                            price = _parse_currency(val)
+                            if price is not None:
+                                record["reserve_price"] = price
+                        elif "emd" in h_lower:
+                            price = _parse_currency(val)
+                            if price is not None:
+                                record["emd_amount"] = price
+                        elif "date" in h_lower and "auction" in h_lower:
+                            parsed = _parse_date(val)
+                            if parsed:
+                                record["auction_date"] = parsed
+                        elif "address" in h_lower or "property" in h_lower:
+                            record["full_address"] = val
+                    if record.get("property_description"):
+                        records.append(record)
+            return records
+
+        def strategy_sbi_notice_links(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 2: SBI-specific - parse notice page/PDF links for detailed data."""
+            records = []
+            if "sbi.co.in" not in cfg["url"]:
+                return records
+
+            # SBI auction page often has links to individual property notices/PDFs
+            for link in soup.find_all("a", href=True):
+                text = link.get_text(strip=True)
+                if not text or len(text) < 15:
                     continue
+                href = link["href"]
+                full_url = urljoin(base_url, href)
+
+                # Look for property-like links
+                text_lower = text.lower()
+                if not any(kw in text_lower for kw in ["property", "auction", "e-auction", "sale", "lot", "flat", "plot", "shop", "office"]):
+                    continue
+
                 record = {
-                    "source": source_cfg["source"],
-                    "bank_name": source_cfg["bank"],
-                    "property_description": cells[0] if cells else "",
-                    "source_url": source_cfg["url"],
-                    "raw_data": {"headers": headers, "cells": cells},
+                    "source": cfg["source"],
+                    "bank_name": cfg["bank"],
+                    "property_description": text,
+                    "source_url": full_url,
+                    "raw_data": {"link_text": text, "link_href": href},
                 }
-                # Try to map common column names
-                for i, h in enumerate(headers):
-                    if i >= len(cells):
+
+                # Try to extract city from text
+                cities = ["mumbai", "delhi", "gurugram", "bangalore", "chennai", "hyderabad", "pune", "kolkata", "ahmedabad"]
+                for city in cities:
+                    if city in text_lower:
+                        record["city"] = city.title()
                         break
-                    val = cells[i]
-                    if "reserve" in h or "price" in h:
-                        try:
-                            record["reserve_price"] = float(
-                                val.replace(",", "").replace("\u20b9", "").strip()
-                            )
-                        except ValueError:
-                            pass
-                    elif "emd" in h:
-                        try:
-                            record["emd_amount"] = float(
-                                val.replace(",", "").replace("\u20b9", "").strip()
-                            )
-                        except ValueError:
-                            pass
-                    elif "date" in h and "auction" in h:
-                        try:
-                            record["auction_date"] = datetime.strptime(val, "%d/%m/%Y").date()
-                        except ValueError:
-                            pass
-                    elif "address" in h or "property" in h:
-                        record["full_address"] = val
+
+                # Parse dates, prices, area from link text
+                date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", text)
+                if date_match:
+                    parsed = _parse_date(date_match.group(1))
+                    if parsed:
+                        record["auction_date"] = parsed
+
+                price_match = re.search(r"(?:reserve|price|base)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+                if price_match:
+                    record["reserve_price"] = _parse_currency(price_match.group(1))
+
+                emd_match = re.search(r"emd[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+                if emd_match:
+                    record["emd_amount"] = _parse_currency(emd_match.group(1))
+
                 if record.get("property_description"):
                     records.append(record)
-        return records
+            return records
+
+        def strategy_generic_links(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 3: Generic link-based parsing for IBAPI/MSTC."""
+            records = []
+            keywords = ["auction", "property", "e-auction", "sale", "bid", "lot"]
+            for link in soup.find_all("a", href=True):
+                text = link.get_text(strip=True)
+                if not text or len(text) < 10:
+                    continue
+                text_lower = text.lower()
+                if not any(kw in text_lower for kw in keywords):
+                    continue
+                href = link["href"]
+                full_url = urljoin(base_url, href)
+                record = {
+                    "source": cfg["source"],
+                    "bank_name": cfg["bank"],
+                    "property_description": text,
+                    "source_url": full_url,
+                    "raw_data": {"link_text": text, "link_href": href},
+                }
+                if record.get("property_description"):
+                    records.append(record)
+            return records
+
+        return _parse_auction_with_fallback(
+            html,
+            source_cfg,
+            [strategy_table, strategy_sbi_notice_links, strategy_generic_links],
+        )
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
         found = len(records)
@@ -107,9 +193,9 @@ class BankAuctionScraper(BaseScraper):
             try:
                 addr = rec.get("full_address") or rec.get("property_description", "")
                 rec["normalized_address_hash"] = address_hash(addr)
-                rec.setdefault("city", "Gurugram")
+                rec.setdefault("city", "Delhi NCR")
                 rec.setdefault("is_active", True)
-                rec.setdefault("auction_date", date(1970, 1, 1))  # sentinel for unknown date
+                rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
                     **{
                         k: v

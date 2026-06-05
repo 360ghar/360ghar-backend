@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,8 +28,8 @@ class MaintenanceRequestUpdate(BaseModel):
     assigned_agent_id: int | None = None
     work_order_status: WorkOrderStatus | None = None
     priority: str | None = None
-    estimated_cost: float | None = Field(default=None, ge=0)
-    actual_cost: float | None = Field(default=None, ge=0)
+    estimated_cost: Decimal | None = Field(default=None, ge=0)
+    actual_cost: Decimal | None = Field(default=None, ge=0)
     scheduled_for: datetime | None = None
     completed_at: datetime | None = None
     closed_at: datetime | None = None
@@ -51,8 +52,8 @@ class MaintenanceRequest(BaseModel):
     assigned_agent_id: int | None = None
     work_order_status: WorkOrderStatus | None = None
     priority: str | None = None
-    estimated_cost: float | None = None
-    actual_cost: float | None = None
+    estimated_cost: Decimal | None = None
+    actual_cost: Decimal | None = None
     scheduled_for: datetime | None = None
     completed_at: datetime | None = None
     closed_at: datetime | None = None

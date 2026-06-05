@@ -2,6 +2,14 @@ import hashlib
 import logging
 import re
 import unicodedata
+from collections.abc import Callable
+from typing import TYPE_CHECKING
+from urllib.parse import urljoin
+
+from bs4 import BeautifulSoup
+
+if TYPE_CHECKING:
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +48,7 @@ def extract_pdf_text(pdf_bytes: bytes) -> str:
         import io
 
         import pdfplumber
+
         with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
             return "\n".join(page.extract_text() or "" for page in pdf.pages)
     except Exception as e:
@@ -76,9 +85,9 @@ def classify_gazette_relevance(text: str) -> tuple[list[str], float]:
 
 # Haryana stamp duty rates
 _STAMP_DUTY_RATES = {
-    "male": 0.07,    # 7%
+    "male": 0.07,  # 7%
     "female": 0.05,  # 5%
-    "joint": 0.06,   # 6%
+    "joint": 0.06,  # 6%
 }
 _REGISTRATION_FEE_RATE = 0.01  # 1%
 
@@ -106,3 +115,289 @@ def calculate_builder_score(total_complaints: int, total_projects: int) -> float
     # Each complaint per project deducts 15 points, capped at 0
     score = max(0.0, 100.0 - (complaint_ratio * 15.0))
     return round(score, 1)
+
+
+# =============================================================================
+# Shared auction parsing utilities
+# =============================================================================
+
+
+def _parse_currency(val: str) -> float | None:
+    """Extract a numeric price from a string like '₹ 1,25,00,000' or '12500000'."""
+    if not val:
+        return None
+    cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
+    # Remove any remaining non-numeric chars except dot
+    cleaned = re.sub(r"[^\d.]", "", cleaned)
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
+def _parse_date(val: str) -> str | None:
+    """Try common Indian date formats. Returns ISO date string or None."""
+    if not val:
+        return None
+    from datetime import datetime
+
+    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%d %b %Y", "%d %B %Y", "%B %d, %Y"):
+        try:
+            return datetime.strptime(val.strip(), fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _infer_property_type(text: str, category_map: dict[str, str]) -> str | None:
+    """Guess property_type from description text using provided category map."""
+    text_lower = text.lower()
+    # Check multi-word phrases first (longer match wins)
+    for keyword in sorted(category_map.keys(), key=len, reverse=True):
+        if keyword in text_lower:
+            return category_map[keyword]
+    return None
+
+
+def _extract_city_from_text(text: str, known_cities: list[str]) -> str | None:
+    """Extract city name from text by matching known city names."""
+    text_lower = text.lower()
+    for city in known_cities:
+        if city.lower() in text_lower:
+            return city
+    return None
+
+
+def _parse_area_sqft(val: str) -> float | None:
+    """Parse area value and convert to sqft based on unit in the string."""
+    if not val:
+        return None
+    val_lower = val.lower()
+    # Extract numeric value
+    area_match = re.search(r"[\d,]+\.?\d*", val.replace(",", ""))
+    if not area_match:
+        return None
+    try:
+        area_val = float(area_match.group().replace(",", ""))
+    except ValueError:
+        return None
+
+    # Detect unit from the value/string
+    if "sqyd" in val_lower or "sq.yd" in val_lower or "yard" in val_lower:
+        area_val *= 9  # 1 sqyd = 9 sqft
+    elif "sqm" in val_lower or "sq.m" in val_lower or "sq meter" in val_lower:
+        area_val *= 10.7639
+    elif "sqft" in val_lower or "sq.ft" in val_lower or "sq ft" in val_lower:
+        pass  # already in sqft
+    elif "acre" in val_lower:
+        area_val *= 43560
+    elif "hectare" in val_lower:
+        area_val *= 107639
+    # If no unit detected, assume sqft (common in Indian auctions)
+    return area_val
+
+
+def _parse_notice_list_items(
+    soup: BeautifulSoup,
+    source_cfg: dict,
+    keywords: list[str],
+    base_url: str,
+    city: str | None = None,
+    known_cities: list[str] | None = None,
+) -> list[dict]:
+    """
+    Parse auction notices from list-style HTML (common in DDA, YEIDA, etc.).
+    Looks for anchor tags or list items containing auction-related keywords.
+    """
+    records: list[dict] = []
+
+    # Find all links that might be auction notices
+    for link in soup.find_all("a", href=True):
+        text = link.get_text(strip=True)
+        if not text or len(text) < 10:
+            continue
+
+        text_lower = text.lower()
+        # Check if text contains any auction keywords
+        if not any(kw in text_lower for kw in keywords):
+            continue
+
+        href = link["href"]
+        full_url = urljoin(base_url, href)
+
+        # Try to extract details from the link text
+        record = {
+            "source": source_cfg["source"],
+            "bank_name": source_cfg.get("bank_name", source_cfg["source"].value.upper()),
+            "property_description": text,
+            "source_url": full_url,
+            "raw_data": {"link_text": text, "link_href": href},
+        }
+
+        # Try to extract city from text if not provided
+        if city:
+            record["city"] = city
+        elif known_cities:
+            extracted_city = _extract_city_from_text(text, known_cities)
+            if extracted_city:
+                record["city"] = extracted_city
+
+        # Parse auction_date, reserve_price, emd_amount, area_sqft, locality from text
+        # These patterns are common in notice list items
+        date_patterns = [
+            r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})",
+            r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4})",
+        ]
+        for pattern in date_patterns:
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                parsed = _parse_date(match.group(1))
+                if parsed:
+                    record["auction_date"] = parsed
+                    break
+
+        # Price patterns
+        price_match = re.search(r"(?:reserve|base|price|amount)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        if price_match:
+            record["reserve_price"] = _parse_currency(price_match.group(1))
+
+        emd_match = re.search(r"emd[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        if emd_match:
+            record["emd_amount"] = _parse_currency(emd_match.group(1))
+
+        # Area patterns
+        area_match = re.search(r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yd|meter|yard|acre|hectare)))", text, re.IGNORECASE)
+        if area_match:
+            record["area_sqft"] = _parse_area_sqft(area_match.group(1))
+
+        # Locality/sector patterns
+        sector_match = re.search(r"(?:sector|scheme|locality|zone)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE)
+        if sector_match:
+            record["locality"] = sector_match.group(1).strip()
+
+        if record.get("property_description"):
+            records.append(record)
+
+    return records
+
+
+def _parse_generic_auction_table(
+    soup: BeautifulSoup,
+    source_cfg: dict,
+    column_mappers: dict[str, Callable[[str, str], dict | None]] | None = None,
+    expected_headers: list[str] | None = None,
+) -> list[dict]:
+    """
+    Generic table parser for auction listings.
+    
+    Args:
+        soup: BeautifulSoup object
+        source_cfg: Source configuration dict
+        column_mappers: Optional dict mapping header keywords to parser functions.
+                       Each parser receives (header, value) and returns dict of fields to update.
+        expected_headers: Optional list of expected header texts for validation.
+                        If provided, validates that table headers match before parsing.
+    """
+    records: list[dict] = []
+
+    for table in soup.find_all("table"):
+        headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+
+        # Validate headers if expected_headers provided
+        if expected_headers:
+            # Check if at least some expected headers are present
+            matched = sum(1 for eh in expected_headers if any(eh.lower() in h for h in headers))
+            if matched < min(2, len(expected_headers) // 2):
+                # Not enough matching headers, skip this table
+                continue
+
+        for row in table.find_all("tr")[1:]:  # skip header row
+            cells = [td.get_text(strip=True) for td in row.find_all("td")]
+            if len(cells) < 2:
+                continue
+
+            record: dict = {
+                "source": source_cfg["source"],
+                "bank_name": source_cfg.get("bank_name", source_cfg["source"].value.upper()),
+                "property_description": cells[0] if cells else "",
+                "source_url": source_cfg.get("url", ""),
+                "raw_data": {"headers": headers, "cells": cells},
+            }
+
+            # Map columns using provided mappers or default logic
+            for i, h in enumerate(headers):
+                if i >= len(cells):
+                    break
+                val = cells[i]
+
+                if column_mappers:
+                    # Use custom mappers
+                    for keyword, mapper in column_mappers.items():
+                        if keyword in h:
+                            result = mapper(h, val)
+                            if result:
+                                record.update(result)
+                            break
+                else:
+                    # Default mapping logic
+                    h_lower = h.lower()
+                    if "reserve" in h_lower or "price" in h_lower or "base" in h_lower or "tender" in h_lower:
+                        price = _parse_currency(val)
+                        if price is not None:
+                            record["reserve_price"] = price
+                    elif "emd" in h_lower or "earnest" in h_lower:
+                        price = _parse_currency(val)
+                        if price is not None:
+                            record["emd_amount"] = price
+                    elif "date" in h_lower and ("auction" in h_lower or "bid" in h_lower or "closing" in h_lower or "opening" in h_lower or "sale" in h_lower):
+                        parsed = _parse_date(val)
+                        if parsed:
+                            record["auction_date"] = parsed
+                    elif "address" in h_lower or "location" in h_lower or "sector" in h_lower or "locality" in h_lower:
+                        if "sq" not in h_lower and "sqft" not in h_lower and "sqm" not in h_lower and "sqyd" not in h_lower:
+                            record["locality"] = val
+                            if not record.get("full_address"):
+                                record["full_address"] = val
+                    elif "property" in h_lower or "type" in h_lower or "category" in h_lower or "scheme" in h_lower:
+                        if val and not record["property_description"]:
+                            record["property_description"] = val
+                    elif ("area" in h_lower or "size" in h_lower) and ("sq" in h_lower or "yard" in h_lower or "sqm" in h_lower or "sqyd" in h_lower or "ft" in h_lower or "meter" in h_lower):
+                        area = _parse_area_sqft(val)
+                        if area is not None:
+                            record["area_sqft"] = area
+
+            if record.get("property_description"):
+                records.append(record)
+
+    return records
+
+
+def _parse_auction_with_fallback(
+    html: str,
+    source_cfg: dict,
+    strategies: list[Callable[[BeautifulSoup, dict], list[dict]]],
+) -> list[dict]:
+    """
+    Multi-strategy parsing with fallback.
+    
+    Args:
+        html: HTML content to parse
+        source_cfg: Source configuration
+        strategies: List of parsing functions to try in order.
+                   Each function receives (soup, source_cfg) and returns list of records.
+                   First strategy that returns non-empty results wins.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+
+    for strategy in strategies:
+        try:
+            records = strategy(soup, source_cfg)
+            if records:
+                logger.info("Strategy %s returned %d records for %s", strategy.__name__, len(records), source_cfg.get("url"))
+                return records
+        except Exception as e:
+            logger.warning("Strategy %s failed for %s: %s", strategy.__name__, source_cfg.get("url"), e)
+            continue
+
+    logger.warning("All strategies failed for %s", source_cfg.get("url"))
+    return []

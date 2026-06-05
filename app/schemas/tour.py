@@ -73,7 +73,7 @@ class FloorPlanResponse(BaseModel):
     name: str
     image_url: str
     floor_number: int
-    markers: list[FloorPlanMarker]
+    markers: list[FloorPlanMarker] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

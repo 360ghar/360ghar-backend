@@ -3,8 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
-from datetime import date, datetime
+from datetime import date
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -13,7 +12,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash
+from app.services.data_hub.utils import (
+    _extract_city_from_text,
+    _infer_property_type,
+    _parse_area_sqft,
+    _parse_auction_with_fallback,
+    _parse_currency,
+    _parse_date,
+    _parse_notice_list_items,
+    address_hash,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,37 +52,12 @@ _YEIDA_CATEGORY_MAP = {
     "factory": "industrial",
 }
 
-
-def _infer_property_type(text: str) -> str | None:
-    """Guess property_type from description text using YEIDA categories."""
-    text_lower = text.lower()
-    # Check multi-word phrases first (longer match wins)
-    for keyword in sorted(_YEIDA_CATEGORY_MAP.keys(), key=len, reverse=True):
-        if keyword in text_lower:
-            return _YEIDA_CATEGORY_MAP[keyword]
-    return None
-
-
-def _parse_price(val: str) -> float | None:
-    """Extract a numeric price from a string like '₹12,50,000' or '1250000'."""
-    if not val:
-        return None
-    cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
-    cleaned = re.sub(r"[^\d.]", "", cleaned)
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def _parse_date(val: str) -> date | None:
-    """Try common Indian date formats."""
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
-        try:
-            return datetime.strptime(val.strip(), fmt).date()
-        except ValueError:
-            continue
-    return None
+# Cities/areas in YEIDA jurisdiction
+_YEIDA_CITIES = [
+    "Greater Noida", "Noida", "Yamuna Expressway", "Jewar", "Dankaur",
+    "Rabupura", "Tappal", "Khurja", "Bulandshahr", "Gautam Buddh Nagar",
+    "Ghaziabad", "Hapur", "Aligarh", "Mathura", "Agra",
+]
 
 
 class YeidaAuctionScraper(BaseScraper):
@@ -93,69 +76,116 @@ class YeidaAuctionScraper(BaseScraper):
         return results
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
-        """Best-effort parse of YEIDA auction table rows."""
+        """Parse YEIDA auction HTML using multi-strategy approach with fallback."""
         soup = BeautifulSoup(html, "html.parser")
-        records = []
+        base_url = source_cfg["url"]
 
-        for table in soup.find_all("table"):
-            headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-            for row in table.find_all("tr")[1:]:  # skip header
-                cells = [td.get_text(strip=True) for td in row.find_all("td")]
-                if len(cells) < 2:
+        def strategy_table(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 1: Parse auction tables with header validation."""
+            records = []
+            expected_headers = ["plot", "sector", "category", "area", "size", "reserve", "price", "emd", "date", "scheme", "location"]
+            for table in soup.find_all("table"):
+                headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
+                # Validate headers match expected pattern
+                matched = sum(1 for eh in expected_headers if any(eh in h for h in headers))
+                if matched < 2:
                     continue
+                for row in table.find_all("tr")[1:]:
+                    cells = [td.get_text(strip=True) for td in row.find_all("td")]
+                    if len(cells) < 2:
+                        continue
+                    record = self._parse_table_row(cfg, headers, cells)
+                    if record:
+                        records.append(record)
+            return records
 
-                record = {
-                    "source": source_cfg["source"],
-                    "bank_name": "YEIDA",
-                    "property_description": cells[0] if cells else "",
-                    "source_url": source_cfg["url"],
-                    "city": "Greater Noida",
-                    "raw_data": {"headers": headers, "cells": cells},
-                }
+        def strategy_notice_list(soup: BeautifulSoup, cfg: dict) -> list[dict]:
+            """Strategy 2: Parse notice list items with city extraction from text."""
+            return _parse_notice_list_items(
+                soup,
+                cfg,
+                ["auction", "e-auction", "property", "plot", "flat", "shop", "commercial", "industrial", "scheme", "sector"],
+                base_url,
+                city=None,  # Will be extracted from text
+                known_cities=_YEIDA_CITIES,
+            )
 
-                # Try to map common column names
-                for i, h in enumerate(headers):
-                    if i >= len(cells):
-                        break
-                    val = cells[i]
+        return _parse_auction_with_fallback(
+            html,
+            source_cfg,
+            [strategy_table, strategy_notice_list],
+        )
 
-                    if "reserve" in h or "base" in h or "price" in h or "amount" in h:
-                        price = _parse_price(val)
-                        if price is not None:
-                            record["reserve_price"] = price
-                    elif "emd" in h or "earnest" in h:
-                        price = _parse_price(val)
-                        if price is not None:
-                            record["emd_amount"] = price
-                    elif "date" in h and ("auction" in h or "bid" in h or "sale" in h):
-                        parsed = _parse_date(val)
-                        if parsed:
-                            record["auction_date"] = parsed
-                    elif "address" in h or "location" in h or "property" in h or "description" in h:
-                        record["full_address"] = val
-                    elif "sector" in h or "locality" in h or "scheme" in h:
-                        record["locality"] = val
-                    elif ("area" in h and ("sq" in h or "size" in h)) or "sqft" in h or "sqm" in h or "sqyd" in h or "size" in h:
-                        area_val = re.sub(r"[^\d.]", "", val.replace(",", ""))
-                        try:
-                            record["area_sqft"] = float(area_val)
-                        except ValueError:
-                            pass
-                    elif "type" in h or "category" in h:
-                        ptype = _infer_property_type(val)
-                        if ptype:
-                            record["property_type"] = ptype
+    def _parse_table_row(self, source_cfg: dict, headers: list[str], cells: list[str]) -> dict | None:
+        """Parse a single table row into a record."""
+        record: dict = {
+            "source": source_cfg["source"],
+            "bank_name": "YEIDA",
+            "property_description": cells[0] if cells else "",
+            "source_url": source_cfg["url"],
+            "raw_data": {"headers": headers, "cells": cells},
+        }
 
-                # Fallback: infer property_type from description if not set
-                if not record.get("property_type") and record.get("property_description"):
-                    ptype = _infer_property_type(record["property_description"])
-                    if ptype:
-                        record["property_type"] = ptype
+        for i, h in enumerate(headers):
+            if i >= len(cells):
+                break
+            val = cells[i]
+            h_lower = h.lower()
 
-                if record.get("property_description"):
-                    records.append(record)
+            if "reserve" in h_lower or "base" in h_lower or "price" in h_lower or "amount" in h_lower:
+                price = _parse_currency(val)
+                if price is not None:
+                    record["reserve_price"] = price
+            elif "emd" in h_lower or "earnest" in h_lower:
+                price = _parse_currency(val)
+                if price is not None:
+                    record["emd_amount"] = price
+            elif "date" in h_lower and ("auction" in h_lower or "bid" in h_lower or "sale" in h_lower):
+                parsed = _parse_date(val)
+                if parsed:
+                    record["auction_date"] = parsed
+            elif "address" in h_lower or "location" in h_lower or "property" in h_lower or "description" in h_lower:
+                record["full_address"] = val
+            elif "sector" in h_lower or "locality" in h_lower or "scheme" in h_lower:
+                record["locality"] = val
+            elif ("area" in h_lower and ("sq" in h_lower or "size" in h_lower)) or "sqft" in h_lower or "sqm" in h_lower or "sqyd" in h_lower or "size" in h_lower:
+                area = _parse_area_sqft(val)
+                if area is not None:
+                    record["area_sqft"] = area
+            elif "type" in h_lower or "category" in h_lower:
+                ptype = _infer_property_type(val, _YEIDA_CATEGORY_MAP)
+                if ptype:
+                    record["property_type"] = ptype
 
-        return records
+        # Fallback: infer property_type from description if not set
+        if not record.get("property_type") and record.get("property_description"):
+            ptype = _infer_property_type(record["property_description"], _YEIDA_CATEGORY_MAP)
+            if ptype:
+                record["property_type"] = ptype
+
+        if "auction_date" not in record:
+            record["auction_date"] = date(1970, 1, 1).isoformat()
+
+        # Extract city from text (not hardcoded)
+        if "city" not in record:
+            full_text = " ".join([
+                record.get("property_description", ""),
+                record.get("locality", ""),
+                record.get("full_address", ""),
+            ])
+            city = _extract_city_from_text(full_text, _YEIDA_CITIES)
+            if city:
+                record["city"] = city
+            else:
+                record["city"] = "Greater Noida"  # fallback
+
+        # Set full_address from locality + city if not already set
+        if not record.get("full_address"):
+            locality = record.get("locality", "")
+            city = record.get("city", "Greater Noida")
+            record["full_address"] = f"{locality}, {city}".strip(", ").strip()
+
+        return record if record.get("property_description") else None
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
         found = len(records)
@@ -166,7 +196,15 @@ class YeidaAuctionScraper(BaseScraper):
                 addr = rec.get("full_address") or rec.get("property_description", "")
                 rec["normalized_address_hash"] = address_hash(addr)
                 rec.setdefault("is_active", True)
-                rec.setdefault("auction_date", date(1970, 1, 1))
+                # Ensure auction_date is a date object
+                if isinstance(rec.get("auction_date"), str):
+                    from datetime import datetime
+                    try:
+                        rec["auction_date"] = datetime.fromisoformat(rec["auction_date"]).date()
+                    except ValueError:
+                        rec["auction_date"] = date(1970, 1, 1)
+                else:
+                    rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
                     **{
                         k: v
