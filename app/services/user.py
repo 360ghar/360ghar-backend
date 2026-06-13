@@ -1,14 +1,15 @@
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import _manager
 from app.core.exceptions import (
     BadRequestException,
     BaseAPIException,
     ForbiddenException,
+    ServiceUnavailableException,
+    ValidationException,
 )
 from app.core.logging import get_logger
 from app.core.utils import utc_now
@@ -306,65 +307,100 @@ async def set_last_auth_method(db: AsyncSession, user: User, method: AuthMethod)
     return user
 
 
-async def get_identifier_status(identifier: str) -> dict[str, Any]:
+def _normalize_phone_to_e164(identifier: str) -> str:
+    """Normalize a phone identifier to E.164 for matching ``auth.users.phone``.
+
+    Reuses :meth:`ValidationUtils.validate_phone` (India default +91). On a
+    malformed input it returns the stripped raw value unchanged so the
+    ``WHERE phone = :phone`` clause simply yields no match (``exists=False``),
+    mirroring the prior not-found semantics — it NEVER raises.
+    """
+    raw = identifier.strip()
+    try:
+        normalized = ValidationUtils.validate_phone(raw)
+    except ValidationException:
+        return raw
+    return normalized or raw
+
+
+async def get_identifier_status(db: AsyncSession, identifier: str) -> dict[str, Any]:
     """Compute the auth status of an identifier for the login state-machine.
 
-    Detects the channel (``'@' in identifier`` → email, else phone), looks the
-    identifier up in Supabase via the GoTrue Admin API, and derives a NEUTRAL
-    status used by the client login flow.
+    Detects the channel (``'@' in identifier`` → email, else phone) and looks
+    the identifier up directly in Supabase's ``auth.users`` table. This is the
+    authoritative source: ``encrypted_password IS NOT NULL`` reliably reports
+    whether a password credential exists (the prior GoTrue
+    ``app_metadata.providers`` heuristic did not), and ``*_confirmed_at``
+    reports channel verification.
 
     Returns a dict with keys:
-      - ``exists``: the identifier maps to a Supabase auth user
+      - ``exists``: the identifier maps to an auth user
       - ``verified``: the matching channel is confirmed (email/phone)
       - ``has_password``: a password credential exists for the user
       - ``channel``: ``"email"`` or ``"phone"``
       - ``next_step``: ``"password"`` iff exists AND verified AND has_password,
         else ``"otp"``
+
+    Raises:
+      ServiceUnavailableException: If the ``auth.users`` lookup fails (DB
+        connectivity / permissions). This prevents treating existing users as
+        new during transient outages.
     """
     channel = "email" if "@" in identifier else "phone"
 
     if channel == "email":
-        record = await _manager.admin_get_user_by_email(identifier)
-    else:
-        record = await _manager.admin_find_user_by_phone(identifier)
-
-    # Handle Supabase provider failures — tagged failure dicts from
-    # _make_failure should not be treated as real user records.
-    from app.core.auth import _is_failure
-
-    if _is_failure(record):
-        logger.warning(
-            "identifier-status: Supabase lookup failed for %s channel; "
-            "returning exists=false",
-            channel,
+        stmt = text(
+            """
+            SELECT id, email, phone,
+                   email_confirmed_at, phone_confirmed_at,
+                   (encrypted_password IS NOT NULL) AS has_password
+            FROM auth.users
+            WHERE lower(email) = lower(:email)
+            LIMIT 1
+            """
         )
-        return {
-            "exists": False,
-            "verified": False,
-            "has_password": False,
-            "channel": channel,
-            "next_step": "otp",
-        }
+        params: dict[str, Any] = {"email": identifier.strip()}
+    else:
+        # GoTrue stores auth.users.phone WITHOUT a leading "+" (e.g.
+        # "916280137577"); the normalized E.164 form has it ("+916280137577").
+        # Match both forms so the lookup is robust to either storage style.
+        phone_value = _normalize_phone_to_e164(identifier)
+        phone_noplus = phone_value.lstrip("+")
+        stmt = text(
+            """
+            SELECT id, email, phone,
+                   email_confirmed_at, phone_confirmed_at,
+                   (encrypted_password IS NOT NULL) AS has_password
+            FROM auth.users
+            WHERE phone IN (:phone_e164, :phone_noplus)
+            LIMIT 1
+            """
+        )
+        params = {"phone_e164": phone_value, "phone_noplus": phone_noplus}
 
-    exists = record is not None
+    try:
+        result = await db.execute(stmt, params)
+        row = result.mappings().first()
+    except Exception as exc:  # noqa: BLE001 — any DB failure must not misroute
+        logger.warning(
+            "identifier-status: auth.users lookup failed for %s channel: %s",
+            channel,
+            exc,
+        )
+        raise ServiceUnavailableException(
+            detail="Identity provider is temporarily unavailable, please retry",
+        ) from exc
+
+    exists = row is not None
     verified = False
     has_password = False
 
-    if record:
+    if row:
         if channel == "email":
-            verified = record.get("email_confirmed_at") is not None
+            verified = row["email_confirmed_at"] is not None
         else:
-            verified = record.get("phone_confirmed_at") is not None
-        # GoTrue exposes password presence either via app_metadata.providers
-        # containing 'email'/'phone' or via the legacy `providers`/`provider`
-        # fields. Treat presence of an 'email'/'phone' provider as a password
-        # credential (OAuth-only users have only e.g. 'google').
-        app_metadata = record.get("app_metadata") or {}
-        providers = app_metadata.get("providers")
-        if not isinstance(providers, list):
-            single = app_metadata.get("provider")
-            providers = [single] if isinstance(single, str) else []
-        has_password = any(p in ("email", "phone") for p in providers)
+            verified = row["phone_confirmed_at"] is not None
+        has_password = bool(row["has_password"])
 
     next_step = "password" if (exists and verified and has_password) else "otp"
 

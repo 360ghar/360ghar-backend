@@ -81,13 +81,15 @@ class AuthConfigResponse(BaseModel):
 async def identifier_status(
     request: Request,
     body: IdentifierStatusRequest,
+    db: AsyncSession = Depends(get_db),
 ) -> IdentifierStatusResponse:
     """PUBLIC. Return a NEUTRAL status for the given identifier.
 
     Rate-limited per-IP. Detects channel (``'@'`` → email, else phone), looks
-    the identifier up via the Supabase Admin API, and computes ``next_step``:
-    ``"password"`` iff the identifier exists, is verified, and has a password
-    credential; otherwise ``"otp"``.
+    the identifier up directly in Supabase ``auth.users``, and computes
+    ``next_step``: ``"password"`` iff the identifier exists, is verified, and
+    has a password credential (``encrypted_password`` present); otherwise
+    ``"otp"``.
     """
     client_id = _identifier_status_limiter.get_client_id(request)
     endpoint = f"{request.method}:{request.url.path}"
@@ -95,7 +97,7 @@ async def identifier_status(
         raise RateLimitException(detail="Too many requests; please slow down")
 
     identifier = body.identifier.strip()
-    status_data = await get_identifier_status(identifier)
+    status_data = await get_identifier_status(db, identifier)
     return IdentifierStatusResponse(**status_data)
 
 

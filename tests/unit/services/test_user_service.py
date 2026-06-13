@@ -3,7 +3,7 @@ Tests for user service module.
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -465,23 +465,39 @@ class TestSetLastAuthMethod:
 
 
 class TestGetIdentifierStatus:
-    """Tests for get_identifier_status helper."""
+    """Tests for get_identifier_status (direct auth.users query).
+
+    The service now reads Supabase's auth.users directly. We mock the DB
+    session's execute() so result.mappings().first() returns the desired row
+    (or None), and assert the derived status + the bound params.
+    """
+
+    def _fake_db(self, row=None, *, execute_exc=None) -> AsyncMock:
+        """Build an AsyncSession mock whose execute().mappings().first() returns row."""
+        db = AsyncMock(spec=AsyncSession)
+        result_mock = MagicMock()
+        mappings_mock = MagicMock()
+        mappings_mock.first.return_value = row
+        result_mock.mappings.return_value = mappings_mock
+        if execute_exc is not None:
+            db.execute = AsyncMock(side_effect=execute_exc)
+        else:
+            db.execute = AsyncMock(return_value=result_mock)
+        return db
 
     @pytest.mark.asyncio
     async def test_verified_email_with_password_yields_password(self):
         from app.services.user import get_identifier_status
 
-        with patch("app.services.user._manager") as mock_manager:
-            mock_manager.admin_get_user_by_email = AsyncMock(
-                return_value={
-                    "id": str(uuid.uuid4()),
-                    "email": "known@example.com",
-                    "email_confirmed_at": "2025-01-01T00:00:00Z",
-                    "phone_confirmed_at": None,
-                    "app_metadata": {"providers": ["email"]},
-                }
-            )
-            result = await get_identifier_status("known@example.com")
+        db = self._fake_db({
+            "id": str(uuid.uuid4()),
+            "email": "known@example.com",
+            "phone": None,
+            "email_confirmed_at": "2025-01-01T00:00:00Z",
+            "phone_confirmed_at": None,
+            "has_password": True,
+        })
+        result = await get_identifier_status(db, "known@example.com")
 
         assert result == {
             "exists": True,
@@ -492,20 +508,41 @@ class TestGetIdentifierStatus:
         }
 
     @pytest.mark.asyncio
-    async def test_oauth_only_user_yields_otp(self):
+    async def test_verified_phone_with_password_yields_password(self):
         from app.services.user import get_identifier_status
 
-        with patch("app.services.user._manager") as mock_manager:
-            mock_manager.admin_get_user_by_email = AsyncMock(
-                return_value={
-                    "id": str(uuid.uuid4()),
-                    "email": "oauth@example.com",
-                    "email_confirmed_at": "2025-01-01T00:00:00Z",
-                    "phone_confirmed_at": None,
-                    "app_metadata": {"providers": ["google"]},
-                }
-            )
-            result = await get_identifier_status("oauth@example.com")
+        db = self._fake_db({
+            "id": str(uuid.uuid4()),
+            "email": None,
+            "phone": "+919876543210",
+            "email_confirmed_at": None,
+            "phone_confirmed_at": "2025-01-01T00:00:00Z",
+            "has_password": True,
+        })
+        result = await get_identifier_status(db, "+919876543210")
+
+        assert result == {
+            "exists": True,
+            "verified": True,
+            "has_password": True,
+            "channel": "phone",
+            "next_step": "password",
+        }
+
+    @pytest.mark.asyncio
+    async def test_verified_email_without_password_yields_otp(self):
+        """OAuth/magic-link user: verified email but no encrypted_password."""
+        from app.services.user import get_identifier_status
+
+        db = self._fake_db({
+            "id": str(uuid.uuid4()),
+            "email": "oauth@example.com",
+            "phone": None,
+            "email_confirmed_at": "2025-01-01T00:00:00Z",
+            "phone_confirmed_at": None,
+            "has_password": False,
+        })
+        result = await get_identifier_status(db, "oauth@example.com")
 
         assert result["exists"] is True
         assert result["verified"] is True
@@ -513,34 +550,46 @@ class TestGetIdentifierStatus:
         assert result["next_step"] == "otp"
 
     @pytest.mark.asyncio
-    async def test_apple_only_user_yields_otp(self):
-        """An Apple-only user (providers=['apple']) has no password → otp."""
+    async def test_unverified_with_password_yields_otp(self):
+        """Has a password but the matching channel is unconfirmed → otp."""
         from app.services.user import get_identifier_status
 
-        with patch("app.services.user._manager") as mock_manager:
-            mock_manager.admin_get_user_by_email = AsyncMock(
-                return_value={
-                    "id": str(uuid.uuid4()),
-                    "email": "apple@example.com",
-                    "email_confirmed_at": "2025-01-01T00:00:00Z",
-                    "phone_confirmed_at": None,
-                    "app_metadata": {"provider": "apple", "providers": ["apple"]},
-                }
-            )
-            result = await get_identifier_status("apple@example.com")
+        db = self._fake_db({
+            "id": str(uuid.uuid4()),
+            "email": "unverified@example.com",
+            "phone": None,
+            "email_confirmed_at": None,
+            "phone_confirmed_at": None,
+            "has_password": True,
+        })
+        result = await get_identifier_status(db, "unverified@example.com")
 
         assert result["exists"] is True
-        assert result["verified"] is True
-        assert result["has_password"] is False
+        assert result["verified"] is False
+        assert result["has_password"] is True
         assert result["next_step"] == "otp"
+
+    @pytest.mark.asyncio
+    async def test_unknown_email_yields_otp(self):
+        from app.services.user import get_identifier_status
+
+        db = self._fake_db(None)
+        result = await get_identifier_status(db, "nobody@example.com")
+
+        assert result == {
+            "exists": False,
+            "verified": False,
+            "has_password": False,
+            "channel": "email",
+            "next_step": "otp",
+        }
 
     @pytest.mark.asyncio
     async def test_unknown_phone_yields_otp(self):
         from app.services.user import get_identifier_status
 
-        with patch("app.services.user._manager") as mock_manager:
-            mock_manager.admin_find_user_by_phone = AsyncMock(return_value=None)
-            result = await get_identifier_status("+919999999999")
+        db = self._fake_db(None)
+        result = await get_identifier_status(db, "+919999999999")
 
         assert result == {
             "exists": False,
@@ -551,24 +600,47 @@ class TestGetIdentifierStatus:
         }
 
     @pytest.mark.asyncio
-    async def test_phone_only_user_email_probe_yields_otp(self):
-        """A phone-only user probed on the EMAIL channel is not found by email
-        → exists=false, verified=false, channel=email, next_step=otp."""
+    async def test_db_error_raises_service_unavailable(self):
+        """Any DB failure must surface as 503, never as exists=false."""
+        from app.core.exceptions import ServiceUnavailableException
         from app.services.user import get_identifier_status
 
-        with patch("app.services.user._manager") as mock_manager:
-            # The phone-only user has no email identity, so the email lookup
-            # returns None.
-            mock_manager.admin_get_user_by_email = AsyncMock(return_value=None)
-            result = await get_identifier_status("phoneonly@example.com")
+        db = self._fake_db(execute_exc=RuntimeError("connection refused"))
+        with pytest.raises(ServiceUnavailableException):
+            await get_identifier_status(db, "x@example.com")
 
-        assert result == {
-            "exists": False,
-            "verified": False,
-            "has_password": False,
-            "channel": "email",
-            "next_step": "otp",
-        }
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "raw,expected_e164",
+        [
+            ("9876543210", "+919876543210"),
+            ("+91 987-654-3210", "+919876543210"),
+            ("00919876543210", "+919876543210"),
+            ("+919876543210", "+919876543210"),
+        ],
+    )
+    async def test_phone_identifier_normalized_to_e164(self, raw, expected_e164):
+        """Phone channel binds E.164 (with +) and digits-only (GoTrue storage) forms."""
+        from app.services.user import get_identifier_status
+
+        db = self._fake_db(None)
+        await get_identifier_status(db, raw)
+
+        db.execute.assert_awaited_once()
+        bound_params = db.execute.call_args.args[1]
+        assert bound_params["phone_e164"] == expected_e164
+        assert bound_params["phone_noplus"] == expected_e164.lstrip("+")
+
+    @pytest.mark.asyncio
+    async def test_email_identifier_bound_stripped(self):
+        from app.services.user import get_identifier_status
+
+        db = self._fake_db(None)
+        await get_identifier_status(db, "  Known@Example.com  ")
+
+        db.execute.assert_awaited_once()
+        bound_params = db.execute.call_args.args[1]
+        assert bound_params["email"] == "Known@Example.com"
 
 
 class TestUserRoles:
