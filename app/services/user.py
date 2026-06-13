@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, text
@@ -348,44 +350,52 @@ async def get_identifier_status(db: AsyncSession, identifier: str) -> dict[str, 
     """
     channel = "email" if "@" in identifier else "phone"
 
-    if channel == "email":
-        stmt = text(
-            """
-            SELECT id, email, phone,
-                   email_confirmed_at, phone_confirmed_at,
-                   (encrypted_password IS NOT NULL) AS has_password
-            FROM auth.users
-            WHERE lower(email) = lower(:email)
-            LIMIT 1
-            """
-        )
-        params: dict[str, Any] = {"email": identifier.strip()}
-    else:
-        # GoTrue stores auth.users.phone WITHOUT a leading "+" (e.g.
-        # "916280137577"); the normalized E.164 form has it ("+916280137577").
-        # Match both forms so the lookup is robust to either storage style.
-        phone_value = _normalize_phone_to_e164(identifier)
-        phone_noplus = phone_value.lstrip("+")
-        stmt = text(
-            """
-            SELECT id, email, phone,
-                   email_confirmed_at, phone_confirmed_at,
-                   (encrypted_password IS NOT NULL) AS has_password
-            FROM auth.users
-            WHERE phone IN (:phone_e164, :phone_noplus)
-            LIMIT 1
-            """
-        )
-        params = {"phone_e164": phone_value, "phone_noplus": phone_noplus}
-
     try:
+        if channel == "email":
+            # GoTrue stores emails lowercased; `lower()` is applied to the bound
+            # value (not the column) so the unique btree index on `email` is
+            # still usable.
+            stmt = text(
+                """
+                SELECT id, email, phone,
+                       email_confirmed_at, phone_confirmed_at,
+                       (encrypted_password IS NOT NULL) AS has_password
+                FROM auth.users
+                WHERE email = lower(:email)
+                LIMIT 1
+                """
+            )
+            params: dict[str, Any] = {"email": identifier.strip()}
+        else:
+            # GoTrue stores auth.users.phone WITHOUT a leading "+" (e.g.
+            # "916280137577"); the normalized E.164 form has it ("+916280137577").
+            # Match both forms so the lookup is robust to either storage style.
+            # removeprefix strips at most one "+" so malformed input can't be
+            # massaged into a valid key (lstrip would strip every "+").
+            phone_value = _normalize_phone_to_e164(identifier)
+            phone_noplus = phone_value.removeprefix("+")
+            stmt = text(
+                """
+                SELECT id, email, phone,
+                       email_confirmed_at, phone_confirmed_at,
+                       (encrypted_password IS NOT NULL) AS has_password
+                FROM auth.users
+                WHERE phone IN (:phone_e164, :phone_noplus)
+                LIMIT 1
+                """
+            )
+            params = {"phone_e164": phone_value, "phone_noplus": phone_noplus}
+
         result = await db.execute(stmt, params)
         row = result.mappings().first()
-    except Exception as exc:  # noqa: BLE001 — any DB failure must not misroute
+    except Exception as exc:  # noqa: BLE001 — any failure must not misroute
+        # Log only the exception type, never the message: SQLAlchemy DBAPI
+        # errors can include the SQL and bound params (the user's email/phone),
+        # which must not reach production logs on this public endpoint.
         logger.warning(
-            "identifier-status: auth.users lookup failed for %s channel: %s",
+            "identifier-status: auth.users lookup failed for %s channel (err=%s)",
             channel,
-            exc,
+            type(exc).__name__,
         )
         raise ServiceUnavailableException(
             detail="Identity provider is temporarily unavailable, please retry",
