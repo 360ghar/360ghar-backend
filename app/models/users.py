@@ -23,9 +23,15 @@ from sqlalchemy.types import Enum as SQLEnum
 from app.core.database import Base
 from app.models.enums import (
     AuthMethod,
+    Cleanliness,
     FlatmatesMode,
     FlatmatesProfileStatus,
+    FoodHabits,
+    GuestsPolicy,
+    SleepSchedule,
+    SmokingDrinking,
     UserRole,
+    WorkStyle,
 )
 
 if TYPE_CHECKING:
