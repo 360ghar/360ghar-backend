@@ -424,12 +424,8 @@ async def mark_conversation_read(
     user_id: int,
 ) -> dict[str, str]:
     """Mark all peer messages in a conversation as read."""
-    conversation = await get_conversation(db, conversation_id, user_id)
-    peer_id = (
-        conversation.user_two_id
-        if conversation.user_one_id == user_id
-        else conversation.user_one_id
-    )
+    # Authorization check: raises if the user is not a participant.
+    await get_conversation(db, conversation_id, user_id)
 
     now = datetime.now(timezone.utc)
     await db.execute(

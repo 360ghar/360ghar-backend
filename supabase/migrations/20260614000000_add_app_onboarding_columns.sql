@@ -1,6 +1,7 @@
 -- Migration: Add onboarding completion columns for stays, estate, and ghar360 apps.
 -- These columns drive the APP_ONBOARDING gate in the auth state-machine.
--- The flatmates_onboarding_completed column already exists (see 20260606000000).
+-- The flatmates_onboarding_completed column already exists (added in
+-- 20260423000000_create_flatmates_social_primitives.sql).
 
 ALTER TABLE public.users
   ADD COLUMN IF NOT EXISTS stays_onboarding_completed boolean NOT NULL DEFAULT false,

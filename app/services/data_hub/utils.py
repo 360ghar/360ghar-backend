@@ -289,7 +289,7 @@ def _parse_generic_auction_table(
 ) -> list[dict]:
     """
     Generic table parser for auction listings.
-    
+
     Args:
         soup: BeautifulSoup object
         source_cfg: Source configuration dict
@@ -379,7 +379,7 @@ def _parse_auction_with_fallback(
 ) -> list[dict]:
     """
     Multi-strategy parsing with fallback.
-    
+
     Args:
         html: HTML content to parse
         source_cfg: Source configuration

@@ -77,7 +77,6 @@ class YeidaAuctionScraper(BaseScraper):
 
     def _parse_auction_html(self, html: str, source_cfg: dict) -> list[dict]:
         """Parse YEIDA auction HTML using multi-strategy approach with fallback."""
-        soup = BeautifulSoup(html, "html.parser")
         base_url = source_cfg["url"]
 
         def strategy_table(soup: BeautifulSoup, cfg: dict) -> list[dict]:
