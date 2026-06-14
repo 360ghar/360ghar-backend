@@ -88,12 +88,12 @@ class User(Base):
     flatmates_move_in_timeline: Mapped[str | None] = mapped_column(String(64), nullable=True)
     flatmates_city: Mapped[str | None] = mapped_column(String, nullable=True)
     flatmates_locality: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_sleep_schedule: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_cleanliness: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_food_habits: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_smoking_drinking: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_guests_policy: Mapped[str | None] = mapped_column(String, nullable=True)
-    flatmates_work_style: Mapped[str | None] = mapped_column(String, nullable=True)
+    flatmates_sleep_schedule: Mapped[SleepSchedule | None] = mapped_column(SQLEnum(SleepSchedule, name="flatmates_sleep_schedule_type"), nullable=True)
+    flatmates_cleanliness: Mapped[Cleanliness | None] = mapped_column(SQLEnum(Cleanliness, name="flatmates_cleanliness_type"), nullable=True)
+    flatmates_food_habits: Mapped[FoodHabits | None] = mapped_column(SQLEnum(FoodHabits, name="flatmates_food_habits_type"), nullable=True)
+    flatmates_smoking_drinking: Mapped[SmokingDrinking | None] = mapped_column(SQLEnum(SmokingDrinking, name="flatmates_smoking_drinking_type"), nullable=True)
+    flatmates_guests_policy: Mapped[GuestsPolicy | None] = mapped_column(SQLEnum(GuestsPolicy, name="flatmates_guests_policy_type"), nullable=True)
+    flatmates_work_style: Mapped[WorkStyle | None] = mapped_column(SQLEnum(WorkStyle, name="flatmates_work_style_type"), nullable=True)
     flatmates_last_active_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

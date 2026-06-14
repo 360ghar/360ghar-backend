@@ -150,11 +150,14 @@ class TestVisitStatus:
 
     def test_all_visit_statuses(self):
         """Test all visit statuses are defined."""
-        assert VisitStatus.scheduled.value == "scheduled"
+        # VisitStatus members are intentionally name-aliased to the API/DB wire
+        # values (requested / reschedule_suggested), which is what Flutter, web,
+        # and Postgres all use. The member NAME differs from its VALUE here.
+        assert VisitStatus.scheduled.value == "requested"
         assert VisitStatus.confirmed.value == "confirmed"
         assert VisitStatus.completed.value == "completed"
         assert VisitStatus.cancelled.value == "cancelled"
-        assert VisitStatus.rescheduled.value == "rescheduled"
+        assert VisitStatus.rescheduled.value == "reschedule_suggested"
 
     def test_visit_status_count(self):
         """Test correct number of visit statuses."""

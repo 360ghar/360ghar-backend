@@ -139,24 +139,20 @@ async def list_discoverable_profiles(
 
     for nn in non_negotiables:
         if nn == "food_veg_only":
-            filters.append(User.flatmates_food_habits.in_(["vegetarian", "vegan", "veg"]))
+            filters.append(User.flatmates_food_habits.in_(["vegetarian", "vegan"]))
         elif nn == "food_vegan_only":
             filters.append(User.flatmates_food_habits.in_(["vegan"]))
         elif nn == "no_smoking":
-            # All known synonyms for "doesn't smoke"
             filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "never", "no", "none", "drink_occasionally"]
+                ["neither", "drink_occasionally"]
             ))
         elif nn == "no_drinking":
-            # All known synonyms for "doesn't drink"
             filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "never", "no", "none", "smoke_outside"]
+                ["neither", "smoke_outside"]
             ))
         elif nn == "no_overnight_guests":
-            # Flutter sends "no_overnight_guests", web sends "no_overnight",
-            # catalog uses "rarely"
             filters.append(User.flatmates_guests_policy.in_(
-                ["no_overnight_guests", "no_overnight", "rarely"]
+                ["no_overnight_guests"]
             ))
         elif nn == "no_pets":
             # pets is stored inside preferences.flatmates.pets
@@ -191,13 +187,12 @@ async def list_discoverable_profiles(
                 )
             )
         elif nn == "min_tidy":
-            # All values that mean "at least tidy": canonical + legacy synonyms
             filters.append(User.flatmates_cleanliness.in_(
-                ["tidy", "spotless", "balanced", "meticulous", "neat_freak", "clean"]
+                ["tidy", "spotless"]
             ))
         elif nn == "early_riser":
             filters.append(User.flatmates_sleep_schedule.in_(
-                ["early_bird", "before_7"]
+                ["early_bird"]
             ))
 
     # --- Discovery filtering (P0-8) ---

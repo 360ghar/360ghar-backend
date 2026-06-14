@@ -34,11 +34,6 @@ def _flatmates_preferences(user: User) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-# ---------------------------------------------------------------------------
-# Enum Normalizers (Removed)
-# ---------------------------------------------------------------------------
-
-
 def _profile_age(user: User, prefs: dict[str, Any]) -> int | None:
     raw_age = prefs.get("age")
     if isinstance(raw_age, int):

@@ -3,6 +3,8 @@ Tests for app.models.users module — User, UserSearchHistory, UserSwipe models.
 """
 
 
+import sqlalchemy
+
 from app.models.users import User, UserSearchHistory, UserSwipe
 
 
@@ -67,6 +69,28 @@ class TestUserModel:
         assert "preferences" in columns
         assert "notification_settings" in columns
         assert "privacy_settings" in columns
+
+    def test_flatmates_lifestyle_columns_are_strict_enums(self):
+        # The 6 lifestyle columns must be SQLAlchemy Enums backed by the strict
+        # PostgreSQL enum types (not loose String columns). Guards against
+        # regression to the old `mapped_column(String, ...)` form.
+        expected = {
+            "flatmates_sleep_schedule": "flatmates_sleep_schedule_type",
+            "flatmates_cleanliness": "flatmates_cleanliness_type",
+            "flatmates_food_habits": "flatmates_food_habits_type",
+            "flatmates_smoking_drinking": "flatmates_smoking_drinking_type",
+            "flatmates_guests_policy": "flatmates_guests_policy_type",
+            "flatmates_work_style": "flatmates_work_style_type",
+        }
+        columns = {c.name: c for c in User.__table__.columns}
+        for col_name, type_name in expected.items():
+            col = columns[col_name]
+            assert isinstance(col.type, sqlalchemy.Enum), (
+                f"{col_name}.type is {type(col.type).__name__}, expected sqlalchemy.Enum"
+            )
+            assert col.type.name == type_name, (
+                f"{col_name}.type.name is {col.type.name!r}, expected {type_name!r}"
+            )
 
 
 class TestUserSearchHistoryModel:

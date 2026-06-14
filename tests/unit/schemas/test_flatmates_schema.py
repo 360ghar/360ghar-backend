@@ -5,7 +5,7 @@ Tests for app.schemas.flatmates module — FlatmatesProfileUpdate, SwipeRequest,
 import pytest
 from pydantic import ValidationError
 
-from app.models.enums import FlatmatesMode, MessageType, SwipeAction, SwipeTargetType
+from app.models.enums import FlatmatesMode, FoodHabits, MessageType, SwipeAction, SwipeTargetType
 from app.schemas.flatmates import (
     FlatmatesPeer,
     FlatmatesProfileUpdate,
@@ -61,6 +61,20 @@ class TestFlatmatesProfileUpdate:
             DiscoverProfilesQuery(limit=0)
         with pytest.raises(ValidationError):
             DiscoverProfilesQuery(limit=101)
+
+    def test_food_habits_legacy_value_rejected(self):
+        # "veg" is a legacy alias, not a canonical FoodHabits member.
+        with pytest.raises(ValidationError):
+            FlatmatesProfileUpdate(food_habits="veg")
+
+    def test_food_habits_canonical_value_accepted(self):
+        data = FlatmatesProfileUpdate(food_habits="vegetarian")
+        assert data.food_habits == FoodHabits.vegetarian
+
+    def test_cleanliness_legacy_value_rejected(self):
+        # "balanced" is a legacy alias, not a canonical Cleanliness member.
+        with pytest.raises(ValidationError):
+            FlatmatesProfileUpdate(cleanliness="balanced")
 
 
 class TestFlatmatesPeer:
