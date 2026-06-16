@@ -46,6 +46,8 @@ class GenerateLinkRequest(BaseModel):
     identifier: str = Field(
         ...,
         min_length=1,
+        # Keep in sync with service.MAX_IDENTIFIER_LENGTH; the service layer
+        # enforces the same cap so the POST body and GET path agree.
         max_length=256,
         description="Entity identifier (id or slug)",
     )

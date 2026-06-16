@@ -181,24 +181,36 @@ def test_build_assetlinks_includes_legacy_flatmates_package():
     assert legacy["target"]["namespace"] == "android_app"
 
 
-def test_build_assetlinks_legacy_flatmates_isolated_fingerprints():
+def test_build_assetlinks_legacy_flatmates_isolated_fingerprints(monkeypatch):
     """The legacy flatmates package must NOT inherit the canonical key.
 
-    With ``DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256`` unset (default), the legacy
-    entry carries an empty fingerprint list so it can never verify against the
-    wrong key — independent of the current canonical package's fingerprints.
+    Force the legacy fingerprint setting empty (independent of the ambient env)
+    so the assertions always run: the legacy entry must carry an empty
+    fingerprint list and never reuse the canonical package's fingerprints.
     """
+    monkeypatch.setattr(settings, "DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256", "")
     statements = build_assetlinks()
     legacy = _statement_for(statements, "com.the360ghar.flatmates")
     canonical = _statement_for(statements, "com.the360ghar.flatmates360")
     assert legacy is not None and canonical is not None
-    if not settings.DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256.strip():
-        assert legacy["target"]["sha256_cert_fingerprints"] == []
-        # The canonical package keeps its own (seeded) fingerprints.
-        assert (
-            legacy["target"]["sha256_cert_fingerprints"]
-            != canonical["target"]["sha256_cert_fingerprints"]
-        )
+    assert legacy["target"]["sha256_cert_fingerprints"] == []
+    # The canonical package keeps its own (seeded) fingerprints.
+    assert (
+        legacy["target"]["sha256_cert_fingerprints"]
+        != canonical["target"]["sha256_cert_fingerprints"]
+    )
+
+
+def test_build_assetlinks_legacy_flatmates_uses_own_fingerprint_when_set(monkeypatch):
+    """When the legacy fingerprint setting is populated it is used verbatim."""
+    legacy_fp = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
+    monkeypatch.setattr(
+        settings, "DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256", legacy_fp
+    )
+    statements = build_assetlinks()
+    legacy = _statement_for(statements, "com.the360ghar.flatmates")
+    assert legacy is not None
+    assert legacy["target"]["sha256_cert_fingerprints"] == [legacy_fp]
 
 
 # ===========================================================================
@@ -277,6 +289,13 @@ def test_generate_link_empty_identifier():
         generate_link("estate", "property", "")
     with pytest.raises(ValueError):
         generate_link("estate", "property", "   ")
+
+
+def test_generate_link_identifier_too_long():
+    # The service layer enforces the same cap as the request schema so the GET
+    # path and POST body reject oversized identifiers consistently.
+    with pytest.raises(ValueError):
+        generate_link("estate", "property", "x" * 257)
 
 
 # ===========================================================================

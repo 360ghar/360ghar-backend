@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 _PLACEHOLDER_TEAM_ID = "TEAMID"
 _team_id_warned = False
 
+# Maximum accepted length for a deep-link identifier. Mirrored by the request
+# schema (app/schemas/deeplinks.py) so the POST body and GET path agree.
+MAX_IDENTIFIER_LENGTH = 256
+
 
 def _read_fingerprint_setting(setting_name: str) -> list[str]:
     """Parse a comma-separated SHA-256 fingerprint Settings value into a list."""
@@ -54,15 +58,17 @@ def _domain() -> str:
 
 def _team_id() -> str:
     team_id = settings.DEEPLINK_APPLE_TEAM_ID.strip()
-    if team_id == _PLACEHOLDER_TEAM_ID:
+    # A valid Apple Team ID is exactly 10 alphanumeric characters. Flag the
+    # placeholder and any other malformed value so misconfigurations surface in
+    # logs instead of silently emitting unusable AASA appIDs.
+    if team_id == _PLACEHOLDER_TEAM_ID or len(team_id) != 10 or not team_id.isalnum():
         global _team_id_warned
         if not _team_id_warned:
             logger.warning(
-                "DEEPLINK_APPLE_TEAM_ID is still the placeholder %r; the "
-                "apple-app-site-association file will emit invalid appID values "
-                "and iOS Universal Links will not verify. Set the real 10-char "
-                "Apple Team ID in the environment.",
-                _PLACEHOLDER_TEAM_ID,
+                "DEEPLINK_APPLE_TEAM_ID=%r is invalid; expected a real 10-char "
+                "Apple Team ID. The apple-app-site-association file will emit "
+                "invalid appID values and iOS Universal Links will not verify.",
+                team_id,
             )
             _team_id_warned = True
     return team_id
@@ -160,6 +166,12 @@ def generate_link(app_key: str, entity: str, identifier: str) -> GeneratedLink:
     identifier = str(identifier).strip().strip("/")
     if not identifier:
         raise ValueError("identifier must not be empty")
+    # Enforce the same length cap as the request schema so every entry point
+    # (POST body and GET path) rejects oversized identifiers consistently.
+    if len(identifier) > MAX_IDENTIFIER_LENGTH:
+        raise ValueError(
+            f"identifier exceeds maximum length of {MAX_IDENTIFIER_LENGTH} characters"
+        )
 
     domain = _domain()
     return GeneratedLink(
