@@ -1,0 +1,23 @@
+# Caddy reverse-proxy rules for backend-driven deep linking.
+# Merge the `handle` blocks into your existing site block(s) for
+# the360ghar.com, www.the360ghar.com, and app.the360ghar.com.
+
+the360ghar.com, www.the360ghar.com, app.the360ghar.com {
+    # Android + iOS verification files (served at the root).
+    @wellknown path /.well-known/assetlinks.json /.well-known/apple-app-site-association
+    handle @wellknown {
+        reverse_proxy https://api.360ghar.com {
+            header_up Host {host}
+        }
+    }
+
+    # Deep-link fallback pages for every app.
+    @deeplinks path /p/* /property/* /tour/* /estate/* /flatmates/* /stays/*
+    handle @deeplinks {
+        reverse_proxy https://api.360ghar.com {
+            header_up Host {host}
+        }
+    }
+
+    # … your existing marketing-site routes go here (handle / handle_path) …
+}
