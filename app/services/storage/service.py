@@ -112,9 +112,10 @@ class StorageService:
 
             content_type = file.content_type
             is_image = content_type and content_type.startswith("image/")
-            if is_image and folder in OPTIMIZE_SETTINGS:
+            if is_image:
                 try:
-                    max_dim, quality = OPTIMIZE_SETTINGS[folder]
+                    # Use folder-specific settings if available, otherwise defaults
+                    max_dim, quality = OPTIMIZE_SETTINGS.get(folder, (2048, 80))
                     optimized_bytes, new_content_type = image_processing.optimize_for_web(
                         file_content,
                         max_dimension=max_dim,
@@ -210,15 +211,37 @@ class StorageService:
                 raise InvalidFileException(detail="Invalid file type")
 
             file_content = await file.read()
-            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
+            content_type = file.content_type or "application/octet-stream"
+            is_image = content_type.startswith("image/")
+
+            # Optimize images to WebP before uploading
+            if is_image:
+                try:
+                    max_dim, quality = OPTIMIZE_SETTINGS.get(
+                        StorageFolder.AGENT_AVATAR, (512, 85)
+                    )
+                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
+                        file_content,
+                        max_dimension=max_dim,
+                        quality=quality,
+                    )
+                    file_content = optimized_bytes
+                    content_type = new_content_type
+                except Exception as exc:
+                    logger.warning("Image optimization failed for agent avatar, uploading original: %s", exc)
+
+            file_extension = get_file_extension(
+                file.filename or "",
+                content_type=content_type,
+            )
             unique_name = f"{uuid.uuid4()}{file_extension}"
 
             result = self.cloudinary.upload_file(
                 file_bytes=file_content,
                 public_id=unique_name,
                 folder=f"agents/{agent_id}/avatars",
-                content_type=file.content_type or "application/octet-stream",
-                is_image=bool(file.content_type and file.content_type.startswith("image/")),
+                content_type=content_type,
+                is_image=is_image,
             )
 
             return {
@@ -226,7 +249,7 @@ class StorageService:
                 "public_url": result["secure_url"],
                 "file_type": "avatar",
                 "file_size": result["bytes"],
-                "content_type": file.content_type,
+                "content_type": content_type,
                 "original_filename": file.filename,
             }
 
@@ -509,15 +532,33 @@ class StorageService:
                 raise InvalidFileException(detail="Invalid file type")
 
             file_content = await file.read()
-            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
+            content_type = file.content_type or "application/octet-stream"
+            is_image = content_type.startswith("image/")
+
+            # Optimize images to WebP before uploading
+            if is_image:
+                try:
+                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
+                        file_content,
+                        max_dimension=2048,
+                        quality=80,
+                    )
+                    file_content = optimized_bytes
+                    content_type = new_content_type
+                except Exception as exc:
+                    logger.warning("Image optimization failed, uploading original: %s", exc)
+
+            file_extension = get_file_extension(
+                file.filename or "",
+                content_type=content_type,
+            )
             unique_name = f"{uuid.uuid4()}{file_extension}"
 
-            is_image = bool(file.content_type and file.content_type.startswith("image/"))
             result = self.cloudinary.upload_file(
                 file_bytes=file_content,
                 public_id=unique_name,
                 folder=folder or None,
-                content_type=file.content_type or "application/octet-stream",
+                content_type=content_type,
                 is_image=is_image,
             )
 
@@ -526,7 +567,7 @@ class StorageService:
                 "public_url": result["secure_url"],
                 "file_type": file_type,
                 "file_size": result["bytes"],
-                "content_type": file.content_type,
+                "content_type": content_type,
                 "original_filename": file.filename,
             }
 
