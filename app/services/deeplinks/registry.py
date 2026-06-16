@@ -68,10 +68,28 @@ class AppLinkConfig:
     gradient_to: str = "#764ba2"
     # Settings attribute holding comma-separated SHA-256 fingerprints for this app.
     fingerprint_setting: str = ""
+    # Optional per-package fingerprint setting overrides. Each tuple maps an
+    # Android package name to the Settings attribute holding ITS OWN
+    # comma-separated SHA-256 fingerprints. Used for legacy packages signed with
+    # a different key than the current canonical package. Packages not listed
+    # here fall back to ``fingerprint_setting``.
+    package_fingerprint_overrides: tuple[tuple[str, str], ...] = ()
 
     @property
     def primary_android_package(self) -> str:
         return self.android_packages[0]
+
+    def fingerprint_setting_for(self, package: str) -> str:
+        """Return the Settings attribute holding ``package``'s fingerprints.
+
+        Honours :attr:`package_fingerprint_overrides` (e.g. a legacy package
+        signed with a different key) before falling back to the app-level
+        :attr:`fingerprint_setting`.
+        """
+        for pkg, setting in self.package_fingerprint_overrides:
+            if pkg == package:
+                return setting
+        return self.fingerprint_setting
 
     def https_path(self, entity: str, identifier: str) -> str:
         """Canonical HTTPS path for an entity, e.g. ``/estate/property/42``."""
@@ -151,10 +169,11 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         #   `com.the360ghar.flatmates360`. It is INTENTIONALLY RETAINED here so that
         #   App Links shared to installs of the old app continue to verify.
         #   DO NOT remove without product-owner sign-off.
-        #   CAVEAT: it currently inherits the flatmates360 SHA-256 (shared
-        #   `fingerprint_setting`). If the legacy app was signed with a DIFFERENT
-        #   key, its App Links will only verify once its own app-signing SHA-256 is
-        #   added (would require per-package fingerprints — see docs follow-up).
+        #   The legacy package reads its OWN fingerprints from
+        #   `DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256` (see package_fingerprint_overrides).
+        #   Until that is set its assetlinks entry carries an EMPTY fingerprint
+        #   list, so it can never verify against the wrong key — set the legacy
+        #   app-signing SHA-256 to activate verification for old installs.
         android_packages=("com.the360ghar.flatmates360", "com.the360ghar.flatmates"),
         ios_bundle_id="com.the360ghar.flatmates360",
         use_webcredentials=True,
@@ -171,6 +190,9 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         gradient_from="#f59e0b",
         gradient_to="#ef4444",
         fingerprint_setting="DEEPLINK_FLATMATES_ANDROID_SHA256",
+        package_fingerprint_overrides=(
+            ("com.the360ghar.flatmates", "DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256"),
+        ),
     ),
     AppLinkConfig(
         key="stays",
@@ -240,7 +262,8 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
             if len(segments) < 2:
                 return None
             entity = segments[1]
-            identifier = segments[2] if len(segments) >= 3 else ""
+            # Preserve multi-segment identifiers (e.g. slugs containing "/").
+            identifier = "/".join(segments[2:]) if len(segments) >= 3 else ""
             if any(e.entity == entity for e in app.entities):
                 return (app, entity, identifier)
             return None
@@ -249,7 +272,8 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
     head = segments[0]
     app = _ROOT_ENTITY_INDEX.get(head)
     if app is not None:
-        identifier = segments[1] if len(segments) >= 2 else ""
+        # Preserve multi-segment identifiers (e.g. slugs containing "/").
+        identifier = "/".join(segments[1:]) if len(segments) >= 2 else ""
         return (app, head, identifier)
 
     return None

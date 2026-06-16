@@ -10,7 +10,7 @@ the deep-link paths so they hit the backend instead of the marketing-site origin
 
 1. **Rule 1 — verification files**
    - When incoming requests match:
-     `(http.host in {"the360ghar.com" "www.the360ghar.com" "app.the360ghar.com"} and starts_with(http.request.uri.path, "/.well-known/assetlinks.json")) or (... and http.request.uri.path eq "/.well-known/apple-app-site-association")`
+     `(http.host in {"the360ghar.com" "www.the360ghar.com" "app.the360ghar.com"} and starts_with(http.request.uri.path, "/.well-known/assetlinks.json")) or (http.host in {"the360ghar.com" "www.the360ghar.com" "app.the360ghar.com"} and http.request.uri.path eq "/.well-known/apple-app-site-association")`
    - Then: **DNS/Origin override** → `api.360ghar.com` (port 443, Host header
      preserved).
 

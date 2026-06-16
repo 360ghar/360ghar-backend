@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 from dataclasses import dataclass
 
 from app.config import settings
@@ -19,13 +20,32 @@ from app.services.deeplinks.registry import (
     get_app,
 )
 
+logger = logging.getLogger(__name__)
 
-def _fingerprints_for(app: AppLinkConfig) -> list[str]:
-    """Read this app's configured SHA-256 fingerprints (comma-separated)."""
-    if not app.fingerprint_setting:
-        return []
-    raw = getattr(settings, app.fingerprint_setting, "") or ""
+# Placeholder value for the Apple Team ID; a real 10-char Team ID must override
+# it in production or iOS Universal Links will never verify.
+_PLACEHOLDER_TEAM_ID = "TEAMID"
+_team_id_warned = False
+
+
+def _read_fingerprint_setting(setting_name: str) -> list[str]:
+    """Parse a comma-separated SHA-256 fingerprint Settings value into a list."""
+    raw = getattr(settings, setting_name, "") or ""
     return [fp.strip() for fp in raw.split(",") if fp.strip()]
+
+
+def _fingerprints_for_package(app: AppLinkConfig, package: str) -> list[str]:
+    """SHA-256 fingerprints for a specific Android package of ``app``.
+
+    Honours per-package overrides (e.g. a legacy package signed with a different
+    key) before falling back to the app-level fingerprint setting. Returns an
+    empty list when no setting is configured, so an unconfigured package is
+    emitted with an empty fingerprint array rather than the wrong key.
+    """
+    setting_name = app.fingerprint_setting_for(package)
+    if not setting_name:
+        return []
+    return _read_fingerprint_setting(setting_name)
 
 
 def _domain() -> str:
@@ -33,7 +53,19 @@ def _domain() -> str:
 
 
 def _team_id() -> str:
-    return settings.DEEPLINK_APPLE_TEAM_ID.strip()
+    team_id = settings.DEEPLINK_APPLE_TEAM_ID.strip()
+    if team_id == _PLACEHOLDER_TEAM_ID:
+        global _team_id_warned
+        if not _team_id_warned:
+            logger.warning(
+                "DEEPLINK_APPLE_TEAM_ID is still the placeholder %r; the "
+                "apple-app-site-association file will emit invalid appID values "
+                "and iOS Universal Links will not verify. Set the real 10-char "
+                "Apple Team ID in the environment.",
+                _PLACEHOLDER_TEAM_ID,
+            )
+            _team_id_warned = True
+    return team_id
 
 
 # ---------------------------------------------------------------------------
@@ -50,8 +82,8 @@ def build_assetlinks() -> list[dict]:
     """
     statements: list[dict] = []
     for app in APP_REGISTRY:
-        fingerprints = _fingerprints_for(app)
         for package in app.android_packages:
+            fingerprints = _fingerprints_for_package(app, package)
             statements.append(
                 {
                     "relation": ["delegate_permission/common.handle_all_urls"],

@@ -17,6 +17,7 @@ static-hosted ``ghar_sale_links`` / ``the360ghar_links`` repos.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 
 from fastapi import APIRouter, HTTPException, Path, status
@@ -113,7 +114,7 @@ async def generate(body: GenerateLinkRequest) -> GeneratedLinkResponse:
         link = generate_link(body.app, body.entity, body.identifier)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return GeneratedLinkResponse(**link.__dict__)
+    return GeneratedLinkResponse(**dataclasses.asdict(link))
 
 
 @api_router.get("/{app_key}/{entity}/{identifier}", response_model=GeneratedLinkResponse)
@@ -127,7 +128,7 @@ async def generate_path(
         link = generate_link(app_key, entity, identifier)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return GeneratedLinkResponse(**link.__dict__)
+    return GeneratedLinkResponse(**dataclasses.asdict(link))
 
 
 # ---------------------------------------------------------------------------

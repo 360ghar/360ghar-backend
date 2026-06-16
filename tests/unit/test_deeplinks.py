@@ -111,6 +111,24 @@ def test_get_app_for_path_prefix_without_entity():
     assert get_app_for_path("/estate") is None
 
 
+@pytest.mark.parametrize(
+    "path, exp_key, exp_entity, exp_id",
+    [
+        # Namespaced app with a multi-segment identifier (slug containing "/").
+        ("/estate/apply/2024/spring/unit-5", "estate", "apply", "2024/spring/unit-5"),
+        # Flagship root app with a multi-segment identifier.
+        ("/property/city/mumbai/42", "ghar", "property", "city/mumbai/42"),
+    ],
+)
+def test_get_app_for_path_preserves_multisegment_identifier(path, exp_key, exp_entity, exp_id):
+    resolved = get_app_for_path(path)
+    assert resolved is not None
+    app, entity, identifier = resolved
+    assert app.key == exp_key
+    assert entity == exp_entity
+    assert identifier == exp_id
+
+
 def test_https_path_and_scheme_url_examples():
     estate = get_app("estate")
     assert estate.https_path("property", "42") == "/estate/property/42"
@@ -161,6 +179,26 @@ def test_build_assetlinks_includes_legacy_flatmates_package():
     legacy = _statement_for(statements, "com.the360ghar.flatmates")
     assert legacy is not None, "legacy com.the360ghar.flatmates package must be present"
     assert legacy["target"]["namespace"] == "android_app"
+
+
+def test_build_assetlinks_legacy_flatmates_isolated_fingerprints():
+    """The legacy flatmates package must NOT inherit the canonical key.
+
+    With ``DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256`` unset (default), the legacy
+    entry carries an empty fingerprint list so it can never verify against the
+    wrong key — independent of the current canonical package's fingerprints.
+    """
+    statements = build_assetlinks()
+    legacy = _statement_for(statements, "com.the360ghar.flatmates")
+    canonical = _statement_for(statements, "com.the360ghar.flatmates360")
+    assert legacy is not None and canonical is not None
+    if not settings.DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256.strip():
+        assert legacy["target"]["sha256_cert_fingerprints"] == []
+        # The canonical package keeps its own (seeded) fingerprints.
+        assert (
+            legacy["target"]["sha256_cert_fingerprints"]
+            != canonical["target"]["sha256_cert_fingerprints"]
+        )
 
 
 # ===========================================================================

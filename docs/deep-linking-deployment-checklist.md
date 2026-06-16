@@ -17,15 +17,18 @@ It is split into:
 
 ## Part 1 — Already done in code (this PR/change set)
 
+> Paths below are relative to the **backend repo root** (this repo). Row 7 lives
+> in the separate **360-estate-app** repo and is listed for cross-repo context.
+
 | # | Change | Files |
 |---|--------|-------|
-| 1 | Backend deep-link engine: registry, service, schemas, routers | `backend/app/services/deeplinks/*`, `backend/app/api/deeplinks.py`, `backend/app/schemas/deeplinks.py` |
-| 2 | Routers wired in (root `.well-known` + fallback pages, `/api/v1/deeplinks` API) | `backend/app/infrastructure/routing.py`, `backend/app/api/api_v1/api.py` |
-| 3 | New settings + docs | `backend/app/core/config.py`, `backend/.env.example` |
-| 4 | 38 automated tests (all passing) | `backend/tests/unit/test_deeplinks.py` |
-| 5 | Reverse-proxy config templates | `backend/deploy/deeplinks/*` |
-| 6 | Design doc + this checklist | `backend/docs/deep-linking.md`, this file |
-| 7 | 360 Estate Dart: domain de-duplicated into one constant (same output, no id/host change) | `360-estate-app/lib/core/services/deep_link_service.dart` |
+| 1 | Backend deep-link engine: registry, service, schemas, routers | `app/services/deeplinks/*`, `app/api/deeplinks.py`, `app/schemas/deeplinks.py` |
+| 2 | Routers wired in (root `.well-known` + fallback pages, `/api/v1/deeplinks` API) | `app/infrastructure/routing.py`, `app/api/api_v1/api.py` |
+| 3 | New settings + docs | `app/core/config.py`, `.env.example` |
+| 4 | 38 automated tests (all passing) | `tests/unit/test_deeplinks.py` |
+| 5 | Reverse-proxy config templates | `deploy/deeplinks/*` |
+| 6 | Design doc + this checklist | `docs/deep-linking.md`, this file |
+| 7 | 360 Estate Dart: domain de-duplicated into one constant (same output, no id/host change) | _(separate repo)_ `360-estate-app: lib/core/services/deep_link_service.dart` |
 
 > **No Android package names or iOS bundle identifiers were changed.** An earlier
 > draft renamed the Stays iOS id and added hosts to Estate/FlatMates; those were
@@ -101,7 +104,7 @@ curl -s https://api.360ghar.com/.well-known/apple-app-site-association | jq .
 ### 2.3 Route the360ghar.com paths to the backend 🔴 (DNS / reverse proxy)
 
 Pick the option matching where `the360ghar.com` is hosted and apply the matching
-template from `backend/deploy/deeplinks/`:
+template from `deploy/deeplinks/`:
 
 - [ ] Identify the current host of `the360ghar.com` (Netlify? Cloudflare? Nginx?).
 - [ ] Apply the config so these are proxied to `https://api.360ghar.com` on

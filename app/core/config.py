@@ -275,6 +275,12 @@ class Settings(BaseSettings):
     DEEPLINK_FLATMATES_ANDROID_SHA256: str = (
         "5F:D6:8C:1A:EB:C0:9C:85:B3:69:3C:D1:E4:C3:59:0B:E4:F8:9B:57:2C:3F:09:26:2D:2D:C7:31:F9:B0:F3:65"
     )
+    # Legacy FlatMates package (com.the360ghar.flatmates) signing fingerprint(s).
+    # Left empty by default: the legacy entry is emitted with an empty
+    # fingerprint list until the old app-signing SHA-256 is supplied, so it can
+    # never verify against the wrong key. Set this to re-enable App Links for
+    # users still on the old build.
+    DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256: str = ""
     DEEPLINK_STAYS_ANDROID_SHA256: str = (
         "EE:6D:96:51:3A:2C:53:0D:33:66:6B:26:02:C4:1B:20:F3:5B:5D:65:94:CE:46:EF:B9:16:53:B3:5A:13:96:0D"
     )

@@ -31,6 +31,21 @@ class GeneratedLinkResponse(BaseModel):
 
 
 class GenerateLinkRequest(BaseModel):
-    app: str = Field(..., description="App key: ghar/estate/flatmates/stays")
-    entity: str = Field(..., description="Entity type, e.g. 'property'")
-    identifier: str = Field(..., description="Entity identifier (id or slug)")
+    app: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="App key: ghar/estate/flatmates/stays",
+    )
+    entity: str = Field(
+        ...,
+        min_length=1,
+        max_length=32,
+        description="Entity type, e.g. 'property'",
+    )
+    identifier: str = Field(
+        ...,
+        min_length=1,
+        max_length=256,
+        description="Entity identifier (id or slug)",
+    )
