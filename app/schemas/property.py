@@ -463,11 +463,3 @@ class UnifiedPropertyResponse(BaseModel):
     search_center: dict[str, float] | None = None
 
 
-class SwipeHistoryResponse(BaseModel):
-    properties: list[Property]
-    total: int
-    page: int
-    limit: int
-    total_pages: int
-    filters_applied: dict[str, Any]
-    search_center: dict[str, float] | None = None

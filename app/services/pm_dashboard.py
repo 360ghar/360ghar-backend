@@ -14,6 +14,7 @@ from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
+from app.schemas.pagination import offset_payload, read_offset
 
 
 async def _resolve_owner_scope(
@@ -150,13 +151,20 @@ async def get_recent_activity(
     *,
     actor: User,
     owner_id: int | None = None,
+    cursor_payload: dict,
     limit: int = 20,
-) -> list[dict[str, Any]]:
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
+    offset = read_offset(cursor_payload)
+
+    # Each per-source query must fetch enough rows to cover the cursor offset plus
+    # the full page size (+1 lookahead), since the sources are merged and re-sorted.
+    fetch_limit = offset + limit + 1
 
     activities: list[dict[str, Any]] = []
 
-    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
+    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
     payments = list((await db.execute(pay_stmt)).scalars().all())
@@ -172,7 +180,7 @@ async def get_recent_activity(
             }
         )
 
-    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
+    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     requests = list((await db.execute(maint_stmt)).scalars().all())
@@ -188,7 +196,7 @@ async def get_recent_activity(
             }
         )
 
-    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
+    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     leases = list((await db.execute(lease_stmt)).scalars().all())
@@ -204,4 +212,13 @@ async def get_recent_activity(
         )
 
     activities.sort(key=lambda x: x.get("at") or "", reverse=True)
-    return activities[:limit]
+
+    # Compute total before slicing if requested
+    count_total: int | None = len(activities) if with_total else None
+
+    # Apply cursor-based offset pagination with +1 lookahead
+    sliced = activities[offset : offset + limit + 1]
+    next_payload: dict | None = offset_payload(offset + limit) if len(sliced) > limit else None
+    sliced = sliced[:limit]
+
+    return sliced, next_payload, count_total

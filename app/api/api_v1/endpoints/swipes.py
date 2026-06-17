@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,10 +8,11 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.common import MessageResponse
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.property import (
+    Property,
     PropertySwipe,
     SortBy,
-    SwipeHistoryResponse,
     UnifiedPropertyFilter,
 )
 from app.schemas.user import User as UserSchema
@@ -45,7 +47,7 @@ async def swipe_property(
     logger.debug("Property swipe recorded", extra={"user_id": current_user.id, "property_id": swipe.property_id, "action": action})
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("", response_model=SwipeHistoryResponse)
+@router.get("", response_model=CursorPage[Property])
 async def get_user_swipe_history(
     # Location-based search
     lat: float | None = Query(None, description="Latitude for location-based search"),
@@ -94,10 +96,11 @@ async def get_user_swipe_history(
     # Swipe-specific filters
     is_liked: bool | None = Query(None, description="Filter by liked (true) or disliked (false)"),
 
-    # Sorting and pagination
+    # Sorting
     sort_by: SortBy = Query(SortBy.newest, description="Sort by: distance, price_low, price_high, newest, popular, relevance"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+
+    # Cursor pagination
+    page: CursorParams = Depends(),
 
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -111,7 +114,7 @@ async def get_user_swipe_history(
     - Comprehensive property filtering
     - Multiple sorting options
     - Swipe-specific filters (liked/disliked)
-    - Pagination
+    - Cursor-based pagination
     """
     # Build filters
     filters = UnifiedPropertyFilter(
@@ -145,32 +148,33 @@ async def get_user_swipe_history(
     )
 
     # Log search request
-    logger.info("Swipe history search request - user: %s, filters: %s, page: %s", current_user.id, len([f for f in [q, lat, lng, property_type, city] if f]), page)
+    logger.info(
+        "Swipe history search request - user: %s, filters: %s",
+        current_user.id,
+        len([f for f in [q, lat, lng, property_type, city] if f]),
+    )
 
     try:
-        result = await get_swipe_history(db, current_user.id, filters, page, limit, is_liked)
+        swipes, next_payload, total = await get_swipe_history(
+            db,
+            current_user.id,
+            filters,
+            cursor_payload=page.decoded(),
+            limit=page.limit,
+            is_liked=is_liked,
+            with_total=page.include_total,
+        )
 
-        logger.info("Swipe history search completed - found %s properties, returning page %s", result.get('total', 0), page)
+        logger.info("Swipe history search completed - returning %s properties", len(swipes))
 
-        # Extract properties from swipe objects and ensure they have the liked attribute
-        swipes = result.get("items", [])
-        properties = []
+        # Extract properties from swipe objects
+        props = []
         for swipe in swipes:
             if swipe.property:
-                # Ensure the liked attribute is set
                 swipe.property.liked = swipe.is_liked
-                properties.append(swipe.property)
+                props.append(Property.model_validate(swipe.property))
 
-        # Adapt repository response to SwipeHistoryResponse shape
-        return {
-            "properties": properties,
-            "total": result.get("total", 0),
-            "page": page,
-            "limit": limit,
-            "total_pages": result.get("total_pages", 0),
-            "filters_applied": filters.model_dump(exclude_none=True),
-            "search_center": ({"latitude": lat, "longitude": lng} if lat is not None and lng is not None else None)
-        }
+        return build_cursor_page(props, limit=page.limit, next_payload=next_payload, total=total)
     except Exception as e:
         logger.error("Swipe history search failed for user %s: %s", current_user.id, e)
         raise

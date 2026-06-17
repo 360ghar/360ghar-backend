@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.pm_dashboard import ActivityItem, DashboardOverview
 from app.schemas.user import User as UserSchema
 from app.services.pm_dashboard import get_dashboard_overview, get_recent_activity
@@ -22,13 +23,24 @@ async def dashboard_overview(
     return data
 
 
-@router.get("/activity", response_model=list[ActivityItem])
+@router.get("/activity", response_model=CursorPage[ActivityItem])
 async def dashboard_activity(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    items = await get_recent_activity(db, actor=current_user, owner_id=owner_id, limit=limit)  # type: ignore[arg-type]
-    return items
-
+    items, next_payload, total = await get_recent_activity(
+        db,
+        actor=current_user,  # type: ignore[arg-type]
+        owner_id=owner_id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(
+        [ActivityItem(**item) for item in items],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )

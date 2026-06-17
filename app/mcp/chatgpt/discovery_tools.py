@@ -547,25 +547,25 @@ async def discovery_shortlist(
 
             # Get liked properties
             filters = UnifiedPropertyFilter()
-            result = await get_swipe_history(
+            swipes, _next, total_count = await get_swipe_history(
                 db,
                 user_id=user.id,
                 filters=filters,
-                page=page,
+                cursor_payload={},
                 limit=limit,
                 is_liked=True,  # Only liked properties
+                with_total=True,
             )
 
             # Serialize properties from swipe items
             properties = []
-            for swipe in result.get("items", []):
+            for swipe in swipes:
                 if swipe.property:
                     prop_data = serialize_property_basic(swipe.property)
                     prop_data["swiped_at"] = swipe.created_at.isoformat() if swipe.created_at else None
                     properties.append(prop_data)
 
-            total = result.get("total", 0)
-            total_pages = result.get("total_pages", 0)
+            total = total_count or 0
 
             return format_chatgpt_response(
                 data={
@@ -573,7 +573,7 @@ async def discovery_shortlist(
                     "total": total,
                     "page": page,
                     "limit": limit,
-                    "total_pages": total_pages,
+                    "total_pages": None,
                 },
                 content_summary=f"You have {total} properties in your shortlist. Showing {len(properties)} on this page.",
                 widget_uri=get_widget_for_tool("discovery_shortlist"),

@@ -83,20 +83,14 @@ class TestGetSwipeHistoryEndpoint:
             "app.api.api_v1.endpoints.swipes.get_swipe_history",
             new_callable=AsyncMock,
         ) as mock_history:
-            mock_history.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-            }
+            mock_history.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/swipes/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "properties" in data
-            assert "total" in data
+            assert "items" in data
+            assert "has_more" in data
 
     @pytest.mark.asyncio
     async def test_get_swipe_history_liked_only(self, authenticated_client: AsyncClient):
@@ -105,13 +99,7 @@ class TestGetSwipeHistoryEndpoint:
             "app.api.api_v1.endpoints.swipes.get_swipe_history",
             new_callable=AsyncMock,
         ) as mock_history:
-            mock_history.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-            }
+            mock_history.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/swipes/",

@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from sqlalchemy import and_, case, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -5,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.properties import Amenity, Property, PropertyAmenity
 from app.models.users import UserSwipe
+from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import PropertySwipe, SortBy, UnifiedPropertyFilter
 
 
@@ -52,9 +54,17 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
     await db.flush()
     return True
 
-async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedPropertyFilter, page: int, limit: int, is_liked: bool | None):
+async def get_swipe_history(
+    db: AsyncSession,
+    user_id: int,
+    filters: UnifiedPropertyFilter,
+    cursor_payload: dict,
+    limit: int,
+    is_liked: bool | None,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
     """Get user's swipe history with comprehensive property filtering"""
-    skip = (page - 1) * limit
+    offset = read_offset(cursor_payload)
 
     # Base query with optimized eager loading
     # Use outerjoin to include swipes even if property was deleted, then filter nulls
@@ -218,12 +228,17 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
         # Default sorting by swipe creation date
         query = query.order_by(desc(UserSwipe.created_at))
 
-    # Add pagination
-    query = query.offset(skip).limit(limit)
+    # Compute total count before applying offset/limit if requested
+    count_total: int | None = None
+    if with_total:
+        count_result = await db.execute(count_query)
+        count_total = int(count_result.scalar() or 0)
 
-    # Execute queries
+    # Add cursor-based offset pagination
+    query = query.offset(offset).limit(limit + 1)
+
+    # Execute main query
     result = await db.execute(query)
-    count_result = await db.execute(count_query)
 
     # Handle results - check if we have additional columns (distance)
     if distance is not None:
@@ -232,20 +247,16 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
     else:
         swipes = list(result.scalars().all())
 
-    total_count = count_result.scalar()
+    # Determine if there's a next page
+    next_payload: dict | None = offset_payload(offset + limit) if len(swipes) > limit else None
+    swipes = swipes[:limit]
 
     # Add liked attribute to properties
     for swipe in swipes:
         if swipe.property:
             swipe.property.liked = swipe.is_liked
 
-    return {
-        "items": swipes,
-        "total": total_count,
-        "page": page,
-        "limit": limit,
-        "total_pages": (total_count + limit - 1) // limit if total_count else 0
-    }
+    return swipes, next_payload, count_total
 
 async def undo_last_swipe(db: AsyncSession, user_id: int):
     """Undo last swipe"""

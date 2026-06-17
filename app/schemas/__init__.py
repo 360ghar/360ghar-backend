@@ -66,7 +66,6 @@ from app.schemas.property import (
     PropertySwipe,
     PropertyUpdate,
     SortBy,
-    SwipeHistoryResponse,
     UnifiedPropertyFilter,
     UnifiedPropertyResponse,
 )
@@ -131,7 +130,6 @@ __all__ = [
     "SortBy",
     "UnifiedPropertyFilter",
     "UnifiedPropertyResponse",
-    "SwipeHistoryResponse",
     # Visit schemas
     "VisitBase",
     "VisitCreate",

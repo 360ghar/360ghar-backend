@@ -50,13 +50,16 @@ class TestPMDashboardEndpoints:
             "app.services.pm_dashboard.get_recent_activity",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = []
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/dashboard/activity"
             )
 
             assert response.status_code == 200
+            body = response.json()
+            assert "items" in body
+            assert "has_more" in body
 
 
 class TestPMLeaseEndpoints:

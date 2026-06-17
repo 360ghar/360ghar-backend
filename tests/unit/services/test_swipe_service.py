@@ -106,23 +106,22 @@ class TestGetSwipeHistory:
         test_swipes,
     ):
         """Test getting user's swipe history."""
-        from app.services.swipe import get_swipe_history
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.swipe import get_swipe_history
 
         filters = UnifiedPropertyFilter()
-        result = await get_swipe_history(
+        swipes, next_payload, total = await get_swipe_history(
             db_session,
             test_user.id,
             filters,
-            page=1,
+            cursor_payload={},
             limit=10,
             is_liked=None,
+            with_total=True,
         )
 
-        assert "items" in result
-        assert "total" in result
-        assert "page" in result
-        assert result["total"] == len(test_swipes)
+        assert isinstance(swipes, list)
+        assert total == len(test_swipes)
 
     @pytest.mark.asyncio
     async def test_get_swipe_history_liked_only(
@@ -132,21 +131,21 @@ class TestGetSwipeHistory:
         test_swipes,
     ):
         """Test getting only liked swipes."""
-        from app.services.swipe import get_swipe_history
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.swipe import get_swipe_history
 
         filters = UnifiedPropertyFilter()
-        result = await get_swipe_history(
+        swipes, _next, _total = await get_swipe_history(
             db_session,
             test_user.id,
             filters,
-            page=1,
+            cursor_payload={},
             limit=10,
             is_liked=True,
         )
 
-        assert "items" in result
-        for swipe in result["items"]:
+        assert isinstance(swipes, list)
+        for swipe in swipes:
             assert swipe.is_liked is True
 
 
