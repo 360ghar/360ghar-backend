@@ -5,6 +5,8 @@ These tests verify the property-related API endpoints work correctly.
 They mock the service layer to isolate endpoint testing.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 

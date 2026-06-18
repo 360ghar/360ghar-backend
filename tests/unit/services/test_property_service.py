@@ -2,7 +2,8 @@
 Tests for property service module.
 """
 
-import uuid
+from __future__ import annotations
+
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,12 +11,10 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.properties import Property
 from app.models.enums import (
     ListingGenderPreference,
     ListingSharingType,
     PropertyPurpose,
-    PropertyStatus,
     PropertyType,
 )
 
@@ -30,8 +29,8 @@ class TestCreateProperty:
         test_user,
     ):
         """Test successful property creation."""
-        from app.services.property import create_property
         from app.schemas.property import PropertyCreate
+        from app.services.property import create_property
 
         property_data = PropertyCreate(
             title="New Test Property",
@@ -146,8 +145,8 @@ class TestCreateProperty:
     async def test_create_property_drops_phantom_cloudinary_url(self):
         """Regression: a phantom hc_properties URL (HTTP 404) is dropped on
         the sync verification path, never persisted to property_images."""
-        from app.services.property import create_property
         from app.schemas.property import PropertyCreate
+        from app.services.property import create_property
         from app.services.property import crud as crud_mod
 
         phantom = (
@@ -248,8 +247,8 @@ class TestGetProperty:
     @pytest.mark.asyncio
     async def test_get_property_not_found(self, db_session: AsyncSession):
         """Test getting non-existent property."""
-        from app.services.property import get_property
         from app.core.exceptions import PropertyNotFoundException
+        from app.services.property import get_property
 
         with pytest.raises(PropertyNotFoundException):
             await get_property(db_session, 99999)
@@ -266,8 +265,8 @@ class TestUpdateProperty:
         test_user,
     ):
         """Test successful property update."""
-        from app.services.property import update_property
         from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(title="Updated Title")
 
@@ -305,8 +304,8 @@ class TestUpdateProperty:
     ):
         """Test updates cannot move PG listings outside the rent purpose."""
         from app.core.exceptions import BadRequestException
-        from app.services.property import update_property
         from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(
             property_type=PropertyType.pg,
@@ -323,9 +322,10 @@ class TestUpdateProperty:
         test_user,
     ):
         """Test updating non-existent property."""
-        from app.services.property import update_property
-        from app.schemas.property import PropertyUpdate
         from fastapi import HTTPException
+
+        from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(title="Updated Title")
 
@@ -346,8 +346,8 @@ class TestDeleteProperty:
         test_user,
     ):
         """Test successful property deletion."""
-        from app.services.property import delete_property, get_property
         from app.core.exceptions import PropertyNotFoundException
+        from app.services.property import delete_property, get_property
 
         property_id = test_property.id
 
@@ -391,8 +391,8 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by city."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(city="Mumbai")
 
@@ -412,8 +412,8 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by purpose."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(purpose=PropertyPurpose.rent)
 
@@ -433,8 +433,8 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by type."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(property_type=[PropertyType.apartment])
 
@@ -454,8 +454,8 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering specialized listings by gender preference."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             gender_preference=ListingGenderPreference.female,
@@ -479,8 +479,8 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering specialized listings by sharing type."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             property_type=[PropertyType.flatmate],

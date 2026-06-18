@@ -43,8 +43,15 @@ async def get_property_recommendations(
             cached = await cache.get(_anon_cache_key(limit))
             if cached is not None:
                 logger.info("Serving anonymous recommendations from cache (limit=%s)", limit)
-                items = [PropertySchema.model_validate(p) for p in json.loads(cached)]
-                has_more = len(items) > limit
+                cached_data = json.loads(cached)
+                if isinstance(cached_data, list):
+                    # backward-compat: old cache format was a plain list
+                    raw_items = cached_data
+                    has_more = False
+                else:
+                    raw_items = cached_data.get("items", [])
+                    has_more = bool(cached_data.get("has_more", False))
+                items = [PropertySchema.model_validate(p) for p in raw_items]
                 if has_more:
                     items = items[:limit]
                 nxt = offset_payload(limit) if has_more else None
@@ -96,7 +103,11 @@ async def get_property_recommendations(
         if user_id is None and skip == 0:
             try:
                 cache = get_cache_manager()
-                serialized = json.dumps([s.model_dump(mode="json") for s in schemas])
+                cache_obj = {
+                    "items": [s.model_dump(mode="json") for s in schemas],
+                    "has_more": next_payload is not None,
+                }
+                serialized = json.dumps(cache_obj)
                 await cache.set(_anon_cache_key(limit), serialized, ttl=_ANON_CACHE_TTL)
             except Exception:
                 logger.debug("Cache write failed for anonymous recommendations")
