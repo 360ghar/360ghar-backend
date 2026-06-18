@@ -337,6 +337,77 @@ async def test_likes_invalid_cursor_400(flatmates_client: AsyncClient) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /flatmates/outgoing-likes  (outgoing likes; keyset desc on created_at)
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def three_outgoing_likes(db_session, viewer_user) -> list[UserSwipe]:
+    """Seed 3 outgoing likes FROM viewer_user to three distinct targets."""
+    targets = [_make_user(f"target_{i}", flatmates=True) for i in range(3)]
+    for t in targets:
+        db_session.add(t)
+    await db_session.flush()
+    for t in targets:
+        await db_session.refresh(t)
+
+    swipes = []
+    for target in targets:
+        swipe = UserSwipe(
+            user_id=viewer_user.id,
+            target_user_id=target.id,
+            target_type=SwipeTargetType.user.value,
+            swipe_action=SwipeAction.like.value,
+            is_liked=True,
+        )
+        db_session.add(swipe)
+        await db_session.flush()
+        await db_session.refresh(swipe)
+        swipes.append(swipe)
+    return swipes
+
+
+async def test_outgoing_likes_cursor_paginates(
+    flatmates_client: AsyncClient,
+    three_outgoing_likes: list[UserSwipe],
+) -> None:
+    r1 = await flatmates_client.get("/api/v1/flatmates/outgoing-likes?limit=2")
+    assert r1.status_code == 200, r1.text
+    body1 = r1.json()
+    assert set(body1) >= {"items", "next_cursor", "has_more", "limit"}
+    assert len(body1["items"]) == 2
+    assert body1["has_more"] is True
+    assert body1["next_cursor"]
+
+    r2 = await flatmates_client.get(
+        f"/api/v1/flatmates/outgoing-likes?limit=2&cursor={body1['next_cursor']}"
+    )
+    assert r2.status_code == 200, r2.text
+    body2 = r2.json()
+    ids1 = {item["id"] for item in body1["items"]}
+    ids2 = {item["id"] for item in body2["items"]}
+    assert ids1.isdisjoint(ids2), "Pages must not overlap"
+    assert body2["has_more"] is False
+    assert body2["next_cursor"] is None
+
+
+async def test_outgoing_likes_include_total(
+    flatmates_client: AsyncClient,
+    three_outgoing_likes: list[UserSwipe],
+) -> None:
+    r = await flatmates_client.get("/api/v1/flatmates/outgoing-likes?limit=2&include_total=true")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 3
+
+
+async def test_outgoing_likes_invalid_cursor_400(flatmates_client: AsyncClient) -> None:
+    r = await flatmates_client.get("/api/v1/flatmates/outgoing-likes?cursor=garbage!!!")
+    assert r.status_code == 400, r.text
+    assert r.json()["error"]["code"] == "INVALID_CURSOR"
+
+
+# ---------------------------------------------------------------------------
 # GET /flatmates-admin/moderation/listings  (keyset asc on created_at)
 # ---------------------------------------------------------------------------
 

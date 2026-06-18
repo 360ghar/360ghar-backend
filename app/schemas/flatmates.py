@@ -362,12 +362,6 @@ class QnAAnswers(BaseModel):
         return self
 
 
-class SwipeDeckResponse(BaseModel):
-    """Paginated swipe deck envelope."""
-    profiles: list[FlatmatesPeer]
-    total: int
-
-
 class MessageListResponse(BaseModel):
     """Paginated message list envelope."""
     messages: list[MessageOut]
