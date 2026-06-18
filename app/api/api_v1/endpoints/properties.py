@@ -208,10 +208,11 @@ async def get_my_properties(
     db: AsyncSession = Depends(get_db),
 ):
     """List properties owned by the current user (requires authentication)."""
+    cursor_payload = page.decoded()
     rows, next_payload, total = await list_user_properties(
         db,
         owner_id=current_user.id,
-        cursor_payload=page.decoded(),
+        cursor_payload=cursor_payload,
         limit=page.limit,
         with_total=page.include_total,
     )
