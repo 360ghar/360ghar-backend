@@ -4,7 +4,7 @@
 
 ## Overview video
 
-[![360 Ghar Backend Overview](video--overview.mp4)](video--overview.mp4)
+[![360 Ghar Backend Overview](video/overview.mp4)](video/overview.mp4)
 
 A 2-3 minute silent walkthrough of the platform's six modules and architecture.
 
@@ -50,7 +50,7 @@ A 2-3 minute silent walkthrough of the platform's six modules and architecture.
 
 ## Repository
 
-- [Source code](https://github.com/360ghar/backend)
-- [README](https://github.com/360ghar/backend#readme)
-- [CLAUDE.md](https://github.com/360ghar/backend/blob/main/CLAUDE.md) — coding guidelines and architecture reference.
-- [AGENTS.md](https://github.com/360ghar/backend/blob/main/AGENTS.md) — operating contract for contributors and agents.
+- [Source code](https://github.com/360ghar/360ghar-backend)
+- [README](https://github.com/360ghar/360ghar-backend#readme)
+- [CLAUDE.md](https://github.com/360ghar/360ghar-backend/blob/main/CLAUDE.md) — coding guidelines and architecture reference.
+- [AGENTS.md](https://github.com/360ghar/360ghar-backend/blob/main/AGENTS.md) — operating contract for contributors and agents.

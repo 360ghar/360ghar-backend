@@ -52,7 +52,6 @@ GitHub Actions ([`.github/workflows/tests.yml`](../../.github/workflows/tests.ym
 
 | Job | What it does |
 |---|---|
-| `docs-contracts` | Runs `python3 scripts/validate_docs_contracts.py` to validate [`docs/repo-contract.json`](../../docs/repo-contract.json) against the actual file tree. Fails on inventory drift. |
 | `test` | Boots PostGIS (built from `.github/Dockerfile.test-db`) and Redis 7, creates `vector` and `postgis` extensions, runs `uv run pytest tests/ -v --cov=app --cov-report=xml --cov-fail-under=90`, uploads coverage to Codecov. |
 | `lint` | Runs `uv run ruff check app/ --output-format=github` and `uv run mypy app/ --ignore-missing-imports --no-error-summary`. |
 
@@ -91,7 +90,6 @@ The [`scripts/`](../../scripts/) directory holds operational scripts that are no
 
 | Script | Purpose |
 |---|---|
-| `scripts/validate_docs_contracts.py` | Validates `docs/repo-contract.json` against the actual file tree. Run by the `docs-contracts` CI job and by `python scripts/validate_docs_contracts.py` locally. |
 | `scripts/optimize_seed_images.py` | Reduces seed image size to shrink the Docker image. Supports `--dry-run` for preview. |
 
 Seed data scripts live separately in [`seed_data/`](../../seed_data/) and are documented in [development-workflow.md](development-workflow.md).

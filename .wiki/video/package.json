@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "studio": "remotion studio src/index.ts",
-    "render": "remotion render src/index.ts Video overview.mp4 --codec=h264 --crf=18"
+    "render": "remotion render src/index.ts Video overview.mp4 --codec=h264 --crf=18 --gl=swiftshader"
   },
   "dependencies": {
     "@remotion/cli": "4.0.479",

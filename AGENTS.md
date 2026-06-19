@@ -14,7 +14,6 @@ This repository uses repo-local docs as the source of truth for contributors and
 docker-compose up -d db redis
 uv run python run.py
 uv run pytest tests/ -v
-uv run python scripts/validate_docs_contracts.py
 ```
 
 > **Note:** Dev dependencies (pytest, ruff, mypy) are in the `dev` optional group. Install with `uv sync --extra dev`.

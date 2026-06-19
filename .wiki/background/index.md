@@ -18,7 +18,7 @@ Active contributors: Saksham, Ravi
 | 003 | Event-Driven Side Effects | Accepted |
 | 004 | Adapter Pattern for External Services | Accepted |
 
-All four were written on 2026-05-08 (ADR 004 was revised 2026-06-06). They describe a target architecture that the codebase is migrating toward. The current layout in `app/api/`, `app/services/`, `app/models/`, `app/repositories/` is the type-based (layered) layout that ADR 001 proposes moving away from.
+All four were written on 2026-05-08. They describe a target architecture that the codebase is migrating toward. The current layout in `app/api/`, `app/services/`, `app/models/`, `app/repositories/` is the type-based (layered) layout that ADR 001 proposes moving away from.
 
 ## Why these matter
 

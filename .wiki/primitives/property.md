@@ -22,11 +22,17 @@ Key columns:
 
 ## Relationships
 
+- `User` (owner) - many-to-one via `owner` foreign key. Every property belongs to a user.
 - `PropertyImage` - one-to-many, with `ImageCategory` enum (`room`, `hall`, `kitchen`, `bathroom`, `floor_plan`, etc.)
 - `Amenity` and `PropertyAmenity` - many-to-many bridge
 - `Visit`, `Booking` - child entities with `ON DELETE CASCADE`
 - `Lease` - active when the property is under property management
 - `Tour` - optional virtual tour attached to the listing
+- `RentCharge` - one-to-many. Rent ledger entries for PM-managed properties.
+- `MaintenanceRequest` - one-to-many. Maintenance tickets filed against the property.
+- `Document` - one-to-many. Lease agreements, receipts, and other attachments.
+- `Expense` - one-to-many. Owner expenses tracked by the PM module.
+- `InspectionChecklist` - one-to-many. Move-in/move-out condition reports.
 - `property_embeddings` - pgvector row used for semantic search (see `app/vector/`)
 
 ## Search and discovery

@@ -1,6 +1,6 @@
 import React from "react";
 import { interpolate, spring, useCurrentFrame, useVideoConfig } from "remotion";
-import { typography } from "../theme";
+import { palette, smoothSpring, typography } from "../theme";
 
 export type CaptionProps = {
   text: string;
@@ -20,7 +20,7 @@ export type CaptionProps = {
  */
 export const Caption: React.FC<CaptionProps> = ({
   text,
-  color = "#1A1A1A",
+  color = palette.ink,
   size = typography.caption,
   delay = 0,
   maxWidth,
@@ -34,7 +34,7 @@ export const Caption: React.FC<CaptionProps> = ({
     frame,
     fps,
     delay,
-    config: { damping: 200 },
+    config: smoothSpring,
   });
 
   const opacity = interpolate(progress, [0, 1], [0, 1], {

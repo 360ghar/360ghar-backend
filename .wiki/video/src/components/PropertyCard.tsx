@@ -90,7 +90,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
             position: "absolute",
             top: 16,
             left: 16,
-            color: palette.white,
+            color: accent,
             fontSize: 18,
             fontWeight: 700,
             letterSpacing: "0.08em",

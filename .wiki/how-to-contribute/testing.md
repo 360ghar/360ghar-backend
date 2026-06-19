@@ -42,7 +42,6 @@ Coverage expectations by change type:
 - New service logic: unit coverage, plus integration coverage if database semantics matter.
 - New MCP tool: `tests/mcp/` coverage that verifies tool metadata or response structure.
 - New AI-agent behavior: unit coverage for helpers, API coverage where SSE persistence or widget emission changes.
-- Docs validation is part of the suite through `python scripts/validate_docs_contracts.py` plus unit tests around the validator.
 - Public route stability is characterized by `tests/fixtures/openapi_path_baseline.json`. Behavior-preserving refactors must not change that path list without explicit API approval.
 
 ## CI test environment

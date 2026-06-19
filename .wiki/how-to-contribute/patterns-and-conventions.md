@@ -65,7 +65,7 @@ Never delete real user data without explicit confirmation. `seed_data/02_clear_d
 
 ## Docs drift
 
-Update `docs/` and `docs/repo-contract.json` when adding any public surface: endpoint, service module, MCP tool, widget, scheduler, shared httpx client domain, flatmates/social feature, notification type, AI provider, SSE event type, infrastructure module, seed data, storage bucket, or `is_seed_data` column. The `docs-contracts` CI job validates the inventory via `scripts/validate_docs_contracts.py`.
+Update `docs/` and `docs/repo-contract.json` when adding any public surface: endpoint, service module, MCP tool, widget, scheduler, shared httpx client domain, flatmates/social feature, notification type, AI provider, SSE event type, infrastructure module, seed data, storage bucket, or `is_seed_data` column.
 
 ## See also
 

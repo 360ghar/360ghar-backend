@@ -81,9 +81,8 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 
 ### CI/CD Pipeline
 GitHub Actions (`.github/workflows/tests.yml`) runs on push/PR to `main`/`develop`:
-1. **docs-contracts** — Validates `docs/repo-contract.json` inventory against actual files (`scripts/validate_docs_contracts.py`)
-2. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
-3. **lint** — `ruff check app/` and `mypy app/`
+1. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
+2. **lint** — `ruff check app/` and `mypy app/`
 
 ### Deployment
 - **Railway**: `railway.toml` with healthcheck on `/health`, `ON_FAILURE` restart policy
@@ -244,7 +243,6 @@ async def get_properties(
 | WebSocket endpoints | `app/api/api_v1/endpoints/websocket.py` |
 | Social models | `app/models/social.py` |
 | Data hub model | `app/models/data_hub.py` |
-| Docs contract validator | `scripts/validate_docs_contracts.py` |
 | Domain modules (reserved) | `app/modules/` |
 | Shared contracts (reserved) | `app/shared/` |
 

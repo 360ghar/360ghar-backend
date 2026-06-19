@@ -200,7 +200,7 @@ export const TechStack: React.FC = () => {
           }}
         >
           <span style={{ color: palette.terracotta }}>›</span>
-          github.com/360ghar/backend
+          github.com/360ghar/360ghar-backend
         </div>
       </div>
     </AbsoluteFill>

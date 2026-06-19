@@ -32,10 +32,10 @@ The `Agent` table is small but indexed for load-balancing queries. Key columns:
 When a visit is scheduled, the service layer picks an agent by:
 
 1. Filter to `is_active = true` and `is_available = true`.
-2. Filter by `working_hours` covering the requested slot.
-3. Sort by `total_users_assigned` ascending (least-loaded first), with `user_satisfaction_rating` descending as the tiebreaker.
+2. Join to `User` and count live assigned users per agent (`count(User.id)`).
+3. Sort by user count ascending (least-loaded first), limit 1.
 
-The chosen agent's `total_users_assigned` is incremented atomically. When a visit completes or cancels, the counter is decremented. There is no dedicated `app/services/agent.py` file; assignment logic lives in the visit service and the agents REST endpoint module (`app/api/api_v1/endpoints/agents.py`).
+The `working_hours` column and `user_satisfaction_rating` exist on the model but are not currently used in the assignment query. There is no dedicated `app/services/agent.py` file; assignment logic lives in `app/services/agent/crud.py` (`assign_agent_to_user`) and the agents REST endpoint module (`app/api/api_v1/endpoints/agents.py`).
 
 ## REST surface
 

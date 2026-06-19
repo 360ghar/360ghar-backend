@@ -34,7 +34,7 @@ When `SERVERLESS_ENABLED=true`, the app adapts for scale-to-zero hosting: `NullP
 
 ## Health check
 
-`/health` is the Railway healthcheck target. `/api/v1/health` redirects to it (307). The endpoint verifies the app process is alive - it does not perform deep dependency checks, so a Supabase or Postgres outage does not mark the instance unhealthy (which would trigger a restart loop).
+`/health` is the Railway healthcheck target. `/api/v1/health` redirects to it (307). The endpoint probes the database with a lightweight `SELECT 1` but always returns HTTP 200 (with a `degraded` status field on failure), so a Postgres outage does not trigger a restart loop.
 
 ## Environment configuration
 

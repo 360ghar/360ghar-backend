@@ -121,9 +121,8 @@ Creates the `property_embeddings` table (pgvector) and runs an incremental sync 
 
 GitHub Actions (`.github/workflows/tests.yml`) runs on push/PR to `main`/`develop`:
 
-1. `docs-contracts` — validates `docs/repo-contract.json` against actual files via `scripts/validate_docs_contracts.py`.
-2. `test` — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload.
-3. `lint` — `ruff check app/` and `mypy app/`.
+1. `test` — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload.
+2. `lint` — `ruff check app/` and `mypy app/`.
 
 ## Next
 

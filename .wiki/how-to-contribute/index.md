@@ -18,8 +18,7 @@ Work is tracked through GitHub issues and PRs against `main`. There is no formal
 1. Branch from `main`. Keep branches short-lived.
 2. Run the full local gate before pushing: `uv run pytest tests/ -v`, `uv run ruff check app/`, `uv run mypy app/ --ignore-missing-imports`. See [tooling.md](tooling.md) for what each enforces.
 3. Open a PR against `main`. Describe the change and call out any data-safety implications.
-4. CI runs three jobs on every push and PR (see [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml)):
-   - **docs-contracts** validates `docs/repo-contract.json` against the actual file tree using `scripts/validate_docs_contracts.py`. New modules must be registered in the same PR.
+4. CI runs jobs on every push and PR (see [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml)):
    - **test** boots PostGIS and Redis services, then runs `pytest tests/ -v --cov=app --cov-fail-under=90`. Coverage under 90% fails the build.
    - **lint** runs `ruff check app/` and `mypy app/`.
 5. Request review. With a two-person team, review is light but expected for anything touching auth, schedulers, migrations, or data deletion paths.

@@ -109,3 +109,29 @@ async def test_conflict_buffer_applies(db_session: AsyncSession, user_and_proper
     # (existing_end + buffer = base+90 > base+80 = new_start).
     with pytest.raises(ConflictException):
         await _create_visit(db_session, user, prop, base + timedelta(minutes=80))
+
+
+async def test_same_user_different_properties_allowed(db_session: AsyncSession, user_and_property):
+    """A user may have concurrent visits for different properties."""
+    user, _ = user_and_property
+    prop2 = await PropertyFactory.create(db_session, owner=user)
+    base = datetime.now(timezone.utc) + timedelta(days=2)
+
+    first = await _create_visit(db_session, user, user_and_property[1], base)
+    second = await _create_visit(db_session, user, prop2, base)
+
+    assert first.id != second.id
+    assert second.status == VisitStatus.scheduled
+
+
+async def test_different_users_same_property_allowed(db_session: AsyncSession, user_and_property):
+    """An agent may show the same property to multiple users at the same time."""
+    _, prop = user_and_property
+    user2 = await UserFactory.create(db_session)
+    base = datetime.now(timezone.utc) + timedelta(days=2)
+
+    first = await _create_visit(db_session, user_and_property[0], prop, base)
+    second = await _create_visit(db_session, user2, prop, base)
+
+    assert first.id != second.id
+    assert second.status == VisitStatus.scheduled

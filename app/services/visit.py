@@ -3,7 +3,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
@@ -115,30 +114,23 @@ async def _validate_flatmate_visit_context(
 async def _ensure_no_visit_conflict(
     db: AsyncSession,
     user_id: int,
+    property_id: int,
     scheduled_date: datetime,
 ) -> None:
     """Raise ConflictException if the user already has an active visit overlapping
-    the requested window.
+    the requested window **for the same property**.
 
     The Visit model has no explicit duration column, so each visit is treated as
     occupying a fixed-duration window (VISIT_DEFAULT_DURATION_MINUTES) starting at
     its scheduled_date. A configurable buffer (VISIT_CONFLICT_BUFFER_MINUTES) is
     applied to both sides of the overlap check. Cancelled and completed visits
     never conflict.
+
+    Overlap is scoped to (user_id, property_id): a user may have concurrent
+    visits for *different* properties, and an agent may show the same property
+    to multiple users at the same time.
     """
-    # The DB EXCLUDE constraint (visits_no_overlap_per_user) uses a fixed
-    # 60-minute window. Keep the app-level check consistent with that so a
-    # configurable VISIT_DEFAULT_DURATION_MINUTES != 60 cannot let the app
-    # accept a visit that the DB will then reject with an IntegrityError.
-    configured = settings.VISIT_DEFAULT_DURATION_MINUTES
-    if configured != 60:
-        logger.warning(
-            "VISIT_DEFAULT_DURATION_MINUTES is %s but the DB EXCLUDE constraint "
-            "uses a fixed 60-minute window. Using 60 for the overlap check to "
-            "stay consistent with the database constraint.",
-            configured,
-        )
-    duration = timedelta(minutes=60)
+    duration = timedelta(minutes=settings.VISIT_DEFAULT_DURATION_MINUTES)
     buffer = timedelta(minutes=settings.VISIT_CONFLICT_BUFFER_MINUTES)
 
     new_start = scheduled_date
@@ -149,6 +141,7 @@ async def _ensure_no_visit_conflict(
 
     stmt = select(Visit).where(
         Visit.user_id == user_id,
+        Visit.property_id == property_id,
         Visit.status.notin_([VisitStatus.cancelled, VisitStatus.completed]),
         Visit.scheduled_date >= window_start,
         Visit.scheduled_date <= window_end,
@@ -190,38 +183,12 @@ async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
         raise BadRequestException(detail="counterparty_user_id is only supported for flatmate meetings")
 
     # --- Overlap detection: prevent double-booking the user ---
-    await _ensure_no_visit_conflict(db, user_id, scheduled_date)
+    property_id = visit_data["property_id"]
+    await _ensure_no_visit_conflict(db, user_id, property_id, scheduled_date)
 
     db_visit = Visit(**visit_data)
     db.add(db_visit)
-    # Flush to assign PK, then re-select with eager-loaded relationships.
-    # Catch the DB EXCLUDE constraint violation that can fire on a genuine
-    # concurrent race (two requests both passed the app-level check above).
-    try:
-        await db.flush()
-    except IntegrityError as exc:
-        # The visits_no_overlap_per_user EXCLUDE constraint is the only
-        # unique/exclude constraint on this table, so a violation here means
-        # a concurrent request inserted an overlapping visit between our
-        # app-level check and this INSERT.
-        constraint_name = ""
-        orig = getattr(exc, "orig", None)
-        if orig is not None:
-            constraint_name = getattr(orig, "constraint_name", "") or ""
-            if not constraint_name:
-                diag = getattr(orig, "diag", None)
-                if diag is not None:
-                    constraint_name = getattr(diag, "constraint_name", "") or ""
-        if "visits_no_overlap_per_user" in (constraint_name or str(orig or "")):
-            logger.info(
-                "Visit overlap detected by DB constraint for user %s",
-                user_id,
-            )
-            raise ConflictException(
-                detail="You already have a visit scheduled that overlaps this time",
-                error_code="VISIT_CONFLICT",
-            ) from exc
-        raise
+    await db.flush()
     stmt = (
         select(Visit)
         .options(*_visit_load_options())

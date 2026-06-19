@@ -26,7 +26,7 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/blog` | blog | `blog.py` | Blog posts, categories, tags, SEO fields. |
 | `/flatmates` | flatmates, flatmates-admin | `flatmates.py`, `flatmates_admin.py` | Two routers share the prefix. Admin handles moderation. |
 | `/notifications` | notifications | `notifications.py` | In-app notification center. |
-| (root) | oauth | `oauth.py` | OAuth 2.1 endpoints for MCP. Mounted at root for MCP compatibility. |
+| (root) | oauth | `oauth/` | OAuth 2.1 endpoints for MCP. Mounted at root for MCP compatibility. |
 | `/pm/dashboard` | pm-dashboard | `pm_dashboard.py` | PM owner/agent overview. |
 | `/pm/properties` | pm-properties | `pm_properties.py` | Managed property CRUD. |
 | `/pm/assignments` | pm-assignments | `pm_assignments.py` | Owner-to-RM assignments. |
@@ -50,7 +50,7 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/ai` | ai | `ai.py` | Tour AI processing endpoints. |
 | `/custom-domains` | custom-domains | `custom_domains.py` | Vanity domain DNS verification. |
 | `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). |
-| `/data-hub` | data-hub | `data_hub.py` | Bank auctions, RERA, circle rates, gazette, jamabandi, zoning, neighbourhood. |
+| `/data-hub` | data-hub | `data_hub/` | Bank auctions, RERA, circle rates, gazette, jamabandi, zoning, neighbourhood. |
 | (root) | webhooks | `webhooks/` | Inbound integrations. Router carries its own `/webhooks/auth` prefix. |
 
 ## Health and docs
