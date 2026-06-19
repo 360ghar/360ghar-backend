@@ -5,13 +5,10 @@ These tests verify the swipe-related API endpoints work correctly.
 They mock the service layer to isolate endpoint testing.
 """
 
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
-
-from app.schemas.common import MessageResponse
 
 
 class TestRecordSwipeEndpoint:

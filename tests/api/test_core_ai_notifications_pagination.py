@@ -16,14 +16,14 @@ For each endpoint:
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.models.core import FAQ, BugReport, Page
-from app.models.enums import BugSeverity, BugStatus, BugType, UserRole
+from app.models.enums import BugSeverity, BugType, UserRole
 from app.models.tours import AIJob
 from app.models.users import User
 

@@ -2,13 +2,13 @@
 Tests for base repository pattern.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.repositories.base import BaseRepository
 from app.models.users import User  # Use a real model for testing
+from app.repositories.base import BaseRepository
 
 
 class TestBaseRepository:

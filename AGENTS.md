@@ -128,3 +128,26 @@ All code must pass `uv run ruff check app/` before commit. The CI `lint` job enf
 - New is_seed_data column on a model
 - Changes to media upload workflow (buckets, paths, optimization)
 - If any item changed, update the relevant doc in `docs/` and `docs/repo-contract.json`
+
+## Documentation Maintenance Policy
+
+The `.wiki/` directory is the canonical project wiki and must stay in sync with the codebase. After any change that affects the following, update the corresponding wiki page(s) in the same commit or PR:
+
+| Change type | Wiki page to update |
+|-------------|---------------------|
+| New/modified REST endpoint or router | `.wiki/api/index.md`, relevant `.wiki/features/*.md` |
+| New/modified service module | `.wiki/systems/services-layer.md`, relevant `.wiki/features/*.md` |
+| New MCP tool or widget | `.wiki/features/mcp-servers.md` |
+| New/modified SQLAlchemy model or enum | `.wiki/systems/models.md`, `.wiki/reference/data-models.md` |
+| New scheduler or background job | `.wiki/systems/infrastructure.md` |
+| New shared httpx client domain | `.wiki/systems/core-cross-cutting.md` |
+| New notification type | `.wiki/features/notifications.md` |
+| New SSE event type | `.wiki/systems/core-cross-cutting.md` |
+| New environment variable | `.wiki/reference/configuration.md` |
+| New dependency | `.wiki/reference/dependencies.md` |
+| Architectural decision | `.wiki/background/design-decisions.md` |
+| Seed data changes | relevant `.wiki/features/*.md` |
+
+When updating the video, edit `.wiki/video/src/scenes/`, run `./.wiki/video/render.sh`, and commit the new `overview.mp4` (Git LFS handles storage).
+
+The GitHub Actions workflow at `.github/workflows/wiki.yml` auto-publishes `.wiki/` to the GitHub wiki tab on every push to `main`. No manual wiki editing is needed.

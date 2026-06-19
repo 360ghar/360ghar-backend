@@ -26,12 +26,13 @@ from app.services.pm_rent import (
 router = APIRouter()
 
 
-@router.post("/charges/generate")
+@router.post("/charges/generate", summary="Generate rent charges")
 async def generate_charges(
     payload: RentChargeGenerateRequest,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Generate rent charges."""
     return await generate_rent_charges(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -42,7 +43,7 @@ async def generate_charges(
     )
 
 
-@router.get("/charges", response_model=CursorPage[RentChargeWithTotals])
+@router.get("/charges", response_model=CursorPage[RentChargeWithTotals], summary="List rent charges")
 async def get_charges(
     as_tenant: bool = Query(False, description="If true, return charges for the current tenant user"),
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
@@ -53,6 +54,7 @@ async def get_charges(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List rent charges."""
     items, next_payload, total = await list_rent_charges(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -81,12 +83,13 @@ async def get_charges(
     )
 
 
-@router.post("/payments", response_model=RentPaymentSchema)
+@router.post("/payments", response_model=RentPaymentSchema, summary="Record rent payment")
 async def create_payment(
     payload: RentPaymentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Record rent payment."""
     payment = await record_rent_payment(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -101,13 +104,14 @@ async def create_payment(
     return RentPaymentSchema.model_validate(payment)
 
 
-@router.post("/charges/{charge_id}/tenant-payment-intent", response_model=RentPaymentSchema)
+@router.post("/charges/{charge_id}/tenant-payment-intent", response_model=RentPaymentSchema, summary="Create tenant payment intent")
 async def tenant_payment_intent(
     charge_id: int,
     payload: RentPaymentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create tenant payment intent."""
     payment = await record_rent_payment(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -122,7 +126,7 @@ async def tenant_payment_intent(
     return RentPaymentSchema.model_validate(payment)
 
 
-@router.get("/payments", response_model=CursorPage[RentPaymentSchema])
+@router.get("/payments", response_model=CursorPage[RentPaymentSchema], summary="List rent payments")
 async def list_payments(
     as_tenant: bool = Query(False),
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
@@ -132,6 +136,7 @@ async def list_payments(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List rent payments."""
     payments, next_payload, total = await list_rent_payments(
         db,
         actor=current_user,  # type: ignore[arg-type]

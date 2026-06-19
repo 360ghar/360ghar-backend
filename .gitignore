@@ -142,6 +142,8 @@ dmypy.json
 # Node.js
 node_modules/
 package-lock.json
+# Keep the wiki video lock file for reproducible renders
+!.wiki/video/package-lock.json
 
 # OS
 .DS_Store

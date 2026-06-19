@@ -2,12 +2,9 @@
 Tests for swipe service module.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.users import UserSwipe
 
 
 class TestRecordSwipe:
@@ -21,8 +18,8 @@ class TestRecordSwipe:
         test_property,
     ):
         """Test recording a like swipe."""
-        from app.services.swipe import record_swipe
         from app.schemas.property import PropertySwipe
+        from app.services.swipe import record_swipe
 
         swipe_data = PropertySwipe(
             property_id=test_property.id,
@@ -41,8 +38,8 @@ class TestRecordSwipe:
         test_property,
     ):
         """Test recording a dislike swipe."""
-        from app.services.swipe import record_swipe
         from app.schemas.property import PropertySwipe
+        from app.services.swipe import record_swipe
 
         swipe_data = PropertySwipe(
             property_id=test_property.id,
@@ -60,8 +57,8 @@ class TestRecordSwipe:
         test_user,
     ):
         """Test recording swipe for non-existent property."""
-        from app.services.swipe import record_swipe
         from app.schemas.property import PropertySwipe
+        from app.services.swipe import record_swipe
 
         swipe_data = PropertySwipe(
             property_id=99999,
@@ -81,8 +78,8 @@ class TestRecordSwipe:
         test_swipe,
     ):
         """Test updating existing swipe."""
-        from app.services.swipe import record_swipe
         from app.schemas.property import PropertySwipe
+        from app.services.swipe import record_swipe
 
         # Toggle from like to dislike
         swipe_data = PropertySwipe(

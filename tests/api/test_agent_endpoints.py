@@ -12,7 +12,14 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.enums import AgentType, ExperienceLevel
-from app.schemas.agent import Agent, AgentAssignment, AgentWithStats, AgentStats, AgentSystemStats, AgentWorkload
+from app.schemas.agent import (
+    Agent,
+    AgentAssignment,
+    AgentStats,
+    AgentSystemStats,
+    AgentWithStats,
+    AgentWorkload,
+)
 
 
 def create_mock_agent(agent_id: int = 1, name: str = "Test Agent") -> Agent:

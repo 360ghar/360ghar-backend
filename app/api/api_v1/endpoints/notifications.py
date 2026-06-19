@@ -54,7 +54,7 @@ class DeviceRegister(BaseModel):
     user_id: str | None = None
 
 
-@router.post("/devices/register")
+@router.post("/devices/register", summary="Register notification device")
 async def devices_register(
     payload: DeviceRegister,
     current_user: UserSchema | None = Depends(get_current_user_optional),
@@ -62,6 +62,7 @@ async def devices_register(
     # Require authentication before binding a device token to a user.
     # Anonymous callers may register a token, but it will remain unassociated
     # with any user_id to avoid impersonation.
+    """Register notification device."""
     if current_user and getattr(current_user, "supabase_user_id", None):
         user_id = current_user.supabase_user_id
     else:
@@ -85,11 +86,12 @@ async def devices_register(
     )
 
 
-@router.delete("/devices/unregister")
+@router.delete("/devices/unregister", summary="Unregister notification device")
 async def devices_unregister(
     token: str = Query(..., min_length=1),
     _: UserSchema | None = Depends(get_current_user_optional),
 ):
+    """Unregister notification device."""
     return await unregister_device_token(token=token)
 
 
@@ -102,8 +104,9 @@ class SendToToken(BaseModel):
     image: str | None = None
 
 
-@router.post("/send/token")
+@router.post("/send/token", summary="Send notification to token")
 async def send_token(req: SendToToken, _: UserSchema = Depends(get_current_admin)):
+    """Send notification to token."""
     return await svc_send_to_token(
         token=req.token,
         title=req.title,
@@ -123,8 +126,9 @@ class SendToUser(BaseModel):
     deep_link: str | None = None
 
 
-@router.post("/send/user")
+@router.post("/send/user", summary="Send notification to user")
 async def send_user(req: SendToUser, _: UserSchema = Depends(get_current_admin)):
+    """Send notification to user."""
     return await svc_send_to_user(
         user_id=req.user_id,
         title=req.title,
@@ -143,8 +147,9 @@ class SendToTopic(BaseModel):
     deep_link: str | None = None
 
 
-@router.post("/send/topic")
+@router.post("/send/topic", summary="Send notification to topic")
 async def send_topic(req: SendToTopic, _: UserSchema = Depends(get_current_admin)):
+    """Send notification to topic."""
     return await svc_send_to_topic(
         topic=req.topic,
         title=req.title,
@@ -163,8 +168,9 @@ class SendBulk(BaseModel):
     deep_link: str | None = None
 
 
-@router.post("/send/bulk")
+@router.post("/send/bulk", summary="Send bulk notifications")
 async def send_bulk(req: SendBulk, _: UserSchema = Depends(get_current_admin)):
+    """Send bulk notifications."""
     return await svc_send_bulk(
         tokens=req.tokens,
         title=req.title,
@@ -175,7 +181,7 @@ async def send_bulk(req: SendBulk, _: UserSchema = Depends(get_current_admin)):
     )
 
 
-@router.post("/deliveries/{delivery_id}/opened")
+@router.post("/deliveries/{delivery_id}/opened", summary="Mark delivery as opened")
 async def delivery_opened(
     delivery_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -203,7 +209,7 @@ class TypedUserNotification(BaseModel):
     deep_link: str | None = None
 
 
-@router.post("/send/typed/user")
+@router.post("/send/typed/user", summary="Send typed notification to user")
 async def send_typed_user(
     req: TypedUserNotification,
     _: UserSchema = Depends(get_current_admin),
@@ -232,7 +238,7 @@ class NotificationLogEntry(BaseModel):
     created_at: str | None = None
 
 
-@router.get("/users/{user_id}", response_model=CursorPage[NotificationLogEntry])
+@router.get("/users/{user_id}", response_model=CursorPage[NotificationLogEntry], summary="List user notifications")
 async def list_user_notifications(
     user_id: int,
     _: UserSchema = Depends(get_current_admin),
@@ -287,7 +293,7 @@ def _ensure_marketing_type(type_key: str) -> None:
         )
 
 
-@router.post("/marketing/broadcast")
+@router.post("/marketing/broadcast", summary="Send marketing broadcast")
 async def send_marketing_broadcast(
     req: MarketingNotification,
     _: UserSchema = Depends(get_current_admin),
@@ -325,7 +331,7 @@ async def send_marketing_broadcast(
     }
 
 
-@router.post("/marketing/segment")
+@router.post("/marketing/segment", summary="Send marketing segment")
 async def send_marketing_segment(
     req: MarketingSegmentRequest,
     _: UserSchema = Depends(get_current_admin),

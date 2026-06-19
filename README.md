@@ -37,6 +37,12 @@ A high-performance, modern backend powering 360 Ghar's unified real estate platf
 
 All three modules share a common backend infrastructure, user authentication, and property database.
 
+## Overview Video
+
+[![360 Ghar Backend Overview](.wiki/video/overview.mp4)](.wiki/video/overview.mp4)
+
+A 2-3 minute silent walkthrough of the platform's six modules and architecture. Read the [full wiki](https://github.com/360ghar/backend/wiki).
+
 ## Key Features
 
 ### 360 Ghar Core (Real Estate Marketplace)

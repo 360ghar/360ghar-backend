@@ -2,7 +2,6 @@
 Tests for app.models.tours module — Tour, Scene, Hotspot, etc.
 """
 
-import pytest
 
 from app.models.enums import HotspotType, TourStatus, TourVisibility
 from app.models.tours import AIJob, Hotspot, MediaFile, Scene, Tour

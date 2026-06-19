@@ -9,9 +9,8 @@ This is the main conftest.py providing:
 """
 
 import os
-from typing import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
@@ -21,13 +20,11 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+# Import all models to ensure they're registered with SQLAlchemy
+import app.models  # noqa: F401
 from app.core.database import Base
 from app.core.utils import utc_now_iso
 from app.factory import create_app
-
-# Import all models to ensure they're registered with SQLAlchemy
-import app.models  # noqa: F401
-
 
 # =============================================================================
 # Configuration
@@ -151,8 +148,8 @@ async def test_app(db_session: AsyncSession):
     Also adds root-level endpoints that are defined in app/main.py
     but not in the factory.
     """
-    from app.core.database import get_db
     from app.config import settings
+    from app.core.database import get_db
 
     app = create_app(testing=True)
 

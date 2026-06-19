@@ -2,8 +2,6 @@
 Tests for app.schemas.user module.
 """
 
-import pytest
-from pydantic import ValidationError
 
 from app.schemas.user import UserUpdate
 

@@ -13,6 +13,7 @@ from app.schemas.agent import (
     AgentWithStats,
     AgentWorkload,
 )
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.agent.interactions import get_daily_interactions, get_weekly_interactions
 
 
@@ -82,6 +83,59 @@ async def get_workload_distribution(db: AsyncSession) -> list[AgentWorkload]:
         ))
 
     return workload
+
+
+async def get_workload_distribution_paginated(
+    db: AsyncSession,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[AgentWorkload], dict | None, int | None]:
+    """Cursor-paginated workload distribution across all active agents."""
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(select(func.count(Agent.id)).where(Agent.is_active))
+        ).scalar_one()
+
+    stmt = (
+        select(
+            Agent,
+            func.count(User.id).label("current_users"),
+        )
+        .outerjoin(User, Agent.id == User.agent_id)
+        .where(Agent.is_active)
+        .group_by(Agent.id)
+        .offset(offset)
+        .limit(limit + 1)
+    )
+    result = await db.execute(stmt)
+    agent_workloads = result.all()
+
+    has_more = len(agent_workloads) > limit
+    agent_workloads = agent_workloads[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
+    workload: list[AgentWorkload] = []
+    for agent, current_users in agent_workloads:
+        max_users = 50  # Default max users
+        utilization = (current_users / max_users * 100) if max_users > 0 else 0
+        workload.append(
+            AgentWorkload(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                current_users=current_users,
+                utilization_percentage=round(utilization, 2),
+                is_available=agent.is_available,
+                queue_length=max(0, current_users - max_users) if current_users > max_users else 0,
+            )
+        )
+    return workload, next_payload, total
 
 
 async def get_system_stats(db: AsyncSession) -> AgentSystemStats:

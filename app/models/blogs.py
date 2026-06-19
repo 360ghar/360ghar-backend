@@ -56,6 +56,7 @@ class BlogPost(Base):
     __table_args__ = (
         Index("ux_blog_posts_slug", "slug", unique=True),
         Index("ix_blog_posts_created_at", "created_at"),
+        Index("idx_blog_posts_preview_token", "preview_token"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -68,6 +69,12 @@ class BlogPost(Base):
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+
+    # Lifecycle status (draft / published / archived / scheduled). Kept in sync
+    # with ``active`` in the service layer (active == (status == published)).
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    preview_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # SEO fields
     meta_title: Mapped[str | None] = mapped_column(String(60), nullable=True)

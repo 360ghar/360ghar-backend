@@ -24,6 +24,7 @@ from app.schemas.ai_agent import (
     ConversationSummary,
     GuestChatRequest,
 )
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.services.ai_agent import conversation_store, get_agent_service
 
 _public_chat_limiter = EndpointRateLimiter(calls=10, period=60)
@@ -47,7 +48,7 @@ async def _check_public_chat_rate_limit(request: Request) -> None:
         )
 
 
-@router.post("/chat-public")
+@router.post("/chat-public", summary="Send public agent chat message")
 async def agent_chat_public(
     body: GuestChatRequest,
     db: AsyncSession = Depends(get_db),
@@ -97,7 +98,7 @@ async def agent_chat_public(
     )
 
 
-@router.post("/chat")
+@router.post("/chat", summary="Send agent chat message")
 async def agent_chat(
     body: AgentChatRequest,
     current_user=Depends(get_current_active_user),
@@ -213,21 +214,27 @@ async def agent_chat(
     )
 
 
-@router.get("/conversations", response_model=list[ConversationSummary])
+@router.get("/conversations", response_model=CursorPage[ConversationSummary], summary="List agent conversations")
 async def list_conversations(
+    page: CursorParams = Depends(),
     current_user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-    limit: int = 50,
-    offset: int = 0,
 ):
     """List the authenticated user's AI conversations."""
-    return await conversation_store.list_conversations(
-        db, user_id=current_user.id, limit=limit, offset=offset,
+    items, next_payload, total = await conversation_store.list_conversations(
+        db,
+        user_id=current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 @router.get("/conversations/{conversation_id}/messages",
-            response_model=list[ConversationMessageOut])
+            response_model=list[ConversationMessageOut],
+            summary="List conversation messages",
+)
 async def get_conversation_messages(
     conversation_id: int,
     current_user=Depends(get_current_active_user),
@@ -254,7 +261,7 @@ async def get_conversation_messages(
     return [ConversationMessageOut.model_validate(m) for m in messages]
 
 
-@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete conversation")
 async def delete_conversation(
     conversation_id: int,
     current_user=Depends(get_current_active_user),
@@ -270,7 +277,7 @@ async def delete_conversation(
     await db.commit()
 
 
-@router.get("/widgets/{widget_name}")
+@router.get("/widgets/{widget_name}", summary="Get widget HTML")
 async def get_widget_html(widget_name: str) -> Response:
     """Serve a pre-built HTML widget bundle by name.
 

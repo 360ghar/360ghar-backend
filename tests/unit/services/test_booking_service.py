@@ -2,16 +2,14 @@
 Tests for booking service module.
 """
 
-import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import PropertyNotFoundException
-from app.models.bookings import Booking
 from app.models.enums import BookingStatus, PaymentStatus
 
 
@@ -26,8 +24,8 @@ class TestCreateBooking:
         test_short_stay_property,
     ):
         """Test successful booking creation."""
-        from app.services.booking import create_booking
         from app.schemas.booking import BookingCreate
+        from app.services.booking import create_booking
 
         check_in = datetime.now(timezone.utc) + timedelta(days=7)
         check_out = check_in + timedelta(days=3)
@@ -68,8 +66,8 @@ class TestCreateBooking:
         test_user_2,
     ):
         """Test missing property is surfaced as not found, not booking conflict."""
-        from app.services.booking import create_booking
         from app.schemas.booking import BookingCreate
+        from app.services.booking import create_booking
 
         check_in = datetime.now(timezone.utc) + timedelta(days=7)
         check_out = check_in + timedelta(days=3)
@@ -95,8 +93,9 @@ class TestCreateBooking:
         test_short_stay_property,
     ):
         """Test booking creation fails with invalid date range."""
-        from app.schemas.booking import BookingCreate
         from pydantic import ValidationError
+
+        from app.schemas.booking import BookingCreate
 
         check_in = datetime.now(timezone.utc) + timedelta(days=7)
         check_out = check_in - timedelta(days=1)  # Invalid: checkout before checkin

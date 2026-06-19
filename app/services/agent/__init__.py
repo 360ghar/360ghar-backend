@@ -4,6 +4,7 @@ from app.services.agent.analytics import (
     get_agent_with_stats,
     get_system_stats,
     get_workload_distribution,
+    get_workload_distribution_paginated,
 )
 from app.services.agent.crud import (
     assign_agent_to_user,
@@ -50,5 +51,6 @@ __all__ = [
     # Analytics
     "get_agent_with_stats",
     "get_workload_distribution",
+    "get_workload_distribution_paginated",
     "get_system_stats",
 ]

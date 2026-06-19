@@ -21,7 +21,32 @@ from app.services.pm_properties import (
 router = APIRouter()
 
 
-@router.post("", response_model=PropertySchema)
+@router.post(
+    "",
+    response_model=PropertySchema,
+    summary="Create managed property",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "title": "2BHK Managed Apartment",
+                                "property_type": "apartment",
+                                "purpose": "rent",
+                                "base_price": 50000,
+                                "monthly_rent": 25000,
+                                "city": "Bengaluru",
+                                "locality": "Indiranagar",
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_pm_property(
     property_data: PropertyCreate,
     owner_id: int | None = Query(None, description="Owner id (admin/agent only)"),
@@ -31,6 +56,7 @@ async def create_pm_property(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create managed property."""
     target_owner_id = current_user.id
     if owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -52,7 +78,7 @@ async def create_pm_property(
     return PropertySchema.model_validate(prop)
 
 
-@router.get("", response_model=CursorPage[PropertySchema])
+@router.get("", response_model=CursorPage[PropertySchema], summary="List managed properties")
 async def list_pm_properties(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     occupancy: str | None = Query(None, description="occupied|vacant"),
@@ -61,6 +87,7 @@ async def list_pm_properties(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List managed properties."""
     rows, next_payload, total = await list_managed_properties(
         db,
         actor=current_user,
@@ -79,12 +106,13 @@ async def list_pm_properties(
     )
 
 
-@router.get("/{property_id}", response_model=ManagedPropertyDetail)
+@router.get("/{property_id}", response_model=ManagedPropertyDetail, summary="Get managed property")
 async def get_pm_property(
     property_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get managed property."""
     res = await get_managed_property_detail(db, actor=current_user, property_id=property_id)
     return {
         "property": PropertySchema.model_validate(res["property"]),
@@ -92,13 +120,14 @@ async def get_pm_property(
     }
 
 
-@router.patch("/{property_id}", response_model=PropertySchema)
+@router.patch("/{property_id}", response_model=PropertySchema, summary="Update managed property")
 async def update_pm_property(
     property_id: int,
     payload: ManagedPropertyUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update managed property."""
     prop = await update_managed_property(
         db,
         actor=current_user,

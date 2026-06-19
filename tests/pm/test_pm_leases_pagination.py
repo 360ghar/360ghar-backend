@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from decimal import Decimal
 
 import pytest
 import pytest_asyncio

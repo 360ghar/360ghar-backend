@@ -13,23 +13,25 @@ from app.services.pm_dashboard import get_dashboard_overview, get_recent_activit
 router = APIRouter()
 
 
-@router.get("/overview", response_model=DashboardOverview)
+@router.get("/overview", response_model=DashboardOverview, summary="Get PM dashboard overview")
 async def dashboard_overview(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get PM dashboard overview."""
     data = await get_dashboard_overview(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
     return data
 
 
-@router.get("/activity", response_model=CursorPage[ActivityItem])
+@router.get("/activity", response_model=CursorPage[ActivityItem], summary="Get PM dashboard activity")
 async def dashboard_activity(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get PM dashboard activity."""
     items, next_payload, total = await get_recent_activity(
         db,
         actor=current_user,  # type: ignore[arg-type]

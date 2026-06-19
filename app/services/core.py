@@ -356,10 +356,15 @@ class CoreService:
         app: str | None = None,
         platform: str | None = None,
         is_active: bool | None = None,
+        cursor_payload: dict | None = None,
         limit: int = 10,
-        offset: int = 0,
-    ) -> list[AppVersionResponse]:
+        with_total: bool = False,
+    ) -> tuple[list[AppVersionResponse], dict | None, int | None]:
         """Get app versions with optional filtering"""
+        if cursor_payload is None:
+            cursor_payload = {}
+        offset = read_offset(cursor_payload)
+
         query = select(AppVersion)
 
         if app:
@@ -371,12 +376,24 @@ class CoreService:
         if is_active is not None:
             query = query.where(AppVersion.is_active == is_active)
 
-        query = query.order_by(desc(AppVersion.created_at)).limit(limit).offset(offset)
+        total: int | None = None
+        if with_total:
+            total = (
+                await self.db.execute(select(func.count()).select_from(query.subquery()))
+            ).scalar_one()
 
-        result = await self.db.execute(query)
-        versions = result.scalars().all()
+        rows = (
+            await self.db.execute(
+                query.order_by(desc(AppVersion.created_at)).offset(offset).limit(limit + 1)
+            )
+        ).scalars().all()
 
-        return [AppVersionResponse.model_validate(version) for version in versions]
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_payload = offset_payload(offset + limit) if has_more else None
+
+        versions = [AppVersionResponse.model_validate(version) for version in rows]
+        return versions, next_payload, total
 
     async def update_app_version(
         self,

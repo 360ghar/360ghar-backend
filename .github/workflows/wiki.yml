@@ -1,0 +1,54 @@
+# Publishes the canonical `.wiki/` directory to the GitHub wiki tab.
+#
+# The source of truth lives in `.wiki/` in the main repo. On every push to
+# `main` that touches `.wiki/**` or this workflow file, we flatten the
+# hierarchical wiki into the flat layout GitHub wikis expect and push it to
+# the `360ghar/backend.wiki.git` repository.
+name: Publish Wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".wiki/**"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+# The wiki repo is part of the same GitHub account, so the default
+# `GITHUB_TOKEN` has permission to push to it once `contents: write` is granted.
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Sync .wiki to GitHub wiki tab
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (with Git LFS)
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Clone wiki repository
+        run: |
+          git clone "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/360ghar/backend.wiki.git" wiki
+
+      - name: Flatten and sync .wiki into wiki checkout
+        run: |
+          python3 scripts/sync_wiki.py .wiki wiki
+
+      - name: Commit and push wiki changes
+        run: |
+          cd wiki
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          # Only commit when there are staged changes.
+          if git diff --staged --quiet; then
+            echo "No wiki changes to publish."
+          else
+            git commit -m "chore(wiki): auto-publish from .wiki/ (${{ github.sha }})"
+            git push origin master
+          fi

@@ -33,12 +33,13 @@ router = APIRouter()
 public_router = APIRouter()
 
 
-@router.post("/forms", response_model=RentalApplicationForm)
+@router.post("/forms", response_model=RentalApplicationForm, summary="Create application form")
 async def create_form(
     payload: RentalApplicationFormCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create application form."""
     target_owner_id = current_user.id
     if payload.owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -63,7 +64,7 @@ async def create_form(
     return RentalApplicationForm.model_validate(form)
 
 
-@router.get("/forms", response_model=CursorPage[RentalApplicationForm])
+@router.get("/forms", response_model=CursorPage[RentalApplicationForm], summary="List application forms")
 async def list_forms(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -72,6 +73,7 @@ async def list_forms(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List application forms."""
     rows, next_payload, count_total = await list_application_forms(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -86,17 +88,18 @@ async def list_forms(
     return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=count_total)
 
 
-@router.get("/forms/{form_id}", response_model=RentalApplicationForm)
+@router.get("/forms/{form_id}", response_model=RentalApplicationForm, summary="Get application form")
 async def get_form(
     form_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get application form."""
     form = await get_application_form(db, actor=current_user, form_id=form_id)  # type: ignore[arg-type]
     return RentalApplicationForm.model_validate(form)
 
 
-@router.get("", response_model=CursorPage[RentalApplication])
+@router.get("", response_model=CursorPage[RentalApplication], summary="List applications inbox")
 async def list_inbox(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -107,6 +110,7 @@ async def list_inbox(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List applications inbox."""
     rows, next_payload, count_total = await list_applications(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -123,28 +127,31 @@ async def list_inbox(
     return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=count_total)
 
 
-@router.get("/{application_id}", response_model=RentalApplication)
+@router.get("/{application_id}", response_model=RentalApplication, summary="Get application detail")
 async def get_application_detail(
     application_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get application detail."""
     app = await get_application(db, actor=current_user, application_id=application_id)  # type: ignore[arg-type]
     return RentalApplication.model_validate(app)
 
 
-@public_router.get("/applications/{slug}", response_model=PublicRentalApplicationForm)
+@public_router.get("/applications/{slug}", response_model=PublicRentalApplicationForm, summary="Get public application form")
 async def get_public_form(slug: str, db: AsyncSession = Depends(get_db)):
+    """Get public application form."""
     form = await get_public_application_form_by_slug(db, slug=slug)
     return PublicRentalApplicationForm.model_validate(form)
 
 
-@public_router.post("/applications/{slug}/submit", response_model=RentalApplication)
+@public_router.post("/applications/{slug}/submit", response_model=RentalApplication, summary="Submit public application")
 async def submit_public_form(
     slug: str,
     payload: RentalApplicationSubmit,
     db: AsyncSession = Depends(get_db),
 ):
+    """Submit public application."""
     application = await submit_public_application(
         db,
         slug=slug,
@@ -159,7 +166,7 @@ async def submit_public_form(
     return RentalApplication.model_validate(application)
 
 
-@router.post("/{application_id}/decision", response_model=RentalApplication)
+@router.post("/{application_id}/decision", response_model=RentalApplication, summary="Decide on application")
 async def decide(
     application_id: int,
     payload: RentalApplicationDecision,
@@ -167,6 +174,7 @@ async def decide(
     db: AsyncSession = Depends(get_db),
 ):
     # Only approve/reject are supported decisions in MVP
+    """Decide on application."""
     if payload.decision not in {TenantStatus.approved, TenantStatus.rejected}:
         from app.core.exceptions import BadRequestException
 

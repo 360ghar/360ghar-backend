@@ -3,16 +3,28 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.enums import AuthMethod, PropertyPurpose, PropertyType, UserRole
 from app.utils.validators import ValidationUtils
 
 
 class UserBase(BaseModel):
-    email: EmailStr | None = None
-    full_name: str | None = None
-    phone: str | None = None
+    email: EmailStr | None = Field(
+        default=None,
+        description="User email address (unique, used for login)",
+        examples=["user@example.com"],
+    )
+    full_name: str | None = Field(
+        default=None,
+        description="Full display name of the user",
+        examples=["Rahul Sharma"],
+    )
+    phone: str | None = Field(
+        default=None,
+        description="Phone number in E.164 format",
+        examples=["+919876543210"],
+    )
     date_of_birth: date | None = None
 
     @field_validator("email", mode="before")
@@ -24,8 +36,16 @@ class UserBase(BaseModel):
         return v
 
 class UserCreate(UserBase):
-    phone: str  # Override to make phone required for registration
-    password: str
+    phone: str = Field(
+        ...,
+        description="Phone number in E.164 format (required for registration)",
+        examples=["+919876543210"],
+    )
+    password: str = Field(
+        ...,
+        description="User password (plaintext; hashed before storage)",
+        examples=["Str0ngP@ssw0rd!"],
+    )
 
     @field_validator('phone')
     @classmethod
@@ -35,9 +55,21 @@ class UserCreate(UserBase):
         return ValidationUtils.validate_phone(v)
 
 class UserUpdate(BaseModel):
-    email: EmailStr | None = None
-    full_name: str | None = None
-    phone: str | None = None
+    email: EmailStr | None = Field(
+        default=None,
+        description="User email address (unique, used for login)",
+        examples=["user@example.com"],
+    )
+    full_name: str | None = Field(
+        default=None,
+        description="Full display name of the user",
+        examples=["Rahul Sharma"],
+    )
+    phone: str | None = Field(
+        default=None,
+        description="Phone number in E.164 format",
+        examples=["+919876543210"],
+    )
     date_of_birth: date | None = None
     profile_image_url: str | None = None
     preferences: dict[str, Any] | None = None
@@ -104,6 +136,7 @@ class UserInDB(UserBase):
     phone_verified: bool = False
     email_verified: bool = False
     last_auth_method: AuthMethod | None = None
+    last_auth_method_at: datetime | None = None
     profile_image_url: str | None = None
     preferences: dict[str, Any] | None = None
     current_latitude: float | None = None

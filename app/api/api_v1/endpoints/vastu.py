@@ -29,7 +29,7 @@ ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
 MAX_FILE_SIZE = 5 * 1024 * 1024
 
 
-@router.post("/analyze", response_model=VastuAnalyzeResponse)
+@router.post("/analyze", response_model=VastuAnalyzeResponse, summary="Analyze floor plan vastu")
 async def analyze_floor_plan(
     image: UploadFile = File(..., description="Floor plan image (JPEG, PNG, or WebP)"),
     north_direction: str = Form(default="up", description="Direction of North in the image: up, down, left, right, unknown"),
@@ -140,7 +140,7 @@ async def analyze_floor_plan(
     return result
 
 
-@router.get("/health")
+@router.get("/health", summary="Vastu health check")
 async def health_check():
     """Health check endpoint for the Vastu analyzer service."""
     return {

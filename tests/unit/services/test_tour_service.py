@@ -7,8 +7,8 @@ for FastAPI response serialization (avoid async lazy-loading at response time).
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import HTTPException, status
 import pytest
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import TourStatus

@@ -5,7 +5,6 @@ from pathlib import Path
 
 from scripts.validate_docs_contracts import validate_repo
 
-
 ROOT = Path(__file__).resolve().parents[3]
 
 

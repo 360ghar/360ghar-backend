@@ -6,38 +6,33 @@ Provides pre-built test data scenarios for common testing needs.
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from typing import List
 
-import pytest
 import pytest_asyncio
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.users import User
-from app.models.properties import Property, Amenity
 from app.models.bookings import Booking
-from app.models.pm_leases import Lease
-from app.models.pm_finance import RentCharge
-from app.models.pm_maintenance import MaintenanceRequest
 from app.models.enums import (
-    PropertyType,
-    PropertyPurpose,
-    PropertyStatus,
     BookingStatus,
-    PaymentStatus,
     LeaseStatus,
-    RentChargeStatus,
     MaintenanceCategory,
-    MaintenanceUrgency,
     MaintenanceRequestStatus,
+    MaintenanceUrgency,
+    PaymentStatus,
+    PropertyPurpose,
+    PropertyType,
+    RentChargeStatus,
     UserRole,
 )
+from app.models.pm_finance import RentCharge
+from app.models.pm_leases import Lease
+from app.models.pm_maintenance import MaintenanceRequest
+from app.models.properties import Amenity, Property
+from app.models.users import User
 from tests.fixtures.factories import (
-    UserFactory,
-    PropertyFactory,
-    BookingFactory,
     AmenityFactory,
+    BookingFactory,
+    PropertyFactory,
+    UserFactory,
 )
-
 
 # =============================================================================
 # Property Fixtures
@@ -90,7 +85,7 @@ async def test_short_stay_property(db_session, test_user) -> Property:
 
 
 @pytest_asyncio.fixture
-async def test_properties(db_session, test_user) -> List[Property]:
+async def test_properties(db_session, test_user) -> list[Property]:
     """
     Create multiple properties for list/search tests.
 
@@ -193,7 +188,7 @@ async def test_properties(db_session, test_user) -> List[Property]:
 
 
 @pytest_asyncio.fixture
-async def test_special_listing_properties(db_session, test_user) -> List[Property]:
+async def test_special_listing_properties(db_session, test_user) -> list[Property]:
     """
     Create PG, flatmate, and commercial listings for taxonomy tests.
 
@@ -317,7 +312,7 @@ async def test_bookings(
     db_session,
     test_user,
     test_short_stay_property,
-) -> List[Booking]:
+) -> list[Booking]:
     """
     Create multiple bookings with different statuses.
 
@@ -384,7 +379,7 @@ async def test_bookings(
 # =============================================================================
 
 @pytest_asyncio.fixture
-async def test_amenities(db_session) -> List[Amenity]:
+async def test_amenities(db_session) -> list[Amenity]:
     """
     Create a set of common amenities.
 
@@ -601,7 +596,7 @@ async def test_rent_charges(
     test_tenant_user,
     test_managed_property,
     test_active_lease,
-) -> List[RentCharge]:
+) -> list[RentCharge]:
     """
     Create multiple rent charges for testing history.
 
@@ -705,7 +700,7 @@ async def test_maintenance_requests(
     test_tenant_user,
     test_managed_property,
     test_active_lease,
-) -> List[MaintenanceRequest]:
+) -> list[MaintenanceRequest]:
     """
     Create multiple maintenance requests with different statuses.
 
@@ -751,7 +746,6 @@ async def test_agent(db_session, test_agent_user) -> "Agent":
     Returns:
         Agent instance
     """
-    from app.models.agents import Agent
     from tests.fixtures.factories import AgentFactory
 
     return await AgentFactory.create(
@@ -766,14 +760,13 @@ async def test_agent(db_session, test_agent_user) -> "Agent":
 
 
 @pytest_asyncio.fixture
-async def test_agents(db_session, test_agent_user) -> List["Agent"]:
+async def test_agents(db_session, test_agent_user) -> list["Agent"]:
     """
     Create multiple test agents.
 
     Returns:
         List of 3 agents
     """
-    from app.models.agents import Agent
     from tests.fixtures.factories import AgentFactory
 
     agents = []
@@ -830,7 +823,6 @@ async def test_visit(db_session, test_user, test_property, test_agent) -> "Visit
     Returns:
         Visit scheduled for test_user
     """
-    from app.models.properties import Visit
     from app.models.enums import VisitStatus
     from tests.fixtures.factories import VisitFactory
 
@@ -845,14 +837,13 @@ async def test_visit(db_session, test_user, test_property, test_agent) -> "Visit
 
 
 @pytest_asyncio.fixture
-async def test_visits(db_session, test_user, test_property, test_agent) -> List["Visit"]:
+async def test_visits(db_session, test_user, test_property, test_agent) -> list["Visit"]:
     """
     Create multiple test visits.
 
     Returns:
         List of visits with different statuses
     """
-    from app.models.properties import Visit
     from app.models.enums import VisitStatus
     from tests.fixtures.factories import VisitFactory
 
@@ -884,7 +875,6 @@ async def cancelled_visit(db_session, test_user, test_property, test_agent) -> "
     Returns:
         Visit with cancelled status
     """
-    from app.models.properties import Visit
     from app.models.enums import VisitStatus
     from tests.fixtures.factories import VisitFactory
 
@@ -910,7 +900,6 @@ async def test_swipe(db_session, test_user, test_property) -> "UserSwipe":
     Returns:
         UserSwipe for test_user on test_property
     """
-    from app.models.users import UserSwipe
     from tests.fixtures.factories import SwipeFactory
 
     return await SwipeFactory.create(
@@ -922,14 +911,13 @@ async def test_swipe(db_session, test_user, test_property) -> "UserSwipe":
 
 
 @pytest_asyncio.fixture
-async def test_swipes(db_session, test_user, test_properties) -> List["UserSwipe"]:
+async def test_swipes(db_session, test_user, test_properties) -> list["UserSwipe"]:
     """
     Create multiple test swipes.
 
     Returns:
         List of swipes on test_properties
     """
-    from app.models.users import UserSwipe
     from tests.fixtures.factories import SwipeFactory
 
     swipes = []
@@ -971,7 +959,7 @@ async def test_property_with_location(db_session, test_user) -> Property:
 
 
 @pytest_asyncio.fixture
-async def test_properties_with_locations(db_session, test_user) -> List[Property]:
+async def test_properties_with_locations(db_session, test_user) -> list[Property]:
     """
     Create multiple properties with varied locations.
 
@@ -1019,14 +1007,14 @@ async def test_leases(
     test_user,
     test_tenant_user,
     test_managed_property,
-) -> List[Lease]:
+) -> list[Lease]:
     """
     Create multiple leases with different statuses.
 
     Returns:
         List of leases
     """
-    from tests.fixtures.factories import PropertyFactory, UserFactory
+    from tests.fixtures.factories import PropertyFactory
 
     leases = []
     today = date.today()

@@ -23,7 +23,7 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-@router.post("/generate", response_model=ImageGenResponse)
+@router.post("/generate", response_model=ImageGenResponse, summary="Generate design image")
 async def generate_design_image(
     request: ImageGenRequest,
     current_user: UserSchema = Depends(get_current_active_user),

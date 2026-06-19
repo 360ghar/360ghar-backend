@@ -13,13 +13,18 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.data_hub import BankAuction, CourtAuction
 from app.schemas.data_hub import (
-    AuctionListResponse,
     BankAuctionResponse,
     CourtAuctionResponse,
-    DataHubMeta,
+)
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    offset_payload,
+    read_offset,
 )
 
-from .helpers import _meta_from_table, _paginate, _safe_list_query
+from .helpers import _safe_list_query
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -36,7 +41,7 @@ async def list_auction_banks_cached(db: AsyncSession) -> list[str]:
     return [r for r in result.scalars().all() if r]
 
 
-@router.get("/auctions/banks", response_model=list[str])
+@router.get("/auctions/banks", response_model=list[str], summary="List auction banks")
 async def list_auction_banks(db: AsyncSession = Depends(get_db)):
     """List distinct bank names from bank auctions (cached for 24 hours)."""
     return await list_auction_banks_cached(db)
@@ -54,13 +59,13 @@ async def get_auction_cities_cached(db: AsyncSession) -> list[str]:
     return [row[0] for row in result.all() if row[0]]
 
 
-@router.get("/auctions/cities", response_model=list[str])
+@router.get("/auctions/cities", response_model=list[str], summary="List auction cities")
 async def get_auction_cities(db: AsyncSession = Depends(get_db)):
     """Return distinct city values from bank_auctions + court_auctions (cached for 24 hours)."""
     return await get_auction_cities_cached(db)
 
 
-@router.get("/auctions/source-categories")
+@router.get("/auctions/source-categories", summary="List auction source categories")
 async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
     """Return grouped source metadata with counts."""
     # Count auctions per source
@@ -124,7 +129,7 @@ async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
     return categories
 
 
-@router.get("/auctions/{auction_id}")
+@router.get("/auctions/{auction_id}", summary="Get auction details")
 async def get_auction(auction_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single auction by ID — checks bank auctions first, then court auctions."""
     bank_result = await db.execute(
@@ -144,7 +149,7 @@ async def get_auction(auction_id: int, db: AsyncSession = Depends(get_db)):
     raise HTTPException(status_code=404, detail="Auction not found")
 
 
-@router.get("/auctions", response_model=AuctionListResponse)
+@router.get("/auctions", response_model=CursorPage[BankAuctionResponse], summary="List bank auctions")
 async def list_auctions(
     type: str | None = Query(None, description="'bank' or 'court'"),
     bank: str | None = Query(None),
@@ -155,14 +160,14 @@ async def list_auctions(
     max_price: float | None = Query(None),
     date_from: date_type | None = Query(None),
     date_to: date_type | None = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Paginated list of auctions. Defaults to bank auctions; set type='court' for court auctions.
     """
-    offset = (page - 1) * limit
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
 
     if type == "court":
         filters: list[Any] = []
@@ -186,14 +191,16 @@ async def list_auctions(
             data_q = data_q.where(and_(*filters))
 
         try:
-            total = (await db.execute(count_q)).scalar_one()
-            rows = (await db.execute(data_q.offset(offset).limit(limit))).scalars().all()
-            meta = await _meta_from_table(db, CourtAuction)
+            total: int | None = None
+            if page.include_total:
+                total = (await db.execute(count_q)).scalar_one()
+            rows = (
+                await db.execute(data_q.offset(offset).limit(page.limit + 1))
+            ).scalars().all()
         except Exception as exc:
             logger.warning("Court auctions query failed: %s", exc)
-            total = 0
+            total = 0 if page.include_total else None
             rows = []
-            meta = DataHubMeta()
 
         items = []
         for r in rows:
@@ -219,11 +226,10 @@ async def list_auctions(
                     updated_at=r.updated_at,
                 )
             )
-        return {
-            "items": items,
-            "meta": meta,
-            **_paginate(total, page, limit),
-        }
+        has_more = len(items) > page.limit
+        items = items[: page.limit]
+        next_payload = offset_payload(offset + page.limit) if has_more else None
+        return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
     else:
         # Default: bank auctions
         bank_filters: list[Any] = []
@@ -250,9 +256,10 @@ async def list_auctions(
             count_q = count_q.where(and_(*bank_filters))
             data_q = data_q.where(and_(*bank_filters))
 
-        rows, total, meta = await _safe_list_query(db, BankAuction, count_q, data_q, offset, limit, page)
-        return {
-            "items": rows,
-            "meta": meta,
-            **_paginate(total, page, limit),
-        }
+        rows, total = await _safe_list_query(
+            db, BankAuction, count_q, data_q, offset, page.limit, with_total=page.include_total
+        )
+        has_more = len(rows) > page.limit
+        items = rows[: page.limit]
+        next_payload = offset_payload(offset + page.limit) if has_more else None
+        return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)

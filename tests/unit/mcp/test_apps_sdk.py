@@ -2,7 +2,6 @@
 Tests for app.mcp.apps_sdk module — AppsSDKFastMCP, build_widget_tool_meta, security schemes.
 """
 
-import pytest
 
 from app.mcp.apps_sdk import (
     MCP_SECURITY_SCHEMES_MIXED,

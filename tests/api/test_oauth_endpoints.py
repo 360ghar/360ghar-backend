@@ -5,9 +5,9 @@ These tests verify the OAuth-related API endpoints work correctly.
 They mock the service layer to isolate endpoint testing.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
 import base64
 import hashlib
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient

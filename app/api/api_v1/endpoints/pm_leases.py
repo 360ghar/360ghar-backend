@@ -22,12 +22,41 @@ from app.services.pm_leases import (
 router = APIRouter()
 
 
-@router.post("", response_model=LeaseSchema)
+@router.post(
+    "",
+    response_model=LeaseSchema,
+    summary="Create lease",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "property_id": 1,
+                                "tenant_name": "Rahul Sharma",
+                                "tenant_phone": "+919876543210",
+                                "tenant_email": "rahul@example.com",
+                                "status": "active",
+                                "start_date": "2026-07-01",
+                                "end_date": "2027-06-30",
+                                "monthly_rent": 25000,
+                                "security_deposit": 50000,
+                                "payment_due_day": 5,
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_pm_lease(
     payload: LeaseCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create lease."""
     target_owner_id = current_user.id
     if payload.owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -62,7 +91,7 @@ async def create_pm_lease(
     return LeaseSchema.model_validate(lease)
 
 
-@router.get("", response_model=CursorPage[LeaseSchema])
+@router.get("", response_model=CursorPage[LeaseSchema], summary="List leases")
 async def list_pm_leases(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -72,6 +101,7 @@ async def list_pm_leases(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List leases."""
     rows, next_payload, total = await list_leases(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -91,23 +121,25 @@ async def list_pm_leases(
     )
 
 
-@router.get("/{lease_id}", response_model=LeaseSchema)
+@router.get("/{lease_id}", response_model=LeaseSchema, summary="Get lease")
 async def get_pm_lease(
     lease_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get lease."""
     lease = await get_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/upload-signed", response_model=LeaseSchema)
+@router.post("/{lease_id}/upload-signed", response_model=LeaseSchema, summary="Upload signed lease")
 async def upload_signed(
     lease_id: int,
     payload: LeaseUploadSigned,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Upload signed lease."""
     lease = await upload_signed_lease(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -119,13 +151,14 @@ async def upload_signed(
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/renew", response_model=LeaseSchema)
+@router.post("/{lease_id}/renew", response_model=LeaseSchema, summary="Renew lease")
 async def renew(
     lease_id: int,
     payload: LeaseRenew,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Renew lease."""
     lease = await renew_lease(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -139,12 +172,13 @@ async def renew(
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/terminate", response_model=LeaseSchema)
+@router.post("/{lease_id}/terminate", response_model=LeaseSchema, summary="Terminate lease")
 async def terminate(
     lease_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Terminate lease."""
     lease = await terminate_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
 

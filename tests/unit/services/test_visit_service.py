@@ -3,13 +3,11 @@ Tests for visit service module.
 """
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException
-from app.models.enums import VisitStatus
 
 
 class TestCreateVisit:
@@ -23,8 +21,8 @@ class TestCreateVisit:
         test_property,
     ):
         """Test successful visit creation."""
-        from app.services.visit import create_visit
         from app.schemas.visit import VisitCreate
+        from app.services.visit import create_visit
 
         scheduled = datetime.now(timezone.utc) + timedelta(days=7)
         visit_data = VisitCreate(
@@ -48,8 +46,8 @@ class TestCreateVisit:
         test_property,
     ):
         """Test visit creation fails with past date."""
-        from app.services.visit import create_visit
         from app.schemas.visit import VisitCreate
+        from app.services.visit import create_visit
 
         past_date = datetime.now(timezone.utc) - timedelta(days=1)
         visit_data = VisitCreate(

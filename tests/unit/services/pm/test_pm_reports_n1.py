@@ -102,12 +102,16 @@ class TestRentRollReportQueryCount:
         )
         mock_resolve.assert_awaited_once()
 
+        items, next_payload, total = result
+
         # Correctness: 3 occupied, 2 vacant
-        assert len(result) == 5
-        occupied = [r for r in result if r["occupancy"] == "occupied"]
-        vacant = [r for r in result if r["occupancy"] == "vacant"]
+        assert len(items) == 5
+        occupied = [r for r in items if r["occupancy"] == "occupied"]
+        vacant = [r for r in items if r["occupancy"] == "vacant"]
         assert len(occupied) == 3
         assert len(vacant) == 2
+        assert next_payload is None
+        assert total is None
 
     @pytest.mark.asyncio
     async def test_rent_roll_handles_no_properties_without_lease_query(self):
@@ -144,7 +148,10 @@ class TestRentRollReportQueryCount:
         assert len(execute_calls) == 1, (
             f"Expected 1 query for empty property set, got {len(execute_calls)}"
         )
-        assert result == []
+        items, next_payload, total = result
+        assert items == []
+        assert next_payload is None
+        assert total is None
 
     @pytest.mark.asyncio
     async def test_rent_roll_picks_newest_active_lease_per_property(self):
@@ -190,8 +197,9 @@ class TestRentRollReportQueryCount:
 
             result = await pm_reports.rent_roll_report(db, actor=actor)
 
-        assert len(result) == 1
-        row = result[0]
+        items, next_payload, total = result
+        assert len(items) == 1
+        row = items[0]
         # The newest lease's monthly_rent wins
         assert row["monthly_rent"] == 900
         assert row["tenant_user_id"] == 222

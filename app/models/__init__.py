@@ -68,6 +68,7 @@ from .enums import (
     VisitStatus,
     WorkOrderStatus,
 )
+from .payments import PaymentMethod
 from .pm_documents import Document
 from .pm_finance import Expense, RentCharge, RentPayment
 from .pm_inspections import InspectionChecklist
@@ -114,6 +115,8 @@ __all__ = [
     "AgentInteraction",
     # Bookings
     "Booking",
+    # Payments
+    "PaymentMethod",
     # Core
     "BugReport",
     "Page",

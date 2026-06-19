@@ -2,7 +2,6 @@
 Tests for app.utils.distance module — Haversine, bounding box, radius checks.
 """
 
-import math
 
 import pytest
 

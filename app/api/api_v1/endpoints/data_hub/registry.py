@@ -15,17 +15,22 @@ from app.models.data_hub import (
     ZoningData,
 )
 from app.schemas.data_hub import (
-    ColonyApprovalListResponse,
-    GazetteNotificationListResponse,
+    ColonyApprovalResponse,
     GazetteNotificationResponse,
     JamabandiLookupRequest,
     JamabandiLookupResponse,
-    ZoningDataListResponse,
     ZoningDataResponse,
+)
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    offset_payload,
+    read_offset,
 )
 from app.schemas.user import User as UserSchema
 
-from .helpers import _paginate, _safe_list_query
+from .helpers import _safe_list_query
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -36,7 +41,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@router.get("/jamabandi/captcha")
+@router.get("/jamabandi/captcha", summary="Get jamabandi captcha")
 async def jamabandi_captcha(
     current_user: UserSchema = Depends(get_current_active_user),
 ):
@@ -51,7 +56,7 @@ async def jamabandi_captcha(
     return Response(content=img_bytes, media_type="image/png")
 
 
-@router.post("/jamabandi/lookup", response_model=JamabandiLookupResponse)
+@router.post("/jamabandi/lookup", response_model=JamabandiLookupResponse, summary="Lookup jamabandi record")
 async def jamabandi_lookup(
     req: JamabandiLookupRequest,
     db: AsyncSession = Depends(get_db),
@@ -89,7 +94,7 @@ async def jamabandi_lookup(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/zoning/sectors", response_model=list[str])
+@router.get("/zoning/sectors", response_model=list[str], summary="List zoning sectors")
 async def list_zoning_sectors(db: AsyncSession = Depends(get_db)):
     """List distinct sectors from zoning data."""
     from sqlalchemy import distinct
@@ -100,7 +105,7 @@ async def list_zoning_sectors(db: AsyncSession = Depends(get_db)):
     return [r for r in result.scalars().all() if r]
 
 
-@router.get("/zoning/{slug}", response_model=ZoningDataResponse)
+@router.get("/zoning/{slug}", response_model=ZoningDataResponse, summary="Get zoning data")
 async def get_zoning(slug: str, db: AsyncSession = Depends(get_db)):
     """Get zoning data for a specific sector by slug."""
     result = await db.execute(
@@ -112,11 +117,10 @@ async def get_zoning(slug: str, db: AsyncSession = Depends(get_db)):
     return row
 
 
-@router.get("/zoning", response_model=ZoningDataListResponse)
+@router.get("/zoning", response_model=CursorPage[ZoningDataResponse], summary="List zoning data")
 async def list_zoning(
     sector: str | None = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List zoning data with optional sector filter."""
@@ -130,13 +134,15 @@ async def list_zoning(
         count_q = count_q.where(and_(*filters))
         data_q = data_q.where(and_(*filters))
 
-    offset = (page - 1) * limit
-    rows, total, meta = await _safe_list_query(db, ZoningData, count_q, data_q, offset, limit, page)
-    return {
-        "items": rows,
-        "meta": meta,
-        **_paginate(total, page, limit),
-    }
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+    rows, total = await _safe_list_query(
+        db, ZoningData, count_q, data_q, offset, page.limit, with_total=page.include_total
+    )
+    has_more = len(rows) > page.limit
+    items = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -144,22 +150,23 @@ async def list_zoning(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/colony-approvals", response_model=ColonyApprovalListResponse)
+@router.get("/colony-approvals", response_model=CursorPage[ColonyApprovalResponse], summary="List colony approvals")
 async def list_colony_approvals(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List colony approvals."""
     count_q = select(func.count()).select_from(ColonyApproval)
     data_q = select(ColonyApproval)
-    offset = (page - 1) * limit
-    rows, total, meta = await _safe_list_query(db, ColonyApproval, count_q, data_q, offset, limit, page)
-    return {
-        "items": rows,
-        "meta": meta,
-        **_paginate(total, page, limit),
-    }
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+    rows, total = await _safe_list_query(
+        db, ColonyApproval, count_q, data_q, offset, page.limit, with_total=page.include_total
+    )
+    has_more = len(rows) > page.limit
+    items = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 # ---------------------------------------------------------------------------
@@ -167,12 +174,11 @@ async def list_colony_approvals(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/gazette", response_model=GazetteNotificationListResponse)
+@router.get("/gazette", response_model=CursorPage[GazetteNotificationResponse], summary="List gazette notifications")
 async def list_gazette(
     type: str | None = Query(None, description="Notification type filter"),
     q: str | None = Query(None, description="Search title or summary"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List gazette notifications with optional type and text search filters."""
@@ -191,16 +197,18 @@ async def list_gazette(
         count_q = count_q.where(and_(*filters))
         data_q = data_q.where(and_(*filters))
 
-    offset = (page - 1) * limit
-    rows, total, meta = await _safe_list_query(db, GazetteNotification, count_q, data_q, offset, limit, page)
-    return {
-        "items": rows,
-        "meta": meta,
-        **_paginate(total, page, limit),
-    }
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+    rows, total = await _safe_list_query(
+        db, GazetteNotification, count_q, data_q, offset, page.limit, with_total=page.include_total
+    )
+    has_more = len(rows) > page.limit
+    items = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.get("/gazette/{gazette_id}", response_model=GazetteNotificationResponse)
+@router.get("/gazette/{gazette_id}", response_model=GazetteNotificationResponse, summary="Get gazette notification")
 async def get_gazette(gazette_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single gazette notification by ID."""
     result = await db.execute(

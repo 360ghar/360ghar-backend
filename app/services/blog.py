@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re as _re
+import secrets
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from app.config import settings
 from app.core.cache import cached
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.exceptions import (
+    BadRequestException,
     BlogNotFoundException,
     CategoryNotFoundException,
     ConflictException,
@@ -20,7 +22,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
-from app.models.enums import UserRole
+from app.models.enums import BlogPostStatus, UserRole
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.utils.validators import ValidationUtils
 
@@ -99,6 +101,80 @@ def _serialize_seo_metadata(seo_metadata: dict[str, Any] | None = None) -> dict[
     if hasattr(seo_metadata, "model_dump"):
         return dict(seo_metadata.model_dump(exclude_none=True))
     return dict(seo_metadata) if isinstance(seo_metadata, dict) else {}
+
+
+def _coerce_status(value: Any) -> BlogPostStatus:
+    if isinstance(value, BlogPostStatus):
+        return value
+    if value is None or value == "":
+        return BlogPostStatus.draft
+    return BlogPostStatus(str(value))
+
+
+def _resolve_status_for_create(data: Any) -> tuple[str, bool, datetime | None]:
+    """Resolve (status, active, published_at) for a new blog post.
+
+    ``status`` takes precedence over the legacy ``active`` flag. ``active`` is
+    always kept in sync with ``status == published``.
+    """
+    requested_status = getattr(data, "status", None)
+    scheduled_at = getattr(data, "scheduled_at", None)
+    published_at = getattr(data, "published_at", None)
+
+    if requested_status is not None:
+        status = _coerce_status(requested_status)
+    else:
+        is_active = bool(getattr(data, "active", False) or False)
+        status = BlogPostStatus.published if is_active else BlogPostStatus.draft
+
+    if status == BlogPostStatus.scheduled and not scheduled_at:
+        raise BadRequestException(
+            detail="scheduled_at is required when status is scheduled",
+            error_code="BLOG_SCHEDULED_AT_REQUIRED",
+        )
+
+    is_active = status == BlogPostStatus.published
+    if is_active and not published_at:
+        published_at = datetime.now(timezone.utc)
+
+    return status.value, is_active, published_at
+
+
+def _apply_status_update(post: BlogPost, data: Any) -> None:
+    """Apply status/active sync logic during an update.
+
+    If ``status`` is provided it takes precedence; otherwise a provided
+    ``active`` flag derives the new status. ``active`` is always kept in sync
+    with ``status == published``.
+    """
+    requested_status = getattr(data, "status", None)
+    requested_scheduled_at = getattr(data, "scheduled_at", None)
+    requested_active = getattr(data, "active", None)
+
+    if requested_status is not None:
+        status = _coerce_status(requested_status)
+        effective_scheduled_at = (
+            requested_scheduled_at if requested_scheduled_at is not None else post.scheduled_at
+        )
+        if status == BlogPostStatus.scheduled and not effective_scheduled_at:
+            raise BadRequestException(
+                detail="scheduled_at is required when status is scheduled",
+                error_code="BLOG_SCHEDULED_AT_REQUIRED",
+            )
+        post.status = status.value
+        post.active = status == BlogPostStatus.published
+        if status == BlogPostStatus.published and not post.published_at:
+            post.published_at = datetime.now(timezone.utc)
+    elif requested_active is not None:
+        post.active = bool(requested_active)
+        post.status = (
+            BlogPostStatus.published.value if post.active else BlogPostStatus.draft.value
+        )
+        if post.active and not post.published_at:
+            post.published_at = datetime.now(timezone.utc)
+
+    if requested_scheduled_at is not None:
+        post.scheduled_at = requested_scheduled_at
 
 
 async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) -> list[BlogCategory]:
@@ -198,11 +274,8 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
     sources = _serialize_sources(getattr(data, "sources", None) or [])
     seo_metadata = _serialize_seo_metadata(getattr(data, "seo_metadata", None))
 
-    # Determine published_at
-    is_active = getattr(data, "active", False) or False
-    published_at = getattr(data, "published_at", None)
-    if is_active and not published_at:
-        published_at = datetime.now(timezone.utc)
+    # Determine status (and keep `active` in sync: active == (status == published)).
+    status_value, is_active, published_at = _resolve_status_for_create(data)
 
     post = BlogPost(
         title=data.title,
@@ -220,6 +293,8 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
         reading_time_minutes=reading_time,
         word_count=word_count,
         published_at=published_at,
+        status=status_value,
+        scheduled_at=getattr(data, "scheduled_at", None),
         sources=sources,
         seo_metadata=seo_metadata,
     )
@@ -260,7 +335,14 @@ async def get_blog_post(
         .where(cond)
     )
     if not include_inactive:
-        stmt = stmt.where(BlogPost.active.is_(True))
+        # Public visibility: published status (back-compat: also accept active=true
+        # for rows created before the status column existed).
+        stmt = stmt.where(
+            or_(
+                BlogPost.status == BlogPostStatus.published.value,
+                BlogPost.active.is_(True),
+            )
+        )
 
     result = await db.execute(stmt)
     post = result.scalar_one_or_none()
@@ -345,6 +427,7 @@ async def list_blog_posts(
     limit: int = 20,
     with_total: bool = False,
     include_inactive: bool = False,
+    status: str | None = None,
 ) -> tuple[list[BlogPostSchema], dict | None, int | None]:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
@@ -354,7 +437,18 @@ async def list_blog_posts(
     conditions: list[Any] = []
 
     if not include_inactive:
-        conditions.append(BlogPost.active.is_(True))
+        # Public visibility: published status (back-compat: also accept active=true
+        # for rows created before the status column existed).
+        conditions.append(
+            or_(
+                BlogPost.status == BlogPostStatus.published.value,
+                BlogPost.active.is_(True),
+            )
+        )
+
+    # Admin status filter (only meaningful when include_inactive=True).
+    if status:
+        conditions.append(BlogPost.status == status)
 
     if q:
         like = f"%{q}%"
@@ -693,11 +787,8 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
         if not ValidationUtils.is_absolute_url(data.cover_image_url):
             logger.warning("Non-absolute cover_image_url for blog post %s: %s", post.id, data.cover_image_url)
         post.cover_image_url = data.cover_image_url
-    if getattr(data, "active", None) is not None:
-        post.active = bool(data.active)
-        # Set published_at when first activating
-        if post.active and not post.published_at:
-            post.published_at = datetime.now(timezone.utc)
+    # Status / active sync (status takes precedence over the legacy active flag).
+    _apply_status_update(post, data)
 
     # Update SEO fields if provided
     if getattr(data, "meta_title", None) is not None:
@@ -745,6 +836,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
             db.add(BlogPostTag(post_id=post.id, tag_id=t.id))
 
     await db.commit()
+    # Full column refresh so server-side `onupdate` fields (e.g. updated_at) are
+    # loaded and do not trigger lazy-load IO during serialization.
+    await db.refresh(post)
     await db.refresh(post, ["categories", "tags"])
 
     return BlogPostSchema.model_validate(post)
@@ -773,3 +867,64 @@ async def delete_blog_post(db: AsyncSession, identifier: str, actor) -> bool:
     await db.delete(post)
     await db.commit()
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Draft / preview / scheduling helpers
+# --------------------------------------------------------------------------- #
+
+
+async def generate_preview_token(db: AsyncSession, post_id: int) -> BlogPost:
+    """Generate (or rotate) a preview token for a blog post.
+
+    The token allows public access to a post of any status via the
+    ``GET /posts/preview/{token}`` endpoint, enabling draft sharing for review.
+    """
+    stmt = select(BlogPost).where(BlogPost.id == post_id)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if not post:
+        raise BlogNotFoundException()
+
+    post.preview_token = secrets.token_urlsafe(16)
+    await db.flush()
+    await db.refresh(post)
+    return post
+
+
+async def get_post_by_preview_token(db: AsyncSession, token: str) -> BlogPost | None:
+    """Fetch a blog post by its preview token (works for any status)."""
+    if not token:
+        return None
+    stmt = (
+        select(BlogPost)
+        .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
+        .where(BlogPost.preview_token == token)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def publish_scheduled_posts(db: AsyncSession) -> int:
+    """Publish all scheduled posts whose ``scheduled_at`` has passed.
+
+    Returns the number of posts published. ``active`` is kept in sync with the
+    new ``published`` status.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = (
+        select(BlogPost)
+        .where(
+            BlogPost.status == BlogPostStatus.scheduled.value,
+            BlogPost.scheduled_at.is_not(None),
+            BlogPost.scheduled_at <= now,
+        )
+    )
+    posts = list((await db.execute(stmt)).scalars().all())
+    for post in posts:
+        post.status = BlogPostStatus.published.value
+        post.active = True
+        if not post.published_at:
+            post.published_at = now
+    if posts:
+        await db.flush()
+    return len(posts)

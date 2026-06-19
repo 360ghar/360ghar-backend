@@ -3,14 +3,13 @@ Tests for PM lease service module.
 """
 
 from datetime import date, timedelta
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import LeaseStatus, UserRole
-from app.core.exceptions import BadRequestException, InsufficientPermissionsError
+from app.core.exceptions import BadRequestException
+from app.models.enums import LeaseStatus
 
 
 class TestCreateLease:

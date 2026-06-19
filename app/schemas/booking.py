@@ -1,19 +1,47 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.models.enums import BookingStatus, PaymentStatus
 
 
 class BookingBase(BaseModel):
-    property_id: int
-    check_in_date: datetime
-    check_out_date: datetime
-    guests: int
-    primary_guest_name: str
-    primary_guest_phone: str
-    primary_guest_email: EmailStr
+    property_id: int = Field(
+        ...,
+        description="ID of the property to book",
+        examples=[1],
+    )
+    check_in_date: datetime = Field(
+        ...,
+        description="Check-in date and time (ISO 8601)",
+        examples=["2026-07-01T12:00:00Z"],
+    )
+    check_out_date: datetime = Field(
+        ...,
+        description="Check-out date and time (must be after check-in)",
+        examples=["2026-07-05T11:00:00Z"],
+    )
+    guests: int = Field(
+        ...,
+        description="Number of guests for the booking",
+        examples=[2],
+    )
+    primary_guest_name: str = Field(
+        ...,
+        description="Full name of the primary guest",
+        examples=["Rahul Sharma"],
+    )
+    primary_guest_phone: str = Field(
+        ...,
+        description="Phone number of the primary guest (E.164)",
+        examples=["+919876543210"],
+    )
+    primary_guest_email: EmailStr = Field(
+        ...,
+        description="Email of the primary guest",
+        examples=["rahul@example.com"],
+    )
     special_requests: str | None = None
 
 class BookingCreate(BookingBase):

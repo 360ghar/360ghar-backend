@@ -7,10 +7,15 @@ Tests the complete flow: property -> lease -> rent charges -> maintenance -> ter
 from datetime import date, timedelta
 
 import pytest
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import LeaseStatus, MaintenanceCategory, MaintenanceUrgency, MaintenanceRequestStatus, RentChargeStatus
+from app.models.enums import (
+    LeaseStatus,
+    MaintenanceCategory,
+    MaintenanceRequestStatus,
+    MaintenanceUrgency,
+    RentChargeStatus,
+)
 from tests.fixtures.factories import PropertyFactory, UserFactory
 
 

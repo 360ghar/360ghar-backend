@@ -37,6 +37,7 @@ from app.models.enums import (
 if TYPE_CHECKING:
     from app.models.agents import Agent
     from app.models.bookings import Booking
+    from app.models.payments import PaymentMethod
     from app.models.properties import Property, Visit
     from app.models.tours import Tour
 
@@ -126,6 +127,9 @@ class User(Base):
     )
     bookings: Mapped[list[Booking]] = relationship(back_populates="user", cascade="all, delete-orphan")
     tours: Mapped[list[Tour]] = relationship("Tour", back_populates="user", cascade="all, delete-orphan")
+    payment_methods: Mapped[list[PaymentMethod]] = relationship(  # noqa: F821
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserSearchHistory(Base):

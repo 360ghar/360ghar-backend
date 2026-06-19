@@ -62,20 +62,48 @@ class PropertyImage(PropertyImageBase):
 
 
 class PropertyBase(BaseModel):
-    title: str
-    description: str | None = None
-    property_type: PropertyType
-    purpose: PropertyPurpose
-    base_price: float
+    title: str = Field(
+        ...,
+        description="Listing title shown in search results and detail pages",
+        examples=["2BHK Apartment in Koramangala"],
+    )
+    description: str | None = Field(
+        default=None,
+        description="Detailed description of the property (HTML/markdown allowed)",
+        examples=["Spacious 2BHK with balcony, near metro station"],
+    )
+    property_type: PropertyType = Field(
+        ...,
+        description="Listing category (apartment, villa, pg, flatmate, etc.)",
+        examples=["apartment"],
+    )
+    purpose: PropertyPurpose = Field(
+        ...,
+        description="Listing intent: sale, rent, or short stay",
+        examples=["rent"],
+    )
+    base_price: float = Field(
+        ...,
+        description="Base price (sale price or monthly rent anchor, in INR)",
+        examples=[50000],
+    )
 
     # Location fields
     latitude: float | None = None
     longitude: float | None = None
-    city: str | None = None
+    city: str | None = Field(
+        default=None,
+        description="City where the property is located",
+        examples=["Bengaluru"],
+    )
     state: str | None = None
     country: str = "India"
     pincode: str | None = None
-    locality: str | None = None
+    locality: str | None = Field(
+        default=None,
+        description="Neighbourhood or locality within the city",
+        examples=["Koramangala"],
+    )
     sub_locality: str | None = None
     landmark: str | None = None
     full_address: str | None = None
@@ -190,12 +218,24 @@ class PropertyCreate(PropertyBase):
 
 
 class PropertyUpdate(BaseModel):
-    title: str | None = None
+    title: str | None = Field(
+        default=None,
+        description="Listing title shown in search results and detail pages",
+        examples=["2BHK Apartment in Koramangala"],
+    )
     description: str | None = None
     property_type: PropertyType | None = None
     purpose: PropertyPurpose | None = None
-    base_price: float | None = None
-    status: PropertyStatus | None = None
+    base_price: float | None = Field(
+        default=None,
+        description="Base price (sale price or monthly rent anchor, in INR)",
+        examples=[55000],
+    )
+    status: PropertyStatus | None = Field(
+        default=None,
+        description="Listing lifecycle status (active, inactive, sold, rented)",
+        examples=["active"],
+    )
     is_available: bool | None = None
     amenity_ids: list[int] | None = None
     features: list[str] | None = None

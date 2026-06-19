@@ -17,7 +17,6 @@ from httpx import AsyncClient
 
 from app.core.exceptions import ServiceUnavailableException
 
-
 # =============================================================================
 # DELETE /api/v1/users/me
 # =============================================================================
@@ -224,8 +223,8 @@ class TestDeleteUserService:
     async def test_supabase_error_does_not_touch_local_row(
         self, db_session, test_user
     ):
-        from app.services.user import delete_user_account
         from app.core.exceptions import BaseAPIException
+        from app.services.user import delete_user_account
 
         original_email = test_user.email
 

@@ -107,7 +107,7 @@ def normalize_event_type(event_type: str, event_data: dict) -> str:
     return normalized
 
 
-@router.get("/tours/{tour_id}", response_model=TourWithScenes)
+@router.get("/tours/{tour_id}", response_model=TourWithScenes, summary="Get public tour")
 async def get_public_tour(
     tour_id: str,
     request: Request,
@@ -210,7 +210,7 @@ async def get_public_tour(
     return payload
 
 
-@router.get("/tours/{tour_id}/scenes")
+@router.get("/tours/{tour_id}/scenes", summary="Get public tour scenes")
 async def get_public_tour_scenes(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -252,7 +252,7 @@ async def get_public_tour_scenes(
     return scenes
 
 
-@router.post("/tours/{tour_id}/events")
+@router.post("/tours/{tour_id}/events", summary="Track tour event")
 async def track_tour_event(
     tour_id: str,
     request: Request,
@@ -366,7 +366,7 @@ async def track_tour_event(
         ) from e
 
 
-@router.post("/tours/{tour_id}/like")
+@router.post("/tours/{tour_id}/like", summary="Like tour")
 async def like_tour(
     tour_id: str,
     request: Request,
@@ -432,7 +432,7 @@ async def like_tour(
     return {"like_count": new_like_count}
 
 
-@router.delete("/tours/{tour_id}/like")
+@router.delete("/tours/{tour_id}/like", summary="Unlike tour")
 async def unlike_tour(
     tour_id: str,
     request: Request,

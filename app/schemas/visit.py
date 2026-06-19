@@ -20,10 +20,22 @@ class VisitBase(BaseModel):
     match_id: int | None = None
 
 class VisitCreate(BaseModel):
-    property_id: int
-    scheduled_date: datetime
+    property_id: int = Field(
+        ...,
+        description="ID of the property to visit",
+        examples=[1],
+    )
+    scheduled_date: datetime = Field(
+        ...,
+        description="Requested visit date and time (ISO 8601)",
+        examples=["2026-07-01T10:00:00Z"],
+    )
     user_id: int | None = None
-    special_requirements: str | None = None
+    special_requirements: str | None = Field(
+        default=None,
+        description="Any special requests for the visit",
+        examples=["Need a wheelchair-accessible entrance"],
+    )
     visit_context: VisitContext = VisitContext.property_tour
     counterparty_user_id: int | None = None
     conversation_id: int | None = None

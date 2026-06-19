@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -17,6 +18,7 @@ from app.schemas.property import (
 )
 from app.schemas.user import User as UserSchema
 from app.services.swipe import (
+    batch_unswipe,
     get_swipe_history,
     get_swipe_stats,
     record_swipe,
@@ -28,7 +30,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-@router.post("", response_model=MessageResponse)
+@router.post("", response_model=MessageResponse, summary="Swipe property")
 async def swipe_property(
     swipe: PropertySwipe,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -47,7 +49,7 @@ async def swipe_property(
     logger.debug("Property swipe recorded", extra={"user_id": current_user.id, "property_id": swipe.property_id, "action": action})
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("", response_model=CursorPage[Property])
+@router.get("", response_model=CursorPage[Property], summary="List swipe history")
 async def get_user_swipe_history(
     # Location-based search
     lat: float | None = Query(None, description="Latitude for location-based search"),
@@ -179,7 +181,7 @@ async def get_user_swipe_history(
         logger.error("Swipe history search failed for user %s: %s", current_user.id, e)
         raise
 
-@router.delete("/undo", response_model=MessageResponse)
+@router.delete("/undo", response_model=MessageResponse, summary="Undo last swipe")
 async def undo_last_swipe_endpoint(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -192,7 +194,7 @@ async def undo_last_swipe_endpoint(
 
     return MessageResponse(message="Last swipe undone successfully")
 
-@router.put("/{swipe_id}/toggle", response_model=MessageResponse)
+@router.put("/{swipe_id}/toggle", response_model=MessageResponse, summary="Toggle swipe like")
 async def toggle_swipe_like(
     swipe_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -207,7 +209,7 @@ async def toggle_swipe_like(
     action = "liked" if result["new_status"] else "unliked"
     return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("/stats")
+@router.get("/stats", summary="Get swipe statistics")
 async def get_user_swipe_statistics(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -215,3 +217,18 @@ async def get_user_swipe_statistics(
     """Get user's swipe statistics"""
     stats = await get_swipe_stats(db, current_user.id)
     return stats
+
+
+class BatchRemoveRequest(BaseModel):
+    property_ids: list[int]
+
+
+@router.post("/batch-remove", response_model=MessageResponse, summary="Batch remove swipes")
+async def batch_remove_swipes(
+    payload: BatchRemoveRequest,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove many liked swipes for the current user in a single request."""
+    deleted = await batch_unswipe(db, current_user.id, payload.property_ids)
+    return MessageResponse(message=f"Removed {deleted} swipes")

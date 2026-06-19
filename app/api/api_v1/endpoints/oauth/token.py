@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 token_router = APIRouter()
 
 
-@token_router.post("/mcp/oauth/token")
+@token_router.post("/mcp/oauth/token", summary="OAuth token endpoint")
 async def token_endpoint(
     request: Request,
     grant_type: str = Form(...),
@@ -282,7 +282,7 @@ async def token_endpoint(
         ) from None
 
 
-@token_router.post("/mcp/oauth/revoke")
+@token_router.post("/mcp/oauth/revoke", summary="Revoke OAuth token")
 async def revoke_token(
     token: str = Form(...),
     token_type_hint: str | None = Form(None),

@@ -87,7 +87,7 @@ async def _dispatch_moderation_notification(
     )
 
 
-@router.get("/moderation/listings")
+@router.get("/moderation/listings", summary="List pending listings")
 async def get_pending_listings(
     status: str = Query(default="pending_review", description="Filter by status"),
     page: CursorParams = Depends(),
@@ -132,7 +132,7 @@ async def get_pending_listings(
     )
 
 
-@router.put("/moderation/listings/{listing_id}")
+@router.put("/moderation/listings/{listing_id}", summary="Moderate listing")
 async def moderate_listing(
     listing_id: int,
     payload: ListingModerationAction,
@@ -232,7 +232,7 @@ async def moderate_listing(
     }
 
 
-@router.get("/moderation/reports")
+@router.get("/moderation/reports", summary="List pending reports")
 async def get_pending_reports(
     status: str = Query(default="open", description="Filter by status"),
     page: CursorParams = Depends(),
@@ -281,7 +281,7 @@ async def get_pending_reports(
     )
 
 
-@router.put("/moderation/reports/{report_id}")
+@router.put("/moderation/reports/{report_id}", summary="Moderate report")
 async def moderate_report(
     report_id: int,
     payload: ReportModerationAction,
@@ -380,7 +380,7 @@ async def moderate_report(
     }
 
 
-@router.post("/moderation/prescreen/{listing_id}")
+@router.post("/moderation/prescreen/{listing_id}", summary="Prescreen listing")
 async def prescreen_listing(
     listing_id: int,
     current_user: User = Depends(get_current_active_user),

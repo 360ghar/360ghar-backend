@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_PUBLISHABLE_KEY: str
     SUPABASE_SECRET_KEY: str
+    # HMAC secret used to verify inbound Supabase webhooks (e.g. password-changed
+    # session revocation). Empty by default; must be set in production.
+    SUPABASE_WEBHOOK_SECRET: str = ""
+    # Encoding of the X-Supabase-Signature header: "hex" (default) or "base64".
+    SUPABASE_WEBHOOK_SIGNATURE_ENCODING: str = "hex"
     REDIS_URL: str = "redis://localhost:6379"
 
     # Main pool (HTTP/MCP request traffic)
@@ -228,6 +233,14 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str | None = None
     GOOGLE_APPLICATION_CREDENTIALS: str | None = None  # path to service account JSON
 
+    # ── Visits ──────────────────────────────────────────────────────────────────
+    # Each visit is treated as occupying a fixed-duration window starting at
+    # scheduled_date (the Visit model has no explicit duration column).
+    VISIT_DEFAULT_DURATION_MINUTES: int = 60
+    # Buffer (in minutes) applied to both sides of the overlap check so that
+    # back-to-back visits are still considered conflicting.
+    VISIT_CONFLICT_BUFFER_MINUTES: int = 0
+
     # ── Storage ──────────────────────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
@@ -237,6 +250,12 @@ class Settings(BaseSettings):
     # ── Tax & Service Rates ────────────────────────────────────────────────────
     GST_RATE: float = 0.18  # 18% GST for booking tax calculation
     SERVICE_CHARGE_RATE: float = 0.05  # 5% service charge for bookings
+
+    # ── Razorpay (payments) ────────────────────────────────────────────────────
+    RAZORPAY_KEY_ID: str | None = None
+    RAZORPAY_SECRET: str | None = None
+    RAZORPAY_WEBHOOK_SECRET: str | None = None
+    RAZORPAY_CURRENCY: str = "INR"
 
     # ── Data Hub ────────────────────────────────────────────────────────────────
     DATA_HUB_ENABLED: bool = True

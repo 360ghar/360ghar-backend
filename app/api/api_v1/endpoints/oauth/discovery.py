@@ -11,8 +11,8 @@ wellknown_router = APIRouter()
 mcp_discovery_router = APIRouter()
 
 
-@wellknown_router.get("/.well-known/oauth-protected-resource/mcp")
-@wellknown_router.get("/.well-known/oauth-protected-resource")
+@wellknown_router.get("/.well-known/oauth-protected-resource/mcp", summary="Get protected resource metadata")
+@wellknown_router.get("/.well-known/oauth-protected-resource", summary="Get protected resource metadata")
 async def protected_resource_metadata(request: Request):
     """OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
     base_url = settings.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
@@ -26,7 +26,7 @@ async def protected_resource_metadata(request: Request):
     }
 
 
-@wellknown_router.get("/.well-known/oauth-protected-resource/mcp-admin")
+@wellknown_router.get("/.well-known/oauth-protected-resource/mcp-admin", summary="Get admin protected resource metadata")
 async def protected_resource_metadata_admin(request: Request):
     """Protected resource metadata for the /mcp-admin endpoint."""
     base_url = settings.PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
@@ -40,7 +40,7 @@ async def protected_resource_metadata_admin(request: Request):
     }
 
 
-@wellknown_router.get("/.well-known/oauth-authorization-server/mcp/oauth")
+@wellknown_router.get("/.well-known/oauth-authorization-server/mcp/oauth", summary="Get authorization server metadata")
 async def authorization_server_metadata(request: Request):
     """OAuth 2.1 Authorization Server Metadata for the MCP OAuth issuer."""
     logger.info("OAuth AS metadata requested", extra={"path": str(request.url.path)})
@@ -68,25 +68,25 @@ async def authorization_server_metadata(request: Request):
     }
 
 
-@wellknown_router.get("/.well-known/oauth-authorization-server")
+@wellknown_router.get("/.well-known/oauth-authorization-server", summary="Get authorization server metadata")
 async def authorization_server_metadata_root(request: Request):
     """OAuth AS metadata at root path (without issuer suffix) for broad client compatibility."""
     return await authorization_server_metadata(request)
 
 
-@wellknown_router.get("/.well-known/openid-configuration")
+@wellknown_router.get("/.well-known/openid-configuration", summary="Get OpenID configuration")
 async def openid_configuration(request: Request):
     """OpenID Connect discovery endpoint (alias for OAuth AS metadata)."""
     return await authorization_server_metadata(request)
 
 
-@wellknown_router.get("/.well-known/openid-configuration/mcp/oauth")
+@wellknown_router.get("/.well-known/openid-configuration/mcp/oauth", summary="Get OpenID configuration")
 async def openid_configuration_alt(request: Request):
     """OpenID Connect discovery at alternative path format."""
     return await authorization_server_metadata(request)
 
 
-@mcp_discovery_router.get("/mcp/oauth/.well-known/openid-configuration")
+@mcp_discovery_router.get("/mcp/oauth/.well-known/openid-configuration", summary="Get OpenID configuration")
 async def openid_configuration_issuer(request: Request):
     """OpenID Connect discovery at issuer-appended path."""
     return await authorization_server_metadata(request)

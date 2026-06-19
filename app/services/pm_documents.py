@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InsufficientPermissionsError, NotFoundException
@@ -8,6 +8,7 @@ from app.models.enums import DocumentType, UserRole
 from app.models.pm_documents import Document
 from app.models.pm_leases import Lease
 from app.models.users import User
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.pm_authz import assert_can_manage_owner_portfolio
 
 
@@ -101,9 +102,10 @@ async def list_documents(
     maintenance_request_id: int | None = None,
     rental_application_id: int | None = None,
     document_type: DocumentType | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Document]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[Document], dict | None, int | None]:
     # Determine effective owner scope
     effective_owner_id = owner_id
     if actor.role == UserRole.user.value:
@@ -116,25 +118,37 @@ async def list_documents(
     if effective_owner_id is not None:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=effective_owner_id)
 
-    stmt = select(Document)
+    base_stmt = select(Document)
     if effective_owner_id is not None:
-        stmt = stmt.where(Document.owner_id == effective_owner_id)
+        base_stmt = base_stmt.where(Document.owner_id == effective_owner_id)
     if property_id is not None:
-        stmt = stmt.where(Document.property_id == property_id)
+        base_stmt = base_stmt.where(Document.property_id == property_id)
     if lease_id is not None:
-        stmt = stmt.where(Document.lease_id == lease_id)
+        base_stmt = base_stmt.where(Document.lease_id == lease_id)
     if user_id is not None:
-        stmt = stmt.where(Document.user_id == user_id)
+        base_stmt = base_stmt.where(Document.user_id == user_id)
     if maintenance_request_id is not None:
-        stmt = stmt.where(Document.maintenance_request_id == maintenance_request_id)
+        base_stmt = base_stmt.where(Document.maintenance_request_id == maintenance_request_id)
     if rental_application_id is not None:
-        stmt = stmt.where(Document.rental_application_id == rental_application_id)
+        base_stmt = base_stmt.where(Document.rental_application_id == rental_application_id)
     if document_type is not None:
-        stmt = stmt.where(Document.document_type == document_type)
+        base_stmt = base_stmt.where(Document.document_type == document_type)
 
-    stmt = stmt.order_by(Document.created_at.desc()).offset(offset).limit(limit)
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+        ).scalar_one()
+
+    offset = read_offset(cursor_payload)
+    stmt = base_stmt.order_by(Document.created_at.desc()).offset(offset).limit(limit + 1)
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    rows = list(res.scalars().all())
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+    return rows, next_payload, total
 
 
 async def update_document(

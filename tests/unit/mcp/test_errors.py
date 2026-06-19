@@ -2,11 +2,10 @@
 Tests for app.mcp.errors module — MCPErrorCode, MCPResponse, helper functions.
 """
 
-import pytest
 
 from app.mcp.errors import (
-    MCPErrorCode,
     MCPError,
+    MCPErrorCode,
     MCPResponse,
     internal_error_response,
     invalid_input_response,

@@ -2,11 +2,11 @@
 Tests for app.core.utils module.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.core.utils import utc_now, utc_now_iso, make_tz_aware
+from app.core.utils import make_tz_aware, utc_now, utc_now_iso
 
 
 class TestUtcNow:

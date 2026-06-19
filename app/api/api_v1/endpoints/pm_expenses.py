@@ -17,12 +17,36 @@ from app.services.pm_expenses import create_expense, list_expenses, update_expen
 router = APIRouter()
 
 
-@router.post("", response_model=ExpenseSchema)
+@router.post(
+    "",
+    response_model=ExpenseSchema,
+    summary="Create expense",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "property_id": 1,
+                                "category": "maintenance",
+                                "amount": 1500.00,
+                                "expense_date": "2026-07-01",
+                                "description": "Plumbing repair in kitchen",
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_pm_expense(
     payload: ExpenseCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create expense."""
     target_owner_id = current_user.id
     if payload.owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -50,7 +74,7 @@ async def create_pm_expense(
     return ExpenseSchema.model_validate(expense)
 
 
-@router.get("", response_model=CursorPage[ExpenseSchema])
+@router.get("", response_model=CursorPage[ExpenseSchema], summary="List expenses")
 async def list_pm_expenses(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -61,6 +85,7 @@ async def list_pm_expenses(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List expenses."""
     rows, next_payload, total = await list_expenses(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -81,13 +106,14 @@ async def list_pm_expenses(
     )
 
 
-@router.patch("/{expense_id}", response_model=ExpenseSchema)
+@router.patch("/{expense_id}", response_model=ExpenseSchema, summary="Update expense")
 async def patch_pm_expense(
     expense_id: int,
     payload: ExpenseUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update expense."""
     exp = await update_expense(
         db,
         actor=current_user,  # type: ignore[arg-type]

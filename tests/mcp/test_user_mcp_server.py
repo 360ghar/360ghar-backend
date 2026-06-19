@@ -34,8 +34,8 @@ class TestOwnerPropertyTools:
     @pytest.mark.asyncio
     async def test_owner_properties_list_unauthenticated(self):
         """Test listing properties without auth."""
-        from app.mcp.user.owner import owner_properties_list
         from app.mcp.apps_sdk import AuthRequiredError
+        from app.mcp.user.owner import owner_properties_list
 
         # Get the underlying function from the FunctionTool
         fn = owner_properties_list.fn if hasattr(owner_properties_list, 'fn') else owner_properties_list
@@ -72,6 +72,7 @@ class TestOwnerPropertyTools:
     async def test_tools_list_includes_security_schemes_and_template(self, mock_mcp_context):
         """Apps SDK expects tool security schemes + output template metadata."""
         import mcp.types as mcp_types
+
         from app.mcp.user.server import user_mcp
 
         request = mcp_types.ListToolsRequest(method="tools/list", params={})
@@ -217,7 +218,7 @@ class TestMCPErrorResponses:
 
     def test_unauthorized_response(self):
         """Test unauthorized error response format using MCPResponse.failure."""
-        from app.mcp.errors import MCPResponse, MCPErrorCode
+        from app.mcp.errors import MCPErrorCode, MCPResponse
 
         result = MCPResponse.failure(
             code=MCPErrorCode.UNAUTHORIZED,

@@ -24,6 +24,7 @@ from app.api.api_v1.endpoints import (
     hotspots,
     notifications,
     oauth,
+    payments,
     pm_applications,
     pm_assignments,
     pm_dashboard,
@@ -46,6 +47,7 @@ from app.api.api_v1.endpoints import (
     users,
     vastu,
     visits,
+    webhooks,
 )
 
 api_router = APIRouter()
@@ -63,6 +65,7 @@ api_router.include_router(properties.router, prefix="/properties", tags=["proper
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(swipes.router, prefix="/swipes", tags=["swipes"])
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(amenities.router, prefix="/amenities", tags=["amenities"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
@@ -116,3 +119,7 @@ api_router.include_router(agent_chat.router, prefix="/agent", tags=["ai-agent"])
 
 # Data Hub
 api_router.include_router(data_hub.router, prefix="/data-hub", tags=["data-hub"])
+
+# Webhooks (inbound integrations). The router already carries the
+# /webhooks/auth prefix, so the full path is /api/v1/webhooks/auth/...
+api_router.include_router(webhooks.router)

@@ -9,7 +9,6 @@ import pytest
 
 from app.core.exceptions import BadRequestException
 from app.models.enums import ExpenseCategory, UserRole
-from app.models.pm_finance import Expense
 from app.models.users import User
 from app.services.pm_expenses import create_expense
 

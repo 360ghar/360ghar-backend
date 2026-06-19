@@ -24,12 +24,37 @@ from app.services.pm_maintenance import (
 router = APIRouter()
 
 
-@router.post("/requests", response_model=MaintenanceRequestSchema)
+@router.post(
+    "/requests",
+    response_model=MaintenanceRequestSchema,
+    summary="Submit maintenance request",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "property_id": 1,
+                                "category": "plumbing",
+                                "urgency": "medium",
+                                "title": "Leaking kitchen tap",
+                                "description": "The kitchen tap is leaking continuously.",
+                                "preferred_contact_method": "phone",
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def submit_request(
     payload: MaintenanceRequestCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Submit maintenance request."""
     req = await create_maintenance_request(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -44,7 +69,7 @@ async def submit_request(
     return MaintenanceRequestSchema.model_validate(req)
 
 
-@router.get("/requests", response_model=CursorPage[MaintenanceRequestSchema])
+@router.get("/requests", response_model=CursorPage[MaintenanceRequestSchema], summary="List maintenance requests")
 async def list_requests(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -55,6 +80,7 @@ async def list_requests(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List maintenance requests."""
     rows, next_payload, total = await list_maintenance_requests(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -75,13 +101,14 @@ async def list_requests(
     )
 
 
-@router.patch("/requests/{request_id}", response_model=MaintenanceRequestSchema)
+@router.patch("/requests/{request_id}", response_model=MaintenanceRequestSchema, summary="Update maintenance request")
 async def update_request(
     request_id: int,
     payload: MaintenanceRequestUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update maintenance request."""
     req = await update_maintenance_request(
         db,
         actor=current_user,  # type: ignore[arg-type]

@@ -541,3 +541,23 @@ class ReportAction(str, Enum):
     warn_user = "warn_user"
     suspend_user = "suspend_user"
     escalate = "escalate"
+
+
+# --------------------
+# Blog
+# --------------------
+
+
+class BlogPostStatus(str, Enum):
+    """Lifecycle status for a blog post.
+
+    - draft: not visible publicly (work in progress)
+    - published: visible publicly
+    - archived: hidden from public listings but retained
+    - scheduled: will be auto-published at ``scheduled_at``
+    """
+
+    draft = "draft"
+    published = "published"
+    archived = "archived"
+    scheduled = "scheduled"

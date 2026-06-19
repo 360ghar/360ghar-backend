@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.enums import BlogPostStatus
+
 
 class BlogSource(BaseModel):
     """A single cited source for a blog post."""
@@ -70,8 +72,8 @@ class BlogTag(BlogTagBase):
 
 
 class BlogPostBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500, description="Post title")
-    content: str = Field(..., min_length=10, description="Post content (HTML/markdown)")
+    title: str = Field(..., min_length=1, max_length=500, description="Post title", examples=["Top 10 Areas to Live in Bengaluru"])
+    content: str = Field(..., min_length=10, description="Post content (HTML/markdown)", examples=["<p>Bengaluru offers a vibrant lifestyle...</p>"])
     excerpt: str | None = Field(None, max_length=1000, description="Post excerpt/summary")
     cover_image_url: str | None = Field(None, description="Cover image URL")
 
@@ -94,8 +96,16 @@ class BlogPostBase(BaseModel):
 
 
 class BlogPostCreate(BlogPostBase):
-    active: bool | None = Field(default=False, description="Publish status (defaults to draft)")
+    active: bool | None = Field(default=False, description="Publish status (defaults to draft)", examples=[False, True])
     published_at: datetime | None = Field(None, description="Explicit publish timestamp (defaults to now if active=True)")
+    status: BlogPostStatus | None = Field(
+        default=None,
+        description="Lifecycle status (draft/published/archived/scheduled). Overrides `active` when provided.",
+    )
+    scheduled_at: datetime | None = Field(
+        default=None,
+        description="When a scheduled post should be auto-published (required when status=scheduled)",
+    )
 
 
 class BlogPostUpdate(BaseModel):
@@ -114,6 +124,8 @@ class BlogPostUpdate(BaseModel):
     sources: list[BlogSource] | None = Field(default=None, description="Cited sources")
     seo_metadata: BlogSEOMetadata | None = Field(None, description="SEO metadata")
     published_at: datetime | None = Field(None, description="Publish timestamp")
+    status: BlogPostStatus | None = Field(default=None, description="Lifecycle status")
+    scheduled_at: datetime | None = Field(default=None, description="Scheduled publish timestamp")
 
 
 class BlogPostInDB(BlogPostBase):
@@ -130,6 +142,9 @@ class BlogPostInDB(BlogPostBase):
     reading_time_minutes: int | None = None
     word_count: int | None = None
     published_at: datetime | None = None
+    status: str = "draft"
+    scheduled_at: datetime | None = None
+    preview_token: str | None = None
     sources: list[dict] = Field(default_factory=list)  # type: ignore[assignment]
     seo_metadata: dict = Field(default_factory=dict)  # type: ignore[assignment]
 
@@ -139,6 +154,36 @@ class BlogPostInDB(BlogPostBase):
 class BlogPost(BlogPostInDB):
     categories: list[BlogCategory] | None = None  # type: ignore[assignment]
     tags: list[BlogTag] | None = None  # type: ignore[assignment]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BlogPostPreviewResponse(BaseModel):
+    """Public-safe blog post representation returned by the preview-by-token endpoint.
+
+    Omits sensitive/internal fields (preview_token, seo_metadata internals, etc.).
+    """
+
+    id: int
+    title: str
+    slug: str
+    content: str
+    excerpt: str | None = None
+    cover_image_url: str | None = None
+    status: str
+    published_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+    meta_title: str | None = None
+    meta_description: str | None = None
+    focus_keyword: str | None = None
+    canonical_url: str | None = None
+    og_image_url: str | None = None
+    reading_time_minutes: int | None = None
+    word_count: int | None = None
+    sources: list[dict] = Field(default_factory=list)
+    categories: list[BlogCategory] = Field(default_factory=list)
+    tags: list[BlogTag] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

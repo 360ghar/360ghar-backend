@@ -22,7 +22,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/{hotspot_id}", response_model=Hotspot)
+@router.get("/{hotspot_id}", response_model=Hotspot, summary="Get hotspot")
 async def get_hotspot(
     hotspot_id: str,
     db: AsyncSession = Depends(get_db),
@@ -56,8 +56,8 @@ async def get_hotspot(
     return hotspot
 
 
-@router.put("/{hotspot_id}", response_model=Hotspot)
-@router.patch("/{hotspot_id}", response_model=Hotspot)
+@router.put("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
+@router.patch("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
 async def update_hotspot(
     hotspot_id: str,
     hotspot_data: HotspotUpdate,
@@ -87,7 +87,7 @@ async def update_hotspot(
     return hotspot
 
 
-@router.delete("/{hotspot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{hotspot_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete hotspot")
 async def delete_hotspot(
     hotspot_id: str,
     db: AsyncSession = Depends(get_db),
@@ -109,7 +109,7 @@ async def delete_hotspot(
     return None
 
 
-@router.put("/{hotspot_id}/position", response_model=Hotspot)
+@router.put("/{hotspot_id}/position", response_model=Hotspot, summary="Update hotspot position")
 async def update_hotspot_position(
     hotspot_id: str,
     position_data: HotspotPositionUpdate,

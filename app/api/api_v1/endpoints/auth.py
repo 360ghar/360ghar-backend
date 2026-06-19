@@ -77,6 +77,18 @@ class AuthConfigResponse(BaseModel):
     "/identifier-status",
     response_model=IdentifierStatusResponse,
     summary="Probe the auth status of an email/phone (drives client login flow)",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "email": {"value": {"identifier": "user@example.com"}},
+                        "phone": {"value": {"identifier": "+919876543210"}},
+                    }
+                }
+            }
+        }
+    },
 )
 async def identifier_status(
     request: Request,
@@ -119,6 +131,17 @@ async def last_method(
     "/link-identity",
     response_model=LinkIdentityResponse,
     summary="Link an OAuth identity to the current Supabase user",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "google": {"value": {"provider": "google", "id_token": "eyJhbGciOiJSUzI1NiIs..."}},
+                    }
+                }
+            }
+        }
+    },
 )
 async def link_identity(
     body: LinkIdentityRequest,

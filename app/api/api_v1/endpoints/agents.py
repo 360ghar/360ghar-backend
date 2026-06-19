@@ -34,7 +34,7 @@ from app.services.agent import (
     get_available_agents_paginated,
     get_system_stats,
     get_user_agent,
-    get_workload_distribution,
+    get_workload_distribution_paginated,
     update_agent,
     update_agent_availability,
 )
@@ -48,7 +48,7 @@ router = APIRouter()
 
 
 # User-facing agent endpoints
-@router.get("/assigned", response_model=Agent)
+@router.get("/assigned", response_model=Agent, summary="Get my assigned agent")
 async def get_my_agent(
     current_user: UserSchema = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
 ):
@@ -59,7 +59,7 @@ async def get_my_agent(
     return agent
 
 
-@router.post("/assign", response_model=AgentAssignment)
+@router.post("/assign", response_model=AgentAssignment, summary="Assign agent to me")
 async def assign_my_agent(
     agent_id: int | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -76,7 +76,7 @@ async def assign_my_agent(
 
 
 # Public agent information endpoints
-@router.get("/available", response_model=CursorPage[Agent])
+@router.get("/available", response_model=CursorPage[Agent], summary="List available agents")
 async def list_available_agents(
     specialization: str | None = Query(None, description="Filter by specialization"),
     agent_type: str | None = Query(None, description="Filter by agent type"),
@@ -101,7 +101,7 @@ async def list_available_agents(
     )
 
 
-@router.get("/types/{agent_type}", response_model=CursorPage[Agent])
+@router.get("/types/{agent_type}", response_model=CursorPage[Agent], summary="List agents by type")
 async def get_agents_by_agent_type(
     agent_type: str,
     page: CursorParams = Depends(),
@@ -120,7 +120,7 @@ async def get_agents_by_agent_type(
     )
 
 
-@router.get("/specializations/{specialization}", response_model=CursorPage[Agent])
+@router.get("/specializations/{specialization}", response_model=CursorPage[Agent], summary="List agents by specialization")
 async def get_agents_by_agent_specialization(
     specialization: str,
     page: CursorParams = Depends(),
@@ -140,15 +140,23 @@ async def get_agents_by_agent_specialization(
 
 
 # System monitoring endpoints (must be before /{agent_id})
-@router.get("/system/workload", response_model=list[AgentWorkload])
+@router.get("/system/workload", response_model=CursorPage[AgentWorkload], summary="Get system workload")
 async def get_system_workload(
-    current_user: UserSchema = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+    page: CursorParams = Depends(),
+    current_user: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get workload distribution across all agents (admin endpoint)"""
-    return await get_workload_distribution(db)
+    rows, next_payload, total = await get_workload_distribution_paginated(
+        db,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.get("/system/stats", response_model=AgentSystemStats)
+@router.get("/system/stats", response_model=AgentSystemStats, summary="Get system statistics")
 async def get_system_statistics(
     current_user: UserSchema = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ):
@@ -157,7 +165,7 @@ async def get_system_statistics(
 
 
 # Agent self profile endpoint (must be before /{agent_id})
-@router.get("/me", response_model=Agent)
+@router.get("/me", response_model=Agent, summary="Get my agent profile")
 async def get_my_agent_profile(
     current_user: UserSchema = Depends(get_current_agent), db: AsyncSession = Depends(get_db)
 ):
@@ -183,7 +191,7 @@ async def get_my_agent_profile(
 # =============================================================================
 
 
-@router.get("/{agent_id}", response_model=Agent)
+@router.get("/{agent_id}", response_model=Agent, summary="Get agent details")
 async def get_agent_details(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -196,7 +204,7 @@ async def get_agent_details(
     return agent
 
 
-@router.get("/{agent_id}/stats", response_model=AgentWithStats)
+@router.get("/{agent_id}/stats", response_model=AgentWithStats, summary="Get agent statistics")
 async def get_agent_statistics(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -209,7 +217,7 @@ async def get_agent_statistics(
     return agent_with_stats
 
 
-@router.get("/{agent_id}/visits", response_model=CursorPage[VisitSchema])
+@router.get("/{agent_id}/visits", response_model=CursorPage[VisitSchema], summary="Get agent visit history")
 async def get_agent_visit_history(
     agent_id: int,
     page: CursorParams = Depends(),
@@ -261,7 +269,7 @@ async def get_agent_visit_history(
 
 
 # Admin endpoints
-@router.get("", response_model=CursorPage[Agent])
+@router.get("", response_model=CursorPage[Agent], summary="List all agents")
 async def list_all_agents(
     include_inactive: bool = Query(False, description="Include inactive agents"),
     page: CursorParams = Depends(),
@@ -280,7 +288,7 @@ async def list_all_agents(
     )
 
 
-@router.post("", response_model=Agent)
+@router.post("", response_model=Agent, summary="Create agent")
 async def create_new_agent(
     agent_data: AgentCreate,
     current_user: UserSchema = Depends(get_current_admin),
@@ -296,7 +304,7 @@ async def create_new_agent(
     return agent
 
 
-@router.put("/{agent_id}", response_model=Agent)
+@router.put("/{agent_id}", response_model=Agent, summary="Update agent")
 async def update_agent_details(
     agent_id: int,
     update_data: AgentUpdate,
@@ -310,7 +318,7 @@ async def update_agent_details(
     return updated_agent
 
 
-@router.delete("/{agent_id}", response_model=MessageResponse)
+@router.delete("/{agent_id}", response_model=MessageResponse, summary="Deactivate agent")
 async def deactivate_agent(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_admin),
@@ -323,7 +331,7 @@ async def deactivate_agent(
     return MessageResponse(message="Agent deactivated successfully")
 
 
-@router.patch("/{agent_id}/availability", response_model=MessageResponse)
+@router.patch("/{agent_id}/availability", response_model=MessageResponse, summary="Update agent availability")
 async def update_agent_availability_status(
     agent_id: int,
     is_available: bool,

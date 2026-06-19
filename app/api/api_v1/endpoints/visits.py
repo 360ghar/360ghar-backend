@@ -33,20 +33,43 @@ from app.services.visit import (
 router = APIRouter()
 
 
-@router.post("", response_model=Visit)
+@router.post(
+    "",
+    response_model=Visit,
+    summary="Schedule a visit",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "property_id": 1,
+                                "scheduled_date": "2026-07-01T10:00:00Z",
+                                "visit_context": "property_tour",
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def schedule_visit(
     visit: VisitCreate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Schedule a visit."""
     return await create_visit(db, current_user.id, visit)
 
-@router.get("", response_model=CursorPage[Visit])
+@router.get("", response_model=CursorPage[Visit], summary="List my visits")
 async def get_my_visits(
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List my visits."""
     rows, next_payload, total = await get_user_visits(
         db, current_user.id,
         cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
@@ -56,12 +79,13 @@ async def get_my_visits(
         limit=page.limit, next_payload=next_payload, total=total,
     )
 
-@router.get("/upcoming", response_model=CursorPage[Visit])
+@router.get("/upcoming", response_model=CursorPage[Visit], summary="List upcoming visits")
 async def get_upcoming_visits(
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List upcoming visits."""
     rows, next_payload, total = await get_user_upcoming_visits(
         db, current_user.id,
         cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
@@ -71,12 +95,13 @@ async def get_upcoming_visits(
         limit=page.limit, next_payload=next_payload, total=total,
     )
 
-@router.get("/past", response_model=CursorPage[Visit])
+@router.get("/past", response_model=CursorPage[Visit], summary="List past visits")
 async def get_past_visits(
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List past visits."""
     rows, next_payload, total = await get_user_past_visits(
         db, current_user.id,
         cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
@@ -86,7 +111,7 @@ async def get_past_visits(
         limit=page.limit, next_payload=next_payload, total=total,
     )
 
-@router.get("/all", response_model=CursorPage[Visit])
+@router.get("/all", response_model=CursorPage[Visit], summary="List all visits")
 async def list_all_visits(
     page: CursorParams = Depends(),
     status: str | None = Query(None),
@@ -122,12 +147,13 @@ async def list_all_visits(
         limit=page.limit, next_payload=next_payload, total=total,
     )
 
-@router.get("/{visit_id}", response_model=Visit)
+@router.get("/{visit_id}", response_model=Visit, summary="Get visit details")
 async def get_visit_details(
     visit_id: int,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Get visit details."""
     visit = await get_visit(db, visit_id)
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
@@ -137,13 +163,14 @@ async def get_visit_details(
 
     return visit
 
-@router.put("/{visit_id}", response_model=Visit)
+@router.put("/{visit_id}", response_model=Visit, summary="Update visit")
 async def update_visit_details(
     visit_id: int,
     visit_update: VisitUpdate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Update visit."""
     visit = await get_visit(db, visit_id)
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
@@ -153,13 +180,14 @@ async def update_visit_details(
 
     return await update_visit(db, visit_id, visit_update)
 
-@router.post("/{visit_id}/reschedule", response_model=Visit)
+@router.post("/{visit_id}/reschedule", response_model=Visit, summary="Reschedule visit")
 async def reschedule_visit_date(
     visit_id: int,
     reschedule_data: VisitReschedule,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Reschedule visit."""
     visit = await get_visit(db, visit_id)
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
@@ -172,13 +200,14 @@ async def reschedule_visit_date(
         raise HTTPException(status_code=400, detail="Failed to reschedule visit")
     return updated
 
-@router.post("/{visit_id}/cancel", response_model=Visit)
+@router.post("/{visit_id}/cancel", response_model=Visit, summary="Cancel visit")
 async def cancel_visit_request(
     visit_id: int,
     cancel_data: VisitCancel,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
+    """Cancel visit."""
     visit = await get_visit(db, visit_id)
     if not visit:
         raise HTTPException(status_code=404, detail="Visit not found")
@@ -192,7 +221,7 @@ async def cancel_visit_request(
     return updated
 
 
-@router.post("/{visit_id}/complete", response_model=Visit)
+@router.post("/{visit_id}/complete", response_model=Visit, summary="Complete visit")
 async def complete_visit(
     visit_id: int,
     payload: VisitComplete | None = None,

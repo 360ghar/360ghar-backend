@@ -23,6 +23,7 @@ from app.models.properties import Property
 from app.models.social import UserBlock, UserConversation, UserMatch, UserReport
 from app.models.users import User
 from app.schemas.flatmates import ReportCreate
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import _canonical_pair
 
 MIN_REVIEW_PHOTO_COUNT = 2
@@ -269,17 +270,44 @@ async def prescreen_flatmate_listing(
     }
 
 
-async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_blocks(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     from app.services.flatmates.helpers import _build_peer_payload
+
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(
+                select(func.count())
+                .select_from(UserBlock)
+                .where(UserBlock.blocker_user_id == user_id)
+            )
+        ).scalar_one()
 
     stmt = (
         select(UserBlock, User)
         .join(User, User.id == UserBlock.blocked_user_id)
         .where(UserBlock.blocker_user_id == user_id)
         .order_by(UserBlock.created_at.desc())
+        .offset(offset)
+        .limit(limit + 1)
     )
     rows = (await db.execute(stmt)).all()
-    return [
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
+    items = [
         {
             "id": block.id,
             "blocked_user": _build_peer_payload(blocked_user),
@@ -287,6 +315,7 @@ async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
         }
         for block, blocked_user in rows
     ]
+    return items, next_payload, total
 
 
 async def delete_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> dict[str, Any]:

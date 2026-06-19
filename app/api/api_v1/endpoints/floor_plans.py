@@ -5,7 +5,7 @@ This module provides REST API endpoints for managing floor plans within virtual 
 including CRUD operations and marker management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -24,11 +24,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/tours/{tour_id}/floor-plans", response_model=list[FloorPlanResponse])
+@router.get("/tours/{tour_id}/floor-plans", response_model=list[FloorPlanResponse], summary="List floor plans")
 async def list_floor_plans(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
+    limit: int = Query(100, le=100, description="Max floor plans to return (hard cap 100)"),
 ):
     """
     List all floor plans for a tour.
@@ -40,13 +41,14 @@ async def list_floor_plans(
         tour_id=tour_id,
         user_id=current_user.id,
     )
-    return floor_plans
+    return floor_plans[:limit]
 
 
 @router.post(
     "/tours/{tour_id}/floor-plans",
     response_model=FloorPlanResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Create floor plan",
 )
 async def create_floor_plan(
     tour_id: str,
@@ -71,6 +73,7 @@ async def create_floor_plan(
 @router.get(
     "/tours/{tour_id}/floor-plans/{floor_plan_id}",
     response_model=FloorPlanResponse,
+    summary="Get floor plan",
 )
 async def get_floor_plan(
     tour_id: str,
@@ -92,6 +95,7 @@ async def get_floor_plan(
 @router.put(
     "/tours/{tour_id}/floor-plans/{floor_plan_id}",
     response_model=FloorPlanResponse,
+    summary="Update floor plan",
 )
 async def update_floor_plan(
     tour_id: str,
@@ -117,6 +121,7 @@ async def update_floor_plan(
 @router.put(
     "/tours/{tour_id}/floor-plans/{floor_plan_id}/markers",
     response_model=FloorPlanResponse,
+    summary="Update floor plan markers",
 )
 async def update_floor_plan_markers(
     tour_id: str,
@@ -145,6 +150,7 @@ async def update_floor_plan_markers(
 @router.delete(
     "/tours/{tour_id}/floor-plans/{floor_plan_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete floor plan",
 )
 async def delete_floor_plan(
     tour_id: str,

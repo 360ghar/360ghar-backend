@@ -171,7 +171,48 @@ def build_property_filters(
     )
 
 
-@router.post("", response_model=Property)
+@router.post(
+    "",
+    response_model=Property,
+    summary="Create property",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "rent": {
+                            "value": {
+                                "title": "2BHK Apartment in Koramangala",
+                                "property_type": "apartment",
+                                "purpose": "rent",
+                                "base_price": 50000,
+                                "monthly_rent": 25000,
+                                "city": "Bengaluru",
+                                "locality": "Koramangala",
+                                "bedrooms": 2,
+                                "bathrooms": 2,
+                                "area_sqft": 1200,
+                            }
+                        },
+                        "sale": {
+                            "value": {
+                                "title": "3BHK Villa in Whitefield",
+                                "property_type": "villa",
+                                "purpose": "sale",
+                                "base_price": 12500000,
+                                "city": "Bengaluru",
+                                "locality": "Whitefield",
+                                "bedrooms": 3,
+                                "bathrooms": 3,
+                                "area_sqft": 1800,
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_new_property(
     property_data: PropertyCreate,
     owner_id: int | None = Query(None, description="Owner id (admin/agent only)"),
@@ -201,7 +242,7 @@ async def create_new_property(
         raise
 
 
-@router.get("/me", response_model=CursorPage[Property])
+@router.get("/me", response_model=CursorPage[Property], summary="List my properties")
 async def get_my_properties(
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -219,7 +260,7 @@ async def get_my_properties(
     return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.get("", response_model=CursorPage[Property])
+@router.get("", response_model=CursorPage[Property], summary="List properties")
 async def get_properties_list(
     filters: UnifiedPropertyFilter = Depends(build_property_filters),
     page: CursorParams = Depends(),
@@ -287,7 +328,7 @@ async def get_properties_list(
         raise
 
 
-@router.get("/semantic-search", response_model=CursorPage[Property])
+@router.get("/semantic-search", response_model=CursorPage[Property], summary="Semantic property search")
 async def semantic_property_search(
     filters: UnifiedPropertyFilter = Depends(build_property_filters),
     page: CursorParams = Depends(),
@@ -335,7 +376,7 @@ async def semantic_property_search(
         raise
 
 
-@router.get("/recommendations", response_model=CursorPage[Property])
+@router.get("/recommendations", response_model=CursorPage[Property], summary="List recommended properties")
 async def get_recommendations(
     page: CursorParams = Depends(),
     current_user: UserSchema | None = Depends(get_current_user_optional),
@@ -379,7 +420,7 @@ async def get_recommendations(
         raise
 
 
-@router.get("/{property_id}", response_model=Property)
+@router.get("/{property_id}", response_model=Property, summary="Get property details")
 async def get_property_details(
     property_id: int,
     request: Request,
@@ -430,7 +471,28 @@ async def get_property_details(
     return property_data
 
 
-@router.put("/{property_id}", response_model=Property)
+@router.put(
+    "/{property_id}",
+    response_model=Property,
+    summary="Update property",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "update": {
+                            "value": {
+                                "title": "Updated 2BHK Apartment in Koramangala",
+                                "monthly_rent": 28000,
+                                "status": "active",
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def update_property_details(
     property_id: int,
     property_update: PropertyUpdate,
@@ -441,7 +503,7 @@ async def update_property_details(
     return await update_property(db, property_id, property_update, current_user)
 
 
-@router.delete("/{property_id}")
+@router.delete("/{property_id}", summary="Delete property")
 async def delete_property_endpoint(
     property_id: int,
     db: AsyncSession = Depends(get_db),

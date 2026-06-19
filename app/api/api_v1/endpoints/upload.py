@@ -18,6 +18,8 @@ from app.schemas.pagination import (
     keyset_sort_value,
 )
 from app.schemas.storage import (
+    BatchDeleteRequest,
+    BatchDeleteResponse,
     MediaFileResponse,
     MediaUpdateRequest,
     PresignedUploadRequest,
@@ -49,7 +51,7 @@ def _resolve_folder_type(folder_type: StorageFolderType) -> StorageFolder:
     return mapping.get(folder_type, StorageFolder.GENERIC_UPLOAD)
 
 
-@router.post("", response_model=dict[str, Any])
+@router.post("", response_model=dict[str, Any], summary="Upload file")
 async def upload_file(
     file: UploadFile = File(...),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -76,7 +78,7 @@ async def upload_file(
     return result
 
 
-@router.post("/batch", response_model=dict[str, Any])
+@router.post("/batch", response_model=dict[str, Any], summary="Upload files in batch")
 async def upload_batch(
     files: list[UploadFile] = File(...),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -104,7 +106,47 @@ async def upload_batch(
     return {"items": items}
 
 
-@router.post("/presigned", response_model=PresignedUploadResponse)
+@router.post(
+    "/presigned",
+    response_model=PresignedUploadResponse,
+    summary="Create presigned uploads",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "property_image": {
+                            "value": {
+                                "files": [
+                                    {
+                                        "filename": "living-room.jpg",
+                                        "content_type": "image/jpeg",
+                                        "file_size": 102400,
+                                        "folder_type": "property_image",
+                                        "property_id": 1,
+                                        "visibility": "public",
+                                    }
+                                ]
+                            }
+                        },
+                        "avatar": {
+                            "value": {
+                                "files": [
+                                    {
+                                        "filename": "avatar.png",
+                                        "content_type": "image/png",
+                                        "folder_type": "avatar",
+                                        "visibility": "public",
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_presigned_uploads(
     payload: PresignedUploadRequest,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -151,7 +193,7 @@ async def create_presigned_uploads(
     return {"items": items}
 
 
-@router.post("/confirm/{upload_id}", response_model=UploadConfirmResponse)
+@router.post("/confirm/{upload_id}", response_model=UploadConfirmResponse, summary="Confirm upload")
 async def confirm_upload(
     upload_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -174,7 +216,7 @@ async def confirm_upload(
     }
 
 
-@router.get("/media", response_model=CursorPage[MediaFileResponse])
+@router.get("/media", response_model=CursorPage[MediaFileResponse], summary="List media files")
 async def list_media(
     page: CursorParams = Depends(),
     tour_id: str | None = Query(None),
@@ -227,7 +269,25 @@ async def list_media(
     )
 
 
-@router.get("/media/{media_id}", response_model=MediaFileResponse)
+@router.post(
+    "/media/batch-delete",
+    response_model=BatchDeleteResponse,
+    summary="Bulk delete media files",
+)
+async def batch_delete_media(
+    payload: BatchDeleteRequest,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete up to 50 media files in a single request.
+
+    Only media owned by the current user are deleted. IDs that are not found or
+    are owned by another user are returned in the ``failed`` list.
+    """
+    return await storage_service.delete_batch(db, payload.media_ids, current_user)
+
+
+@router.get("/media/{media_id}", response_model=MediaFileResponse, summary="Get media file")
 async def get_media(
     media_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -245,7 +305,7 @@ async def get_media(
     return MediaFileResponse.model_validate(media)
 
 
-@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete media file")
 async def delete_media(
     media_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -275,7 +335,7 @@ async def delete_media(
     return None
 
 
-@router.patch("/media/{media_id}", response_model=MediaFileResponse)
+@router.patch("/media/{media_id}", response_model=MediaFileResponse, summary="Update media file")
 async def update_media(
     media_id: str,
     payload: MediaUpdateRequest,

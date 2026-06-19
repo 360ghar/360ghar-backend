@@ -1,5 +1,6 @@
-import pytest
 from datetime import date
+
+import pytest
 
 from app.models.agents import Agent
 from app.models.enums import (

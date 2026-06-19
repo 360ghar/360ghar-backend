@@ -57,7 +57,7 @@ class ClientRegistrationRequest(BaseModel):
         return v
 
 
-@registration_router.post("/mcp/oauth/register")
+@registration_router.post("/mcp/oauth/register", summary="Register OAuth client")
 async def register_client(
     request: Request,
     registration: ClientRegistrationRequest,

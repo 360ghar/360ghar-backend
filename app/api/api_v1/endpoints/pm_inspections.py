@@ -25,12 +25,13 @@ from app.services.pm_inspections import (
 router = APIRouter()
 
 
-@router.post("", response_model=InspectionChecklistSchema)
+@router.post("", response_model=InspectionChecklistSchema, summary="Create inspection checklist")
 async def create_inspection(
     payload: InspectionChecklistCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create inspection checklist."""
     target_owner_id = current_user.id
     if payload.owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -53,7 +54,7 @@ async def create_inspection(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.get("", response_model=CursorPage[InspectionChecklistSchema])
+@router.get("", response_model=CursorPage[InspectionChecklistSchema], summary="List inspection checklists")
 async def list_inspection_checklists(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     lease_id: int | None = Query(None),
@@ -62,6 +63,7 @@ async def list_inspection_checklists(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """List inspection checklists."""
     rows, next_payload, total = await list_inspections(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -80,23 +82,25 @@ async def list_inspection_checklists(
     )
 
 
-@router.get("/{inspection_id}", response_model=InspectionChecklistSchema)
+@router.get("/{inspection_id}", response_model=InspectionChecklistSchema, summary="Get inspection checklist")
 async def get_inspection_checklist(
     inspection_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get inspection checklist."""
     checklist = await get_inspection(db, actor=current_user, inspection_id=inspection_id)  # type: ignore[arg-type]
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.post("/{inspection_id}/sign", response_model=InspectionChecklistSchema)
+@router.post("/{inspection_id}/sign", response_model=InspectionChecklistSchema, summary="Sign inspection checklist")
 async def sign(
     inspection_id: int,
     payload: InspectionSign,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Sign inspection checklist."""
     checklist = await sign_inspection(
         db,
         actor=current_user,  # type: ignore[arg-type]

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from app.schemas.pagination import offset_payload
 from app.services.ai_agent import conversation_store
 
 
@@ -117,18 +118,20 @@ async def test_list_conversations_handles_none_message_count_and_pagination():
     db = _make_db()
     db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: [(conv_a, None), (conv_b, 4)]))
 
-    rows = await conversation_store.list_conversations(
+    rows, next_payload, total = await conversation_store.list_conversations(
         db,
         user_id=77,
+        cursor_payload=offset_payload(5),
         limit=20,
-        offset=5,
     )
 
     assert rows[0]["message_count"] == 0
     assert rows[1]["message_count"] == 4
     assert rows[0]["created_at"] == now.isoformat()
+    assert next_payload is None
+    assert total is None
     stmt = db.execute.await_args.args[0]
-    assert stmt._limit_clause.value == 20
+    assert stmt._limit_clause.value == 21
     assert stmt._offset_clause.value == 5
 
 

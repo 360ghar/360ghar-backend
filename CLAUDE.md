@@ -747,3 +747,26 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 > **Note on `tool_ops/`**: These modules contain the shared business logic (service calls, DB queries, authorization, serialization) used by both MCP servers and the AI agent tool bridge. When adding new MCP tools, implement the logic in `app/mcp/tool_ops/` first, then wire it through both `user_server.py`/`admin/` and `tool_bridge.py`.
 
 > **Note on PM tools split**: The former `app/mcp/chatgpt/pm_tools.py` has been decomposed into domain-specific modules (`pm_shared.py`, `pm_dashboard_tools.py`, `pm_lease_tools.py`, `pm_maintenance_tools.py`, `pm_owner_tools.py`, `pm_rent_tools.py`, `pm_tenant_tools.py`). Shared serialization helpers are in `pm_shared.py`.
+
+## Documentation Maintenance Policy
+
+The `.wiki/` directory is the canonical project wiki and must stay in sync with the codebase. After any change that affects the following, update the corresponding wiki page(s) in the same commit or PR:
+
+| Change type | Wiki page to update |
+|-------------|---------------------|
+| New/modified REST endpoint or router | `.wiki/api/index.md`, relevant `.wiki/features/*.md` |
+| New/modified service module | `.wiki/systems/services-layer.md`, relevant `.wiki/features/*.md` |
+| New MCP tool or widget | `.wiki/features/mcp-servers.md` |
+| New/modified SQLAlchemy model or enum | `.wiki/systems/models.md`, `.wiki/reference/data-models.md` |
+| New scheduler or background job | `.wiki/systems/infrastructure.md` |
+| New shared httpx client domain | `.wiki/systems/core-cross-cutting.md` |
+| New notification type | `.wiki/features/notifications.md` |
+| New SSE event type | `.wiki/systems/core-cross-cutting.md` |
+| New environment variable | `.wiki/reference/configuration.md` |
+| New dependency | `.wiki/reference/dependencies.md` |
+| Architectural decision | `.wiki/background/design-decisions.md` |
+| Seed data changes | relevant `.wiki/features/*.md` |
+
+When updating the video, edit `.wiki/video/src/scenes/`, run `./.wiki/video/render.sh`, and commit the new `overview.mp4` (Git LFS handles storage).
+
+The GitHub Actions workflow at `.github/workflows/wiki.yml` auto-publishes `.wiki/` to the GitHub wiki tab on every push to `main`. No manual wiki editing is needed.

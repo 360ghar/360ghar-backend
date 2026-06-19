@@ -6,7 +6,6 @@ They mock the service layer to isolate endpoint testing.
 """
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest

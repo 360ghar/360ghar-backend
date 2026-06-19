@@ -340,3 +340,50 @@ async def get_user_like_for_property(db: AsyncSession, user_id: int, property_id
     result = await db.execute(stmt)
     row = result.one_or_none()
     return row[0] if row is not None else None
+
+
+async def batch_unswipe(db: AsyncSession, user_id: int, property_ids: list[int]) -> int:
+    """Remove many liked swipes for a user in a single transaction.
+
+    Decrements property like_count for each removed like. Returns the number
+    of swipes actually deleted.
+    """
+    if not property_ids:
+        return 0
+
+    # Normalize ids to a deduplicated list of ints.
+    unique_ids: list[int] = []
+    seen: set[int] = set()
+    for pid in property_ids:
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            continue
+        if pid_int in seen:
+            continue
+        seen.add(pid_int)
+        unique_ids.append(pid_int)
+    if not unique_ids:
+        return 0
+
+    stmt = select(UserSwipe).where(
+        and_(
+            UserSwipe.user_id == user_id,
+            UserSwipe.property_id.in_(unique_ids),
+        )
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
+        return 0
+
+    async with db.begin_nested():
+        for swipe in rows:
+            if swipe.is_liked:
+                await db.execute(
+                    update(Property)
+                    .where(Property.id == swipe.property_id)
+                    .values(like_count=Property.like_count - 1)
+                )
+            await db.delete(swipe)
+    await db.flush()
+    return len(rows)

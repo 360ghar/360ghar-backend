@@ -15,6 +15,7 @@ from app.models.enums import ConversationSource, ConversationStatus, MessageType
 from app.models.social import MatchQnAAnswer, UserConversation, UserMatch, UserMessage
 from app.models.users import User
 from app.schemas.flatmates import ConversationCreate, MessageCreate, QnAAnswers
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
@@ -214,8 +215,35 @@ async def get_conversation_summary(
     }
 
 
-async def list_conversations(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_conversations(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
     current_user = await db.get(User, user_id)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(
+                select(func.count())
+                .select_from(UserConversation)
+                .where(
+                    or_(
+                        UserConversation.user_one_id == user_id,
+                        UserConversation.user_two_id == user_id,
+                    )
+                )
+            )
+        ).scalar_one()
+
     stmt = (
         select(UserConversation)
         .options(selectinload(UserConversation.context_property))
@@ -228,10 +256,16 @@ async def list_conversations(db: AsyncSession, user_id: int) -> list[dict[str, A
         .order_by(
             func.coalesce(UserConversation.last_message_at, UserConversation.created_at).desc()
         )
+        .offset(offset)
+        .limit(limit + 1)
     )
     conversations = list((await db.execute(stmt)).scalars().all())
+    has_more = len(conversations) > limit
+    conversations = conversations[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
     if not conversations:
-        return []
+        return [], next_payload, total
 
     peer_ids = {
         conversation.user_two_id
@@ -320,7 +354,7 @@ async def list_conversations(db: AsyncSession, user_id: int) -> list[dict[str, A
                 "qna": qna_map.get(peer_id),
             }
         )
-    return items
+    return items, next_payload, total
 
 
 async def get_conversation(

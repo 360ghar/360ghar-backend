@@ -12,6 +12,7 @@ from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.pm_dashboard import _resolve_owner_scope
 
 
@@ -20,7 +21,14 @@ async def rent_roll_report(
     *,
     actor: User,
     owner_id: int | None = None,
-) -> list[dict[str, Any]]:
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
     stmt = select(Property).where(Property.is_managed)
@@ -32,6 +40,8 @@ async def rent_roll_report(
     # open across the second query (an anti-pattern) and force N follow-up
     # queries for the per-property active lease.
     props = list((await db.execute(stmt)).scalars().all())
+
+    total: int | None = len(props) if with_total else None
 
     # Batched: one query for the newest active lease per property, instead
     # of one query per property (the original N+1 pattern).
@@ -56,10 +66,10 @@ async def rent_roll_report(
         for row in lease_rows:
             latest_lease.setdefault(row.property_id, row)
 
-    out: list[dict[str, Any]] = []
+    all_items: list[dict[str, Any]] = []
     for p in props:
         lease = latest_lease.get(p.id)
-        out.append(
+        all_items.append(
             {
                 "property_id": p.id,
                 "title": p.title,
@@ -69,7 +79,11 @@ async def rent_roll_report(
                 "lease_end_date": getattr(lease, "end_date", None) if lease else None,
             }
         )
-    return out
+
+    page_items = all_items[offset: offset + limit]
+    has_more = (offset + limit) < len(all_items)
+    next_payload = offset_payload(offset + limit) if has_more else None
+    return page_items, next_payload, total
 
 
 async def income_report(

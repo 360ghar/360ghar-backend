@@ -30,11 +30,13 @@ from .helpers import (
     VALID_DOCUMENT_TYPES,
     VALID_IMAGE_TYPES,
     VALID_VIDEO_TYPES,
+    expected_type_from_content_type,
     get_file_extension,
     get_max_upload_bytes,
     infer_content_type_from_extension,
     is_valid_content_type,
     is_valid_upload,
+    validate_magic_bytes,
 )
 from .processing import process_existing_scene_image as _process_existing_scene_image
 from .processing import upload_scene_image as _upload_scene_image
@@ -110,6 +112,15 @@ class StorageService:
 
             file_content = await file.read()
 
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(file.content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
             content_type = file.content_type
             is_image = content_type and content_type.startswith("image/")
             if is_image:
@@ -160,9 +171,11 @@ class StorageService:
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("File upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     # ============================================================
     # Legacy Upload Methods
@@ -212,6 +225,16 @@ class StorageService:
 
             file_content = await file.read()
             content_type = file.content_type or "application/octet-stream"
+
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
             is_image = content_type.startswith("image/")
 
             # Optimize images to WebP before uploading
@@ -255,9 +278,11 @@ class StorageService:
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("Agent avatar upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("Agent avatar upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     async def upload_generic(
         self,
@@ -533,6 +558,16 @@ class StorageService:
 
             file_content = await file.read()
             content_type = file.content_type or "application/octet-stream"
+
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
             is_image = content_type.startswith("image/")
 
             # Optimize images to WebP before uploading
@@ -573,9 +608,11 @@ class StorageService:
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("File upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     async def _create_media_record(
         self,
@@ -621,6 +658,66 @@ class StorageService:
 
     def _get_file_extension(self, filename: str, *, content_type: str | None = None) -> str:
         return get_file_extension(filename, content_type=content_type)
+
+    async def delete_batch(
+        self,
+        db: AsyncSession,
+        media_ids: list[str],
+        actor: Any,
+    ) -> dict[str, list[str]]:
+        """Bulk-delete media files owned by ``actor``.
+
+        Reuses the single-delete ownership rule: only media whose ``user_id``
+        matches the actor are deleted. IDs that are not found or are owned by
+        another user are returned in ``failed`` rather than aborting the batch.
+        Underlying storage objects are best-effort deleted via ``delete_file``.
+        """
+        from app.schemas.storage import BatchDeleteResponse
+
+        deleted: list[str] = []
+        failed: list[str] = []
+
+        if not media_ids:
+            return BatchDeleteResponse(deleted=deleted, failed=failed).model_dump()
+
+        # Deduplicate while preserving order.
+        unique_ids: list[str] = []
+        seen: set[str] = set()
+        for mid in media_ids:
+            if mid not in seen:
+                seen.add(mid)
+                unique_ids.append(mid)
+
+        stmt = select(MediaFile).where(
+            MediaFile.id.in_(unique_ids),
+            MediaFile.user_id == actor.id,
+        )
+        result = await db.execute(stmt)
+        owned = {m.id: m for m in result.scalars().all()}
+
+        owned_set = set(owned.keys())
+        # Requested but not owned/found → failed (preserve input order).
+        for mid in unique_ids:
+            if mid not in owned_set:
+                failed.append(mid)
+
+        for mid, media in owned.items():
+            file_path: str | None = media.storage_path
+            if not file_path and media.filename:
+                file_path = (
+                    f"{media.folder}/{media.filename}" if media.folder else media.filename
+                )
+            if file_path:
+                bucket_name = media.bucket_name if media.bucket_name else None
+                try:
+                    self.delete_file(file_path, bucket_name=bucket_name)
+                except Exception as e:  # noqa: BLE001
+                    logger.error("Storage deletion failed for media %s: %s", mid, e)
+            await db.delete(media)
+            deleted.append(mid)
+
+        await db.flush()
+        return BatchDeleteResponse(deleted=deleted, failed=failed).model_dump()
 
 
 storage_service = StorageService()

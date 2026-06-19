@@ -18,12 +18,13 @@ from app.services.pm_assignments import set_owner_relationship_manager
 router = APIRouter()
 
 
-@router.post("", response_model=OwnerRMAssignmentResponse)
+@router.post("", response_model=OwnerRMAssignmentResponse, summary="Assign RM to owner")
 async def create_rm_assignment(
     payload: OwnerRMAssignmentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Assign RM to owner."""
     owner_user_id = payload.owner_user_id
     if current_user.role == UserRole.user.value:
         owner_user_id = current_user.id
@@ -51,13 +52,14 @@ async def create_rm_assignment(
     )
 
 
-@router.patch("/{owner_user_id}", response_model=OwnerRMAssignmentResponse)
+@router.patch("/{owner_user_id}", response_model=OwnerRMAssignmentResponse, summary="Update RM assignment")
 async def update_rm_assignment(
     owner_user_id: int,
     payload: OwnerRMAssignmentUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update RM assignment."""
     owner = await set_owner_relationship_manager(
         db,
         owner_user_id=owner_user_id,

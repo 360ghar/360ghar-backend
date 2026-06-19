@@ -8,7 +8,6 @@ import pytest
 
 from app.core.exceptions import InsufficientPermissionsError, NotFoundException
 from app.models.enums import DocumentType, UserRole
-from app.models.pm_documents import Document
 from app.models.users import User
 from app.services.pm_documents import assert_can_access_document, create_document
 

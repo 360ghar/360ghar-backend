@@ -10,8 +10,10 @@ from apscheduler.triggers.cron import CronTrigger
 from fastapi import FastAPI
 
 from app.config import settings
+from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
 from app.infrastructure.scheduler import get_scheduler
+from app.services.blog import publish_scheduled_posts
 from app.services.blog_auto_publish import DailyPerplexityBlogPublisher
 
 logger = get_logger(__name__)
@@ -34,6 +36,19 @@ def start_auto_blog_publish_scheduler(app: FastAPI) -> None:
 
     async def _job_wrapper() -> None:
         try:
+            # Publish any scheduled posts whose scheduled_at has passed.
+            try:
+                async with AsyncSessionLocalBG() as session:
+                    async with session.begin():
+                        published_count = await publish_scheduled_posts(session)
+                        if published_count:
+                            logger.info(
+                                "Auto-published scheduled blog posts",
+                                extra={"count": published_count},
+                            )
+            except Exception as sched_exc:  # noqa: BLE001
+                logger.error("Scheduled blog publish step failed: %s", sched_exc, exc_info=True)
+
             stats = await publisher.publish_daily_posts()
             logger.info("Auto blog publish job completed", extra=stats)
         except Exception as exc:  # noqa: BLE001

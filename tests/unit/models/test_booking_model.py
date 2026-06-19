@@ -2,10 +2,8 @@
 Tests for app.models.bookings module — Booking model.
 """
 
-import pytest
 
 from app.models.bookings import Booking
-from app.models.enums import BookingStatus, PaymentStatus
 
 
 class TestBookingModel:

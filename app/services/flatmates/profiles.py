@@ -385,12 +385,24 @@ async def list_catalogs(db: AsyncSession) -> list[AppCatalog]:
     return list(result.scalars().all())
 
 
-async def list_flatmates_notifications(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_flatmates_notifications(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     user = await db.get(User, user_id)
     if user is None:
         raise BadRequestException(detail="User not found")
-    rows, _next, _total = await list_notifications_for_user(user.supabase_user_id, cursor_payload={}, limit=50)
-    return [_serialize_flatmate_notification(row) for row in rows]
+    rows, next_payload, total = await list_notifications_for_user(
+        user.supabase_user_id,
+        cursor_payload=cursor_payload or {},
+        limit=limit,
+        with_total=with_total,
+    )
+    return [_serialize_flatmate_notification(row) for row in rows], next_payload, total
 
 
 async def mark_flatmates_notification_read(
