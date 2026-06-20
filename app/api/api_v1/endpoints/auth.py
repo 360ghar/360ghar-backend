@@ -12,13 +12,12 @@ state-machine:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.config import settings
-from app.schemas.common import MessageResponse
 from app.core.auth import AuthFailureReason, _is_failure, admin_link_identity
 from app.core.database import get_db
 from app.core.exceptions import BadRequestException, RateLimitException, ServiceUnavailableException
@@ -26,6 +25,7 @@ from app.core.logging import get_logger
 from app.middleware.rate_limit import EndpointRateLimiter
 from app.models.enums import AuthMethod
 from app.models.users import User
+from app.schemas.common import MessageResponse
 from app.services.user import delete_user_account, get_identifier_status, set_last_auth_method
 
 logger = get_logger(__name__)

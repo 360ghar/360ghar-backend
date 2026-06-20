@@ -14,6 +14,7 @@ from app.models.enums import LeaseStatus
 from app.models.pm_finance import RentPayment
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.schemas.pagination import encode_cursor, offset_payload, read_offset
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_lease
 
@@ -30,7 +31,7 @@ async def compute_rent_due_items(
     owner_ids: list[int] | None = None,
     property_id: int | None = None,
     overdue_only: bool = False,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
 ) -> dict:
     """Compute rent-due items from active leases.
@@ -39,7 +40,9 @@ async def compute_rent_due_items(
     overdue status.
     """
     limit = min(max(1, limit), 100)
-    offset = (page - 1) * limit
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
     today = utc_now().date()
 
     stmt = select(Lease).where(Lease.status == LeaseStatus.active)
@@ -104,11 +107,14 @@ async def compute_rent_due_items(
     total_due = sum(i["monthly_rent"] for i in items if i["is_due"])
     overdue_count = sum(1 for i in items if i["is_overdue"])
 
+    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+
     return {
         "items": items,
         "total_due": total_due,
         "overdue_count": overdue_count,
-        "page": page,
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "limit": limit,
     }
 
@@ -175,11 +181,14 @@ async def get_rent_history(
     db: AsyncSession,
     *,
     tenant_user_id: int,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
 ) -> dict:
     """Get rent payment history for a tenant."""
     limit = min(max(1, limit), 100)
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
 
     lease_ids_result = await db.execute(
         select(Lease.id).where(Lease.tenant_user_id == tenant_user_id)
@@ -191,11 +200,11 @@ async def get_rent_history(
             "payments": [],
             "total": 0,
             "total_collected": 0,
-            "page": page,
+            "next_cursor": None,
+            "has_more": False,
             "limit": limit,
         }
 
-    offset = (page - 1) * limit
     stmt = (
         select(RentPayment)
         .where(RentPayment.lease_id.in_(lease_ids))
@@ -220,10 +229,13 @@ async def get_rent_history(
 
     total_collected = sum(float(p.get("amount") or 0) for p in items)
 
+    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+
     return {
         "payments": items,
         "total": len(items),
         "total_collected": total_collected,
-        "page": page,
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "limit": limit,
     }

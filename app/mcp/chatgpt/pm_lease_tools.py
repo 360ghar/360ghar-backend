@@ -18,6 +18,7 @@ from app.mcp.chatgpt.response_formatter import (
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
 from app.models.enums import LeaseStatus
+from app.schemas.pagination import decode_cursor, encode_cursor
 
 logger = get_logger(__name__)
 
@@ -43,6 +44,7 @@ LEASE_MANAGEMENT_META = build_widget_tool_meta(
 async def owner_leases_list(
     property_id: int | None = None,
     status: str | None = None,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List leases for the authenticated owner's properties."""
@@ -50,6 +52,7 @@ async def owner_leases_list(
         from app.services.pm_leases import list_leases
 
         limit = min(max(1, limit), 50)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -64,13 +67,13 @@ async def owner_leases_list(
             lease_status = LeaseStatus(status) if status else None
 
             # Get leases for owner's properties (cursor-based pagination)
-            rows, _next_payload, _total = await list_leases(
+            rows, next_payload, _total = await list_leases(
                 db,
                 actor=user,
                 owner_id=user.id,
                 property_id=property_id,
                 status=lease_status,
-                cursor_payload={},
+                cursor_payload=cursor_payload,
                 limit=limit,
             )
 
@@ -88,6 +91,8 @@ async def owner_leases_list(
                 data={
                     "leases": serialized,
                     "count": len(serialized),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
                     "stats": {
                         "active_leases": active_count,

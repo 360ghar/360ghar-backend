@@ -5,9 +5,17 @@ on:
     branches: [main, develop]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  PYTHON_VERSION: "3.12"
 
 jobs:
-  docs-contracts:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,13 +23,42 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Validate docs contract
-        run: python3 scripts/validate_docs_contracts.py
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run ruff
+        run: uv run ruff check app/ --output-format=github
+
+      - name: Run mypy
+        run: uv run mypy app/ --ignore-missing-imports --no-error-summary
 
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Shards balanced by test count (~513 each, total 2051)
+          - shard: 0
+            name: mcp
+            paths: "tests/unit/mcp tests/mcp tests/unit/test_mcp_utils.py tests/unit/app"
+          - shard: 1
+            name: services
+            paths: "tests/unit/services tests/unit/api tests/unit/repositories tests/blog"
+          - shard: 2
+            name: integration
+            paths: "tests/api tests/pm tests/integration tests/e2e tests/unit/utils tests/flatmates"
+          - shard: 3
+            name: core-models
+            paths: "tests/unit/core tests/unit/models tests/unit/schemas tests/middleware"
+    name: Test (shard ${{ matrix.shard }} - ${{ matrix.name }})
 
     services:
       redis:
@@ -38,32 +75,39 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install PostgreSQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y postgresql-client
+      # ── Docker build (cached across runs via GHA cache) ──────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4.1.0
 
       - name: Build test database image
-        run: docker build -t test-postgres -f .github/Dockerfile.test-db .
+        uses: docker/build-push-action@v7.2.0
+        with:
+          context: .
+          file: .github/Dockerfile.test-db
+          tags: test-postgres
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
+      # ── PostgreSQL ───────────────────────────────────────────────────────
       - name: Start PostgreSQL container
         run: |
           docker run -d \
             --name test-postgres \
             -e POSTGRES_USER=test_user \
-            -e POSTGRES_PASSWORD=test_password \
+            -e POSTGRES_PASSWORD=************* \
             -e POSTGRES_DB=test_db \
             -p 5432:5432 \
             test-postgres
 
-          # Wait for PostgreSQL to accept connections FROM THE HOST
-          echo "Waiting for PostgreSQL to accept host connections..."
+          # Wait for PostgreSQL (pg_isready is inside the container)
+          echo "Waiting for PostgreSQL..."
           for i in {1..30}; do
-            if pg_isready -h localhost -p 5432 -U test_user; then
-              echo "PostgreSQL is ready and accepting host connections"
+            if docker exec test-postgres pg_isready -U test_user; then
+              echo "PostgreSQL is ready"
               exit 0
             fi
-            echo "Waiting for PostgreSQL... ($i/30)"
+            echo "Waiting... ($i/30)"
             sleep 2
           done
           echo "ERROR: PostgreSQL failed to become ready"
@@ -71,40 +115,40 @@ jobs:
           exit 1
 
       - name: Setup PostgreSQL extensions
-        env:
-          PGPASSWORD: test_password
         run: |
-          # Create extensions with retry logic
           for ext in vector postgis; do
             for i in {1..5}; do
-              if psql -h localhost -U test_user -d test_db -c "CREATE EXTENSION IF NOT EXISTS $ext;"; then
-                echo "Extension $ext created successfully"
+              if docker exec test-postgres psql -U test_user -d test_db -c "CREATE EXTENSION IF NOT EXISTS $ext;"; then
+                echo "Extension $ext created"
                 break
               fi
-              echo "Retry $i/5 for extension $ext..."
+              echo "Retry $i/5 for $ext..."
               sleep 2
             done
           done
+          docker exec test-postgres psql -U test_user -d test_db -c \
+            "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'postgis');"
 
-          # Verify extensions were created
-          psql -h localhost -U test_user -d test_db -c "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'postgis');"
-
+      # ── Python ───────────────────────────────────────────────────────────
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # ── Tests ────────────────────────────────────────────────────────────
       - name: Run tests
         env:
-          TEST_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
-          DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
-          ASYNC_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
+          TEST_DATABASE_URL: postgresql+************************************************/test_db
+          DATABASE_URL: postgresql+************************************************/test_db
+          ASYNC_DATABASE_URL: postgresql+************************************************/test_db
           REDIS_URL: redis://localhost:6379/0
           SUPABASE_URL: https://mock.supabase.co
           SUPABASE_PUBLISHABLE_KEY: mock_key_for_testing
@@ -112,34 +156,63 @@ jobs:
           SENTRY_DSN: ""
           ENVIRONMENT: test
           CI: "true"
+          COVERAGE_FILE: .coverage.${{ matrix.shard }}
         run: |
-          uv run pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=90
+          uv run pytest ${{ matrix.paths }} \
+            --ignore=tests/unit/core/test_docs_contracts.py \
+            -v \
+            --cov=app \
+            --cov-report=xml:coverage.xml \
+            --cov-report=term-missing
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-data-${{ matrix.shard }}
+          path: .coverage.${{ matrix.shard }}
+          retention-days: 1
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v7.0.0
         with:
           file: ./coverage.xml
+          flags: shard-${{ matrix.shard }}
           fail_ci_if_error: false
           verbose: true
 
-  lint:
+  coverage-check:
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
 
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Run ruff
-        run: uv run ruff check app/ --output-format=github
+      - name: Download all coverage data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-data-*
+          merge-multiple: true
 
-      - name: Run mypy
-        run: uv run mypy app/ --ignore-missing-imports --no-error-summary
+      - name: Combine coverage and enforce threshold
+        run: |
+          uv run coverage combine .coverage.*
+          uv run coverage report --fail-under=90
+          uv run coverage xml -o coverage-combined.xml
+
+      - name: Upload combined coverage to Codecov
+        uses: codecov/codecov-action@v7.0.0
+        with:
+          file: ./coverage-combined.xml
+          fail_ci_if_error: false

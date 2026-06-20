@@ -41,6 +41,7 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                     if not testing:
                         await _initialize_cache()
                         await _apply_pending_migrations()
+                        await _verify_database_ready()
                         await _prewarm_supabase_dns()
                         _register_scheduler_jobs(app)
                         start_scheduler()
@@ -107,6 +108,41 @@ async def _initialize_cache() -> None:
         await initialize_cache()
     except Exception as cache_e:
         logger.warning("Cache connection skipped/failed: %s", cache_e)
+
+
+async def _verify_database_ready() -> None:
+    """Probe the database before accepting requests.
+
+    Ensures the connection pool can check out a connection and execute a
+    simple query. Logs a warning (but does not block startup) if the probe
+    fails after retries, so the app can still start in degraded mode.
+    """
+    from sqlalchemy import text
+
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with asyncio.timeout(5):
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+            logger.info("Database readiness check passed (attempt %d)", attempt)
+            return
+        except Exception as exc:
+            if attempt < max_attempts:
+                logger.warning(
+                    "Database readiness check failed (attempt %d/%d): %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                await asyncio.sleep(1.0 * attempt)
+            else:
+                logger.error(
+                    "Database readiness check failed after %d attempts: %s. "
+                    "App will start but requests may fail.",
+                    max_attempts,
+                    exc,
+                )
 
 
 async def _prewarm_supabase_dns() -> None:

@@ -27,6 +27,7 @@ from app.mcp.admin.agent_tools.common import (
     utc_now,
 )
 from app.models.enums import UserRole
+from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload, read_offset
 
 
 @admin_mcp.tool(
@@ -43,7 +44,7 @@ async def agent_leases_list(
     owner_id: int | None = None,
     property_id: int | None = None,
     status: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List leases for managed properties.
@@ -52,7 +53,7 @@ async def agent_leases_list(
         owner_id: Filter by owner
         property_id: Filter by property
         status: Filter by status (draft, active, expired, terminated)
-        page: Page number
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page
     """
     try:
@@ -62,6 +63,8 @@ async def agent_leases_list(
         from app.models.pm_leases import Lease
 
         limit = min(max(1, limit), 100)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
+        offset = read_offset(cursor_payload)
 
         async for db in get_db():
             user = await _get_user(db)
@@ -111,17 +114,18 @@ async def agent_leases_list(
             count_stmt = select(func.count()).select_from(stmt.subquery())
             total = (await db.execute(count_stmt)).scalar() or 0
 
-            offset = (page - 1) * limit
             stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
 
             result = await db.execute(stmt)
             leases = result.scalars().all()
 
             items = [serialize_lease(lease) for lease in leases]
+            next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
 
             return MCPResponse.success({
                 "total": total,
-                "page": page,
+                "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                "has_more": next_payload is not None,
                 "limit": limit,
                 "leases": items,
             }).model_dump()

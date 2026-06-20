@@ -24,6 +24,11 @@ from app.mcp.chatgpt.response_formatter import (
     format_property_detail_summary,
     format_property_list_summary,
 )
+from app.mcp.tool_ops.search_ops import (
+    build_empty_result_message,
+    normalize_city,
+    parse_natural_query,
+)
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
@@ -32,7 +37,9 @@ from app.mcp.utils import (
     serialize_property_basic,
     serialize_property_full,
 )
-from app.schemas.property import PropertyPurpose, PropertySwipe, PropertyType, UnifiedPropertyFilter
+from app.models.enums import PropertyPurpose, PropertyType
+from app.schemas.pagination import decode_cursor, encode_cursor
+from app.schemas.property import PropertySwipe, UnifiedPropertyFilter
 
 logger = get_logger(__name__)
 
@@ -103,7 +110,7 @@ async def discovery_search(
     amenities: list[str] | None = None,
     city: str | None = None,
     locality: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """Search properties with comprehensive filtering.
@@ -127,7 +134,7 @@ async def discovery_search(
         amenities: List of required amenity names
         city: Filter by city name
         locality: Filter by locality/neighborhood
-        page: Page number (default 1)
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Results per page (max 50)
 
     Returns:
@@ -138,21 +145,72 @@ async def discovery_search(
 
         # Validate and clamp limit
         limit = min(max(1, limit), 50)
-        page = max(1, page)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
+
+        # Coerce amenities from string to list (MCP clients may send "wifi,pool" as a string)
+        if isinstance(amenities, str):
+            amenities = [a.strip() for a in amenities.split(",") if a.strip()]
+        elif amenities is not None and not isinstance(amenities, list):
+            amenities = [str(amenities)]
+
+        # Apply city alias normalization
+        if city:
+            city = normalize_city(city)
+
+        # Parse natural language query into structured filters
+        parsed_query: dict[str, Any] = {}
+        if query:
+            parsed_query = parse_natural_query(query)
+            # Merge parsed filters with explicit parameters (explicit params take precedence)
+            if "bedrooms" in parsed_query:
+                # BHK queries like "3BHK" should return exactly N-bedroom properties
+                if bedrooms_min is None:
+                    bedrooms_min = parsed_query["bedrooms"]
+                if bedrooms_max is None:
+                    bedrooms_max = parsed_query["bedrooms"]
+            if price_max is None and "price_max" in parsed_query:
+                price_max = parsed_query["price_max"]
+            if price_min is None and "price_min" in parsed_query:
+                price_min = parsed_query["price_min"]
+            if city is None and "city" in parsed_query:
+                city = parsed_query["city"]
+            if property_type is None and "property_types" in parsed_query:
+                property_type = parsed_query["property_types"][0]
+            if purpose is None and "purpose" in parsed_query:
+                purpose = parsed_query["purpose"]
+            # Use cleaned query for FTS if available
+            if parsed_query.get("cleaned_query"):
+                query = parsed_query["cleaned_query"]
 
         async with AsyncSessionLocal() as db:
             # Get optional user for personalization
             user = await _get_optional_user(db)
             user_id = user.id if user else None
 
-            # Build filter object
+            # Build filter object with validated enums
             purpose_val: PropertyPurpose | None = None
             if purpose:
-                purpose_val = PropertyPurpose(purpose)
+                try:
+                    purpose_val = PropertyPurpose(purpose)
+                except ValueError:
+                    valid = [e.value for e in PropertyPurpose]
+                    return format_chatgpt_response(
+                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
+                        widget_uri=get_widget_for_tool("discovery_search"),
+                    )
 
             property_type_val: list[PropertyType] | None = None
             if property_type:
-                property_type_val = [PropertyType(property_type)]
+                try:
+                    property_type_val = [PropertyType(property_type)]
+                except ValueError:
+                    valid = [e.value for e in PropertyType]
+                    return format_chatgpt_response(
+                        data={"error": True, "message": f"Invalid property_type: '{property_type}'. Valid values: {valid}"},
+                        content_summary=f"Invalid property type '{property_type}'. Valid options are: {', '.join(valid)}.",
+                        widget_uri=get_widget_for_tool("discovery_search"),
+                    )
 
             filters = UnifiedPropertyFilter(
                 search_query=query,
@@ -171,12 +229,13 @@ async def discovery_search(
             )
 
             # Execute search
-            rows, _next, total_count = await get_unified_properties_optimized(
+            rows, next_payload, total_count = await get_unified_properties_optimized(
                 db,
                 filters=filters,
                 user_id=user_id,
-                cursor_payload={},
+                cursor_payload=cursor_payload,
                 limit=limit,
+                with_total=True,
             )
 
             # Serialize properties
@@ -198,15 +257,22 @@ async def discovery_search(
                 }.items() if v is not None
             }
 
+            # Provide helpful message when no results found
+            if total == 0:
+                content_summary = build_empty_result_message(filters_applied, city=city)
+            else:
+                content_summary = format_property_list_summary(properties, total, filters_applied)
+
             return format_chatgpt_response(
                 data={
                     "properties": properties,
                     "total": total,
-                    "page": page,
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
                     "filters_applied": filters_applied,
                 },
-                content_summary=format_property_list_summary(properties, total, filters_applied),
+                content_summary=content_summary,
                 meta={
                     "search_center": {"latitude": latitude, "longitude": longitude} if latitude and longitude else None,
                 },
@@ -334,7 +400,15 @@ async def discovery_feed(
             # Build filters
             purpose_val: PropertyPurpose | None = None
             if purpose:
-                purpose_val = PropertyPurpose(purpose)
+                try:
+                    purpose_val = PropertyPurpose(purpose)
+                except ValueError:
+                    valid = [e.value for e in PropertyPurpose]
+                    return format_chatgpt_response(
+                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
+                        widget_uri=get_widget_for_tool("discovery_feed"),
+                    )
 
             filters = UnifiedPropertyFilter(
                 latitude=latitude,
@@ -512,7 +586,7 @@ async def discovery_swipe(
     meta=SHORTLIST_META,
 )
 async def discovery_shortlist(
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """Get the user's shortlisted (liked) properties.
@@ -522,7 +596,7 @@ async def discovery_shortlist(
     This tool requires authentication.
 
     Args:
-        page: Page number for pagination
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Results per page (max 50)
 
     Returns:
@@ -532,7 +606,7 @@ async def discovery_shortlist(
         from app.services.swipe import get_swipe_history
 
         limit = min(max(1, limit), 50)
-        page = max(1, page)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -545,11 +619,11 @@ async def discovery_shortlist(
 
             # Get liked properties
             filters = UnifiedPropertyFilter()
-            swipes, _next, total_count = await get_swipe_history(
+            swipes, next_payload, total_count = await get_swipe_history(
                 db,
                 user_id=user.id,
                 filters=filters,
-                cursor_payload={},
+                cursor_payload=cursor_payload,
                 limit=limit,
                 is_liked=True,  # Only liked properties
                 with_total=True,
@@ -569,9 +643,9 @@ async def discovery_shortlist(
                 data={
                     "properties": properties,
                     "total": total,
-                    "page": page,
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
-                    "total_pages": None,
                 },
                 content_summary=f"You have {total} properties in your shortlist. Showing {len(properties)} on this page.",
                 widget_uri=get_widget_for_tool("discovery_shortlist"),

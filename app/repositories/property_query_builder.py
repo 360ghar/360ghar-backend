@@ -103,8 +103,14 @@ class PropertyQueryBuilder:
             conditions.append(Property.area_sqft <= f.area_max)
 
         # --- city / locality / pincode ---
+        # Normalize city via alias map, then filtered LIKE so properties like
+        # "New Delhi" still match a search for "Delhi", while "Gurugram" does
+        # NOT match a search for "Delhi".
         if f.city:
-            conditions.append(Property.city.ilike(f"%{f.city}%"))
+            from app.utils.geo import normalize_city
+
+            normalized_city = normalize_city(f.city)
+            conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
         if f.locality:
             conditions.append(Property.locality.ilike(f"%{f.locality}%"))
         if f.pincode:

@@ -103,7 +103,19 @@ def format_property_list_summary(
         Human-readable summary string.
     """
     if not properties:
-        return "No properties found matching your criteria."
+        parts = ["No properties found matching your criteria."]
+        if filters:
+            suggestions = []
+            if filters.get("city"):
+                suggestions.append("try searching without the city filter")
+            if filters.get("price_min") or filters.get("price_max"):
+                suggestions.append("try widening the price range")
+            if filters.get("property_type"):
+                suggestions.append("try a different property type")
+            if suggestions:
+                parts.append("Suggestions: " + "; ".join(suggestions) + ".")
+        parts.append("360Ghar is expanding to new areas. Check back soon for more listings.")
+        return " ".join(parts)
 
     # Extract price range
     prices: list[float] = [
@@ -114,7 +126,7 @@ def format_property_list_summary(
     if prices:
         min_price = min(prices)
         max_price = max(prices)
-        price_range = f"₹{_format_price(min_price)} to ₹{_format_price(max_price)}"
+        price_range = f"₹{format_price(min_price)} to ₹{format_price(max_price)}"
     else:
         price_range = "various prices"
 
@@ -161,9 +173,9 @@ def format_property_detail_summary(property_data: dict[str, Any]) -> str:
     purpose = property_data.get("purpose", "")
     if price:
         if purpose == "rent" or property_data.get("monthly_rent"):
-            price_str = f"₹{_format_price(price)}/month"
+            price_str = f"₹{format_price(price, is_monthly_rent=True)}/month"
         else:
-            price_str = f"₹{_format_price(price)}"
+            price_str = f"₹{format_price(price)}"
     else:
         price_str = "Price on request"
 
@@ -212,8 +224,14 @@ def format_visits_list_summary(visits: list[dict[str, Any]], counts: dict[str, i
     return f"You have {total} visits: {', '.join(parts)}."
 
 
-def _format_price(price: int | float) -> str:
-    """Format price in Indian numbering system (lakhs/crores)."""
+def format_price(price: int | float, *, is_monthly_rent: bool = False) -> str:
+    """Format price in Indian numbering system (lakhs/crores).
+
+    For monthly rent amounts, uses plain comma-separated formatting since
+    lakh/crore notation is uncommon for recurring monthly payments.
+    """
+    if is_monthly_rent:
+        return f"{price:,.0f}"
     if price >= 10000000:  # 1 crore
         return f"{price / 10000000:.2f} Cr"
     elif price >= 100000:  # 1 lakh
@@ -247,7 +265,7 @@ def format_lease_list_summary(
     if total == 0:
         return "You don't have any leases for your properties."
 
-    return f"You have {total} leases ({active} active) generating ₹{_format_price(monthly_rent)}/month in rent."
+    return f"You have {total} leases ({active} active) generating ₹{format_price(monthly_rent, is_monthly_rent=True)}/month in rent."
 
 
 def format_rent_status_summary(
@@ -270,7 +288,7 @@ def format_rent_status_summary(
     if total_due == 0:
         return "All rent is current. No outstanding balances."
 
-    summary = f"Rent status: ₹{_format_price(total_paid)} collected, ₹{_format_price(total_due)} outstanding."
+    summary = f"Rent status: ₹{format_price(total_paid, is_monthly_rent=True)} collected, ₹{format_price(total_due, is_monthly_rent=True)} outstanding."
     if overdue > 0:
         summary += f" {overdue} overdue charges require attention."
     return summary
@@ -330,7 +348,7 @@ def format_dashboard_summary(dashboard: dict[str, Any]) -> str:
 
     if expected > 0:
         collection_rate = (collected / expected * 100) if expected else 0
-        parts.append(f"₹{_format_price(collected)}/₹{_format_price(expected)} rent collected ({collection_rate:.0f}%)")
+        parts.append(f"₹{format_price(collected, is_monthly_rent=True)}/₹{format_price(expected, is_monthly_rent=True)} rent collected ({collection_rate:.0f}%)")
 
     if open_maint > 0:
         parts.append(f"{open_maint} open maintenance requests")
@@ -356,7 +374,7 @@ def format_tenant_rent_dues_summary(
     if total_due == 0:
         return "Your rent is up to date! No outstanding payments."
 
-    summary = f"You have ₹{_format_price(total_due)} in outstanding rent."
+    summary = f"You have ₹{format_price(total_due, is_monthly_rent=True)} in outstanding rent."
     if overdue_count > 0:
         summary += f" {overdue_count} payment(s) are overdue. Please pay as soon as possible."
     return summary

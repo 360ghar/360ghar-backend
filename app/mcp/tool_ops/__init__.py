@@ -52,6 +52,11 @@ from app.mcp.tool_ops.rent import (
     get_rent_history,
     record_rent_payment,
 )
+from app.mcp.tool_ops.search_ops import (
+    build_empty_result_message,
+    normalize_city,
+    parse_natural_query,
+)
 
 __all__ = [
     # Shared error codes
@@ -89,4 +94,8 @@ __all__ = [
     "list_user_bookings",
     # Dashboard
     "compute_dashboard_metrics",
+    # Search helpers
+    "build_empty_result_message",
+    "normalize_city",
+    "parse_natural_query",
 ]

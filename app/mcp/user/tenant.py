@@ -35,6 +35,7 @@ from app.mcp.tool_ops import (
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
 
@@ -112,10 +113,15 @@ async def tenant_lease_current() -> dict[str, Any]:
     meta=TENANT_RENT_WIDGET_META,
 )
 async def tenant_rent_history(
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
-    """Get rent payment history for the tenant."""
+    """Get rent payment history for the tenant.
+
+    Args:
+        cursor: Opaque pagination cursor from a prior response's next_cursor
+        limit: Items per page (default 20)
+    """
     try:
         limit = min(max(1, limit), 100)
 
@@ -128,10 +134,11 @@ async def tenant_rent_history(
                     scope="mcp:read",
                 )
 
+            cursor_payload = decode_cursor(cursor) if cursor else None
             result = await get_rent_history(
                 db,
                 tenant_user_id=user.id,
-                page=page,
+                cursor_payload=cursor_payload,
                 limit=limit,
             )
 
@@ -235,14 +242,14 @@ async def tenant_maintenance_create(
     meta=MAINTENANCE_WIDGET_META,
 )
 async def tenant_maintenance_list(
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
     status: str | None = None,
 ) -> dict[str, Any]:
     """List maintenance requests submitted by the tenant.
 
     Args:
-        page: Page number (default 1)
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page (default 20)
         status: Filter by status (open, in_progress, scheduled, completed, cancelled)
     """
@@ -258,10 +265,11 @@ async def tenant_maintenance_list(
                     scope="mcp:read",
                 )
 
+            cursor_payload = decode_cursor(cursor) if cursor else None
             result = await list_maintenance_requests(
                 db,
                 tenant_user_id=user.id,
-                page=page,
+                cursor_payload=cursor_payload,
                 limit=limit,
                 status=status,
             )

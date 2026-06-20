@@ -30,9 +30,9 @@ interface MaintenanceRequest {
 interface MaintenanceListOutput {
   items?: MaintenanceRequest[];
   total?: number;
-  page?: number;
+  next_cursor?: string | null;
+  has_more?: boolean;
   limit?: number;
-  total_pages?: number;
   error?: boolean;
   message?: string;
   requires_auth?: boolean;
@@ -112,6 +112,7 @@ function MaintenanceWidget() {
   const [description, setDescription] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
 
   const view = widgetState?.view || 'list';
   const createdRequest = widgetState?.createdRequest;
@@ -408,6 +409,16 @@ function MaintenanceWidget() {
   // List view
   const requests = data.items || [];
 
+  const handleLoadMore = async () => {
+    if (loadingMore || !data.has_more || !data.next_cursor) return;
+    setLoadingMore(true);
+    try {
+      await callTool('tenant.maintenance.list', { cursor: data.next_cursor });
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   return (
     <div style={{
       backgroundColor: colors.background,
@@ -443,69 +454,94 @@ function MaintenanceWidget() {
           </Button>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {requests.map((request) => (
-            <Card key={request.id} padding="md">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <span style={{
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    textTransform: 'uppercase',
-                    backgroundColor: `${getStatusColor(request.status, colors)}20`,
-                    color: getStatusColor(request.status, colors),
-                  }}>
-                    {request.status.replace('_', ' ')}
-                  </span>
-                  <span style={{
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    backgroundColor: `${getPriorityColor(request.priority)}20`,
-                    color: getPriorityColor(request.priority),
-                  }}>
-                    {request.priority}
+        <>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {requests.map((request) => (
+              <Card key={request.id} padding="md">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      textTransform: 'uppercase',
+                      backgroundColor: `${getStatusColor(request.status, colors)}20`,
+                      color: getStatusColor(request.status, colors),
+                    }}>
+                      {request.status.replace('_', ' ')}
+                    </span>
+                    <span style={{
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      backgroundColor: `${getPriorityColor(request.priority)}20`,
+                      color: getPriorityColor(request.priority),
+                    }}>
+                      {request.priority}
+                    </span>
+                  </div>
+                  <span style={{ fontSize: 12, color: colors.textSecondary }}>
+                    {formatDate(request.created_at)}
                   </span>
                 </div>
-                <span style={{ fontSize: 12, color: colors.textSecondary }}>
-                  {formatDate(request.created_at)}
-                </span>
-              </div>
 
-              <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
-                {CATEGORIES.find((c) => c.value === request.category)?.icon} {request.title}
-              </h3>
-              <p style={{
-                fontSize: 13,
-                color: colors.textSecondary,
-                display: '-webkit-box',
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: 'vertical',
-                overflow: 'hidden',
-              }}>
-                {request.description}
-              </p>
-
-              {request.scheduled_date && (
-                <div style={{
-                  marginTop: 12,
-                  padding: 8,
-                  backgroundColor: colors.backgroundSecondary,
-                  borderRadius: 6,
+                <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>
+                  {CATEGORIES.find((c) => c.value === request.category)?.icon} {request.title}
+                </h3>
+                <p style={{
                   fontSize: 13,
+                  color: colors.textSecondary,
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
                 }}>
-                  <span style={{ color: colors.textSecondary }}>Scheduled: </span>
-                  <span style={{ fontWeight: 500 }}>{formatDate(request.scheduled_date)}</span>
-                  {request.vendor_name && (
-                    <span style={{ color: colors.textSecondary }}> with {request.vendor_name}</span>
-                  )}
-                </div>
-              )}
-            </Card>
-          ))}
-        </div>
+                  {request.description}
+                </p>
+
+                {request.scheduled_date && (
+                  <div style={{
+                    marginTop: 12,
+                    padding: 8,
+                    backgroundColor: colors.backgroundSecondary,
+                    borderRadius: 6,
+                    fontSize: 13,
+                  }}>
+                    <span style={{ color: colors.textSecondary }}>Scheduled: </span>
+                    <span style={{ fontWeight: 500 }}>{formatDate(request.scheduled_date)}</span>
+                    {request.vendor_name && (
+                      <span style={{ color: colors.textSecondary }}> with {request.vendor_name}</span>
+                    )}
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {data.has_more && data.next_cursor && (
+            <div style={{ marginTop: 20, textAlign: 'center' }}>
+              <button
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                style={{
+                  padding: '12px 24px',
+                  backgroundColor: colors.primary,
+                  color: '#3D3829',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: loadingMore ? 'not-allowed' : 'pointer',
+                  opacity: loadingMore ? 0.6 : 1,
+                }}
+              >
+                {loadingMore ? 'Loading...' : 'Load More'}
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

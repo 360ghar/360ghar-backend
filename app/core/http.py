@@ -72,7 +72,7 @@ def get_general_client() -> httpx.AsyncClient:
     """Shared HTTP client for misc outbound calls (image downloads, geocoding, etc.)."""
     global _general_client
     if _general_client is None or _general_client.is_closed:
-        _general_client = _make_client(timeout=60.0, max_connections=5, max_keepalive=2)
+        _general_client = _make_client(timeout=60.0, max_connections=20, max_keepalive=10)
     return _general_client
 
 

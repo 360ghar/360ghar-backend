@@ -145,9 +145,12 @@ async def get_swipe_history(
     if filters.area_max is not None:
         conditions.append(Property.area_sqft <= filters.area_max)
 
-    # Location filters
+    # Location filters — normalize city via alias map, then filtered LIKE
     if filters.city:
-        conditions.append(Property.city.ilike(f"%{filters.city}%"))
+        from app.utils.geo import normalize_city
+
+        normalized_city = normalize_city(filters.city)
+        conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
     if filters.locality:
         conditions.append(Property.locality.ilike(f"%{filters.locality}%"))
     if filters.pincode:

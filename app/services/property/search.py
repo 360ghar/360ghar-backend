@@ -275,28 +275,17 @@ async def get_unified_properties_optimized(
             query = query.add_columns(distance.label("distance_km"))
             has_additional_columns = True
 
-        # Text search using PostgreSQL full-text search with GIN index
+        # Text search using PostgreSQL full-text search with GIN index.
+        # Uses the pre-computed __ts_vector__ column (with weighted A/B/C ranking)
+        # instead of dynamically building to_tsvector at query time, so the GIN
+        # index is used and search_keywords are included.
         search_query_obj = None
         search_vector = None
         if filters.search_query:
             logger.debug("Adding full-text search filter: %s", filters.search_query)
 
-            # Use PostgreSQL full-text search - create search vector dynamically
-            # plainto_tsquery handles normalization and is safer for user input than to_tsquery
             search_query_obj = func.plainto_tsquery("english", filters.search_query)
-            # Use SQLAlchemy's proper text search functions to avoid SQL injection
-            search_vector = func.to_tsvector(
-                "english",
-                func.concat(
-                    Property.title,
-                    " ",
-                    Property.description,
-                    " ",
-                    Property.locality,
-                    " ",
-                    Property.city,
-                ),
-            )
+            search_vector = Property.__ts_vector__
             # Only hard-filter by text match when semantic search is not requested
             if not semantic_enabled:
                 conditions.append(search_vector.op("@@")(search_query_obj))
@@ -353,10 +342,15 @@ async def get_unified_properties_optimized(
             logger.debug("Adding max area filter: %s", filters.area_max)
             conditions.append(Property.area_sqft <= filters.area_max)
 
-        # Location filters
+        # Location filters — normalize via city alias map, then use filtered LIKE
+        # so properties like "New Delhi" still match a search for "Delhi",
+        # while "Gurugram" does NOT match a search for "Delhi".
         if filters.city:
-            logger.debug("Adding city filter: %s", filters.city)
-            conditions.append(Property.city.ilike(f"%{filters.city}%"))
+            from app.utils.geo import normalize_city
+
+            normalized_city = normalize_city(filters.city)
+            logger.debug("Adding city filter: %s (normalized from: %s)", normalized_city, filters.city)
+            conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
         if filters.locality:
             logger.debug("Adding locality filter: %s", filters.locality)
             conditions.append(Property.locality.ilike(f"%{filters.locality}%"))
@@ -395,11 +389,15 @@ async def get_unified_properties_optimized(
                 else:
                     amenity_names.append(amenity)
 
-            # Get amenity IDs from names if any
+            # Get amenity IDs from names if any — case-insensitive matching
             if amenity_names:
                 amenity_result = await execute_with_transient_retry(
                     db,
-                    lambda: db.execute(select(Amenity.id).where(Amenity.title.in_(amenity_names))),
+                    lambda: db.execute(
+                        select(Amenity.id).where(
+                            func.lower(Amenity.title).in_([n.lower() for n in amenity_names])
+                        )
+                    ),
                     operation_name="property_search_amenity_lookup",
                 )
                 amenity_ids.extend([row[0] for row in amenity_result.fetchall()])

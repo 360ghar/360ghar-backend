@@ -12,6 +12,7 @@ from app.mcp.utils import serialize_lease
 from app.models.enums import LeaseStatus
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.schemas.pagination import encode_cursor, offset_payload, read_offset
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_lease, assert_can_access_property
 from app.services.user import get_user_by_id
@@ -72,12 +73,15 @@ async def list_leases(
     owner_id: int | None = None,
     property_id: int | None = None,
     status: str | None = None,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
     accessible_owner_ids: list[int] | None = None,
 ) -> dict:
     """List leases with optional filters."""
     limit = min(max(1, limit), 100)
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
 
     stmt = select(Lease)
 
@@ -95,17 +99,20 @@ async def list_leases(
     if accessible_owner_ids is not None:
         stmt = stmt.where(Lease.owner_id.in_(accessible_owner_ids))
 
-    stmt = stmt.order_by(Lease.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
 
     result = await db.execute(stmt)
     leases = result.scalars().all()
 
     items = [serialize_lease(lease) for lease in leases]
 
+    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+
     return {
         "items": items,
         "total": len(items),
-        "page": page,
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "limit": limit,
     }
 

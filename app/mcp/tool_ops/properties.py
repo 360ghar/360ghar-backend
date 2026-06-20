@@ -23,6 +23,7 @@ from app.models.enums import LeaseStatus, PropertyPurpose, PropertyType
 from app.models.pm_leases import Lease
 from app.models.properties import PropertyAmenity
 from app.models.users import User as UserModel
+from app.schemas.pagination import encode_cursor
 from app.schemas.property import PropertyCreate
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_property
@@ -103,20 +104,22 @@ async def list_properties_enriched(
     owner_id: int,
     occupancy: str | None = None,
     q: str | None = None,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
 ) -> dict:
     """List managed properties with active-lease enrichment."""
     limit = min(max(1, limit), 100)
     actor_schema = _user_schema(actor)
+    if cursor_payload is None:
+        cursor_payload = {}
 
-    rows, _next, _total = await list_managed_properties(
+    rows, next_payload, _total = await list_managed_properties(
         db,
         actor=actor_schema,
         owner_id=owner_id,
         occupancy=occupancy,
         q=q,
-        cursor_payload={},
+        cursor_payload=cursor_payload,
         limit=limit,
     )
 
@@ -125,7 +128,8 @@ async def list_properties_enriched(
     return {
         "items": items,
         "total": len(items),
-        "page": page,
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "limit": limit,
         "stats": stats,
     }

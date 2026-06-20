@@ -39,9 +39,9 @@ interface Counts {
 interface VisitListOutput {
   visits?: Visit[];
   total?: number;
-  page?: number;
+  next_cursor?: string | null;
+  has_more?: boolean;
   limit?: number;
-  total_pages?: number;
   counts?: Counts;
   error?: boolean;
   message?: string;
@@ -93,6 +93,7 @@ function VisitListWidget() {
   const sendMessage = useSendMessage();
   const [filter, setFilter] = React.useState<'all' | 'upcoming' | 'completed' | 'cancelled'>('all');
   const [cancelling, setCancelling] = React.useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
 
   if (!data) {
     return (
@@ -156,6 +157,16 @@ function VisitListWidget() {
       await callTool('visits.list', {});
     } finally {
       setCancelling(null);
+    }
+  };
+
+  const handleLoadMore = async () => {
+    if (loadingMore || !data.has_more || !data.next_cursor) return;
+    setLoadingMore(true);
+    try {
+      await callTool('visits.list', { cursor: data.next_cursor });
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -326,34 +337,28 @@ function VisitListWidget() {
       )}
 
       {/* Pagination */}
-      {data.total_pages && data.total_pages > 1 && data.page && (
+      {data.has_more && data.next_cursor && (
         <div style={{
           marginTop: 20,
-          display: 'flex',
-          justifyContent: 'center',
-          gap: 8,
+          textAlign: 'center',
         }}>
-          {data.page > 1 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => callTool('visits.list', { page: data.page! - 1 })}
-            >
-              Previous
-            </Button>
-          )}
-          <span style={{ padding: '8px 12px', color: colors.textSecondary }}>
-            Page {data.page} of {data.total_pages}
-          </span>
-          {data.page < data.total_pages && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => callTool('visits.list', { page: data.page! + 1 })}
-            >
-              Next
-            </Button>
-          )}
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            style={{
+              padding: '12px 24px',
+              backgroundColor: colors.primary,
+              color: '#3D3829',
+              border: 'none',
+              borderRadius: 8,
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: loadingMore ? 'not-allowed' : 'pointer',
+              opacity: loadingMore ? 0.6 : 1,
+            }}
+          >
+            {loadingMore ? 'Loading...' : 'Load More'}
+          </button>
         </div>
       )}
     </div>
