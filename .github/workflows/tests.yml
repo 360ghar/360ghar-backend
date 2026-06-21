@@ -95,7 +95,7 @@ jobs:
           docker run -d \
             --name test-postgres \
             -e POSTGRES_USER=test_user \
-            -e POSTGRES_PASSWORD=************* \
+            -e POSTGRES_PASSWORD=test_password \
             -e POSTGRES_DB=test_db \
             -p 5432:5432 \
             test-postgres
@@ -116,16 +116,26 @@ jobs:
 
       - name: Setup PostgreSQL extensions
         run: |
+          failed=0
           for ext in vector postgis; do
+            ok=0
             for i in {1..5}; do
               if docker exec test-postgres psql -U test_user -d test_db -c "CREATE EXTENSION IF NOT EXISTS $ext;"; then
                 echo "Extension $ext created"
+                ok=1
                 break
               fi
               echo "Retry $i/5 for $ext..."
               sleep 2
             done
+            if [ "$ok" -eq 0 ]; then
+              echo "ERROR: Failed to create extension $ext after 5 retries"
+              failed=1
+            fi
           done
+          if [ "$failed" -eq 1 ]; then
+            exit 1
+          fi
           docker exec test-postgres psql -U test_user -d test_db -c \
             "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'postgis');"
 
@@ -146,9 +156,9 @@ jobs:
       # ── Tests ────────────────────────────────────────────────────────────
       - name: Run tests
         env:
-          TEST_DATABASE_URL: postgresql+************************************************/test_db
-          DATABASE_URL: postgresql+************************************************/test_db
-          ASYNC_DATABASE_URL: postgresql+************************************************/test_db
+          TEST_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
+          DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
+          ASYNC_DATABASE_URL: postgresql+psycopg://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
           SUPABASE_URL: https://mock.supabase.co
           SUPABASE_PUBLISHABLE_KEY: mock_key_for_testing

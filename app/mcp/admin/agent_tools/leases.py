@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.exceptions import (
+    BadRequestException,
     InsufficientPermissionsError,
     NotFoundException,
     PropertyNotFoundException,
@@ -120,7 +121,7 @@ async def agent_leases_list(
             leases = result.scalars().all()
 
             items = [serialize_lease(lease) for lease in leases]
-            next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+            next_payload = offset_payload(offset + len(items)) if offset + len(items) < total else None
 
             return MCPResponse.success({
                 "total": total,
@@ -131,6 +132,8 @@ async def agent_leases_list(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.leases.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list leases: {str(e)}")
@@ -250,6 +253,8 @@ async def agent_leases_create(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.leases.create: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create lease: {str(e)}")
@@ -339,6 +344,8 @@ async def agent_leases_terminate(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.leases.terminate: %s", e, exc_info=True)
         return internal_error_response(f"Failed to terminate lease: {str(e)}")

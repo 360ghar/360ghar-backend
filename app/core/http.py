@@ -9,9 +9,9 @@ Four domain-specific clients are provided:
 
 | Client                | Default timeout | Max connections | Keepalive | Used by                            |
 |-----------------------|-----------------|-----------------|-----------|------------------------------------|
-| scraper               | 30 s            | 10              | 3         | data-hub scrapers, jamabandi       |
+| scraper               | 60 s            | 10              | 3         | data-hub scrapers, jamabandi       |
 | blog                  | 120 s           | 5               | 2         | Perplexity, SerpAPI                |
-| general               | 30 s            | 5               | 2         | misc HTTP, image downloads         |
+| general               | 60 s            | 20              | 10        | misc HTTP, image downloads         |
 | supabase_auth_http    | 10 s            | 10              | 5         | verify_token, admin user ops       |
 
 Per-request ``timeout=`` overrides are supported — httpx applies the

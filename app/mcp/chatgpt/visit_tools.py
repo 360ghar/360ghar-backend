@@ -249,8 +249,12 @@ async def visits_list(
             page_counts = {"upcoming": 0, "completed": 0, "cancelled": 0}
             for v in all_visits:
                 s = _s(v)
-                if s in page_counts:
-                    page_counts[s] += 1
+                if s in ("scheduled", "confirmed", "rescheduled"):
+                    page_counts["upcoming"] += 1
+                elif s == "completed":
+                    page_counts["completed"] += 1
+                elif s == "cancelled":
+                    page_counts["cancelled"] += 1
 
             counts = {
                 "total": total_count if total_count is not None else len(rows),

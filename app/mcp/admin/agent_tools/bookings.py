@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.exceptions import BadRequestException
 from app.mcp.admin.agent_tools.common import (
     MCP_SECURITY_SCHEMES_MIXED,
     AuthRequiredError,
@@ -81,7 +82,7 @@ async def agent_bookings_list_all(
                 db,
                 cursor_payload=cursor_payload,
                 limit=limit,
-                with_total=True,
+                with_total=False,
                 status=status,
                 filter_agent_id=filter_agent_id,
                 property_id=property_id,
@@ -99,6 +100,8 @@ async def agent_bookings_list_all(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.bookings.list_all: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
@@ -167,6 +170,8 @@ async def agent_bookings_update_status(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.bookings.update_status: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update booking status: {str(e)}")

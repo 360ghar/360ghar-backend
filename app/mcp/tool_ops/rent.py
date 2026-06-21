@@ -107,7 +107,7 @@ async def compute_rent_due_items(
     total_due = sum(i["monthly_rent"] for i in items if i["is_due"])
     overdue_count = sum(1 for i in items if i["is_overdue"])
 
-    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+    next_payload = offset_payload(offset + len(leases)) if len(leases) >= limit else None
 
     return {
         "items": items,

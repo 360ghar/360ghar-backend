@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.exceptions import (
+    BadRequestException,
     InsufficientPermissionsError,
     NotFoundException,
 )
@@ -148,6 +149,8 @@ async def agent_rent_list_due(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.rent.list_due: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list due rent: {str(e)}")
@@ -256,6 +259,8 @@ async def agent_rent_record_payment(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.rent.record_payment: %s", e, exc_info=True)
         return internal_error_response(f"Failed to record payment: {str(e)}")

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.exceptions import (
+    BadRequestException,
     InsufficientPermissionsError,
 )
 from app.mcp.admin.agent_tools.common import (
@@ -64,7 +65,7 @@ async def agent_maintenance_list(
         from app.models.properties import Property
 
         limit = min(max(1, limit), 100)
-        cursor_payload = {} if cursor is None else decode_cursor(cursor)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
         offset = read_offset(cursor_payload)
 
         async for db in get_db():
@@ -132,6 +133,8 @@ async def agent_maintenance_list(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.maintenance.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
@@ -266,6 +269,8 @@ async def agent_maintenance_update_status(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.maintenance.update_status: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update maintenance request: {str(e)}")

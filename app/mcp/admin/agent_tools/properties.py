@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.exceptions import (
+    BadRequestException,
     InsufficientPermissionsError,
     PropertyNotFoundException,
 )
@@ -110,6 +111,8 @@ async def agent_properties_list(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.properties.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list properties: {str(e)}")
@@ -198,6 +201,8 @@ async def agent_properties_get(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.properties.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
@@ -321,6 +326,8 @@ async def agent_properties_create_for_owner(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.properties.create_for_owner: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
@@ -401,6 +408,8 @@ async def agent_properties_verify(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.properties.verify: %s", e, exc_info=True)
         return internal_error_response(f"Failed to verify property: {str(e)}")

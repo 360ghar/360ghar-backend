@@ -178,9 +178,10 @@ async def discovery_search(
                 property_type = parsed_query["property_types"][0]
             if purpose is None and "purpose" in parsed_query:
                 purpose = parsed_query["purpose"]
-            # Use cleaned query for FTS if available
-            if parsed_query.get("cleaned_query"):
-                query = parsed_query["cleaned_query"]
+            # Use cleaned query for FTS if available (empty string means all
+            # meaningful tokens were extracted as structured filters)
+            if "cleaned_query" in parsed_query:
+                query = parsed_query["cleaned_query"] or None
 
         async with AsyncSessionLocal() as db:
             # Get optional user for personalization

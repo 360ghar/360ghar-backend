@@ -22,7 +22,7 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
-from app.schemas.pagination import decode_cursor, encode_cursor
+from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload
 
 logger = get_logger(__name__)
 
@@ -84,14 +84,14 @@ async def owner_rent_status(
             else:
                 unpaid_statuses = [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
                 all_charges: list = []
-                for s in unpaid_statuses:
+                for i, s in enumerate(unpaid_statuses):
                     batch, _next, _total = await list_rent_charges(
                         db,
                         actor=user,
                         owner_id=user.id,
                         property_id=property_id,
                         status=s,
-                        cursor_payload={},
+                        cursor_payload=cursor_payload if i == 0 else {},
                         limit=limit,
                     )
                     all_charges.extend(batch)
@@ -101,8 +101,8 @@ async def owner_rent_status(
                     return getattr(charge_obj, "due_date", None) or ""
 
                 all_charges.sort(key=_sort_key)
-                # MCP first-page-only: each status batch returns first page only; no deep pagination.
                 charges = all_charges[:limit]
+                next_payload = offset_payload(limit) if len(charges) >= limit else None
 
             serialized = [_serialize_rent_charge(c) for c in charges]
 

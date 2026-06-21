@@ -40,8 +40,8 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                 try:
                     if not testing:
                         await _initialize_cache()
-                        await _apply_pending_migrations()
                         await _verify_database_ready()
+                        await _apply_pending_migrations()
                         await _prewarm_supabase_dns()
                         _register_scheduler_jobs(app)
                         start_scheduler()
