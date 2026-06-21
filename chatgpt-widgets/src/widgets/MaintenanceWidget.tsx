@@ -114,12 +114,16 @@ function MaintenanceWidget() {
   const [error, setError] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [allRequests, setAllRequests] = React.useState<MaintenanceRequest[]>([]);
+  const appendingRef = React.useRef(false);
 
-  // Accumulate requests across pages via upsert merge
+  // Accumulate requests across pages; replace on fresh list, merge on Load More
   React.useEffect(() => {
     const incoming = data?.items;
     if (!incoming) return;
     setAllRequests(prev => {
+      if (!appendingRef.current) {
+        return incoming; // replace on fresh list/refresh
+      }
       const byId = new Map(prev.map((r) => [r.id, r]));
       for (const item of incoming) {
         byId.set(item.id, item);
@@ -427,8 +431,10 @@ function MaintenanceWidget() {
     if (loadingMore || !data.has_more || !data.next_cursor) return;
     setLoadingMore(true);
     try {
+      appendingRef.current = true;
       await callTool('tenant.maintenance.list', { cursor: data.next_cursor });
     } finally {
+      appendingRef.current = false;
       setLoadingMore(false);
     }
   };

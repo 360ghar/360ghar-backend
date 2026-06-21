@@ -10,7 +10,13 @@ from app.config import settings
 from app.core.exceptions import BadRequestException, ConflictException
 from app.core.logging import get_logger
 from app.models.conversations import Conversation, ConversationParticipant
-from app.models.enums import ConversationStatus, UserMatchStatus, VisitContext, VisitStatus
+from app.models.enums import (
+    ConversationApp,
+    ConversationStatus,
+    UserMatchStatus,
+    VisitContext,
+    VisitStatus,
+)
 from app.models.properties import Property, Visit
 from app.models.social import UserMatch
 from app.models.users import User
@@ -54,6 +60,8 @@ async def _validate_flatmate_visit_context(
         conv = await db.get(Conversation, conversation_id)
         if conv is None or conv.status != ConversationStatus.active.value:
             raise BadRequestException(detail="Invalid flatmate conversation")
+        if conv.app != ConversationApp.flatmates:
+            raise BadRequestException(detail="Conversation is not a flatmates conversation")
         participant_ids = {
             row.user_id
             for row in (

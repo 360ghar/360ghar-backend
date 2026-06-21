@@ -95,11 +95,15 @@ function VisitListWidget() {
   const [cancelling, setCancelling] = React.useState<number | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
   const [allVisits, setAllVisits] = React.useState<Visit[]>([]);
+  const appendingRef = React.useRef(false);
 
   React.useEffect(() => {
     const incoming = data?.visits;
     if (!incoming) return;
     setAllVisits(prev => {
+      if (!appendingRef.current) {
+        return incoming; // replace on fresh list/refresh
+      }
       const byId = new Map(prev.map((v: Visit) => [v.id, v]));
       for (const item of incoming) {
         byId.set(item.id, item);
@@ -177,8 +181,10 @@ function VisitListWidget() {
     if (loadingMore || !data.has_more || !data.next_cursor) return;
     setLoadingMore(true);
     try {
+      appendingRef.current = true;
       await callTool('visits.list', { cursor: data.next_cursor });
     } finally {
+      appendingRef.current = false;
       setLoadingMore(false);
     }
   };

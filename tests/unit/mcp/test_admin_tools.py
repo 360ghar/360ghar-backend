@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.mcp.tool_ops.rent as tool_ops_rent
 from app.core.exceptions import (
     InsufficientPermissionsError,
     NotFoundException,
@@ -598,7 +599,7 @@ class TestAgentRentListDue:
             patch.object(rent_tools, "get_db", return_value=async_gen_db(db)),
             patch.object(rent_tools, "_get_user", new=AsyncMock(return_value=agent)),
             patch.object(rent_tools, "_require_agent_or_admin", return_value=True),
-            patch.object(rent_tools, "utc_now", return_value=frozen_now),
+            patch.object(tool_ops_rent, "utc_now", return_value=frozen_now),
             patch(
                 "app.services.pm_authz.get_accessible_owner_ids",
                 new=AsyncMock(return_value=[10]),
@@ -621,7 +622,7 @@ class TestAgentRentListDue:
             patch.object(rent_tools, "get_db", return_value=async_gen_db(db)),
             patch.object(rent_tools, "_get_user", new=AsyncMock(return_value=agent)),
             patch.object(rent_tools, "_require_agent_or_admin", return_value=True),
-            patch.object(rent_tools, "utc_now", return_value=frozen_now),
+            patch.object(tool_ops_rent, "utc_now", return_value=frozen_now),
             patch(
                 "app.services.pm_authz.get_accessible_owner_ids",
                 new=AsyncMock(return_value=[10]),

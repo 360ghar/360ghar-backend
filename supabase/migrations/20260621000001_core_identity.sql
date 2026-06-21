@@ -143,7 +143,6 @@ CREATE INDEX idx_users_phone_unique ON users(phone) WHERE phone IS NOT NULL;
 CREATE UNIQUE INDEX uq_users_email ON users(email) WHERE email IS NOT NULL;
 
 CREATE INDEX idx_users_supabase_user_id ON users(supabase_user_id);
-CREATE INDEX idx_users_email ON users(email) WHERE email IS NOT NULL;
 CREATE INDEX idx_users_agent_id ON users(agent_id);
 CREATE INDEX idx_users_role ON users(role);
 

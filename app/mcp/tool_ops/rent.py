@@ -45,69 +45,96 @@ async def compute_rent_due_items(
     offset = read_offset(cursor_payload)
     today = utc_now().date()
 
-    stmt = select(Lease).where(Lease.status == LeaseStatus.active)
+    base_stmt = select(Lease).where(Lease.status == LeaseStatus.active)
 
     if owner_ids is not None:
-        stmt = stmt.where(Lease.owner_id.in_(owner_ids))
+        base_stmt = base_stmt.where(Lease.owner_id.in_(owner_ids))
     if property_id:
-        stmt = stmt.where(Lease.property_id == property_id)
+        base_stmt = base_stmt.where(Lease.property_id == property_id)
 
-    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
-    result = await db.execute(stmt)
-    leases = result.scalars().all()
+    base_stmt = base_stmt.order_by(Lease.created_at.desc())
 
-    # Batch-load property titles to avoid N+1 queries
-    property_ids = {lease.property_id for lease in leases if lease.property_id}
-    prop_titles: dict[int, str] = {}
-    if property_ids:
-        prop_result = await db.execute(
-            select(Property.id, Property.title).where(Property.id.in_(property_ids))
-        )
-        prop_titles = {r[0]: r[1] or "Property" for r in prop_result.all()}
-
+    # When filtering in Python (overdue_only), we need to fetch extra rows
+    # from the DB because some will be filtered out. Use a fetch loop to
+    # accumulate enough filtered items or exhaust the DB.
+    fetch_limit = limit if not overdue_only else limit * 3
+    current_offset = offset
     items: list[dict[str, Any]] = []
-    for lease in leases:
-        payment_due_day = lease.payment_due_day or 1
-        grace_days = lease.grace_period_days or 5
+    total_db_rows_seen = 0
+    db_exhausted = False
 
-        day = min(payment_due_day, 28)
-        try:
-            due_date = today.replace(day=day)
-        except ValueError:
-            due_date = today.replace(day=28)
+    while len(items) < limit and not db_exhausted:
+        stmt = base_stmt.offset(current_offset).limit(fetch_limit)
+        result = await db.execute(stmt)
+        leases = list(result.scalars().all())
 
-        grace_day = min(payment_due_day + grace_days, 28)
-        try:
-            grace_end = today.replace(day=grace_day)
-        except ValueError:
-            grace_end = today.replace(day=28)
+        if not leases:
+            db_exhausted = True
+            break
 
-        is_overdue = today > grace_end
-        is_due = today >= due_date
+        total_db_rows_seen += len(leases)
 
-        if overdue_only and not is_overdue:
-            continue
+        # Batch-load property titles to avoid N+1 queries
+        property_ids = {lease.property_id for lease in leases if lease.property_id}
+        prop_titles: dict[int, str] = {}
+        if property_ids:
+            prop_result = await db.execute(
+                select(Property.id, Property.title).where(Property.id.in_(property_ids))
+            )
+            prop_titles = {r[0]: r[1] or "Property" for r in prop_result.all()}
 
-        prop_title = prop_titles.get(lease.property_id, "Property")
+        for lease in leases:
+            if len(items) >= limit:
+                break
 
-        items.append({
-            "lease_id": lease.id,
-            "property_id": lease.property_id,
-            "property_title": prop_title,
-            "owner_id": lease.owner_id,
-            "tenant_user_id": lease.tenant_user_id,
-            "monthly_rent": float(lease.monthly_rent or 0),
-            "due_date": due_date.isoformat(),
-            "grace_end": grace_end.isoformat(),
-            "is_overdue": is_overdue,
-            "is_due": is_due,
-            "payment_due_day": payment_due_day,
-        })
+            payment_due_day = lease.payment_due_day or 1
+            grace_days = lease.grace_period_days or 5
+
+            day = min(payment_due_day, 28)
+            try:
+                due_date = today.replace(day=day)
+            except ValueError:
+                due_date = today.replace(day=28)
+
+            grace_day = min(payment_due_day + grace_days, 28)
+            try:
+                grace_end = today.replace(day=grace_day)
+            except ValueError:
+                grace_end = today.replace(day=28)
+
+            is_overdue = today > grace_end
+            is_due = today >= due_date
+
+            if overdue_only and not is_overdue:
+                continue
+
+            prop_title = prop_titles.get(lease.property_id, "Property")
+
+            items.append({
+                "lease_id": lease.id,
+                "property_id": lease.property_id,
+                "property_title": prop_title,
+                "owner_id": lease.owner_id,
+                "tenant_user_id": lease.tenant_user_id,
+                "monthly_rent": float(lease.monthly_rent or 0),
+                "due_date": due_date.isoformat(),
+                "grace_end": grace_end.isoformat(),
+                "is_overdue": is_overdue,
+                "is_due": is_due,
+                "payment_due_day": payment_due_day,
+            })
+
+        if len(leases) < fetch_limit:
+            db_exhausted = True
+        else:
+            current_offset += len(leases)
 
     total_due = sum(i["monthly_rent"] for i in items if i["is_due"])
     overdue_count = sum(1 for i in items if i["is_overdue"])
 
-    next_payload = offset_payload(offset + len(leases)) if len(leases) >= limit else None
+    # has_more is true if we filled the page AND the DB might have more
+    has_more = len(items) >= limit and not db_exhausted
+    next_payload = offset_payload(offset + total_db_rows_seen) if has_more else None
 
     return {
         "items": items,

@@ -1,6 +1,8 @@
 # Models package
 # Import all models for easy access
 
+from __future__ import annotations
+
 from .agents import Agent, AgentInteraction
 from .ai_conversations import AIConversation, AIConversationMessage
 from .blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
