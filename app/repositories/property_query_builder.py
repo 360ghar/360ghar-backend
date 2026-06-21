@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.logging import get_logger
 from app.models.properties import Amenity, Property, PropertyAmenity
 from app.schemas.property import SortBy, UnifiedPropertyFilter
+from app.utils.geo import normalize_city
 
 logger = get_logger(__name__)
 
@@ -107,8 +108,6 @@ class PropertyQueryBuilder:
         # "New Delhi" still match a search for "Delhi", while "Gurugram" does
         # NOT match a search for "Delhi".
         if f.city:
-            from app.utils.geo import normalize_city
-
             normalized_city = normalize_city(f.city)
             conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
         if f.locality:

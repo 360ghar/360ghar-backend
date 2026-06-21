@@ -9,9 +9,10 @@ from sqlalchemy.orm import aliased, selectinload
 from app.config import settings
 from app.core.exceptions import BadRequestException, ConflictException
 from app.core.logging import get_logger
+from app.models.conversations import Conversation, ConversationParticipant
 from app.models.enums import ConversationStatus, UserMatchStatus, VisitContext, VisitStatus
 from app.models.properties import Property, Visit
-from app.models.social import UserConversation, UserMatch
+from app.models.social import UserMatch
 from app.models.users import User
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.visit import Visit as VisitSchema
@@ -49,17 +50,21 @@ async def _validate_flatmate_visit_context(
 
     conversation_id = visit_data.get("conversation_id")
     if conversation_id is not None:
-        conversation = (
-            await db.execute(
-                select(UserConversation).where(
-                    UserConversation.id == conversation_id,
-                    UserConversation.user_one_id == user_one_id,
-                    UserConversation.user_two_id == user_two_id,
-                    UserConversation.status == ConversationStatus.active.value,
+        # Verify the conversation exists, is active, and has both users as participants
+        conv = await db.get(Conversation, conversation_id)
+        if conv is None or conv.status != ConversationStatus.active.value:
+            raise BadRequestException(detail="Invalid flatmate conversation")
+        participant_ids = {
+            row.user_id
+            for row in (
+                await db.execute(
+                    select(ConversationParticipant.user_id).where(
+                        ConversationParticipant.conversation_id == conversation_id
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if conversation is None:
+            ).all()
+        }
+        if {user_one_id, user_two_id} - participant_ids:
             raise BadRequestException(detail="Invalid flatmate conversation")
         authorized = True
 
@@ -82,16 +87,13 @@ async def _validate_flatmate_visit_context(
     if authorized:
         return
 
-    conversation = (
-        await db.execute(
-            select(UserConversation).where(
-                UserConversation.user_one_id == user_one_id,
-                UserConversation.user_two_id == user_two_id,
-                UserConversation.status == ConversationStatus.active.value,
-            )
-        )
-    ).scalar_one_or_none()
-    if conversation is not None:
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, counterparty_user_id)
+    if (
+        conversation is not None
+        and conversation.status == ConversationStatus.active.value
+    ):
         visit_data["conversation_id"] = conversation.id
         return
 

@@ -1,7 +1,7 @@
 """Tests for MCP admin/agent tools (properties, leases, rent, maintenance, bookings, dashboard)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -590,13 +590,15 @@ class TestAgentRentListDue:
         # Active lease whose grace window has elapsed so it counts as overdue.
         overdue_lease = make_lease(lease_id=1, monthly_rent=25000)
         overdue_lease.owner_id = 10  # type: ignore[attr-defined]
-        # payment_due_day=1, grace=5 → grace_end on day 6. Past date ensures overdue.
+        # payment_due_day=1, grace=5 → grace_end on day 6. Freeze time to day 20.
+        frozen_now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
         result_row = _execute_result(scalars_all=[overdue_lease])
         db.execute.return_value = result_row
         with (
             patch.object(rent_tools, "get_db", return_value=async_gen_db(db)),
             patch.object(rent_tools, "_get_user", new=AsyncMock(return_value=agent)),
             patch.object(rent_tools, "_require_agent_or_admin", return_value=True),
+            patch.object(rent_tools, "utc_now", return_value=frozen_now),
             patch(
                 "app.services.pm_authz.get_accessible_owner_ids",
                 new=AsyncMock(return_value=[10]),
@@ -604,7 +606,6 @@ class TestAgentRentListDue:
         ):
             result = await rent_tools.agent_rent_list_due(overdue_only=True)
         assert result["ok"] is True
-        # Today is well past the lease's grace window, so at least one overdue item.
         assert result["data"]["overdue_count"] >= 1
 
     @pytest.mark.asyncio
@@ -613,12 +614,14 @@ class TestAgentRentListDue:
         agent = make_agent()
         lease = make_lease(lease_id=2, monthly_rent=18000)
         lease.owner_id = 10  # type: ignore[attr-defined]
+        frozen_now = datetime(2026, 6, 20, 12, 0, tzinfo=timezone.utc)
         result_row = _execute_result(scalars_all=[lease])
         db.execute.return_value = result_row
         with (
             patch.object(rent_tools, "get_db", return_value=async_gen_db(db)),
             patch.object(rent_tools, "_get_user", new=AsyncMock(return_value=agent)),
             patch.object(rent_tools, "_require_agent_or_admin", return_value=True),
+            patch.object(rent_tools, "utc_now", return_value=frozen_now),
             patch(
                 "app.services.pm_authz.get_accessible_owner_ids",
                 new=AsyncMock(return_value=[10]),

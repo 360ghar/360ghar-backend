@@ -148,9 +148,20 @@ class VisitContext(str, Enum):
     flatmate_meet = "flatmate_meet"
 
 
+class ConversationApp(str, Enum):
+    flatmates = "flatmates"
+    pm = "pm"
+    real_estate = "real_estate"
+    stays = "stays"
+
+
 class ConversationSource(str, Enum):
     listing_interest = "listing_interest"
     profile_match = "profile_match"
+    booking_inquiry = "booking_inquiry"
+    property_inquiry = "property_inquiry"
+    lease_inquiry = "lease_inquiry"
+    other = "other"
 
 
 class ConversationStatus(str, Enum):

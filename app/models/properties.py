@@ -254,7 +254,7 @@ class Visit(Base):
         nullable=True,
     )
     conversation_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_conversations.id", ondelete="SET NULL"),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
         nullable=True,
     )
     match_id: Mapped[int | None] = mapped_column(

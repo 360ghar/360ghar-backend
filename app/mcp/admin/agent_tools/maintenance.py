@@ -116,13 +116,17 @@ async def agent_maintenance_list(
                 else:
                     return invalid_input_response(f"Invalid status: {status}")
 
-            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
+            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
 
             result = await db.execute(stmt)
-            requests = result.scalars().all()
+            requests = list(result.scalars().all())
+
+            has_more = len(requests) > limit
+            if has_more:
+                requests = requests[:limit]
 
             items = [serialize_maintenance_request(r) for r in requests]
-            next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+            next_payload = offset_payload(offset + len(items)) if has_more else None
 
             return MCPResponse.success({
                 "total": len(items),

@@ -35,7 +35,6 @@ from app.schemas.pagination import decode_cursor, encode_cursor
     },
 )
 async def agent_bookings_list_all(
-    owner_id: int | None = None,
     property_id: int | None = None,
     status: str | None = None,
     cursor: str | None = None,
@@ -44,7 +43,6 @@ async def agent_bookings_list_all(
     """List all bookings for managed properties.
 
     Args:
-        owner_id: Filter by property owner
         property_id: Filter by property
         status: Filter by booking status
         cursor: Opaque pagination cursor from a prior response's next_cursor

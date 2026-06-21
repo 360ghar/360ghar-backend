@@ -14,6 +14,8 @@ tool bridge wrappers) handle response format wrapping (MCPResponse,
 AppsSDKToolResult, etc.).
 """
 
+from __future__ import annotations
+
 from app.mcp.tool_ops.bookings import (
     TOOL_OPS_FORBIDDEN,
     TOOL_OPS_INVALID_INPUT,

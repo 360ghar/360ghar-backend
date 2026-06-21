@@ -148,8 +148,8 @@ class TestListLeases:
 
     async def test_pagination(self) -> None:
         db = AsyncMock()
-        # Return exactly `limit` items → next cursor emitted
-        leases = [_make_lease_obj(lease_id=i) for i in range(5)]
+        # Return limit+1 items to signal has_more=True (limit+1 fetch pattern)
+        leases = [_make_lease_obj(lease_id=i) for i in range(6)]
         db.execute = AsyncMock(return_value=_scalars_result(leases))
 
         result = await leases_tool_ops.list_leases(db, actor=make_user(), limit=5)

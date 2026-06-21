@@ -100,16 +100,13 @@ function VisitListWidget() {
     const incoming = data?.visits;
     if (!incoming) return;
     setAllVisits(prev => {
-      const existingIds = new Set(prev.map((v: Visit) => v.id));
-      const newVisits = incoming.filter((v: Visit) => !existingIds.has(v.id));
-      if (newVisits.length === 0) return prev;
-      return [...prev, ...newVisits];
+      const byId = new Map(prev.map((v: Visit) => [v.id, v]));
+      for (const item of incoming) {
+        byId.set(item.id, item);
+      }
+      return Array.from(byId.values());
     });
   }, [data]);
-
-  React.useEffect(() => {
-    setAllVisits([]);
-  }, [filter]);
 
   if (!data) {
     return (

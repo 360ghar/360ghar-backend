@@ -231,14 +231,18 @@ async def list_maintenance_requests(
         # Invalid status — status_result is the error message
         return {"error": True, "message": status_result}
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
 
     result = await db.execute(stmt)
-    requests = result.scalars().all()
+    requests = list(result.scalars().all())
+
+    has_more = len(requests) > limit
+    if has_more:
+        requests = requests[:limit]
 
     items = [serialize_maintenance_request(r) for r in requests]
 
-    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+    next_payload = offset_payload(offset + len(items)) if has_more else None
 
     return {
         "items": items,

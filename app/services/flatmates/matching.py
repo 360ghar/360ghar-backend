@@ -19,7 +19,7 @@ from app.models.enums import (
     UserMatchStatus,
 )
 from app.models.properties import Property
-from app.models.social import UserBlock, UserConversation, UserMatch
+from app.models.social import UserBlock, UserMatch
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import SwipeRequest
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
@@ -451,11 +451,9 @@ async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) 
         return {"id": match.id, "status": match.status, "unmatched": True}
 
     match.status = UserMatchStatus.unmatched
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, other_user_id)
     if conversation:
         conversation.status = ConversationStatus.closed
     await db.flush()
@@ -475,12 +473,9 @@ async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[s
     match.status = UserMatchStatus.unmatched
 
     # Close the associated conversation
-    user_one_id, user_two_id = match.user_one_id, match.user_two_id
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, match.user_one_id, match.user_two_id)
     if conversation:
         conversation.status = ConversationStatus.closed
 

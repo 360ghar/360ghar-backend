@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from app.config import settings
 from app.core.cache import initialize_cache, shutdown_cache
@@ -117,8 +118,6 @@ async def _verify_database_ready() -> None:
     simple query. Logs a warning (but does not block startup) if the probe
     fails after retries, so the app can still start in degraded mode.
     """
-    from sqlalchemy import text
-
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
         try:

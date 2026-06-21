@@ -8,6 +8,7 @@ from app.models.properties import Amenity, Property, PropertyAmenity
 from app.models.users import UserSwipe
 from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import PropertySwipe, SortBy, UnifiedPropertyFilter
+from app.utils.geo import normalize_city
 
 
 async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe):
@@ -147,8 +148,6 @@ async def get_swipe_history(
 
     # Location filters — normalize city via alias map, then filtered LIKE
     if filters.city:
-        from app.utils.geo import normalize_city
-
         normalized_city = normalize_city(filters.city)
         conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
     if filters.locality:

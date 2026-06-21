@@ -31,6 +31,7 @@ from app.models.properties import Amenity, Property, PropertyAmenity, PropertyIm
 from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
+from app.utils.geo import normalize_city
 from app.vector.embedding_client import embed_query
 
 _vector_metadata = MetaData()
@@ -346,8 +347,6 @@ async def get_unified_properties_optimized(
         # so properties like "New Delhi" still match a search for "Delhi",
         # while "Gurugram" does NOT match a search for "Delhi".
         if filters.city:
-            from app.utils.geo import normalize_city
-
             normalized_city = normalize_city(filters.city)
             logger.debug("Adding city filter: %s (normalized from: %s)", normalized_city, filters.city)
             conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))

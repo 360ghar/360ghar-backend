@@ -113,6 +113,20 @@ function MaintenanceWidget() {
   const [isSubmitting, setIsSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [loadingMore, setLoadingMore] = React.useState(false);
+  const [allRequests, setAllRequests] = React.useState<MaintenanceRequest[]>([]);
+
+  // Accumulate requests across pages via upsert merge
+  React.useEffect(() => {
+    const incoming = data?.items;
+    if (!incoming) return;
+    setAllRequests(prev => {
+      const byId = new Map(prev.map((r) => [r.id, r]));
+      for (const item of incoming) {
+        byId.set(item.id, item);
+      }
+      return Array.from(byId.values());
+    });
+  }, [data]);
 
   const view = widgetState?.view || 'list';
   const createdRequest = widgetState?.createdRequest;
@@ -406,8 +420,8 @@ function MaintenanceWidget() {
     );
   }
 
-  // List view
-  const requests = data.items || [];
+  // List view — render from accumulated state so Load More appends correctly
+  const requests = allRequests;
 
   const handleLoadMore = async () => {
     if (loadingMore || !data.has_more || !data.next_cursor) return;

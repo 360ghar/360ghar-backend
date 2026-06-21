@@ -20,7 +20,7 @@ from app.models.enums import (
     UserReportStatus,
 )
 from app.models.properties import Property
-from app.models.social import UserBlock, UserConversation, UserMatch, UserReport
+from app.models.social import UserBlock, UserMatch, UserReport
 from app.models.users import User
 from app.schemas.flatmates import ReportCreate
 from app.schemas.pagination import offset_payload, read_offset
@@ -347,15 +347,13 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
     block = UserBlock(blocker_user_id=user_id, blocked_user_id=blocked_user_id)
     db.add(block)
 
-    user_one_id, user_two_id = _canonical_pair(user_id, blocked_user_id)
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, blocked_user_id)
     if conversation:
         conversation.status = ConversationStatus.blocked
 
+    user_one_id, user_two_id = _canonical_pair(user_id, blocked_user_id)
     match_stmt = select(UserMatch).where(
         UserMatch.user_one_id == user_one_id,
         UserMatch.user_two_id == user_two_id,

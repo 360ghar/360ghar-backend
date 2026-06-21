@@ -43,6 +43,20 @@ function PropertySearchWidget() {
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
   const [loading, setLoading] = React.useState(false);
+  const [allProperties, setAllProperties] = React.useState<Property[]>([]);
+
+  // Accumulate properties across pages via upsert merge
+  React.useEffect(() => {
+    const incoming = data?.properties;
+    if (!incoming) return;
+    setAllProperties(prev => {
+      const byId = new Map(prev.map((p) => [p.id, p]));
+      for (const item of incoming) {
+        byId.set(item.id, item);
+      }
+      return Array.from(byId.values());
+    });
+  }, [data]);
 
   if (!data) {
     return (
@@ -60,7 +74,8 @@ function PropertySearchWidget() {
     );
   }
 
-  const { properties, total, next_cursor, has_more, filters_applied } = data;
+  const { total, next_cursor, has_more, filters_applied } = data;
+  const properties = allProperties;
 
   const handleLoadMore = async () => {
     if (loading || !has_more || !next_cursor) return;

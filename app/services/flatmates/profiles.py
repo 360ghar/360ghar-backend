@@ -12,14 +12,16 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException
 from app.core.logging import get_logger
+from app.models.conversations import Conversation, ConversationParticipant, Message
 from app.models.enums import (
+    ConversationApp,
     FlatmatesProfileStatus,
     PropertyPurpose,
     PropertyType,
     SwipeTargetType,
 )
 from app.models.properties import Property, PropertyAmenity
-from app.models.social import AppCatalog, UserConversation, UserMessage
+from app.models.social import AppCatalog
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import FlatmatesProfileUpdate
 from app.schemas.pagination import offset_payload, read_offset
@@ -484,24 +486,27 @@ async def get_bootstrap(db: AsyncSession, user_id: int) -> dict[str, Any]:
     )
     listing_count = int((await db.execute(listing_count_stmt)).scalar() or 0)
 
-    conversation_count_stmt = select(func.count(UserConversation.id)).where(
-        or_(
-            UserConversation.user_one_id == user_id,
-            UserConversation.user_two_id == user_id,
+    # Count flatmates conversations the user participates in
+    conv_id_subq = (
+        select(ConversationParticipant.conversation_id)
+        .join(Conversation, Conversation.id == ConversationParticipant.conversation_id)
+        .where(
+            ConversationParticipant.user_id == user_id,
+            Conversation.app == ConversationApp.flatmates,
         )
+    )
+    conversation_count_stmt = select(func.count()).select_from(Conversation).where(
+        Conversation.id.in_(conv_id_subq)
     )
     conversation_count = int((await db.execute(conversation_count_stmt)).scalar() or 0)
 
     unread_count_stmt = (
-        select(func.count(UserMessage.id))
-        .join(UserConversation, UserConversation.id == UserMessage.conversation_id)
+        select(func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(
-            or_(
-                UserConversation.user_one_id == user_id,
-                UserConversation.user_two_id == user_id,
-            ),
-            UserMessage.sender_id != user_id,
-            UserMessage.read_at.is_(None),
+            Conversation.id.in_(conv_id_subq),
+            Message.sender_id != user_id,
+            Message.read_at.is_(None),
         )
     )
     unread_count = int((await db.execute(unread_count_stmt)).scalar() or 0)

@@ -1,16 +1,14 @@
 """
-Tests for app.models.social module — UserMatch, UserConversation, UserMessage, etc.
+Tests for app.models.social and app.models.conversations modules.
 """
 
 import logging
 
 import pytest
-from sqlalchemy import CheckConstraint
+from sqlalchemy import CheckConstraint, String
 
+from app.models.conversations import Conversation, ConversationParticipant, Message
 from app.models.enums import (
-    ConversationSource,
-    ConversationStatus,
-    MessageType,
     UserMatchStatus,
     UserReportReason,
     UserReportStatus,
@@ -20,9 +18,7 @@ from app.models.social import (
     EnumStringType,
     MatchQnAAnswer,
     UserBlock,
-    UserConversation,
     UserMatch,
-    UserMessage,
     UserReport,
 )
 
@@ -36,25 +32,12 @@ def _constraint_names(model) -> set[str]:
 
 
 class TestEnumStringType:
-    """Tests for social enum column validation."""
+    """Tests for social enum column validation (EnumStringType)."""
 
     @pytest.mark.parametrize(
         ("enum_type", "valid_enum", "valid_string", "invalid_string"),
         [
             (UserMatch.__table__.c.status.type, UserMatchStatus.active, "active", "deleted"),
-            (
-                UserConversation.__table__.c.source.type,
-                ConversationSource.listing_interest,
-                "listing_interest",
-                "manual",
-            ),
-            (
-                UserConversation.__table__.c.status.type,
-                ConversationStatus.active,
-                "active",
-                "deleted",
-            ),
-            (UserMessage.__table__.c.message_type.type, MessageType.text, "text", "audio"),
             (UserReport.__table__.c.reason.type, UserReportReason.spam, "spam", "fraud"),
             (UserReport.__table__.c.status.type, UserReportStatus.open, "open", "closed"),
         ],
@@ -83,12 +66,6 @@ class TestEnumStringType:
         ("enum_type", "valid_string", "expected_enum"),
         [
             (UserMatch.__table__.c.status.type, "active", UserMatchStatus.active),
-            (
-                UserConversation.__table__.c.status.type,
-                "active",
-                ConversationStatus.active,
-            ),
-            (UserMessage.__table__.c.message_type.type, "text", MessageType.text),
             (UserReport.__table__.c.status.type, "open", UserReportStatus.open),
         ],
     )
@@ -112,17 +89,27 @@ class TestEnumStringType:
         assert not isinstance(result, UserMatchStatus)
         assert "Unknown UserMatchStatus value" in caplog.text
 
-    def test_social_tables_have_enum_check_constraints(self):
+
+class TestCheckConstraints:
+    """Verify CHECK constraints exist on all models with enum-like columns."""
+
+    def test_user_match_constraints(self):
         assert "ck_user_matches_status" in _constraint_names(UserMatch)
-        assert {
-            "ck_user_conversations_source",
-            "ck_user_conversations_status",
-        }.issubset(_constraint_names(UserConversation))
-        assert "ck_user_messages_message_type" in _constraint_names(UserMessage)
+
+    def test_conversation_constraints(self):
+        names = _constraint_names(Conversation)
+        assert "ck_conversations_status" in names
+        assert "ck_conversations_source" in names
+
+    def test_message_constraints(self):
+        assert "ck_messages_message_type" in _constraint_names(Message)
+
+    def test_user_report_constraints(self):
+        names = _constraint_names(UserReport)
         assert {
             "ck_user_reports_reason",
             "ck_user_reports_status",
-        }.issubset(_constraint_names(UserReport))
+        }.issubset(names)
 
 
 class TestUserMatchModel:
@@ -139,35 +126,55 @@ class TestUserMatchModel:
         assert {"user_one_id", "user_two_id", "status"}.issubset(columns)
 
 
-class TestUserConversationModel:
-    """Tests for UserConversation model."""
+class TestConversationModel:
+    """Tests for Conversation model."""
 
     def test_tablename(self):
-        assert UserConversation.__tablename__ == "user_conversations"
-
-    def test_default_source(self):
-        assert UserConversation.source.default.arg == "listing_interest"
+        assert Conversation.__tablename__ == "conversations"
 
     def test_default_status(self):
-        assert UserConversation.status.default.arg == "active"
+        assert Conversation.status.default.arg == "active"
+
+    def test_default_source(self):
+        assert Conversation.source.default.arg == "listing_interest"
+
+    def test_status_is_string_column(self):
+        """status is a String column with a CHECK constraint (not EnumStringType)."""
+        assert isinstance(Conversation.__table__.c.status.type, String)
 
     def test_has_required_columns(self):
-        columns = {c.name for c in UserConversation.__table__.columns}
-        assert {"user_one_id", "user_two_id", "created_by_user_id", "source", "status"}.issubset(columns)
+        columns = {c.name for c in Conversation.__table__.columns}
+        assert {"app", "created_by_user_id", "source", "status"}.issubset(columns)
 
 
-class TestUserMessageModel:
-    """Tests for UserMessage model."""
+class TestConversationParticipantModel:
+    """Tests for ConversationParticipant model."""
 
     def test_tablename(self):
-        assert UserMessage.__tablename__ == "user_messages"
-
-    def test_default_message_type(self):
-        assert UserMessage.message_type.default.arg == "text"
+        assert ConversationParticipant.__tablename__ == "conversation_participants"
 
     def test_has_required_columns(self):
-        columns = {c.name for c in UserMessage.__table__.columns}
+        columns = {c.name for c in ConversationParticipant.__table__.columns}
+        assert {"conversation_id", "user_id", "role"}.issubset(columns)
+
+
+class TestMessageModel:
+    """Tests for Message model."""
+
+    def test_tablename(self):
+        assert Message.__tablename__ == "messages"
+
+    def test_default_message_type(self):
+        assert Message.message_type.default.arg == "text"
+
+    def test_has_required_columns(self):
+        columns = {c.name for c in Message.__table__.columns}
         assert {"conversation_id", "sender_id", "body", "message_type"}.issubset(columns)
+
+    def test_metadata_column_aliased(self):
+        """The ORM column 'message_metadata' maps to DB column 'metadata'."""
+        col = Message.__table__.c.metadata
+        assert col is not None
 
 
 class TestUserBlockModel:

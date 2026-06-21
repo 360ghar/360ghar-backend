@@ -99,14 +99,18 @@ async def list_leases(
     if accessible_owner_ids is not None:
         stmt = stmt.where(Lease.owner_id.in_(accessible_owner_ids))
 
-    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit + 1)
 
     result = await db.execute(stmt)
-    leases = result.scalars().all()
+    leases = list(result.scalars().all())
+
+    has_more = len(leases) > limit
+    if has_more:
+        leases = leases[:limit]
 
     items = [serialize_lease(lease) for lease in leases]
 
-    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+    next_payload = offset_payload(offset + len(items)) if has_more else None
 
     return {
         "items": items,
