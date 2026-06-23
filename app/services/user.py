@@ -162,6 +162,24 @@ async def get_or_create_user_from_supabase(
 
         inactive_user = None
 
+        # Serialize concurrent first-time creates for the SAME Supabase user.
+        # Right after login the frontend fires several authenticated requests in
+        # parallel (profile + auth-state); without this lock two of them can
+        # both reach the create branch (3) below and INSERT the same new row.
+        # The loser's flush raises IntegrityError, and the reconciliation below
+        # then can't see the winner's still-uncommitted row (READ COMMITTED;
+        # get_db commits only at request end) → it re-raises → the auth
+        # dependency returns a spurious 401 AUTHENTICATION_FAILED → the frontend
+        # loop. A transaction-scoped advisory lock keyed on supabase_user_id
+        # makes the loser block until the winner commits, so its lookup sees the
+        # committed row instead of racing. xact-scoped (not session-scoped) so
+        # it is safe under PgBouncer transaction pooling and released at commit.
+        if supabase_id:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:sid))"),
+                {"sid": supabase_id},
+            )
+
         # (1) Canonical lookup by supabase_user_id.
         user = await get_user_by_supabase_id(db, supabase_id)
 

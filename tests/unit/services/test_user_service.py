@@ -163,6 +163,63 @@ class TestGetOrCreateUserFromSupabase:
         assert result is not None
         assert result.phone == "+919444555666"
 
+    @pytest.mark.asyncio
+    async def test_concurrent_create_serializes_via_advisory_lock(self):
+        """The create path acquires a per-supabase_user_id advisory lock before
+        its first lookup.
+
+        Why this matters: right after login the frontend fires several
+        authenticated requests in parallel (profile + auth-state); two of them
+        can both reach the create branch and INSERT the same new row. The
+        loser's flush raises IntegrityError, and reconciliation can't see the
+        winner's still-uncommitted row (READ COMMITTED; commit happens only at
+        request end via get_db) → it re-raises → a spurious 401 → the frontend
+        login loop. The advisory lock serializes them so the loser sees the
+        committed row.
+
+        We can't reproduce a live two-session race in this harness: the loser
+        would block on the lock until the winner's transaction commits, which
+        never happens inside ``get_or_create`` (flush only, no commit), so the
+        test would hang. Instead we assert the lock is acquired, with the
+        correct key, before any user lookup — proving the serialization is in
+        place. The reconciliation safety net is covered by
+        ``test_integrity_error_reconciles_by_supabase_id``.
+        """
+        from app.services.user import get_or_create_user_from_supabase
+
+        supabase_id = str(uuid.uuid4())
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch(
+            "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
+        ) as mock_by_sb, patch(
+            "app.services.user.get_user_by_email", new_callable=AsyncMock
+        ) as mock_by_email, patch(
+            "app.services.user.get_user_by_phone", new_callable=AsyncMock
+        ) as mock_by_phone:
+            mock_by_sb.return_value = None
+            mock_by_email.return_value = None
+            mock_by_phone.return_value = None
+
+            supabase_data = {
+                "id": supabase_id,
+                "phone": "+919111222333",
+                "email": None,
+                "phone_verified": True,
+                "email_confirmed_at": None,
+                "user_metadata": {},
+            }
+            await get_or_create_user_from_supabase(db, supabase_data)
+
+        # The very first DB statement is the transaction-scoped advisory lock,
+        # keyed on the supabase id, run BEFORE the canonical lookup.
+        first = db.execute.call_args_list[0]
+        assert "pg_advisory_xact_lock" in str(first.args[0])
+        assert "hashtext" in str(first.args[0])
+        assert first.args[1] == {"sid": supabase_id}
+
 
 class TestEmailLinkedIdentity:
     """Tests for the email-linked, multi-method identity model."""
