@@ -269,6 +269,41 @@ class Settings(BaseSettings):
     STAMP_DUTY_RATE_FEMALE: float = 5.0
     STAMP_DUTY_RATE_JOINT: float = 6.0
 
+    # ── Deep Links / App Links / Universal Links ────────────────────────────────
+    # Centralised, backend-driven deep linking for all 360Ghar apps. Replaces the
+    # separate static-hosted repos (ghar_sale_links / the360ghar_links).
+    #
+    # The canonical public domain that the mobile apps declare in their
+    # AndroidManifest intent-filters and iOS associated-domains. The backend must
+    # be reachable at this host (directly or via reverse-proxy) for Android App
+    # Link / iOS Universal Link verification to succeed.
+    DEEPLINK_DOMAIN: str = "the360ghar.com"
+    # Apple Developer Team ID used to build the AASA appID values (TEAMID.bundle_id).
+    # MUST be overridden in production with the real 10-character Team ID.
+    DEEPLINK_APPLE_TEAM_ID: str = "TEAMID"
+    # Android release signing SHA-256 cert fingerprints per app (comma-separated,
+    # colon-delimited hex). These are the canonical Play Console App-signing
+    # fingerprints supplied by the product owner. SHA-256 cert fingerprints are
+    # public (they appear in the served assetlinks.json), so they live here.
+    DEEPLINK_GHAR_ANDROID_SHA256: str = (
+        "E2:9C:60:26:A3:79:20:19:25:5F:93:BE:D1:35:CF:5F:3A:89:52:DD:44:EA:F9:41:08:87:7C:08:74:B0:64:E2"
+    )
+    DEEPLINK_ESTATE_ANDROID_SHA256: str = (
+        "22:D1:C2:25:DA:5E:3A:A9:98:C3:22:A7:C9:1D:F5:D8:1D:DD:FB:E3:31:3A:A5:C1:7B:40:D8:E0:79:07:85:3F"
+    )
+    DEEPLINK_FLATMATES_ANDROID_SHA256: str = (
+        "5F:D6:8C:1A:EB:C0:9C:85:B3:69:3C:D1:E4:C3:59:0B:E4:F8:9B:57:2C:3F:09:26:2D:2D:C7:31:F9:B0:F3:65"
+    )
+    # Legacy FlatMates package (com.the360ghar.flatmates) signing fingerprint(s).
+    # Left empty by default: the legacy entry is emitted with an empty
+    # fingerprint list until the old app-signing SHA-256 is supplied, so it can
+    # never verify against the wrong key. Set this to re-enable App Links for
+    # users still on the old build.
+    DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256: str = ""
+    DEEPLINK_STAYS_ANDROID_SHA256: str = (
+        "EE:6D:96:51:3A:2C:53:0D:33:66:6B:26:02:C4:1B:20:F3:5B:5D:65:94:CE:46:EF:B9:16:53:B3:5A:13:96:0D"
+    )
+
     # ── Vector Embeddings & Sync ────────────────────────────────────────────────
     VECTOR_SYNC_ENABLED: bool = True
     VECTOR_SYNC_CRON: str | None = "0 9 * * *"  # once daily at 9:00 AM
