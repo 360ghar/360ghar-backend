@@ -13,7 +13,11 @@ from typing import Any
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.exceptions import (
+    BadRequestException,
+    ForbiddenException,
+    NotFoundException,
+)
 from app.core.logging import get_logger
 from app.models.conversations import (
     Conversation,
@@ -36,6 +40,7 @@ from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
     _canonical_pair,
+    _is_blocked,
 )
 from app.utils.validators import ValidationUtils
 
@@ -106,7 +111,14 @@ async def _ensure_conversation(
         if context_property_id is not None:
             conversation.context_type = "property"
             conversation.context_id = context_property_id
-        if conversation.status != ConversationStatus.active:
+        # Never silently reactivate a blocked conversation — a block must be
+        # lifted explicitly via the unblock flow, not undone by a swipe or a
+        # new conversation request. (Callers should also reject blocked pairs
+        # upfront via _is_blocked, but guard here too as defense-in-depth.)
+        if conversation.status not in (
+            ConversationStatus.active,
+            ConversationStatus.blocked,
+        ):
             conversation.status = ConversationStatus.active
         if source == ConversationSource.profile_match:
             conversation.source = ConversationSource.profile_match
@@ -225,6 +237,11 @@ async def create_conversation_from_payload(
     peer = await db.get(User, payload.peer_user_id)
     if peer is None:
         raise BadRequestException(detail="User not found")
+
+    # Refuse to open (or reopen) a conversation when either party has blocked
+    # the other — mirrors the block guard on the swipe/like paths in matching.py.
+    if await _is_blocked(db, user_id, payload.peer_user_id):
+        raise ForbiddenException(detail="You can't start a conversation with this user")
 
     conversation = await _ensure_conversation(
         db,
