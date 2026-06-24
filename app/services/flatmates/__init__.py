@@ -34,6 +34,7 @@ from app.services.flatmates.moderation import (
     create_report,
     delete_block,
     list_blocks,
+    maintain_expired_flatmate_listings,
     pause_expired_flatmate_listings,
     prescreen_flatmate_listing,
 )
@@ -90,6 +91,7 @@ __all__ = [
     "apply_listing_prescreen_metadata",
     "apply_report_auto_pause",
     "pause_expired_flatmate_listings",
+    "maintain_expired_flatmate_listings",
     "prescreen_flatmate_listing",
     # visits
     "update_visit_status",

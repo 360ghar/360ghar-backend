@@ -24,7 +24,7 @@ from app.schemas.property import (
     UnifiedPropertyFilter,
 )
 from app.schemas.user import User as UserSchema
-from app.services.flatmates import pause_expired_flatmate_listings
+from app.services.flatmates import maintain_expired_flatmate_listings
 from app.services.property import (
     create_property,
     delete_property,
@@ -296,7 +296,7 @@ async def get_properties_list(
     )
 
     try:
-        await pause_expired_flatmate_listings(db)
+        maintain_expired_flatmate_listings()
         rows, next_payload, total = await get_unified_properties_optimized(
             db, filters, user_id, cursor_payload, page.limit,
             with_total=page.include_total,
@@ -355,7 +355,7 @@ async def semantic_property_search(
 
     try:
         cursor_payload = page.decoded()
-        await pause_expired_flatmate_listings(db)
+        maintain_expired_flatmate_listings()
         rows, next_payload, total = await get_unified_properties_optimized(
             db, filters, user_id, cursor_payload, page.limit,
             with_total=page.include_total,
@@ -395,7 +395,7 @@ async def get_recommendations(
     user_id = current_user.id if current_user else None
     try:
         cursor_payload = page.decoded()
-        await pause_expired_flatmate_listings(db)
+        maintain_expired_flatmate_listings()
         rows, next_payload, total = await get_property_recommendations(
             db, user_id, cursor_payload, page.limit,
             with_total=page.include_total,

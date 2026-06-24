@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, time, timezone
+from time import monotonic
 from typing import Any
 
 from sqlalchemy import func, or_, select
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException, PropertyNotFoundException
+from app.core.logging import get_logger
 from app.models.enums import (
     PG_FLATMATE_TYPES,
     ConversationStatus,
@@ -30,6 +32,8 @@ MIN_REVIEW_PHOTO_COUNT = 2
 SUSPICIOUS_RENT_CEILING = 1_000_000
 REPORT_AUTO_PAUSE_THRESHOLD = 3
 EXPIRED_MOVE_IN_PAUSE_REASON = "expired_move_in_date"
+
+logger = get_logger(__name__)
 
 _SPAM_PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("adult_content", "high", r"\b(escort|call\s*girl|xxx|porn|nude|sexual\s+service)\b"),
@@ -528,6 +532,61 @@ async def pause_expired_flatmate_listings(
         else:
             break
     return paused_count
+
+
+_last_expired_maintenance_epoch: float = 0.0
+_EXPIRED_MAINTENANCE_MIN_INTERVAL_S: float = 300.0
+_EXPIRED_MAINTENANCE_TIMEOUT_S: float = 15.0
+
+
+def maintain_expired_flatmate_listings(
+    *,
+    min_interval_s: float = _EXPIRED_MAINTENANCE_MIN_INTERVAL_S,
+) -> None:
+    """Best-effort, throttled, fire-and-forget maintenance of expired listings.
+
+    Schedules the pause work as a detached background task with a hard timeout
+    so the caller's response is **never** blocked, even if the DB is under lock
+    contention. Runs at most once per ``min_interval_s`` per process. Pausing
+    expired listings is a non-critical optimization — all errors are logged and
+    swallowed. Safe to call on every read request.
+    """
+    global _last_expired_maintenance_epoch
+    if monotonic() - _last_expired_maintenance_epoch < min_interval_s:
+        return
+    _last_expired_maintenance_epoch = monotonic()
+
+    import asyncio
+
+    asyncio.create_task(_run_expired_maintenance_with_timeout())
+
+
+async def _run_expired_maintenance_with_timeout() -> None:
+    """Execute the pause logic in an isolated session with a hard timeout."""
+    import asyncio
+
+    from app.core.database import get_bg_session_factory
+
+    try:
+        factory = get_bg_session_factory()
+        async with factory() as bg_db:
+            try:
+                async with asyncio.timeout(_EXPIRED_MAINTENANCE_TIMEOUT_S):
+                    paused = await pause_expired_flatmate_listings(bg_db)
+                    await bg_db.commit()
+                if paused:
+                    logger.info("Paused %d expired flatmate listings", paused)
+            except TimeoutError:
+                await bg_db.rollback()
+                logger.warning(
+                    "Expired-listing maintenance timed out after %ss; skipped",
+                    _EXPIRED_MAINTENANCE_TIMEOUT_S,
+                )
+            except Exception:
+                await bg_db.rollback()
+                raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Best-effort expired-listing maintenance failed; skipped: %s", exc)
 
 
 async def create_report(db: AsyncSession, user_id: int, payload: ReportCreate) -> UserReport:
