@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import datetime, time, timezone
 from time import monotonic
@@ -11,6 +12,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.database import get_bg_session_factory
 from app.core.exceptions import BadRequestException, PropertyNotFoundException
 from app.core.logging import get_logger
 from app.models.enums import (
@@ -556,35 +558,35 @@ def maintain_expired_flatmate_listings(
         return
     _last_expired_maintenance_epoch = monotonic()
 
-    import asyncio
-
     asyncio.create_task(_run_expired_maintenance_with_timeout())
 
 
 async def _run_expired_maintenance_with_timeout() -> None:
     """Execute the pause logic in an isolated session with a hard timeout."""
-    import asyncio
-
-    from app.core.database import get_bg_session_factory
-
     try:
         factory = get_bg_session_factory()
         async with factory() as bg_db:
             try:
-                async with asyncio.timeout(_EXPIRED_MAINTENANCE_TIMEOUT_S):
+                # Use wait_for (not asyncio.timeout) for Python 3.10 compatibility.
+                async def _pause_and_commit() -> int:
                     paused = await pause_expired_flatmate_listings(bg_db)
                     await bg_db.commit()
+                    return paused
+
+                paused = await asyncio.wait_for(
+                    _pause_and_commit(), timeout=_EXPIRED_MAINTENANCE_TIMEOUT_S,
+                )
                 if paused:
                     logger.info("Paused %d expired flatmate listings", paused)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 await bg_db.rollback()
                 logger.warning(
                     "Expired-listing maintenance timed out after %ss; skipped",
                     _EXPIRED_MAINTENANCE_TIMEOUT_S,
                 )
-            except Exception:
+            except Exception as inner_exc:
                 await bg_db.rollback()
-                raise
+                raise inner_exc from inner_exc
     except Exception as exc:  # noqa: BLE001
         logger.warning("Best-effort expired-listing maintenance failed; skipped: %s", exc)
 
