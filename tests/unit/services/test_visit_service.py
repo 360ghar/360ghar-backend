@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException
+from app.models.enums import VisitStatus
 
 
 class TestCreateVisit:
@@ -36,7 +37,7 @@ class TestCreateVisit:
         assert result is not None
         assert result.user_id == test_user.id
         assert result.property_id == test_property.id
-        assert result.status == "scheduled"
+        assert result.status == VisitStatus.scheduled
 
     @pytest.mark.asyncio
     async def test_create_visit_past_date_fails(
@@ -199,7 +200,7 @@ class TestRescheduleVisit:
         result = await reschedule_visit(db_session, test_visit.id, new_date, "New schedule")
 
         assert result is not None
-        assert result.status == "rescheduled"
+        assert result.status == VisitStatus.rescheduled
 
     @pytest.mark.asyncio
     async def test_reschedule_visit_past_date_fails(

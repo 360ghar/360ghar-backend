@@ -63,6 +63,7 @@ class TestCreateProperty:
             mock_repo = MagicMock()
             mock_property = MagicMock()
             mock_repo.create = AsyncMock(return_value=mock_property)
+            mock_repo.get_property_with_owner = AsyncMock(return_value=mock_property)
             mock_repo_class.return_value = mock_repo
 
             with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_caches", new_callable=AsyncMock):

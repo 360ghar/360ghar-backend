@@ -21,7 +21,7 @@ class TestOwnerPropertyTools:
         with patch("app.mcp.user.owner._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.owner.list_managed_properties", new_callable=AsyncMock) as mock_list:
+            with patch("app.mcp.user.owner.list_properties_enriched", new_callable=AsyncMock) as mock_list:
                 mock_list.return_value = {"items": [], "total": 0}
 
                 with patch("app.mcp.user.owner.get_db") as mock_db:
@@ -101,7 +101,7 @@ class TestOwnerPropertyCreate:
         with patch("app.mcp.user.owner._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.owner.create_managed_property", new_callable=AsyncMock) as mock_create:
+            with patch("app.mcp.user.owner.create_property", new_callable=AsyncMock) as mock_create:
                 mock_property = MagicMock()
                 mock_property.id = 1
                 mock_property.title = "New Property"
@@ -180,7 +180,7 @@ class TestBookingTools:
         with patch("app.mcp.user.booking._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.booking.booking_svc.get_user_bookings", new_callable=AsyncMock) as mock_list:
+            with patch("app.mcp.user.booking.list_user_bookings", new_callable=AsyncMock) as mock_list:
                 mock_list.return_value = {"bookings": [], "total": 0}
 
                 with patch("app.mcp.user.booking.get_db") as mock_db:
@@ -198,7 +198,7 @@ class TestBookingTools:
         # Get the underlying function from the FunctionTool
         fn = bookings_check_availability.fn if hasattr(bookings_check_availability, 'fn') else bookings_check_availability
 
-        with patch("app.mcp.user.booking.booking_svc.check_availability", new_callable=AsyncMock) as mock_check:
+        with patch("app.mcp.user.booking.check_availability", new_callable=AsyncMock) as mock_check:
             mock_check.return_value = {"available": True, "conflicts": []}
 
             with patch("app.mcp.user.booking.get_db") as mock_db:

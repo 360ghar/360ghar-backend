@@ -546,14 +546,14 @@ class TestMCPEndToEnd:
 
         mock_user_obj = MockUser()
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = mock_user_obj
 
             # list_managed_properties is in app.services.pm_properties
             with patch("app.services.pm_properties.list_managed_properties", new_callable=AsyncMock) as mock_list:
                 mock_list.return_value = ([], None, None)
 
-                with patch("app.mcp.admin.agent.get_db") as mock_db:
+                with patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                     # List properties - admin server returns dict via MCPResponse
