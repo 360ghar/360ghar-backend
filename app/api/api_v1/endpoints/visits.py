@@ -1,5 +1,6 @@
-from opentelemetry.trace.status import StatusCode
 from __future__ import annotations
+from opentelemetry.trace.status import StatusCode
+
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -244,6 +245,7 @@ async def complete_visit(
             status_code = 403,
             detail = "only agents or admins can complete visit",
         )
+    
 
 
         
