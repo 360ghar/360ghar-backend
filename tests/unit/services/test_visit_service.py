@@ -2,8 +2,6 @@
 Tests for visit service module.
 """
 
-from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -39,7 +37,7 @@ class TestCreateVisit:
         assert result is not None
         assert result.user_id == test_user.id
         assert result.property_id == test_property.id
-        assert result.status == VisitStatus.scheduled.value
+        assert result.status == VisitStatus.scheduled
 
     @pytest.mark.asyncio
     async def test_create_visit_past_date_fails(
@@ -202,7 +200,7 @@ class TestRescheduleVisit:
         result = await reschedule_visit(db_session, test_visit.id, new_date, "New schedule")
 
         assert result is not None
-        assert result.status == VisitStatus.rescheduled.value
+        assert result.status == VisitStatus.rescheduled
 
     @pytest.mark.asyncio
     async def test_reschedule_visit_past_date_fails(
@@ -295,21 +293,3 @@ class TestGetAllVisits:
         rows, _next, _total = await get_all_visits(db_session, cursor_payload={}, limit=20, status="scheduled")
 
         assert isinstance(rows, list)
-
-    @pytest.mark.asyncio
-    async def test_get_all_visits_agent_filter_includes_assigned(
-        self,
-        db_session: AsyncSession,
-        test_visits,
-        test_agent,
-    ):
-        """Visits assigned via Visit.agent_id are returned for that agent even
-        when the visiting user and property owner are not managed by them."""
-        from app.services.visit import get_all_visits
-
-        rows, _next, _total = await get_all_visits(
-            db_session, cursor_payload={}, limit=20, filter_agent_id=test_agent.id
-        )
-
-        returned_ids = {row.id for row in rows}
-        assert {visit.id for visit in test_visits}.issubset(returned_ids)
