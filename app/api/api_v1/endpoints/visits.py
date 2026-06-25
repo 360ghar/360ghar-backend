@@ -1,3 +1,4 @@
+from opentelemetry.trace.status import StatusCode
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -235,6 +236,19 @@ async def complete_visit(
 
     if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id):
         raise HTTPException(status_code=403, detail="Access denied")
+    if current_user.role not in[
+        UserRole.admin.value,
+        UserRole.agent.value,
+    ]:
+        raise HTTPException(
+            status_code = 403,
+            detail = "only agents or admins can complete visit",
+        )
+
+
+        
+
+
 
     notes = payload.notes if payload else None
     feedback = payload.feedback if payload else None

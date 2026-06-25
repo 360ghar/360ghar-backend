@@ -42,8 +42,7 @@ class VisitCreate(BaseModel):
     match_id: int | None = None
 
 class VisitUpdate(BaseModel):
-    scheduled_date: datetime | None = None
-    status: VisitStatus | None = None
+    scheduled_date: datetime | None = None    
     special_requirements: str | None = None
     visit_notes: str | None = None
     visitor_feedback: str | None = None

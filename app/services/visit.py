@@ -328,6 +328,7 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
     if visit:
         old_status = visit.status
         update_data = visit_update.model_dump(exclude_unset=True)
+        update_data.pop("status", None)
         for field, value in update_data.items():
             setattr(visit, field, value)
 
