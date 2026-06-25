@@ -49,6 +49,40 @@ HARDCODED_AMENITY_TITLES = [a["title"] for a in _load("03_amenities.json")]
 HARDCODED_PROPERTIES = _load("04_properties.json")
 HARDCODED_PROPERTY_TITLES = [p["title"] for p in HARDCODED_PROPERTIES]
 
+
+def _load_hc_dir_property_titles() -> list[str]:
+    """Titles of the 109 real properties under hardcoded/properties/00xxx/.
+
+    These directory-based listings (loaded by ``load_hc_properties_from_dirs``)
+    are the ENTIRE property catalog — synthetic seed-property creation is
+    disabled. Generated activity (visits/bookings/swipes/flatmate-visits) must
+    reference these titles so the refs resolve in the IDMap (the loader
+    registers each property under its ``title``). ``04_properties.json`` holds
+    only 2 example rows, so ``HARDCODED_PROPERTY_TITLES`` alone is insufficient.
+    """
+    titles: list[str] = []
+    props_dir = HARDCODED_DIR / "properties"
+    if not props_dir.exists():
+        return titles
+    for prop_dir in sorted(props_dir.iterdir()):
+        if not prop_dir.is_dir() or not prop_dir.name.startswith("00"):
+            continue
+        pj = prop_dir / "property.json"
+        if not pj.exists():
+            continue
+        with open(pj, encoding="utf-8") as f:
+            raw = json.load(f)
+        prop = raw.get("property", raw)
+        title = prop.get("title")
+        if title:
+            titles.append(title)
+    return titles
+
+
+# All real catalog property titles (the 109 directory listings). Falls back to
+# the 2-row example list only if the directories are somehow absent.
+HC_DIR_PROPERTY_TITLES = _load_hc_dir_property_titles() or HARDCODED_PROPERTY_TITLES
+
 # ── Location data ──────────────────────────────────────────────
 LOCATIONS = {
     "gurgaon": {

@@ -338,6 +338,20 @@ async def run(
     elif load_media and dry_run:
         media_urls = await upload_media(dry_run=True, user_id_override=1)
 
+    # ── Guard: alert when image URLs cannot be resolved ──────────
+    # If media upload was skipped (--skip-media) or produced no mappings, every
+    # media/ placeholder will be stored as NULL (resolvers never persist a
+    # relative path). Warn loudly so the operator knows images will be blank.
+    if (load_hardcoded or load_seed) and not dry_run and not media_urls:
+        logger.error(
+            "MEDIA NOT UPLOADED — image/avatar fields for %s data will be stored "
+            "as NULL. To get real Cloudinary URLs, run WITHOUT --skip-media and "
+            "ensure CLOUDINARY_* credentials are set. The load continues, but "
+            "images will be blank until re-seeded or repaired via "
+            "seed_data/fix_media_urls.py.",
+            "hardcoded/seed" if load_hardcoded and load_seed else ("hardcoded" if load_hardcoded else "seed"),
+        )
+
     # ── Step 1: Hardcoded data ─────────────────────────────────
     if load_hardcoded:
         logger.info("=" * 60)

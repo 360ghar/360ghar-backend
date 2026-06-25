@@ -119,6 +119,11 @@ class Settings(BaseSettings):
     # Background pool (schedulers, scrapers, long-running tasks)
     DB_BG_POOL_SIZE: int = 3
     DB_BG_MAX_OVERFLOW: int = 5
+    # Per-request statement timeout (ms) for interactive read endpoints such as
+    # property search. Bounds a stalled query so it fails fast and frees its
+    # pooler connection instead of holding it until the 2-minute server default.
+    # 0 disables the guardrail (falls back to the server/role default).
+    DB_READ_STATEMENT_TIMEOUT_MS: int = 8000
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:
@@ -263,6 +268,7 @@ class Settings(BaseSettings):
     GOOGLE_PLACES_MAX_DAILY_CALLS: int = 1000
     NEIGHBOURHOOD_SCORE_RADIUS_M: int = 1500
     NEIGHBOURHOOD_SCORE_STALE_DAYS: int = 30
+    STALE_LISTING_PAUSE_DAYS: int = 60  # auto-pause flatmate listings not updated in this many days
     JAMABANDI_CACHE_TTL_DAYS: int = 7
     # Haryana stamp duty rates (as percentages for display, not computation)
     STAMP_DUTY_RATE_MALE: float = 7.0

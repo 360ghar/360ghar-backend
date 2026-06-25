@@ -35,9 +35,9 @@ from seed_data.shared import (
     GUESTS_POLICIES,
     HARDCODED_AGENT_NAMES,
     HARDCODED_AMENITY_TITLES,
-    HARDCODED_PROPERTY_TITLES,
     HARDCODED_USER_EMAILS,
     HARDCODED_USER_NAMES,
+    HC_DIR_PROPERTY_TITLES,
     LAST_NAMES,
     LOCATIONS,
     SLEEP_SCHEDULES,
@@ -360,7 +360,7 @@ def generate_visits(property_titles: list[str] | None = None) -> list[dict[str, 
     statuses = ["scheduled", "confirmed", "completed", "cancelled"]
     visits = []
     if not property_titles:
-        property_titles = HARDCODED_PROPERTY_TITLES
+        property_titles = HC_DIR_PROPERTY_TITLES
     for _ in range(40):
         visits.append({
             "user_id_ref": random.choice(HARDCODED_USER_EMAILS),
@@ -380,7 +380,7 @@ def generate_bookings(property_titles: list[str] | None = None) -> list[dict[str
     statuses = ["pending", "confirmed", "checked_in", "checked_out", "cancelled", "completed"]
     payment_statuses = ["pending", "paid", "refunded"]
     if not property_titles:
-        property_titles = HARDCODED_PROPERTY_TITLES
+        property_titles = HC_DIR_PROPERTY_TITLES
     bookings = []
     for i in range(25):
         nights = random.randint(1, 7)
@@ -522,7 +522,7 @@ def generate_pm_data() -> dict[str, list]:
 
     for i in range(15):
         l_ref = f"lease_{i+1:03d}"
-        prop_ref = random.choice(HARDCODED_PROPERTY_TITLES)
+        prop_ref = random.choice(HC_DIR_PROPERTY_TITLES)
         tenant_ref = random.choice(HARDCODED_USER_EMAILS[1:])  # Skip first (owner)
         lease_prop_map[l_ref] = prop_ref
         lease_tenant_map[l_ref] = tenant_ref
@@ -590,7 +590,7 @@ def generate_pm_data() -> dict[str, list]:
     expense_cats = ["maintenance", "repairs", "insurance", "property_tax", "utilities", "hoa"]
     for i in range(20):
         expenses.append({
-            "property_id_ref": random.choice(HARDCODED_PROPERTY_TITLES),
+            "property_id_ref": random.choice(HC_DIR_PROPERTY_TITLES),
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
             "category": random.choice(expense_cats),
             "amount": random.randint(2000, 50000),
@@ -604,7 +604,7 @@ def generate_pm_data() -> dict[str, list]:
     for i in range(15):
         l_ref = f"lease_{(i % 8) + 1:03d}"
         maintenance.append({
-            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HARDCODED_PROPERTY_TITLES)),
+            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HC_DIR_PROPERTY_TITLES)),
             "lease_id_ref": l_ref,
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
             "tenant_user_id_ref": lease_tenant_map.get(l_ref, HARDCODED_USER_EMAILS[1]),
@@ -622,7 +622,7 @@ def generate_pm_data() -> dict[str, list]:
         l_ref = f"lease_{(i % 8) + 1:03d}"
         documents.append({
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
-            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HARDCODED_PROPERTY_TITLES)),
+            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HC_DIR_PROPERTY_TITLES)),
             "lease_id_ref": l_ref,
             "document_type": doc_types[i % len(doc_types)],
             "title": f"{doc_types[i % len(doc_types)].replace('_', ' ').title()} #{i+1}",
@@ -636,7 +636,7 @@ def generate_pm_data() -> dict[str, list]:
     for i in range(8):
         l_ref = f"lease_{(i % 8) + 1:03d}"
         inspections.append({
-            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HARDCODED_PROPERTY_TITLES)),
+            "property_id_ref": lease_prop_map.get(l_ref, random.choice(HC_DIR_PROPERTY_TITLES)),
             "lease_id_ref": l_ref,
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
             "inspection_type": random.choice(["move_in", "move_out", "routine"]),
@@ -653,7 +653,7 @@ def generate_pm_data() -> dict[str, list]:
         rental_apps.append({
             "_type": "form",
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
-            "property_id_ref": random.choice(HARDCODED_PROPERTY_TITLES),
+            "property_id_ref": random.choice(HC_DIR_PROPERTY_TITLES),
             "title": f"Rental Application - {LOCATIONS['gurgaon']['localities'][i]}",
             "description": "Standard rental application form",
             "slug": form_slug,
@@ -664,7 +664,7 @@ def generate_pm_data() -> dict[str, list]:
         rental_apps.append({
             "_type": "application",
             "form_id_ref": random.choice(form_slugs),
-            "property_id_ref": random.choice(HARDCODED_PROPERTY_TITLES),
+            "property_id_ref": random.choice(HC_DIR_PROPERTY_TITLES),
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
             "status": random.choice(["applicant", "approved", "active"]),
             "applicant_full_name": random.choice(FIRST_NAMES_M) + " " + random.choice(LAST_NAMES),
@@ -848,7 +848,7 @@ def generate_data_hub() -> dict[str, list]:
     neighbourhoods = []
     for _ in range(50):
         neighbourhoods.append({
-            "listing_id_ref": random.choice(HARDCODED_PROPERTY_TITLES),
+            "listing_id_ref": random.choice(HC_DIR_PROPERTY_TITLES),
             "latitude": LOCATIONS["gurgaon"]["lat"] + random.uniform(-0.05, 0.05),
             "longitude": LOCATIONS["gurgaon"]["lng"] + random.uniform(-0.05, 0.05),
             "overall_score": random.randint(60, 95),
@@ -914,23 +914,19 @@ def main() -> None:
     agents = generate_agents()
     _write("02_agents.json", agents)
 
-    # Properties (with inline images)
-    properties = generate_properties()
+    # Properties: synthetic property generation is DISABLED. The catalog is
+    # sourced exclusively from the 109 real hardcoded properties (loaded from
+    # hardcoded/properties/00xxx/ dirs), each with correct data + its own
+    # matching images. We write empty lists so the loader (which no longer
+    # creates seed properties — see load_seed_properties) has nothing to ingest
+    # and a regenerate can't recreate the misleading synthetic listings.
+    _write("03_properties.json", [])
+    _write("04_property_images.json", [])
 
-    # Separate property images from property data before writing
-    images = []
-    for prop in properties:
-        for img in prop.pop("images", []):
-            images.append({"property_ref": prop["title"], **img})
-
-    _write("03_properties.json", properties)
-    _write("04_property_images.json", images)
-
-    # Visits (with property title references)
-    prop_titles = [p["title"] for p in properties]
+    # Visits + bookings reference the real hardcoded catalog titles so their
+    # property refs resolve in the IDMap.
+    prop_titles = HC_DIR_PROPERTY_TITLES
     _write("05_visits.json", generate_visits(prop_titles))
-
-    # Bookings (with property title references)
     _write("06_bookings.json", generate_bookings(prop_titles))
 
     # Tours

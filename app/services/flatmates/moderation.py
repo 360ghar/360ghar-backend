@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.exceptions import BadRequestException, PropertyNotFoundException
 from app.models.enums import (
     PG_FLATMATE_TYPES,
@@ -29,7 +30,7 @@ from app.services.flatmates.helpers import _canonical_pair
 MIN_REVIEW_PHOTO_COUNT = 2
 SUSPICIOUS_RENT_CEILING = 1_000_000
 REPORT_AUTO_PAUSE_THRESHOLD = 3
-EXPIRED_MOVE_IN_PAUSE_REASON = "expired_move_in_date"
+STALE_LISTING_PAUSE_REASON = "stale_listing"
 
 _SPAM_PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("adult_content", "high", r"\b(escort|call\s*girl|xxx|porn|nude|sexual\s+service)\b"),
@@ -416,41 +417,30 @@ def apply_report_auto_pause(
     return True
 
 
-def _as_aware_datetime(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        parsed = value
-    elif isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    else:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-def apply_expired_move_in_pause(
+def apply_stale_listing_pause(
     listing: Property,
     *,
     now: datetime | None = None,
 ) -> bool:
+    """Auto-pause a flatmate/PG listing that hasn't been updated in STALE_LISTING_PAUSE_DAYS."""
     if getattr(listing, "property_type", None) not in PG_FLATMATE_TYPES:
         return False
     if getattr(listing, "purpose", None) != PropertyPurpose.rent:
         return False
 
-    move_in_at = _as_aware_datetime(getattr(listing, "available_from", None))
-    if move_in_at is None:
-        return False
-
     effective_now = now or datetime.now(timezone.utc)
     if effective_now.tzinfo is None:
         effective_now = effective_now.replace(tzinfo=timezone.utc)
-    if move_in_at.date() >= effective_now.date():
+
+    # Use updated_at if available, fall back to created_at
+    last_touched = getattr(listing, "updated_at", None) or getattr(listing, "created_at", None)
+    if last_touched is None:
+        return False
+    if last_touched.tzinfo is None:
+        last_touched = last_touched.replace(tzinfo=timezone.utc)
+
+    stale_cutoff = effective_now - timedelta(days=settings.STALE_LISTING_PAUSE_DAYS)
+    if last_touched >= stale_cutoff:
         return False
 
     preferences = _listing_preferences(listing)
@@ -458,7 +448,7 @@ def apply_expired_move_in_pause(
     if current_status not in {None, "live"} and not getattr(listing, "is_available", False):
         return False
     if (
-        preferences.get("auto_paused_reason") == EXPIRED_MOVE_IN_PAUSE_REASON
+        preferences.get("auto_paused_reason") == STALE_LISTING_PAUSE_REASON
         and preferences.get("moderation_status") == "paused"
         and not getattr(listing, "is_available", False)
     ):
@@ -467,9 +457,8 @@ def apply_expired_move_in_pause(
     preferences.update(
         {
             "moderation_status": "paused",
-            "auto_paused_reason": EXPIRED_MOVE_IN_PAUSE_REASON,
+            "auto_paused_reason": STALE_LISTING_PAUSE_REASON,
             "auto_paused_at": effective_now.isoformat(),
-            "expired_move_in_date": move_in_at.isoformat(),
             "room_poster_review_required": True,
         }
     )
@@ -481,15 +470,16 @@ def apply_expired_move_in_pause(
     return True
 
 
-async def pause_expired_flatmate_listings(
+async def pause_stale_flatmate_listings(
     db: AsyncSession,
     *,
     now: datetime | None = None,
 ) -> int:
+    """Batch-pause flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS."""
     effective_now = now or datetime.now(timezone.utc)
     if effective_now.tzinfo is None:
         effective_now = effective_now.replace(tzinfo=timezone.utc)
-    cutoff = datetime.combine(effective_now.date(), time.min, tzinfo=effective_now.tzinfo)
+    stale_cutoff = effective_now - timedelta(days=settings.STALE_LISTING_PAUSE_DAYS)
 
     batch_size = 500
     paused_count = 0
@@ -499,8 +489,6 @@ async def pause_expired_flatmate_listings(
             .where(
                 Property.property_type.in_(PG_FLATMATE_TYPES),
                 Property.purpose == PropertyPurpose.rent,
-                Property.available_from.is_not(None),
-                Property.available_from < cutoff,
                 or_(
                     Property.is_available.is_(True),
                     func.coalesce(
@@ -509,6 +497,7 @@ async def pause_expired_flatmate_listings(
                     )
                     == "live",
                 ),
+                func.coalesce(Property.updated_at, Property.created_at) < stale_cutoff,
             )
             .order_by(Property.id)
             .limit(batch_size)
@@ -519,7 +508,7 @@ async def pause_expired_flatmate_listings(
 
         batch_paused = 0
         for listing in listings:
-            if apply_expired_move_in_pause(listing, now=effective_now):
+            if apply_stale_listing_pause(listing, now=effective_now):
                 paused_count += 1
                 batch_paused += 1
 

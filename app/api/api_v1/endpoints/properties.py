@@ -4,8 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user, get_current_user_optional
+from app.config import settings
 from app.core.database import get_db
-from app.core.db_resilience import extract_db_error_code, is_transient_db_error
+from app.core.db_resilience import (
+    apply_statement_timeout,
+    extract_db_error_code,
+    is_statement_timeout,
+    is_transient_db_error,
+)
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 from app.models.enums import (
@@ -24,7 +30,7 @@ from app.schemas.property import (
     UnifiedPropertyFilter,
 )
 from app.schemas.user import User as UserSchema
-from app.services.flatmates import pause_expired_flatmate_listings
+from app.services.flatmates import pause_stale_flatmate_listings
 from app.services.property import (
     create_property,
     delete_property,
@@ -296,7 +302,23 @@ async def get_properties_list(
     )
 
     try:
-        await pause_expired_flatmate_listings(db)
+        # Bound every statement in this read request so a stalled DB backend
+        # fails fast instead of holding a pooler connection for the 2-minute
+        # server default (which cascades into transaction-pool exhaustion).
+        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+
+        # Stale-listing pause is a best-effort cleanup write; it must never
+        # break browsing. If it stalls/fails, roll back the aborted transaction
+        # and continue to the (read-only) search.
+        try:
+            await pause_stale_flatmate_listings(db)
+        except Exception as cleanup_exc:
+            logger.warning(
+                "Skipping stale-listing pause during property browse: %s", cleanup_exc
+            )
+            await db.rollback()
+            await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+
         rows, next_payload, total = await get_unified_properties_optimized(
             db, filters, user_id, cursor_payload, page.limit,
             with_total=page.include_total,
@@ -309,8 +331,10 @@ async def get_properties_list(
 
         return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
     except Exception as e:
-        if is_transient_db_error(e):
-            error_code = extract_db_error_code(e) or "TRANSIENT_DB_ERROR"
+        if is_transient_db_error(e) or is_statement_timeout(e):
+            error_code = extract_db_error_code(e) or (
+                "STATEMENT_TIMEOUT" if is_statement_timeout(e) else "TRANSIENT_DB_ERROR"
+            )
             logger.error(
                 "Property search transient DB failure",
                 extra={
@@ -355,7 +379,7 @@ async def semantic_property_search(
 
     try:
         cursor_payload = page.decoded()
-        await pause_expired_flatmate_listings(db)
+        await pause_stale_flatmate_listings(db)
         rows, next_payload, total = await get_unified_properties_optimized(
             db, filters, user_id, cursor_payload, page.limit,
             with_total=page.include_total,
@@ -395,7 +419,7 @@ async def get_recommendations(
     user_id = current_user.id if current_user else None
     try:
         cursor_payload = page.decoded()
-        await pause_expired_flatmate_listings(db)
+        await pause_stale_flatmate_listings(db)
         rows, next_payload, total = await get_property_recommendations(
             db, user_id, cursor_payload, page.limit,
             with_total=page.include_total,

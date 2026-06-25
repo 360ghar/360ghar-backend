@@ -35,7 +35,7 @@ from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
-    apply_expired_move_in_pause,
+    apply_stale_listing_pause,
     apply_listing_prescreen_metadata,
 )
 from app.services.pm_authz import _get_actor_role
@@ -305,7 +305,7 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
         if not property_obj:
             logger.warning("Property %s not found", property_id)
             raise PropertyNotFoundException(property_id=property_id)
-        if apply_expired_move_in_pause(property_obj):
+        if apply_stale_listing_pause(property_obj):
             await db.flush()
 
         logger.debug(
@@ -369,7 +369,7 @@ async def list_user_properties(
     properties = list(res.scalars().all())
     paused_count = 0
     for property_obj in properties:
-        if apply_expired_move_in_pause(property_obj):
+        if apply_stale_listing_pause(property_obj):
             paused_count += 1
     if paused_count:
         await db.flush()
@@ -497,7 +497,7 @@ async def update_property(
                 image_urls=image_urls if image_urls_present else None,
             )
         if final_property_type in PG_FLATMATE_TYPES:
-            apply_expired_move_in_pause(property_obj)
+            apply_stale_listing_pause(property_obj)
 
         await db.flush()
         if final_property_type in PG_FLATMATE_TYPES:

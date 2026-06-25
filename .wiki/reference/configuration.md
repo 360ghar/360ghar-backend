@@ -11,6 +11,7 @@ Active contributors: Saksham, Ravi
 | `DATABASE_URL` | Postgres connection string. Must include `+asyncpg` for SQLAlchemy async. |
 | `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Main pool tuning (HTTP/MCP traffic). Commented out in `.env.example` - defaults apply. |
 | `DB_BG_POOL_SIZE`, `DB_BG_MAX_OVERFLOW` | Background pool tuning (schedulers, scrapers, long-running tasks). |
+| `DB_READ_STATEMENT_TIMEOUT_MS` | Per-request statement timeout (ms, default `8000`) for interactive read endpoints like property search. Applied via `SET LOCAL` so a stalled query fails fast and frees its pooler connection instead of holding it until the 2-minute server default. `0` disables the guardrail. |
 | `SERVERLESS_ENABLED` | When `true`, switches to `NullPool` for both engines, skips schedulers, falls back to in-memory cache. |
 | `SUPABASE_URL` | Supabase project URL. Used for JWKS fetch, auth introspection, push notifications. |
 | `SUPABASE_PUBLISHABLE_KEY` | Supabase anon/publishable key. |
