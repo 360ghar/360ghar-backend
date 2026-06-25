@@ -36,7 +36,7 @@ from app.schemas.pagination import (
     keyset_payload,
     keyset_sort_value,
 )
-from app.services.flatmates import pause_expired_flatmate_listings, prescreen_flatmate_listing
+from app.services.flatmates import pause_stale_flatmate_listings, prescreen_flatmate_listing
 
 logger = get_logger(__name__)
 
@@ -98,7 +98,7 @@ async def get_pending_listings(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    await pause_expired_flatmate_listings(db)
+    await pause_stale_flatmate_listings(db)
 
     cursor_payload: dict[str, Any] = page.decoded()
     base_stmt = (

@@ -74,6 +74,41 @@ LISTING_IMAGE_CATEGORY_MAP: dict[str, str] = {
     "utility": "others",
 }
 
+# Priority order for choosing a property's MAIN (hero) image. The exterior shot
+# is always preferred so the listing card leads with the building/facade rather
+# than a random interior. When a property has no exterior image we fall back
+# down this list, and finally to the first image if none of these categories
+# are present. Keep this in sync with the repair step in fix_property_images.py.
+MAIN_IMAGE_CATEGORY_PRIORITY: tuple[str, ...] = (
+    "exterior",
+    "hall",
+    "balcony",
+    "terrace",
+    "entrance",
+    "kitchen",
+    "room",
+    "bathroom",
+    "garden",
+    "parking",
+    "interior",
+    "others",
+)
+
+
+def pick_main_image_index(categories: list[str]) -> int:
+    """Return the index of the best main-image candidate given each image's
+    category, preferring ``exterior`` (see ``MAIN_IMAGE_CATEGORY_PRIORITY``).
+
+    Falls back to index 0 when none of the prioritized categories are present
+    (the caller guarantees the list is non-empty).
+    """
+    for category in MAIN_IMAGE_CATEGORY_PRIORITY:
+        for idx, cat in enumerate(categories):
+            if cat == category:
+                return idx
+    return 0
+
+
 # Fields in the source property.json that are not on the Property model and
 # are not stored anywhere else. They go into the `features` JSON column.
 HC_PROPERTY_EXTRA_FIELDS: tuple[str, ...] = (
@@ -254,10 +289,13 @@ def _resolve_url(ref: str, media_urls: dict[str, str]) -> str:
 
 
 def _resolve_media_refs(data: dict[str, Any], media_urls: dict[str, str]) -> None:
-    """In-place replace media/ refs in a data dict."""
+    """In-place resolve media/ refs via the shared resolver rule.
+
+    Unresolved refs become NULL (never a relative path) — see
+    ``01_base.resolve_media_value``.
+    """
     for key, value in data.items():
-        if isinstance(value, str) and value.startswith("media/"):
-            data[key] = media_urls.get(value, value)
+        data[key] = _base.resolve_media_value(value, media_urls, key=key)
 
 
 async def load_hc_properties_from_dirs(
@@ -341,12 +379,17 @@ async def load_hc_properties_from_dirs(
             else:
                 bucket = None  # unknown → keep source purpose
 
-            # Dedup by source slug (stored in the features JSON). We do NOT
-            # fall back to title+owner because the source has 109 properties
-            # that share only 33 unique titles — title-based dedup would
-            # incorrectly drop 76 distinct listings.
-            existing = None
-            source_slug = prop_data.get("slug") or slug
+            # Dedup by the directory slug stored in the features JSON. We must
+            # compare against what _build_hc_property_payload actually STORES —
+            # ``extras["slug"] = slug`` (the directory name, e.g.
+            # ``00101-godrej-...``) — NOT ``prop_data["slug"]`` (the source
+            # value ``godrej-...``), which is never written. Comparing against
+            # the source value made this lookup never match, so every re-run
+            # re-inserted all 109 properties (8 historical runs → 865 rows).
+            # We do NOT fall back to title+owner because the source has 109
+            # properties that share only 33 unique titles — title-based dedup
+            # would incorrectly drop 76 distinct listings.
+            source_slug = slug
             slug_stmt = select(Property).where(
                 cast(Property.features, JSONB)["slug"].astext == source_slug,
                 Property.owner_id == owner_id,
@@ -376,14 +419,16 @@ async def load_hc_properties_from_dirs(
 
             # Listing images (filter to listing_images/ only — skip 360 panoramas)
             listing_images = [img for img in images_list if isinstance(img, str) and img.startswith("listing_images/")]
+            # Choose the exterior shot (or best fallback) as the main image so
+            # every listing leads with the building facade, not a random room.
+            main_idx = pick_main_image_index([_listing_image_category(p) for p in listing_images]) if listing_images else 0
             for order, img_path in enumerate(listing_images):
-                _add_listing_image(session, record.id, slug, img_path, order, media_urls)
-
-            # Set the first listing image as the main image
-            if listing_images:
-                first_filename = Path(listing_images[0]).name
-                first_ref = f"media/hc_properties/{slug}/listing_images/{first_filename}"
-                record.main_image_url = media_urls.get(first_ref, first_ref)
+                url = _add_listing_image(
+                    session, record.id, slug, img_path, order, media_urls,
+                    is_main=(order == main_idx),
+                )
+                if order == main_idx:
+                    record.main_image_url = url
 
             # Floor plan
             floor_plan_path = prop_dir / "floor_plan.png"
@@ -602,6 +647,12 @@ def _build_hc_property_payload(
     return payload
 
 
+def _listing_image_category(img_path: str) -> str:
+    """Infer the ``image_category`` for a listing image from its filename."""
+    stem = Path(img_path).stem
+    return LISTING_IMAGE_CATEGORY_MAP.get(stem, "others")
+
+
 def _add_listing_image(
     session: Any,
     property_id: int,
@@ -609,12 +660,16 @@ def _add_listing_image(
     img_path: str,
     display_order: int,
     media_urls: dict[str, str],
-) -> None:
-    """Add a single listing image as a ``PropertyImage`` row.
+    *,
+    is_main: bool,
+) -> str:
+    """Add a single listing image as a ``PropertyImage`` row and return its URL.
 
     ``img_path`` is the relative path inside the property directory
     (e.g. ``"listing_images/living_room.webp"``). It is converted to a
-    ``media/...`` ref and resolved against the uploaded media URLs.
+    ``media/...`` ref and resolved against the uploaded media URLs. The caller
+    decides which image is the main one (see ``pick_main_image_index``) and
+    passes ``is_main`` accordingly, rather than defaulting to the first image.
     """
     filename = Path(img_path).name
     stem = Path(filename).stem
@@ -627,9 +682,10 @@ def _add_listing_image(
         image_url=resolved_url,
         caption=stem.replace("_", " ").title(),
         image_category=category,
-        is_main_image=(display_order == 0),
+        is_main_image=is_main,
         display_order=display_order,
     ))
+    return resolved_url
 
 
 def _set_floor_plan(record: Property, slug: str, media_urls: dict[str, str]) -> None:

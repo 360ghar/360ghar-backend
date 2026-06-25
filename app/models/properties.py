@@ -79,7 +79,13 @@ class Property(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    __ts_vector__: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
+    # FTS column is trigger-maintained in Postgres and named "__ts_vector__" in the DB.
+    # The Python attribute must NOT be a dunder, or SQLAlchemy's declarative mapper skips
+    # it (leaving it unmapped and uncompilable). deferred=True keeps the large tsvector out
+    # of default entity loads; it is only referenced in search filters/ranking.
+    ts_vector: Mapped[str] = mapped_column(
+        "__ts_vector__", TSVECTOR, nullable=True, deferred=True
+    )
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     property_type: Mapped[PropertyType] = mapped_column(SQLEnum(PropertyType, name='property_type'), nullable=False)

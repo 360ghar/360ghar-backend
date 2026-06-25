@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.cache import PropertyCacheManager
-from app.core.db_resilience import execute_with_transient_retry
+from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
 from app.core.logging import get_logger
 from app.models.enums import PG_FLATMATE_TYPES, BookingStatus
 from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
@@ -199,6 +199,11 @@ async def get_unified_properties_optimized(
                 except Exception as cache_exc:  # noqa: BLE001
                     logger.warning("Ignoring invalid property search cache: %s", cache_exc)
 
+        # Bound this read so a stalled DB backend fails fast instead of holding
+        # a pooler connection until the 2-minute server default and cascading
+        # into pool exhaustion. Scoped to the current transaction (SET LOCAL).
+        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+
         # Base query with eager loading
         query = select(Property).options(
             selectinload(Property.images).load_only(
@@ -286,7 +291,7 @@ async def get_unified_properties_optimized(
             logger.debug("Adding full-text search filter: %s", filters.search_query)
 
             search_query_obj = func.plainto_tsquery("english", filters.search_query)
-            search_vector = Property.__ts_vector__
+            search_vector = Property.ts_vector
             # Only hard-filter by text match when semantic search is not requested
             if not semantic_enabled:
                 conditions.append(search_vector.op("@@")(search_query_obj))

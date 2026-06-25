@@ -28,14 +28,12 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # Eagerly initialize MCP apps so their lifespan context managers are
-        # created in *this* async context (not lazily in a request handler).
-        # Without this, ContextVar tokens set during lazy init in a request
-        # context cannot be reset during shutdown in the server context,
-        # causing "ValueError: was created in a different Context".
-        await user_mcp_app._ensure_app()
-        await admin_mcp_app._ensure_app()
-
+        # Enter each MCP app's lifespan in *this* server async context. The
+        # lifespan() context manager builds the concrete app and enters its
+        # inner lifespan (starting the StreamableHTTPSessionManager task
+        # group), so both enter and exit happen in the same context — avoiding
+        # the "ValueError: was created in a different Context" that lazy
+        # request-time init would otherwise cause.
         async with user_mcp_app.lifespan(app):
             async with admin_mcp_app.lifespan(app):
                 try:

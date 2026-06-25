@@ -731,7 +731,7 @@ class TestGetPendingListingsPagination:
         db.execute = AsyncMock(return_value=mock_listings_result)
 
         with patch(
-            "app.api.api_v1.endpoints.flatmates_admin.pause_expired_flatmate_listings",
+            "app.api.api_v1.endpoints.flatmates_admin.pause_stale_flatmate_listings",
             new=AsyncMock(),
         ):
             result = await get_pending_listings(
@@ -768,7 +768,7 @@ class TestGetPendingListingsPagination:
         db.execute = AsyncMock(side_effect=[mock_count_result, mock_listings_result])
 
         with patch(
-            "app.api.api_v1.endpoints.flatmates_admin.pause_expired_flatmate_listings",
+            "app.api.api_v1.endpoints.flatmates_admin.pause_stale_flatmate_listings",
             new=AsyncMock(),
         ):
             result = await get_pending_listings(

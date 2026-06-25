@@ -4,6 +4,7 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, DisconnectionError
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,40 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 T = TypeVar("T")
+
+
+async def apply_statement_timeout(session: AsyncSession, timeout_ms: int) -> None:
+    """Bound how long statements in the current transaction may run.
+
+    Uses ``SET LOCAL`` so the timeout is scoped to the active transaction and
+    never leaks across PgBouncer-pooled clients. Without this, a stalled query
+    (e.g. blocked on a lock or a throttled DB backend) holds a pooler
+    connection until the server-default ``statement_timeout`` (2 minutes on
+    this deployment), which exhausts the transaction-mode pool and cascades.
+    A bounded timeout makes such a stall fail fast and free the connection.
+
+    ``timeout_ms`` is an int from configuration (never user input), so it is
+    inlined — ``SET`` does not accept bind parameters in PostgreSQL.
+    """
+    if timeout_ms <= 0:
+        return
+    await session.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
+
+
+def is_statement_timeout(exc: Exception) -> bool:
+    """True if the error is a server-side ``statement_timeout`` cancellation.
+
+    Kept separate from :func:`is_transient_db_error` so the retry helper does
+    NOT auto-retry timeouts (the backend is stalled — retrying just holds
+    another connection), while endpoints can still map them to a retryable
+    503 instead of a 500.
+    """
+    message = str(exc).lower()
+    return (
+        "statement timeout" in message
+        or "canceling statement due to" in message
+        or "querycanceled" in message
+    )
 
 TRANSIENT_DB_ERROR_CODES = {"EDBHANDLEREXITED", "ECHECKOUTTIMEOUT"}
 _TRANSIENT_DB_MESSAGE_MARKERS = (

@@ -115,13 +115,17 @@ async def upload_media(
                     except Exception:
                         logger.warning("Image optimization failed for %s, using original", media_ref)
 
-                # Generate a stable public ID for deterministic Cloudinary paths
-                stem = local_path.stem
-                # Use .webp extension if converted to WebP
-                if content_type == "image/webp":
-                    public_id = f"seed/{stem}.webp"
-                else:
-                    public_id = f"seed/{stem}"
+                # Path-unique public_id derived from the full media_ref so files
+                # that share a filename (living_room.webp, floor_plan.png) across
+                # entities do not collide. NO extension in the public_id —
+                # Cloudinary appends the detected format itself, so the delivered
+                # URL always has one clean extension and never a double one
+                # (.webp.jpg) when a source's true format differs from its name.
+                rel = media_ref[len("media/"):] if media_ref.startswith("media/") else media_ref
+                rel = rel.replace("\\", "/")
+                p = Path(rel)
+                parent = f"{p.parent}/" if str(p.parent) != "." else ""
+                public_id = f"seed/{parent}{p.stem}"
 
                 loop = asyncio.get_event_loop()
 
@@ -132,6 +136,7 @@ async def upload_media(
                         folder="360ghar",
                         content_type=content_type or "application/octet-stream",
                         is_image=is_image,
+                        overwrite=True,
                     )
                     return result["secure_url"]
 

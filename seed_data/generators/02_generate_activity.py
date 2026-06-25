@@ -29,6 +29,7 @@ from seed_data.shared import (
     ALL_AGENT_NAMES,
     BANKS,
     CITIES,
+    HC_DIR_PROPERTY_TITLES,
 )
 
 SEED_DIR = Path(__file__).resolve().parent.parent / "seed"
@@ -55,12 +56,14 @@ def load_seed_users() -> list[dict[str, Any]]:
 
 
 def load_seed_properties() -> list[dict[str, Any]]:
-    """Load seed property titles for generating activity refs."""
-    path = SEED_DIR / "03_properties.json"
-    if not path.exists():
-        return []
-    with open(path) as f:
-        return json.load(f)
+    """Property titles for generating activity refs.
+
+    The catalog is the 109 real hardcoded properties (synthetic seed-property
+    creation is disabled and ``seed/03_properties.json`` is now empty), so
+    activity (swipes, flatmate visits) references those titles. Returns dicts
+    shaped ``{"title": ...}`` to match the ``generate_*`` consumers.
+    """
+    return [{"title": t} for t in HC_DIR_PROPERTY_TITLES]
 
 
 def load_seed_tours() -> list[dict[str, Any]]:

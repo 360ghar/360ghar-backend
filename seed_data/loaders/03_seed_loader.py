@@ -38,7 +38,7 @@ from app.models.pm_inspections import InspectionChecklist
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.pm_tenants import RentalApplication, RentalApplicationForm
-from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage, Visit
+from app.models.properties import Visit
 from app.models.tours import (
     AIJob,
     FloorPlan,
@@ -130,77 +130,25 @@ async def load_seed_agents(id_map: IDMap) -> dict[str, int]:
 
 
 async def load_seed_properties(id_map: IDMap, media_urls: dict[str, str]) -> dict[str, int]:
-    """Load seed properties with images and amenities."""
-    records = load_json(SEED_DIR / "03_properties.json")
-    images_records = load_json(SEED_DIR / "04_property_images.json")
-    # Build image lookup: property_ref → [image_data]
-    images_by_prop: dict[str, list] = {}
-    for img in images_records:
-        prop_ref = img.pop("property_ref", None)
-        if prop_ref:
-            images_by_prop.setdefault(prop_ref, []).append(img)
+    """Synthetic property creation is intentionally DISABLED.
 
-    created = 0
-    skipped = 0
+    The generated ``seed/03_properties.json`` records are fabricated listings
+    ("2BHK Apartment in Sector 43") with no real images of their own — they
+    previously borrowed hardcoded image sets, producing listings whose photos
+    didn't match the property. The catalog is now sourced **exclusively** from
+    the 109 real hardcoded properties (loaded by ``load_hc_properties_from_dirs``
+    in 02_hardcoded_loader.py), each with correct data and its own matching
+    images. So this loader creates no properties.
 
-    async with AsyncSessionLocal() as session:
-        for data in records:
-            data = dict(data)  # Copy to avoid mutation
-            owner_ref = data.pop("owner_ref", None)
-            amenity_titles = data.pop("amenity_titles", [])
-            data.pop("images", None)  # May exist if generator didn't strip them
-            title = data.get("title")
-
-            owner_id = id_map.get("user", owner_ref)
-            if not owner_id:
-                logger.warning("Owner ref %s not found, skipping property", owner_ref)
-                skipped += 1
-                continue
-            data["owner_id"] = owner_id
-
-            clean = resolve_refs(data, id_map, media_urls, model=Property)
-            clean["is_seed_data"] = True
-
-            stmt = select(Property).where(Property.title == title, Property.owner_id == owner_id)
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-            if existing:
-                id_map.put("property", title, existing.id)
-                skipped += 1
-                continue
-
-            record = Property(**clean)
-            session.add(record)
-            await session.flush()
-            id_map.put("property", title, record.id)
-
-            # Images from inline or separate file
-            for img_data in images_by_prop.get(title, []):
-                img_url = img_data.get("url", "")
-                if img_url.startswith("media/"):
-                    img_url = media_urls.get(img_url, img_url)
-                img_record = PropertyImage(
-                    property_id=record.id,
-                    image_url=img_url,
-                    caption=img_data.get("caption"),
-                    image_category=img_data.get("category", "others"),
-                    is_main_image=img_data.get("is_main", False),
-                    display_order=img_data.get("display_order", 0),
-                )
-                session.add(img_record)
-
-            # Amenity links
-            for at in amenity_titles:
-                a_stmt = select(Amenity).where(Amenity.title == at)
-                a = (await session.execute(a_stmt)).scalar_one_or_none()
-                if a:
-                    session.add(PropertyAmenity(property_id=record.id, amenity_id=a.id))
-
-            created += 1
-
-        await session.commit()
-
-    logger.info("Seed properties: %d created, %d skipped", created, skipped)
-    return {"created": created, "skipped": skipped}
+    Generated activity (visits/bookings/swipes) is pointed at the hardcoded
+    property titles in the generators, so nothing here needs to register seed
+    property refs in the IDMap.
+    """
+    logger.info(
+        "Seed properties: synthetic property creation disabled — catalog is "
+        "hardcoded-only (see load_hc_properties_from_dirs). 0 created."
+    )
+    return {"created": 0, "skipped": 0}
 
 
 async def load_all_seed(id_map: IDMap, media_urls: dict[str, str]) -> dict[str, dict[str, int]]:

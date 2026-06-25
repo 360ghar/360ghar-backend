@@ -46,6 +46,11 @@ class LazyMCPHTTPApp:
     @asynccontextmanager
     async def lifespan(self, app: Any):
         self._parent_app = app
+        # Build the concrete MCP app and enter its lifespan now — inside the
+        # server's lifespan context — so the StreamableHTTPSessionManager task
+        # group is initialized before any request is served. _ensure_app()
+        # enters the inner lifespan because _parent_app is now set.
+        await self._ensure_app()
         try:
             yield
         finally:

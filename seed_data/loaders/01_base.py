@@ -279,6 +279,34 @@ def _model_columns(model: type | None) -> set[str] | None:
     return set(model.__table__.columns.keys())
 
 
+def resolve_media_value(
+    value: Any, media_urls: dict[str, str] | None, *, key: str = ""
+) -> Any:
+    """Resolve a ``media/...`` reference to a Cloudinary URL.
+
+    Centralised rule so loaders never persist a broken placeholder:
+
+    * ``media_urls is None`` → media resolution is not applicable for this data
+      (e.g. generated activity); the value is left untouched.
+    * otherwise a ``media/...`` ref must map to an ``http(s)://`` URL. A missing
+      entry, an empty map (``--skip-media`` / failed upload), or a
+      ``placeholder://`` fallback value all yield ``None`` plus an ERROR log,
+      so the app shows a placeholder avatar instead of a 404 and the operator
+      is alerted instead of silently storing a relative path.
+    """
+    if media_urls is None or not isinstance(value, str) or not value.startswith("media/"):
+        return value
+    resolved = media_urls.get(value)
+    if isinstance(resolved, str) and (resolved.startswith("http://") or resolved.startswith("https://")):
+        return resolved
+    logger.error(
+        "Unresolved media ref %r in field %r — setting NULL "
+        "(re-run seeding without --skip-media, or verify Cloudinary credentials).",
+        value, key or "<unknown>",
+    )
+    return None
+
+
 def resolve_refs(
     data: dict[str, Any],
     id_map: IDMap,
@@ -387,11 +415,11 @@ def resolve_refs(
             if db_id:
                 out[key] = db_id
 
-    # Resolve media/ URL references
-    if media_urls:
+    # Resolve media/ URL references. Unresolved refs become NULL (never a
+    # relative path) — see resolve_media_value for the rule.
+    if media_urls is not None:
         for key, value in list(out.items()):
-            if isinstance(value, str) and value.startswith("media/"):
-                out[key] = media_urls.get(value, value)
+            out[key] = resolve_media_value(value, media_urls, key=key)
 
     # Default updated_at to now() if not present (remote DB has NOT NULL constraint)
     # Only inject when the model actually has an updated_at column

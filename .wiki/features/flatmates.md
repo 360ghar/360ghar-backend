@@ -16,7 +16,7 @@ app/services/flatmates/
 ├── matching.py            # record_swipe, list_matches, incoming/outgoing likes
 ├── conversations.py       # _ensure_conversation, messages, QnA, mark_read
 ├── interactions.py        # profile_view_event, society_tag_vote
-├── moderation.py          # prescreen, reports, blocks, expired-move-in pause
+├── moderation.py          # prescreen, reports, blocks, stale-listing pause
 ├── visits.py              # update_visit_status + SSE emit
 └── helpers.py             # canonical pair, payload builders, geocoding
 app/models/
@@ -33,7 +33,7 @@ app/models/enums.py        # SwipeAction, SwipeTargetType, ConversationStatus, e
 | `_canonical_pair` | `app/services/flatmates/helpers.py` | Sorts `(user_one_id, user_two_id)` so pairs are stable |
 | `list_discoverable_profiles` | `app/services/flatmates/profiles.py` | Cursor-paginated feed of swipable peers |
 | `prescreen_flatmate_listing` | `app/services/flatmates/moderation.py` | Auto prescreen: photo count, suspicious rent, spam patterns |
-| `pause_expired_flatmate_listings` | `app/services/flatmates/moderation.py` | Pauses listings whose move-in date has passed |
+| `pause_stale_flatmate_listings` | `app/services/flatmates/moderation.py` | Pauses flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS (default 60) |
 | `EnumStringType` | `app/models/social.py` | TypeDecorator storing enums as strings with DB CHECK constraints |
 | `sse_bus.emit` | `app/core/sse.py` | Per-user pub/sub event bus consumed by `/api/v1/flatmates/sse` |
 
@@ -60,7 +60,7 @@ graph TD
     MOD -->|moderation_status| LP[listing_preferences JSONB]
 ```
 
-Moderation runs in two layers. `prescreen_flatmate_listing` runs synchronously on profile create/update and writes `moderation_status` (`pending_review`, `live`, `rejected`) plus prescreen metadata into the property's `listing_preferences` JSONB. It checks `MIN_REVIEW_PHOTO_COUNT` (2), flags rents above `SUSPICIOUS_RENT_CEILING` (1,000,000), and scans descriptions against `_SPAM_PATTERNS` (adult content, illegal substances, commercial spam, off-platform spam). `pause_expired_flatmate_listings` runs on every flatmates endpoint entry and flips listings whose move-in date has passed to `paused`. The admin moderation endpoint in `flatmates_admin.py` exposes approve/reject/request_edit actions and applies `REPORT_AUTO_PAUSE_THRESHOLD` (3 reports triggers an auto-pause).
+Moderation runs in two layers. `prescreen_flatmate_listing` runs synchronously on profile create/update and writes `moderation_status` (`pending_review`, `live`, `rejected`) plus prescreen metadata into the property's `listing_preferences` JSONB. It checks `MIN_REVIEW_PHOTO_COUNT` (2), flags rents above `SUSPICIOUS_RENT_CEILING` (1,000,000), and scans descriptions against `_SPAM_PATTERNS` (adult content, illegal substances, commercial spam, off-platform spam). `pause_stale_flatmate_listings` runs on every flatmates endpoint entry and flips listings not updated in `STALE_LISTING_PAUSE_DAYS` (default 60 days) to `paused`. The admin moderation endpoint in `flatmates_admin.py` exposes approve/reject/request_edit actions and applies `REPORT_AUTO_PAUSE_THRESHOLD` (3 reports triggers an auto-pause).
 
 SSE is the real-time backbone. The `GET /api/v1/flatmates/sse` endpoint subscribes to `sse_bus` for the current user, releases the main-pool DB session, and streams events with 30-second keepalives from a background-pool session. Event types are `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, and `new_notification`. The bus drops the oldest event when a per-user queue is full and periodically reaps dead queues.
 
