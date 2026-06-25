@@ -42,15 +42,16 @@ class LazyMCPHTTPApp:
     async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         app = await self._ensure_app()
         await app(scope, receive, send)
+
     @asynccontextmanager
     async def lifespan(self, app: Any):
         self._parent_app = app
-        # Build the app NOW while parent_app is set, then start its lifespan
         inner_app = await self._ensure_app()
         if hasattr(inner_app, "lifespan"):
             self._lifespan_cm = inner_app.lifespan(app)
-            await self._lifespan_cm.__aenter__()
         try:
+            if self._lifespan_cm is not None:
+                await self._lifespan_cm.__aenter__()
             yield
         finally:
             if self._lifespan_cm is not None:
