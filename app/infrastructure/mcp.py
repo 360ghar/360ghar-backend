@@ -46,7 +46,12 @@ class LazyMCPHTTPApp:
     @asynccontextmanager
     async def lifespan(self, app: Any):
         self._parent_app = app
+        inner_app = await self._ensure_app()
+        if hasattr(inner_app, "lifespan"):
+            self._lifespan_cm = inner_app.lifespan(app)
         try:
+            if self._lifespan_cm is not None:
+                await self._lifespan_cm.__aenter__()
             yield
         finally:
             if self._lifespan_cm is not None:
@@ -62,15 +67,6 @@ class LazyMCPHTTPApp:
         async with self._lock:
             if self._app is None:
                 self._app = _build_mcp_http_app(self._server_name)
-                if self._parent_app is not None and hasattr(self._app, "lifespan"):
-                    self._lifespan_cm = self._app.lifespan(self._parent_app)
-                    await self._lifespan_cm.__aenter__()
-                elif self._parent_app is None:
-                    logger.warning(
-                        "LazyMCPHTTPApp._ensure_app called before lifespan setup; "
-                        "inner app lifespan will be skipped for server %s",
-                        self._server_name,
-                    )
         return self._app
 
 

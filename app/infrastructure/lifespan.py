@@ -33,8 +33,8 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
         # Without this, ContextVar tokens set during lazy init in a request
         # context cannot be reset during shutdown in the server context,
         # causing "ValueError: was created in a different Context".
-        await user_mcp_app._ensure_app()
-        await admin_mcp_app._ensure_app()
+        # await user_mcp_app._ensure_app()
+        # await admin_mcp_app._ensure_app()
 
         async with user_mcp_app.lifespan(app):
             async with admin_mcp_app.lifespan(app):
