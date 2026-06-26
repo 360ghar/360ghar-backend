@@ -31,7 +31,7 @@ def _get_razorpay_client() -> Any:
             error_code="RAZORPAY_NOT_CONFIGURED",
         )
     try:
-        import razorpay  # type: ignore[import-untyped]
+        import razorpay
     except ImportError as e:  # pragma: no cover - dependency is required
         raise ServiceUnavailableException(
             detail="Razorpay SDK is not installed.",
@@ -267,7 +267,7 @@ async def update_payment_method(
     if data.nickname is not None:
         method.nickname = data.nickname
     if data.is_default is not None:
-        method.is_default = 1 if data.is_default else 0
+        method.is_default = data.is_default
     await db.flush()
     await db.refresh(method)
     return method
@@ -317,6 +317,6 @@ async def _clear_default_methods(db: AsyncSession, user_id: int) -> None:
     )
     rows = (await db.execute(stmt)).scalars().all()
     for row in rows:
-        row.is_default = 0
+        row.is_default = False
     if rows:
         await db.flush()

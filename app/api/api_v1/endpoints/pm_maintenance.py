@@ -117,8 +117,12 @@ async def update_request(
         assigned_agent_id=payload.assigned_agent_id,
         work_order_status=payload.work_order_status,
         priority=payload.priority,
-        estimated_cost=payload.estimated_cost,
-        actual_cost=payload.actual_cost,
+        estimated_cost=(
+            float(payload.estimated_cost) if payload.estimated_cost is not None else None
+        ),
+        actual_cost=(
+            float(payload.actual_cost) if payload.actual_cost is not None else None
+        ),
         scheduled_for=payload.scheduled_for,
         completed_at=payload.completed_at,
         closed_at=payload.closed_at,

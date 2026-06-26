@@ -122,7 +122,7 @@ class StorageService:
                 )
 
             content_type = file.content_type
-            is_image = content_type and content_type.startswith("image/")
+            is_image = bool(content_type and content_type.startswith("image/"))
             if is_image:
                 try:
                     # Use folder-specific settings if available, otherwise defaults
