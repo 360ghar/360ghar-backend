@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import httpcore
 import httpx
@@ -88,7 +88,7 @@ class AuthFailureReason(StrEnum):
 _FAILURE_SENTINEL = "__auth_failure__"
 
 
-def _is_failure(result: Any) -> bool:
+def _is_failure(result: Any) -> TypeGuard[dict[str, Any]]:
     return isinstance(result, dict) and result.get(_FAILURE_SENTINEL) is True
 
 

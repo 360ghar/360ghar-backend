@@ -260,6 +260,7 @@ class TestBookingManagementFlow:
             mock_booking_cancel = NonCallableMock(spec=[])
             mock_booking_cancel.id = test_booking.id
             mock_booking_cancel.user_id = test_user.id  # Must match authenticated user
+            mock_booking_cancel.property_id = test_booking.property_id
             mock_booking_cancel.booking_status = "pending"
             mock_get_for_cancel.return_value = mock_booking_cancel
 

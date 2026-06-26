@@ -103,7 +103,7 @@ class BankAuctionScraper(BaseScraper):
 
         def strategy_sbi_notice_links(soup: BeautifulSoup, cfg: dict) -> list[dict]:
             """Strategy 2: SBI-specific - parse notice page/PDF links for detailed data."""
-            records = []
+            records: list[dict] = []
             if "sbi.co.in" not in cfg["url"]:
                 return records
 

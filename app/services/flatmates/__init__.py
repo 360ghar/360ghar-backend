@@ -26,9 +26,9 @@ from app.services.flatmates.matching import (
     unmatch_user_pair,
 )
 from app.services.flatmates.moderation import (
-    apply_stale_listing_pause,
     apply_listing_prescreen_metadata,
     apply_report_auto_pause,
+    apply_stale_listing_pause,
     build_listing_prescreen_result,
     create_block,
     create_report,

@@ -350,7 +350,7 @@ async def set_last_auth_method(db: AsyncSession, user: User, method: AuthMethod)
     timestamp. Returns the refreshed user.
     """
     logger.debug("Setting last_auth_method=%s for user %s", method, user.id)
-    user.last_auth_method = method.value
+    user.last_auth_method = method
     user.last_auth_method_at = utc_now()
     await db.flush()
     await db.refresh(user)

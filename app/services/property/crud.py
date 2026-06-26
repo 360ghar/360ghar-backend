@@ -35,8 +35,8 @@ from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
-    apply_stale_listing_pause,
     apply_listing_prescreen_metadata,
+    apply_stale_listing_pause,
 )
 from app.services.pm_authz import _get_actor_role
 from app.services.property.helpers import _validate_listing_contract, build_location_wkt
@@ -570,7 +570,7 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
 
         # Pre-check: block deletion if active bookings, visits, or leases reference this property
         from app.models.bookings import Booking
-        from app.models.visits import Visit
+        from app.models.properties import Visit
 
         active_booking = (
             await db.execute(

@@ -223,6 +223,8 @@ def _parse_notice_list_items(
             continue
 
         href = link["href"]
+        if isinstance(href, list):
+            href = href[0] if href else ""
         full_url = urljoin(base_url, href)
 
         # Try to extract details from the link text

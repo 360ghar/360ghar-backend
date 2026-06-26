@@ -60,13 +60,22 @@ class TestDeleteAccountViaUsersMe:
         assert response.headers.get("retry-after") == "30"
 
     @pytest.mark.asyncio
-    async def test_supabase_error_returns_500(self, user_client: AsyncClient):
+    async def test_supabase_error_returns_500(self, user_client: AsyncClient, test_app):
+        from httpx import ASGITransport, AsyncClient as _AsyncClient
+
+        # Starlette's ServerErrorMiddleware re-raises unhandled exceptions after
+        # sending the 500 response, so the test transport must not re-raise in
+        # order to observe the generic-exception-handler's 500 response.
+        transport = ASGITransport(app=test_app, raise_app_exceptions=False)
         with patch(
             "app.api.api_v1.endpoints.users.delete_user_account",
             new_callable=AsyncMock,
             side_effect=Exception("Unexpected error"),
         ):
-            response = await user_client.delete("/api/v1/users/me")
+            async with _AsyncClient(
+                transport=transport, base_url="http://test", timeout=60.0
+            ) as client:
+                response = await client.delete("/api/v1/users/me")
 
         assert response.status_code == 500
 

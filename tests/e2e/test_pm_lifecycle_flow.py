@@ -5,6 +5,7 @@ Tests the complete flow: property -> lease -> rent charges -> maintenance -> ter
 """
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession

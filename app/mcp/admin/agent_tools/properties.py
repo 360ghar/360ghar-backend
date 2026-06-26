@@ -388,14 +388,16 @@ async def agent_properties_verify(
                     "You do not have access to this property"
                 ).model_dump()
 
-            prop.is_verified = is_verified  # type: ignore[attr-defined]
+            preferences = dict(prop.listing_preferences or {})
+            verification: dict[str, Any] = {
+                "is_verified": is_verified,
+                "verified_by": user.id,
+                "verified_at": utc_now_iso(),
+            }
             if verification_notes:
-                # Store in features JSON if no dedicated field
-                features = prop.features or {}
-                features["verification_notes"] = verification_notes
-                features["verified_by"] = user.id
-                features["verified_at"] = utc_now_iso()
-                prop.features = features
+                verification["notes"] = verification_notes
+            preferences["verification"] = verification
+            prop.listing_preferences = preferences
 
             await db.flush()
             await db.commit()
