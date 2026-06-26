@@ -361,7 +361,11 @@ async def get_conversation_messages(
 ):
     """List conversation messages."""
     messages = await list_messages(db, conversation_id, current_user.id)
-    return MessageListResponse(messages=messages, total=len(messages), has_more=False)
+    return MessageListResponse(
+        messages=[MessageOut.model_validate(m) for m in messages],
+        total=len(messages),
+        has_more=False,
+    )
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=MessageOut, summary="Send conversation message")

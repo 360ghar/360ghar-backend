@@ -106,7 +106,7 @@ async def update_floor_plan_markers(
     """Update only the markers of a floor plan."""
     floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
 
-    floor_plan.markers = markers  # type: ignore[assignment]
+    floor_plan.markers = markers
     await db.commit()
     await db.refresh(floor_plan)
 
