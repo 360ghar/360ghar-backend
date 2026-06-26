@@ -188,6 +188,7 @@ jobs:
         with:
           name: coverage-data-${{ matrix.shard }}
           path: .coverage.${{ matrix.shard }}
+          include-hidden-files: true
           retention-days: 1
 
       - name: Upload coverage to Codecov
