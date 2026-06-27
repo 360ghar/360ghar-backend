@@ -27,3 +27,4 @@ from app.mcp.admin.agent_tools.maintenance import *  # noqa: F401, F403
 from app.mcp.admin.agent_tools.properties import *  # noqa: F401, F403
 from app.mcp.admin.agent_tools.rent import *  # noqa: F401, F403
 from app.mcp.admin.server import _get_user, _require_agent_or_admin, _require_auth  # noqa: F401
+from app.mcp.utils import get_db  # noqa: F401  – re-exported so tests can patch app.mcp.admin.agent.get_db

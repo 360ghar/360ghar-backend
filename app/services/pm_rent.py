@@ -327,7 +327,7 @@ async def list_rent_payments(
     if predicate is not None:
         stmt = stmt.where(predicate)
 
-    stmt = stmt.order_by(RentPayment.paid_at.desc(), RentPayment.id.desc()).limit(limit + 1)
+    stmt = stmt.order_by(RentPayment.paid_at.desc().nulls_last(), RentPayment.id.desc()).limit(limit + 1)
     res = await db.execute(stmt)
     rows = list(res.scalars().all())
 

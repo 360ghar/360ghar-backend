@@ -151,7 +151,7 @@ class Settings(BaseSettings):
     CACHE_MEMORY_MAX_SIZE: int = 1000  # Max entries for in-memory cache
     CACHE_MEMORY_MAX_ENTRY_BYTES: int = 1_000_000
     # Disk cache path — use a persistent volume in Docker to survive restarts
-    CACHE_DISK_DIR: str = "./cache"
+    CACHE_DISK_DIR: str = "/tmp/ghar360_cache"
     CACHE_DISK_MAX_SIZE: int = 1000
     CACHE_DISK_MAX_ENTRY_BYTES: int = 1_000_000
     CACHE_REDIS_MAX_CONNECTIONS: int = 15

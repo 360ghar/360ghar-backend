@@ -9,6 +9,11 @@ This is the main conftest.py providing:
 """
 
 import os
+import sys
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from collections.abc import AsyncGenerator
 
 import pytest_asyncio
@@ -128,10 +133,12 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
         await connection.close()
 
 
-# NOTE: Removed legacy aliases `db` and `test_db` — use `db_session` directly.
-# If you see NameError for `db` or `test_db`, replace with `db_session`.
+@pytest_asyncio.fixture(scope="function")
+async def test_db(db_session: AsyncSession) -> AsyncGenerator[AsyncSession, None]:
+    """Legacy alias for db_session to fix missing fixture errors in existing tests."""
+    yield db_session
 
-
+# NOTE: Removed legacy alias `db` — use `db_session` directly.
 # =============================================================================
 # Application Fixtures
 # =============================================================================

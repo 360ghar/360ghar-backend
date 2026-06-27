@@ -71,11 +71,11 @@ class PaymentStatus(str, Enum):
 
 
 class VisitStatus(str, Enum):
-    scheduled = "requested"
+    scheduled = "scheduled"
     confirmed = "confirmed"
     completed = "completed"
     cancelled = "cancelled"
-    rescheduled = "reschedule_suggested"
+    rescheduled = "rescheduled"
 
 
 class FlatmatesMode(str, Enum):

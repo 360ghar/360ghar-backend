@@ -269,7 +269,7 @@ class TestBookingManagementFlow:
                 mock_cancel.return_value = {"message": "Booking cancelled successfully"}
 
                 response = await authenticated_client.post(
-                    "/api/v1/bookings/cancel/",
+                    "/api/v1/bookings/cancel",
                     json={"booking_id": test_booking.id, "reason": "Plans changed"},
                 )
 

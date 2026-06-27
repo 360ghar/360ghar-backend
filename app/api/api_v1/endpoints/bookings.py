@@ -195,7 +195,7 @@ async def get_booking_details(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return booking
@@ -212,7 +212,7 @@ async def update_booking_details(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return await update_booking(db, booking_id, booking_update)
@@ -228,7 +228,7 @@ async def cancel_booking_request(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await cancel_booking(db, cancel_data.booking_id, cancel_data.reason)
@@ -248,7 +248,7 @@ async def process_booking_payment(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await process_payment(db, payment_data)
@@ -286,7 +286,7 @@ async def add_booking_review(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
+    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await add_review(db, review_data)

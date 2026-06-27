@@ -230,6 +230,7 @@ async def can_access_visit(
     visit_user_id: int,
     visit_property_id: int,
     visit_counterparty_user_id: int | None = None,
+    visit_agent_id: int | None = None,
 ) -> bool:
     """Check if the actor can access a visit.
 
@@ -255,5 +256,6 @@ async def can_access_visit(
         return bool(
             (visit_user and visit_user.agent_id == actor.agent_id)
             or (owner and owner.agent_id == actor.agent_id)
+            or (visit_agent_id is not None and visit_agent_id == actor.agent_id)
         )
     return False

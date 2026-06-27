@@ -35,10 +35,14 @@ from app.mcp.tool_ops import (
     TOOL_OPS_NOT_FOUND,
     create_property,
     get_property_detail,
-    list_properties_enriched,
+    list_properties_enriched ,
     toggle_property_availability,
     update_property_fields,
 )
+
+# Backward compatibility for tests
+list_managed_properties = list_properties_enriched
+create_managed_property = create_property
 
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp

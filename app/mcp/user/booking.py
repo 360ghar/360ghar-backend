@@ -43,6 +43,17 @@ from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
 
+class _BookingSvc:
+    @staticmethod
+    async def get_user_bookings(*args, **kwargs):
+        return await list_user_bookings(*args, **kwargs)
+
+    @staticmethod
+    async def check_availability(*args, **kwargs):
+        return await check_availability(*args, **kwargs)
+
+booking_svc = _BookingSvc()
+
 
 # ============================================================================
 # Booking Tools (for short-stay properties)
@@ -145,7 +156,7 @@ async def bookings_list(
                 )
 
             cursor_payload = decode_cursor(cursor) if cursor else None
-            result = await list_user_bookings(
+            result = await booking_svc.get_user_bookings(
                 db,
                 user_id=user.id,
                 cursor_payload=cursor_payload,
@@ -309,7 +320,7 @@ async def bookings_check_availability(
     """
     try:
         async for db in get_db():
-            result = await check_availability(
+            result = await booking_svc.check_availability(
                 db,
                 property_id=property_id,
                 check_in_date=check_in_date,

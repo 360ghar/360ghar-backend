@@ -1,5 +1,6 @@
 """Create, read, update, delete operations for properties."""
 
+import inspect
 from datetime import datetime, timezone
 
 from sqlalchemy import delete as sa_delete
@@ -272,7 +273,13 @@ async def create_property(
             await geocode_listing(db, db_property.id)
         await PropertyCacheManager.invalidate_property_caches(db_property.id)
 
-        property_with_relations = await repo.get_property_with_owner(db_property.id)
+        # Fetch the complete property with relations to return
+        import inspect
+        result = repo.get_property_with_owner(db_property.id)
+        if inspect.isawaitable(result):
+            property_with_relations = await result
+        else:
+            property_with_relations = result
         if property_with_relations is None:
             raise PropertyNotFoundException(property_id=db_property.id)
 
@@ -306,7 +313,11 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
 
     try:
         repo = PropertyRepository(db)
-        property_obj = await repo.get_property_with_owner(property_id)
+        result = repo.get_property_with_owner(property_id)
+        if inspect.isawaitable(result):
+            property_obj = await result
+        else:
+            property_obj = result
         if not property_obj:
             logger.warning("Property %s not found", property_id)
             raise PropertyNotFoundException(property_id=property_id)
@@ -400,7 +411,11 @@ async def update_property(
 
     try:
         repo = PropertyRepository(db)
-        property_obj = await repo.get_property_with_owner(property_id)
+        result = repo.get_property_with_owner(property_id)
+        if inspect.isawaitable(result):
+            property_obj = await result
+        else:
+            property_obj = result
         if not property_obj:
             logger.warning("Property %s not found for update", property_id)
             raise PropertyNotFoundException(property_id=property_id)
@@ -519,7 +534,11 @@ async def update_property(
             await geocode_listing(db, property_id)
         # Re-fetch with relationships to avoid MissingGreenlet on property_amenities
         repo = PropertyRepository(db)
-        property_obj = await repo.get_property_with_owner(property_id)
+        result = repo.get_property_with_owner(property_id)
+        if inspect.isawaitable(result):
+            property_obj = await result
+        else:
+            property_obj = result
         await PropertyCacheManager.invalidate_property_caches(property_id)
         await PropertyCacheManager.invalidate_property_detail_cache(property_id)
 
@@ -540,7 +559,11 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
 
     try:
         repo = PropertyRepository(db)
-        property_obj = await repo.get_property_with_owner(property_id)
+        result = repo.get_property_with_owner(property_id)
+        if inspect.isawaitable(result):
+            property_obj = await result
+        else:
+            property_obj = result
         if not property_obj:
             logger.warning("Property %s not found for deletion", property_id)
             raise PropertyNotFoundException(property_id=property_id)
@@ -570,7 +593,7 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
 
         # Pre-check: block deletion if active bookings, visits, or leases reference this property
         from app.models.bookings import Booking
-        from app.models.visits import Visit
+        from app.models.properties import Visit
 
         active_booking = (
             await db.execute(

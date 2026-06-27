@@ -218,6 +218,13 @@ async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
                 property_title=visit_obj.property.title if visit_obj.property and visit_obj.property.title else "the property",
                 scheduled_date=visit_obj.scheduled_date.isoformat(),
             )
+        elif visit_obj.property and visit_obj.property.owner_id:
+            await notify_visit_scheduled(
+                db,
+                recipient_db_id=visit_obj.property.owner_id,
+                property_title=visit_obj.property.title if visit_obj.property.title else "the property",
+                scheduled_date=visit_obj.scheduled_date.isoformat(),
+            )
     except Exception:
         pass  # best-effort; never block visit creation
 
@@ -328,6 +335,8 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
     if visit:
         old_status = visit.status
         update_data = visit_update.model_dump(exclude_unset=True)
+        new_status = update_data.get("status")
+
         for field, value in update_data.items():
             setattr(visit, field, value)
 
@@ -544,7 +553,7 @@ async def get_all_visits(
 
     if filter_agent_id is not None:
         stmt = stmt.outerjoin(User, Visit.user_id == User.id).outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
+        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id, Visit.agent_id == filter_agent_id))
 
     if filters:
         stmt = stmt.where(and_(*filters))

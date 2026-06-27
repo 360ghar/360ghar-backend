@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from app.models.enums import VisitContext, VisitStatus
 from app.schemas.property import Property as PropertySchema
@@ -43,7 +43,6 @@ class VisitCreate(BaseModel):
 
 class VisitUpdate(BaseModel):
     scheduled_date: datetime | None = None
-    status: VisitStatus | None = None
     special_requirements: str | None = None
     visit_notes: str | None = None
     visitor_feedback: str | None = None
@@ -55,6 +54,14 @@ class VisitUpdate(BaseModel):
     counterparty_user_id: int | None = None
     conversation_id: int | None = None
     match_id: int | None = None
+    status: VisitStatus | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def coerce_status(cls, v: Any) -> VisitStatus | None:
+        if v == "requested":
+            return VisitStatus.scheduled
+        return v
 
 class VisitReschedule(BaseModel):
     new_date: datetime
@@ -88,6 +95,12 @@ class Visit(VisitBase):
     )
     actual_date: datetime | None = None
     status: VisitStatus
+
+    @field_serializer("status")
+    def serialize_status(self, v: VisitStatus) -> str:
+        if v == VisitStatus.scheduled:
+            return "requested"
+        return v.value
     visit_notes: str | None = None
     visitor_feedback: str | None = None
     interest_level: str | None = None

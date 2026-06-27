@@ -297,7 +297,7 @@ async def test_payments_desc_order_newest_first(
     assert paid_ats == sorted(paid_ats, reverse=True)
     # Should be the two newest of the 3 seeded payments
     seeded_paid_ats = sorted(
-        (p.paid_at.isoformat() for p in seeded_rent_payments), reverse=True
+        (p.paid_at.isoformat().replace("+00:00", "Z") for p in seeded_rent_payments), reverse=True
     )
     assert paid_ats[0] == seeded_paid_ats[0]
     assert paid_ats[1] == seeded_paid_ats[1]
