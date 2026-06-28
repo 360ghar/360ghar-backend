@@ -36,12 +36,14 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
         # request-time init would otherwise cause.
         async with user_mcp_app.lifespan(app):
             async with admin_mcp_app.lifespan(app):
+                if not testing:
+                    # Fail-fast config check runs OUTSIDE the degraded-mode
+                    # try/except below: a placeholder Apple Team ID in
+                    # production must abort startup, not be logged-and-ignored.
+                    # It raises before the cache / DB initialize.
+                    _validate_deeplink_config()
                 try:
                     if not testing:
-                        # Fail-fast config check first so a placeholder Apple
-                        # Team ID in production raises before the cache / DB
-                        # initialize and aborts startup cleanly.
-                        _validate_deeplink_config()
                         await _initialize_cache()
                         await _verify_database_ready()
                         await _apply_pending_migrations()

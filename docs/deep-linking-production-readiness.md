@@ -100,7 +100,7 @@ this deep-link service.)
 
 1. [ ] Set backend env: `DEEPLINK_DOMAIN`, `DEEPLINK_APPLE_TEAM_ID`, the four `*_ANDROID_SHA256`. Redeploy.
 2. [ ] Verify `api.360ghar.com/.well-known/*` (§C backend output).
-3. [ ] Apply DNS/reverse-proxy on `the360ghar.com` (+ `www.`/`app.`) — `backend/deploy/deeplinks/`.
+3. [ ] Apply DNS/reverse-proxy on `the360ghar.com` (+ `www.`/`app.`) — `deploy/deeplinks/`.
 4. [ ] Verify `the360ghar.com/.well-known/*` + a fallback page (e.g. `/stays/listing/1`).
 5. [ ] Stays: create `stays-360-nonprod`, register dev/staging apps, place configs; build all three flavors.
 6. [ ] Run Google + Apple validators; run the on-device matrix.

@@ -88,7 +88,8 @@ Served at the root of a second Netlify site on `the360ghar.com`. Contents:
 - iOS `appID`s used a literal `TEAM_ID` placeholder, so AASA was invalid until
   manually edited.
 - The Stays iOS bundle id was already flagged in the README as a `TODO`
-  (shipped as `com.the360ghar.stays_app`, needs to become `com.the360ghar.stays_app`).
+  (shipped as `com.the360ghar.stays_app`; the real App Store bundle id remains
+  unverified — see §9).
 - The legacy Estate fallback launched `estate360://estate/property/{id}` (host =
   `estate`, the path prefix). The new backend uses `estate360://{entity}/{id}`
   (host = entity). See §9 for the implication.

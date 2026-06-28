@@ -12,10 +12,7 @@ import logging
 import re
 
 from app.config import settings
-from app.services.deeplinks.service import (
-    _PLACEHOLDER_TEAM_ID,
-    _team_id,
-)
+from app.services.deeplinks.service import _PLACEHOLDER_TEAM_ID
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +38,10 @@ def validate_deeplink_config() -> None:
     time an iOS device tries to verify an AASA fetch (which would fail
     silently and break Universal Links for every user).
     """
-    team_id = _team_id()
+    # Read the raw setting directly rather than via service._team_id(): that
+    # helper logs its own warning as a side-effect, which would double-log
+    # (or noise before the RuntimeError) when this validator also reports.
+    team_id = settings.DEEPLINK_APPLE_TEAM_ID.strip()
     if _is_valid_team_id(team_id):
         return
 

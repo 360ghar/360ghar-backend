@@ -10,9 +10,10 @@ These tests deliberately do NOT use the shared ``client`` / ``db`` fixtures from
 app via ``create_app(testing=True)`` and drive it with a local ``TestClient``
 fixture, so the session-scoped DB engine fixture is never triggered.
 
-Env vars required to import ``app.config.settings`` must be set BEFORE running
-pytest (see the module docstring of the task / the command used in the report).
-``DEEPLINK_APPLE_TEAM_ID`` is expected to be ``ABCDE12345`` for the AASA tests.
+The deep-link settings these tests assert against (notably
+``DEEPLINK_APPLE_TEAM_ID == ABCDE12345``) are seeded by the autouse
+``_seed_deeplink_settings`` fixture below, so the suite is self-contained and
+does NOT depend on any ambient env var being exported before pytest runs.
 """
 
 from __future__ import annotations
@@ -33,6 +34,16 @@ from app.services.deeplinks import (
 )
 
 EXPECTED_TEAM_ID = "ABCDE12345"
+
+
+@pytest.fixture(autouse=True)
+def _seed_deeplink_settings(monkeypatch):
+    """Seed the deep-link settings this module asserts against, so the suite no
+    longer depends on the caller exporting ``DEEPLINK_APPLE_TEAM_ID`` before
+    pytest. Individual tests can still override via their own ``monkeypatch``
+    (those setattrs run after this fixture and win)."""
+    monkeypatch.setattr(settings, "DEEPLINK_APPLE_TEAM_ID", EXPECTED_TEAM_ID)
+    monkeypatch.setattr(settings, "DEEPLINK_FAIL_ON_PLACEHOLDER", False)
 
 
 # ---------------------------------------------------------------------------
