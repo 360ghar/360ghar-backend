@@ -11,7 +11,7 @@ prior item.
 | Area | Status | Notes |
 |------|--------|-------|
 | Backend deep-link engine (registry, well-known, fallback, API) | ✅ | 38 tests passing, lint clean |
-| Reverse-proxy configs (Nginx/Caddy/Netlify/Cloudflare) | ✅ | `backend/deploy/deeplinks/` |
+| Reverse-proxy configs (Nginx/Caddy/Netlify/Cloudflare) | ✅ | `deploy/deeplinks/` |
 | Stays Android package standardized → `com.the360ghar.stays_app` | ✅ | applicationId, namespace, MainActivity, flavors |
 | Stays Firebase — prod (`stays-360`) | ✅ | real config at `src/prod/google-services.json` |
 | Stays Firebase — dev/staging isolation | 🟡 | create `stays-360-nonprod`, add 2 apps, drop configs (templates in repo) |
@@ -88,9 +88,10 @@ curl -s https://the360ghar.com/.well-known/assetlinks.json | jq .
 | Mobile browser, app not installed | Backend fallback page → custom scheme attempt → store/website |
 | Desktop browser | Fallback page → website/store (no app launch) |
 
-Entities: Ghar `/p`,`/property`,(`/tour`*) · Estate `/estate/{property,task,tenant,lease,apply}` ·
+Entities: Ghar `/p`,`/property` · Estate `/estate/{property,task,tenant,lease,apply}` ·
 FlatMates `/flatmates/{listing,chat}` · Stays `/stays/{listing,chat}`.
-(*`/tour` not yet handled in Ghar Dart — see known gaps.)
+(`/tour` is owned by the dedicated Virtual Tours module on the web, not by
+this deep-link service.)
 
 ### Sharing surfaces
 - [ ] WhatsApp · Gmail · iMessage · Chrome · Safari · a social app — link opens/unfurls correctly.

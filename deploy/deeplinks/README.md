@@ -13,10 +13,17 @@ On each of `the360ghar.com`, `www.the360ghar.com`, `app.the360ghar.com`:
 |------|-----|
 | `/.well-known/assetlinks.json` | Android App Links verification (all apps) |
 | `/.well-known/apple-app-site-association` | iOS Universal Links verification (all apps) |
-| `/p/*`, `/property/*`, `/tour/*` | 360 Ghar link fallback pages |
+| `/p/*`, `/property/*` | 360 Ghar link fallback pages |
 | `/estate/*` | 360 Estate link fallback pages |
 | `/flatmates/*` | 360 FlatMates link fallback pages |
 | `/stays/*` | 360 Stays link fallback pages |
+
+> **`/tour/*` is intentionally NOT in the list above.** The ghar app's
+> `AppLinkConfig` no longer registers `tour` (its `TourView` consumes a
+> tour URL, not an id). The dedicated Virtual Tours module on the web
+> owns the `/tour/*` surface and its routes must continue to serve the
+> marketing site / tours app — they should NOT be proxied to
+> `api.360ghar.com`. See `docs/deep-linking.md` §3.
 
 Everything else on those hosts (the marketing site, etc.) is left untouched.
 

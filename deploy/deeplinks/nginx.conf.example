@@ -3,12 +3,15 @@
 # (and www./app. — either duplicate the server block per host or use a
 # server_name covering all three).
 #
-# Origin backend:
-set $deeplink_backend https://api.360ghar.com;
+# Each location block uses a LITERAL proxy_pass URL (not a variable) so
+# nginx resolves the backend hostname at config-load time and we don't
+# need a `resolver` directive. Variables in proxy_pass defer DNS to
+# request time and require a resolver, otherwise nginx returns 502
+# `no resolver defined to resolve api.360ghar.com`.
 
 # --- Android / iOS verification files (served at the domain root) ---------
 location = /.well-known/assetlinks.json {
-    proxy_pass $deeplink_backend;
+    proxy_pass https://api.360ghar.com;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -16,7 +19,7 @@ location = /.well-known/assetlinks.json {
 }
 
 location = /.well-known/apple-app-site-association {
-    proxy_pass $deeplink_backend;
+    proxy_pass https://api.360ghar.com;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -24,9 +27,13 @@ location = /.well-known/apple-app-site-association {
 }
 
 # --- Deep-link fallback pages (per app) -----------------------------------
-# 360 Ghar (flagship, root paths)
-location ~ ^/(p|property|tour)/ {
-    proxy_pass $deeplink_backend;
+# 360 Ghar (flagship, root paths). NOTE: `tour` is intentionally NOT in
+# the regex — the ghar app's AppLinkConfig no longer registers `tour`
+# (TourView consumes a tour URL, not an id). The /tour/* surface is
+# owned by the dedicated Virtual Tours module on the web; it must NOT
+# be routed to api.360ghar.com. See docs/deep-linking.md §3.
+location ~ ^/(p|property)/ {
+    proxy_pass https://api.360ghar.com;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
@@ -34,7 +41,7 @@ location ~ ^/(p|property|tour)/ {
 
 # 360 Estate / FlatMates / Stays (namespaced)
 location ~ ^/(estate|flatmates|stays)/ {
-    proxy_pass $deeplink_backend;
+    proxy_pass https://api.360ghar.com;
     proxy_set_header Host $host;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;

@@ -320,6 +320,11 @@ class Settings(BaseSettings):
     DEEPLINK_STAYS_ANDROID_SHA256: str = (
         "EE:6D:96:51:3A:2C:53:0D:33:66:6B:26:02:C4:1B:20:F3:5B:5D:65:94:CE:46:EF:B9:16:53:B3:5A:13:96:0D"
     )
+    # When True, the lifespan startup hook raises if DEEPLINK_APPLE_TEAM_ID is
+    # the placeholder "TEAMID" (or otherwise malformed). Defaults False so
+    # local dev and CI can boot with the placeholder; production must set
+    # this to True via env (the deploy templates set it as part of prod).
+    DEEPLINK_FAIL_ON_PLACEHOLDER: bool = False
 
     # ── Vector Embeddings & Sync ────────────────────────────────────────────────
     VECTOR_SYNC_ENABLED: bool = True

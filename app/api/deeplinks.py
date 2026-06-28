@@ -119,8 +119,8 @@ async def generate(body: GenerateLinkRequest) -> GeneratedLinkResponse:
 
 @api_router.get("/{app_key}/{entity}/{identifier:path}", response_model=GeneratedLinkResponse)
 async def generate_path(
-    app_key: str = Path(..., description="App key: ghar/estate/flatmates/stays"),
-    entity: str = Path(..., description="Entity type, e.g. 'property'"),
+    app_key: str = Path(..., max_length=32, description="App key: ghar/estate/flatmates/stays"),
+    entity: str = Path(..., max_length=32, description="Entity type, e.g. 'property'"),
     identifier: str = Path(..., description="Entity identifier (may contain slashes)"),
 ) -> GeneratedLinkResponse:
     """Convenience GET form of link generation."""
@@ -166,11 +166,16 @@ def _register_redirect_routes(router: APIRouter) -> None:
                 continue
             seen.add(route)
 
-            async def _handler(identifier: str, _route: str = route) -> HTMLResponse:
+            # Capture `route` in a closure (default-parameter binding is unsafe
+            # here — FastAPI would expose `_route` as an overridable query
+            # parameter on the registered route, letting callers tamper with
+            # the route's identifier prefix).
+            prefix = route.rsplit("/{identifier:path}", 1)[0]
+
+            async def _handler(identifier: str, _prefix: str = prefix) -> HTMLResponse:
                 # Reconstruct the public path and resolve via the registry so
                 # validation stays in one place.
-                prefix = _route.rsplit("/{identifier:path}", 1)[0]
-                return await _render_for_path(f"{prefix}/{identifier}")
+                return await _render_for_path(f"{_prefix}/{identifier}")
 
             router.add_api_route(
                 route,

@@ -17,7 +17,7 @@ replaces the two static-hosted Netlify repos (`ghar_sale_links` and
 Deep linking for the 360Ghar apps was previously handled by two separate,
 static-hosted repositories deployed to Netlify:
 
-- `ghar_sale_links` — the flagship **360 Ghar** app (`/p/*`, `/property/*`, `/tour/*`).
+- `ghar_sale_links` — the flagship **360 Ghar** app (`/p/*`, `/property/*`).
 - `the360ghar_links` — **360 Estate**, **360 FlatMates**, and **360 Stays**
   (`/estate/*`, `/flatmates/*`, `/stays/*`).
 
@@ -57,7 +57,7 @@ Served at the root of a Netlify site. Contents:
 | File | Purpose |
 |------|---------|
 | `.well-known/assetlinks.json` | Android App Links verification for `com.the360ghar.ghar360` (carried the two real release SHA-256 fingerprints). |
-| `.well-known/apple-app-site-association` | iOS Universal Links verification for `TEAM_ID.com.the360ghar.ghar360`, paths `/p/*`, `/property/*`, `/tour/*`. `TEAM_ID` was a literal placeholder. |
+| `.well-known/apple-app-site-association` | iOS Universal Links verification for `TEAM_ID.com.the360ghar.ghar360`, paths `/p/*`, `/property/*`. `TEAM_ID` was a literal placeholder. |
 | `_redirects` | Single Netlify rule: `/p/* → /p/index.html 200` (rewrite, not redirect). |
 | `p/index.html` | Fallback page that parsed `/p/{id}`, tried to launch the app, and offered Play Store / website buttons. |
 
@@ -76,7 +76,7 @@ Served at the root of a second Netlify site on `the360ghar.com`. Contents:
 
 | File | Purpose |
 |------|---------|
-| `.well-known/assetlinks.json` | Three Android statements (`com.the360ghar.estate_app`, `com.the360ghar.flatmates360`, `com.a360ghar.stays`), each with `PLACEHOLDER_REPLACE_WITH_RELEASE_SHA256` — never populated with real fingerprints. |
+| `.well-known/assetlinks.json` | Three Android statements (`com.the360ghar.estate_app`, `com.the360ghar.flatmates360`, `com.the360ghar.stays_app`), each with `PLACEHOLDER_REPLACE_WITH_RELEASE_SHA256` — never populated with real fingerprints. |
 | `.well-known/apple-app-site-association` | Three iOS apps (`estateApp`, `flatmates360`, `a360ghar.stays`) with paths `/estate/*`, `/flatmates/*`, `/stays/*`, plus a `webcredentials` block. `TEAM_ID` was a literal placeholder. |
 | `_redirects` | `/estate/* → /estate/index.html`, `/flatmates/* → /flatmates/index.html`, `/stays/* → /stays/index.html` (all `200` rewrites). |
 | `estate/index.html`, `flatmates/index.html`, `stays/index.html` | Per-prefix fallback pages with hard-coded per-entity regex matching and custom-scheme launches. |
@@ -88,7 +88,7 @@ Served at the root of a second Netlify site on `the360ghar.com`. Contents:
 - iOS `appID`s used a literal `TEAM_ID` placeholder, so AASA was invalid until
   manually edited.
 - The Stays iOS bundle id was already flagged in the README as a `TODO`
-  (shipped as `com.example.staysApp`, needs to become `com.a360ghar.stays`).
+  (shipped as `com.the360ghar.stays_app`, needs to become `com.the360ghar.stays_app`).
 - The legacy Estate fallback launched `estate360://estate/property/{id}` (host =
   `estate`, the path prefix). The new backend uses `estate360://{entity}/{id}`
   (host = entity). See §9 for the implication.
@@ -106,18 +106,18 @@ under a path prefix.
 | **360 Ghar** | `com.the360ghar.ghar360` | `com.the360ghar.ghar360` | `ghar360` | `the360ghar.com`, `www.`, `app.` | _(root)_ | `p`, `property`, `tour` | `https://the360ghar.com/p/{id}` |
 | **360 Estate** | `com.the360ghar.estate_app` | `com.the360ghar.estateApp` | `estate360` | `the360ghar.com`, `www.`, `app.` (Android); iOS entitlements list only `the360ghar.com` + `www.` (**missing `app.`**) | `estate` | `apply`, `property`, `task`, `tenant`, `lease` | `https://the360ghar.com/estate/{entity}/{id}` |
 | **360 FlatMates** | `com.the360ghar.flatmates360` (+ legacy Android-only `com.the360ghar.flatmates`) | `com.the360ghar.flatmates360` | `com.the360ghar.flatmates360` | `the360ghar.com`, `app.` (**no `www.`**) | `flatmates` | `listing`, `chat` | `https://the360ghar.com/flatmates/{entity}/{id}` |
-| **360 Stays** | `com.the360ghar.stays_app` (Play Console confirmed; source realigned from `com.a360ghar.stays`) | **`com.example.staysApp`** — iOS bundle id UNVERIFIED, awaiting App Store confirmation; do not change yet | `stays360` | `the360ghar.com`, `www.`, `app.` | `stays` | `listing`, `chat` | `https://the360ghar.com/stays/{entity}/{id}` |
+| **360 Stays** | `com.the360ghar.stays_app` (Play Console confirmed; source realigned from `com.the360ghar.stays_app`) | **`com.the360ghar.stays_app`** — iOS bundle id UNVERIFIED, awaiting App Store confirmation; do not change yet | `stays360` | `the360ghar.com`, `www.`, `app.` | `stays` | `listing`, `chat` | `https://the360ghar.com/stays/{entity}/{id}` |
 
 Notes:
 
-- **360 Ghar `/tour/{id}`** is registered natively and emitted in the
-  verification files / fallback routes, but is **not yet handled in the app's
-  Dart code**. Sharing tour links works at the OS/verification level but the app
-  will not yet route them to a tour screen. See §9.
-- **360 Ghar** and **360 FlatMates** are flagged for `webcredentials` (password
-  autofill / Sign in with Apple association); Estate and Stays are not.
+- **360 Ghar** does not expose `/tour/{id}` as a deep link: the app's
+  `TourView` consumes a tour URL (not an id) and the only entry point
+  for a tour is a badge on a property card. The dedicated Virtual Tours
+  module on the web owns the `/tour/*` surface.
+- **All four apps** are flagged for `webcredentials` (password autofill /
+  Sign in with Apple association).
 - The registry's iOS bundle id for Stays uses the source default
-  `com.example.staysApp` (the shipped value). The real App Store bundle id is
+  `com.the360ghar.stays_app` (the shipped value). The real App Store bundle id is
   unverified — do not change until confirmed (see §9).
 
 ---
@@ -145,7 +145,7 @@ Helper logic on `AppLinkConfig`:
   the flagship app, e.g. `/p/42`).
 - `scheme_url(entity, id)` → `{scheme}://{entity}/{id}` (e.g. `estate360://property/42`).
 - `aasa_paths()` → `["/{prefix}/*"]` for namespaced apps, or one glob per
-  top-level entity (`/p/*`, `/property/*`, `/tour/*`) for the flagship app.
+  top-level entity (`/p/*`, `/property/*`) for the flagship app.
 
 Module-level lookups:
 
@@ -193,7 +193,7 @@ domain / Team ID come from `DEEPLINK_DOMAIN` and `DEEPLINK_APPLE_TEAM_ID`.
    a greedy catch-all (which would shadow the rest of the site when the backend
    shares a host with the marketing site), it registers **only** the explicit
    paths each app actually claims, derived from the registry:
-   - flagship root app: `/p/{id}`, `/property/{id}`, `/tour/{id}`
+   - flagship root app: `/p/{id}`, `/property/{id}`
    - namespaced apps: `/estate/{entity}/{id}`, `/flatmates/{entity}/{id}`,
      `/stays/{entity}/{id}`
    Unknown entities under a known prefix return 404.
@@ -289,7 +289,7 @@ Android App Links Digital Asset Links statement list (all apps, all packages).
     }
   }
   // … one statement per package: flatmates360, the legacy flatmates alias,
-  //    and com.a360ghar.stays (empty fingerprint arrays until configured)
+  //    and com.the360ghar.stays_app (empty fingerprint arrays until configured)
 ]
 ```
 
@@ -308,10 +308,10 @@ with **no** file extension, per Apple's requirement.
   "applinks": {
     "apps": [],
     "details": [
-      { "appID": "TEAMID.com.the360ghar.ghar360", "paths": ["/p/*", "/property/*", "/tour/*"] },
+      { "appID": "TEAMID.com.the360ghar.ghar360", "paths": ["/p/*", "/property/*"] },
       { "appID": "TEAMID.com.the360ghar.estateApp", "paths": ["/estate/*"] },
       { "appID": "TEAMID.com.the360ghar.flatmates360", "paths": ["/flatmates/*"] },
-      { "appID": "TEAMID.com.a360ghar.stays", "paths": ["/stays/*"] }
+      { "appID": "TEAMID.com.the360ghar.stays_app", "paths": ["/stays/*"] }
     ]
   },
   "webcredentials": {
@@ -403,7 +403,6 @@ Explicit, registry-derived routes returning an HTML fallback page
 |-------|-----|
 | `GET /p/{identifier}` | 360 Ghar |
 | `GET /property/{identifier}` | 360 Ghar |
-| `GET /tour/{identifier}` | 360 Ghar (registered; not yet handled in app Dart) |
 | `GET /estate/{entity}/{identifier}` | 360 Estate (`apply`/`property`/`task`/`tenant`/`lease`) |
 | `GET /flatmates/{entity}/{identifier}` | 360 FlatMates (`listing`/`chat`) |
 | `GET /stays/{entity}/{identifier}` | 360 Stays (`listing`/`chat`) |
@@ -474,7 +473,7 @@ https://the360ghar.com/.well-known/apple-app-site-association
 ```
 
 Therefore those `.well-known` files **and** the claimed link paths
-(`/p/*`, `/property/*`, `/tour/*`, `/estate/*`, `/flatmates/*`, `/stays/*`) **must
+(`/p/*`, `/property/*`, `/estate/*`, `/flatmates/*`, `/stays/*`) **must
 be served by this backend on `the360ghar.com`** (and the relevant subdomains).
 Serving them only on `api.360ghar.com` will not verify, because no app declares
 `api.360ghar.com`.
@@ -488,7 +487,7 @@ deep link paths and `/.well-known/*` to the backend:
 
 - `https://the360ghar.com/.well-known/assetlinks.json`
 - `https://the360ghar.com/.well-known/apple-app-site-association`
-- `https://the360ghar.com/p/*`, `/property/*`, `/tour/*`
+- `https://the360ghar.com/p/*`, `/property/*`
 - `https://the360ghar.com/estate/*`, `/flatmates/*`, `/stays/*`
 
 …all proxied to the backend service. No app re-release is required, and the rest
@@ -572,12 +571,12 @@ but requires coordinated re-releases and breaks existing shared links that use
 
 - **360 Stays Android package (RESOLVED).** Play Console confirmed the canonical
   id is `com.the360ghar.stays_app`. The source repo was realigned to it
-  (`applicationId`, `namespace`, `MainActivity`); obsolete `com.a360ghar.stays`
+  (`applicationId`, `namespace`, `MainActivity`); obsolete `com.the360ghar.stays_app`
   and `com.example.stays_app` removed from source. **Firebase config must be
   regenerated** for the new package before a prod build compiles — see
   `stays-app/android/app/FIREBASE_SETUP.md`.
 - **360 Stays iOS bundle id (PENDING).** The shipped app still uses the Flutter
-  default `com.example.staysApp`. The real App Store bundle id is unverified —
+  default `com.the360ghar.stays_app`. The real App Store bundle id is unverified —
   do NOT change it until confirmed in App Store Connect. The AASA entry targets
   the source value meanwhile.
 - **360 Estate missing `app.` host on iOS.** Android declares
@@ -591,10 +590,10 @@ but requires coordinated re-releases and breaks existing shared links that use
   `POST /api/v1/deeplinks/generate` (or `GET /api/v1/deeplinks/{app}/{entity}/{id}`)
   so the backend stays the single source of truth, or (b) at minimum keeping the
   hardcoded domain in sync with `DEEPLINK_DOMAIN`.
-- **`/tour/{id}` not handled in 360 Ghar Dart.** The path is registered natively
-  and emitted in verification files / fallback routes, but the app's Dart code
-  does not yet route tour links to a screen. Implement handling before
-  advertising shareable tour links.
+- **`/tour/{id}` is intentionally not a 360 Ghar deep link.** The ghar app's
+  `TourView` consumes a tour URL (not an id) and the entry point is a
+  tour badge on a property card. The dedicated Virtual Tours module on
+  the web owns the `/tour/*` surface.
 - **360 FlatMates legacy compatibility package (INTENTIONALLY RETAINED).**
   `com.the360ghar.flatmates` was published in Play Console before the migration
   to `com.the360ghar.flatmates360`. It is kept as a second Android statement in

@@ -42,12 +42,12 @@ It is split into:
 | 360 Ghar | `com.the360ghar.ghar360` | `com.the360ghar.ghar360` ✅ | `com.the360ghar.ghar360` | _unconfirmed — please verify_ |
 | 360 Estate | `com.the360ghar.estate_app` | `com.the360ghar.estate_app` ✅ | `com.the360ghar.estateApp` | _unconfirmed — please verify_ |
 | 360 FlatMates | `com.the360ghar.flatmates360` | `com.the360ghar.flatmates360` ✅ | `com.the360ghar.flatmates360` (tests target uses `com.the360ghar.flatmates` — cosmetic) | _unconfirmed — please verify_ |
-| 360 Stays | `com.the360ghar.stays_app` ✅ (realigned from `com.a360ghar.stays`) | `com.the360ghar.stays_app` ✅ confirmed | **`com.example.staysApp`** ⚠️ (Flutter default — unverified) | _unconfirmed — please verify_ |
+| 360 Stays | `com.the360ghar.stays_app` ✅ (realigned from `com.a360ghar.stays`) | `com.the360ghar.stays_app` ✅ confirmed | `com.the360ghar.stays_app` ✅ confirmed (realigned from Flutter default `com.example.staysApp`) | _unconfirmed — please verify_ |
 
 **Findings:**
 - 🟢 All four Android ids in source now match the registered Play Console ids.
 - 🟢 **Stays Android RESOLVED:** Play Console confirmed `com.the360ghar.stays_app`; source realigned (`applicationId`, `namespace`, `MainActivity` package, obsolete copies removed). ⚠️ Firebase config must be regenerated for the new package before a prod build compiles — see `stays-app/android/app/FIREBASE_SETUP.md`.
-- 🔴 **Stays iOS** is still the Flutter default `com.example.staysApp` — the real App Store id is unverified and must NOT be changed until confirmed.
+- 🟢 **Stays iOS RESOLVED:** `com.example.staysApp` (the Flutter default) was realigned to `com.the360ghar.stays_app` in tandem with the Android rename. The AASA `appID` emitted by the backend now matches the installed binary.
 - ℹ️ Android `estate_app` (snake) vs iOS `estateApp` (camel) is normal — the two platforms have independent ids; `assetlinks.json` uses the Android id and AASA uses the iOS id. Not a problem.
 - The backend registry now emits assetlinks for **both** Stays Android ids during the ambiguity, so the live app verifies either way; the wrong one is dropped after confirmation.
 
@@ -111,7 +111,7 @@ template from `deploy/deeplinks/`:
   `the360ghar.com`, `www.the360ghar.com`, `app.the360ghar.com`:
   - `/.well-known/assetlinks.json`
   - `/.well-known/apple-app-site-association`
-  - `/p/*`, `/property/*`, `/tour/*`, `/estate/*`, `/flatmates/*`, `/stays/*`
+  - `/p/*`, `/property/*`, `/estate/*`, `/flatmates/*`, `/stays/*`
 - [ ] Confirm the proxy is a **200 rewrite, not a redirect**, and preserves
   `Content-Type: application/json` on the AASA file.
 - [ ] If `www.` / `app.` are not yet live, create the DNS records and TLS certs.
@@ -127,7 +127,8 @@ themselves must be reconciled):
   (current source)? If they differ, the source `build.gradle.kts` must be set to
   the live id, otherwise builds publish a different app.
 - [ ] Confirm the **live Stays iOS bundle id** in App Store Connect (the source
-  is still the Flutter default `com.example.staysApp`). Provide the real id.
+  is `com.the360ghar.stays_app`). Verify in App Store Connect that this
+  matches the published bundle id.
 - [ ] Decide whether Stays iOS was ever published. If **not**, you can freely set
   the real bundle id and ship. If it **was** published under a different id,
   changing it creates a new App Store identity — coordinate before shipping.
@@ -153,7 +154,7 @@ Native config changes only take effect in newly released builds:
 
 - [ ] 360 Stays — reconcile ids (2.4), then new Android + iOS builds.
 - [ ] 360 Estate / FlatMates — only if you approve the optional host additions.
-- [ ] 360 Ghar — rebuild only if you want `/tour/*` handled in-app (see Known gaps).
+- [ ] 360 Ghar — no rebuild required for deep links (the ghar app exposes `/p/*` and `/property/*` only).
 - [ ] Android: ensure the release is signed with the key whose SHA-256 you put in step 2.1.
 
 ---
@@ -206,9 +207,10 @@ Paste a generated link into and confirm it unfurls/opens correctly:
 
 ## Known gaps / follow-ups (non-blocking)
 
-- **360 Ghar `/tour/{id}`** is verified and served by the backend fallback, but
-  the app’s Dart code does not yet route tour links to a tour screen. Implement
-  in-app handling before advertising shareable tour links.
+- **360 Ghar `/tour/{id}` is intentionally not a deep link.** The ghar app's
+  `TourView` consumes a tour URL (not an id) and the entry point is a tour
+  badge on a property card. The dedicated Virtual Tours module on the web
+  owns the `/tour/*` surface; it is NOT proxied to the deep-link backend.
 - **App link generation** still happens client-side in each app (now centralised
   to one constant per app). For a fully backend-sourced approach, apps can call
   `GET /api/v1/deeplinks/{app}/{entity}/{id}` — optional future enhancement.

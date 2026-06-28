@@ -110,6 +110,21 @@ def test_get_app_for_path_prefix_without_entity():
     assert get_app_for_path("/estate") is None
 
 
+def test_get_app_for_path_rejects_empty_identifier():
+    """A path that stops at the entity (no identifier) is not a valid deep
+    link. ``/property/`` and ``/estate/property/`` both return None so the
+    fallback page never renders with an empty identifier.
+    """
+    assert get_app_for_path("/property/") is None
+    assert get_app_for_path("/p/") is None
+    assert get_app_for_path("/estate/property/") is None
+    assert get_app_for_path("/estate/listing/") is None
+    # Identifiers with only whitespace are also rejected (the registry
+    # strips before checking emptiness, matching the service layer).
+    assert get_app_for_path("/property/  ") is None
+    assert get_app_for_path("/estate/listing/  ") is None
+
+
 @pytest.mark.parametrize(
     "path, exp_key, exp_entity, exp_id",
     [
@@ -239,9 +254,25 @@ def test_aasa_paths_match_expected_globs():
     # intentionally NOT advertised — the ghar app's tour view takes a tour
     # URL (not an id) and has no deep-link entry point for `/tour/{id}`.
     assert set(_paths_for_bundle(aasa, "com.the360ghar.ghar360")) == {"/p/*", "/property/*"}
-    assert _paths_for_bundle(aasa, "com.the360ghar.estateApp") == ["/estate/*"]
-    assert _paths_for_bundle(aasa, "com.the360ghar.flatmates360") == ["/flatmates/*"]
-    assert _paths_for_bundle(aasa, "com.the360ghar.stays_app") == ["/stays/*"]
+    # Namespaced apps claim one glob per registered entity, NOT a broad
+    # ``/{prefix}/*`` wildcard. A broad wildcard would cause iOS to open the
+    # app for paths the backend does not actually serve (e.g. /estate/foo),
+    # where the fallback route would 404.
+    assert set(_paths_for_bundle(aasa, "com.the360ghar.estateApp")) == {
+        "/estate/apply/*",
+        "/estate/property/*",
+        "/estate/task/*",
+        "/estate/tenant/*",
+        "/estate/lease/*",
+    }
+    assert set(_paths_for_bundle(aasa, "com.the360ghar.flatmates360")) == {
+        "/flatmates/listing/*",
+        "/flatmates/chat/*",
+    }
+    assert set(_paths_for_bundle(aasa, "com.the360ghar.stays_app")) == {
+        "/stays/listing/*",
+        "/stays/chat/*",
+    }
 
 
 def test_aasa_webcredentials_includes_all_apps():
@@ -339,17 +370,40 @@ def test_render_fallback_page_html_escapes_name():
 def test_render_fallback_page_no_script_breakout_xss():
     """A crafted identifier must not break out of the inline <script> block.
 
-    Regression test for the previously-present reflected-XSS defect where
-    json.dumps() alone did not escape '</script>'. The fix neutralises '</' in
-    JS-context values (service.py ``_js``).
+    Two layers of defence:
+
+    1. The identifier is URL-encoded by ``AppLinkConfig.https_path`` /
+       ``scheme_url`` so the literal ``</script>`` substring never appears
+       in any path or scheme URL emitted by the fallback page.
+    2. ``service.py _js`` additionally neutralises ``</`` inside JS-context
+       strings as a belt-and-braces guard.
+
+    This test verifies layer 1: the percent-encoded form is what appears
+    in the rendered HTML, not the raw payload.
     """
     stays = get_app("stays")
     payload = "abc</script><script>alert(1)</script>"
     html_out = render_fallback_page(stays, "listing", payload)
-    # The raw closing-script breakout sequence must not appear.
+    # The raw closing-script breakout sequence must not appear unescaped.
     assert "</script><script>alert(1)</script>" not in html_out
-    # The escaped form (<\/script>) is what should be emitted instead.
-    assert "<\\/script>" in html_out
+    # The percent-encoded form is what the path / scheme URL contains.
+    assert "abc%3C%2Fscript%3E%3Cscript%3Ealert%281%29%3C%2Fscript%3E" in html_out
+
+
+def test_https_path_url_encodes_identifier():
+    """Reserved characters in identifiers must be percent-encoded so the
+    generated URL is not re-parsed as a query string or fragment by the OS
+    or intermediate caches. Regression test for the
+    raw-identifier-in-https_path defect.
+    """
+    ghar = get_app("ghar")
+    # ?, #, &, +, space — all must be percent-encoded.
+    assert ghar.https_path("p", "a?b&c d#e+f") == "/p/a%3Fb%26c%20d%23e%2Bf"
+    # Custom-scheme URL: entity AND identifier encoded (host parsing
+    # requires the entity not to be percent-encoded, but here we keep the
+    # entity safe by encoding it too — the Dart consumer only cares about
+    # path segments after the host).
+    assert ghar.scheme_url("p", "a?b") == "ghar360://p/a%3Fb"
 
 
 # ===========================================================================
@@ -410,6 +464,41 @@ def test_api_generate_get_path(test_client):
     assert data["url"] == f"https://{settings.DEEPLINK_DOMAIN}/p/99"
 
 
+def test_api_generate_get_path_multisegment_identifier(test_client):
+    """Regression test for the {identifier:path} route fix.
+
+    The GET convenience endpoint must accept identifiers containing
+    slashes (e.g. /2024/spring/unit-5) without 404'ing, matching the
+    service's MAX_IDENTIFIER_LENGTH design and the POST endpoint.
+    """
+    resp = test_client.get("/api/v1/deeplinks/estate/apply/2024/spring/unit-5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["app"] == "estate"
+    assert data["entity"] == "apply"
+    assert data["identifier"] == "2024/spring/unit-5"
+    # Slashes inside the identifier are percent-encoded in the emitted URL
+    # (the identifier field is the raw decoded value the caller passed in).
+    assert data["url"] == (
+        f"https://{settings.DEEPLINK_DOMAIN}/estate/apply/2024%2Fspring%2Funit-5"
+    )
+
+
+def test_api_generate_get_path_unknown_entity_404(test_client):
+    resp = test_client.get("/api/v1/deeplinks/estate/bogus/1")
+    assert resp.status_code == 400  # service raises ValueError -> 400
+
+
+def test_fallback_page_rejects_empty_identifier(test_client):
+    """/property/ and /p/ must NOT resolve to a fallback page (empty
+    identifier). The redirect handler now 404s these.
+    """
+    assert test_client.get("/property/").status_code == 404
+    assert test_client.get("/p/").status_code == 404
+    assert test_client.get("/estate/property/").status_code == 404
+    assert test_client.get("/flatmates/listing/").status_code == 404
+
+
 def test_fallback_page_estate(test_client):
     resp = test_client.get("/estate/property/42")
     assert resp.status_code == 200
@@ -420,3 +509,61 @@ def test_fallback_page_estate(test_client):
 def test_fallback_page_unknown_entity_404(test_client):
     resp = test_client.get("/estate/bogus/1")
     assert resp.status_code == 404
+
+
+# ===========================================================================
+# G. Startup-time config validation
+# ===========================================================================
+
+def test_validate_deeplink_config_passes_with_valid_team_id(monkeypatch):
+    """A real Apple Team ID passes validation."""
+    from app.services.deeplinks.validation import validate_deeplink_config
+
+    monkeypatch.setattr(settings, "DEEPLINK_APPLE_TEAM_ID", "ABCDE12345")
+    monkeypatch.setattr(settings, "DEEPLINK_FAIL_ON_PLACEHOLDER", True)
+    # Must not raise.
+    validate_deeplink_config()
+
+
+def test_validate_deeplink_config_warns_on_placeholder(monkeypatch, caplog):
+    """The placeholder 'TEAMID' is logged as a warning when the fail-fast
+    flag is off (default — local dev / CI must still boot)."""
+    from app.services.deeplinks.validation import validate_deeplink_config
+
+    monkeypatch.setattr(settings, "DEEPLINK_APPLE_TEAM_ID", "TEAMID")
+    monkeypatch.setattr(settings, "DEEPLINK_FAIL_ON_PLACEHOLDER", False)
+    with caplog.at_level("WARNING", logger="app.services.deeplinks.validation"):
+        validate_deeplink_config()
+    assert any("DEEPLINK_APPLE_TEAM_ID" in rec.message for rec in caplog.records)
+
+
+def test_validate_deeplink_config_raises_in_production(monkeypatch):
+    """When DEEPLINK_FAIL_ON_PLACEHOLDER is True, a placeholder Team ID
+    must abort startup with a RuntimeError so a misconfigured production
+    deploy fails fast rather than shipping an unverifiable AASA.
+    """
+    from app.services.deeplinks.validation import validate_deeplink_config
+
+    monkeypatch.setattr(settings, "DEEPLINK_APPLE_TEAM_ID", "TEAMID")
+    monkeypatch.setattr(settings, "DEEPLINK_FAIL_ON_PLACEHOLDER", True)
+    try:
+        validate_deeplink_config()
+    except RuntimeError as exc:
+        assert "DEEPLINK_APPLE_TEAM_ID" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError when team id is the placeholder")
+
+
+def test_validate_deeplink_config_raises_on_malformed_team_id(monkeypatch):
+    """Wrong length, lowercase, or non-alphanumeric Team IDs also fail
+    the strict validation."""
+    from app.services.deeplinks.validation import validate_deeplink_config
+
+    monkeypatch.setattr(settings, "DEEPLINK_FAIL_ON_PLACEHOLDER", True)
+    for bad in ("SHORT", "WAY_TOO_LONG_FOR_TEAM_ID", "abcde12345", "12345678 9"):
+        monkeypatch.setattr(settings, "DEEPLINK_APPLE_TEAM_ID", bad)
+        try:
+            validate_deeplink_config()
+        except RuntimeError:
+            continue
+        raise AssertionError(f"expected RuntimeError for team id {bad!r}")

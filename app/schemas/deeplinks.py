@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app.services.deeplinks.service import MAX_IDENTIFIER_LENGTH
+
 
 class EntityInfo(BaseModel):
     entity: str = Field(..., description="URL segment for the entity, e.g. 'property'")
@@ -46,8 +48,8 @@ class GenerateLinkRequest(BaseModel):
     identifier: str = Field(
         ...,
         min_length=1,
-        # Keep in sync with service.MAX_IDENTIFIER_LENGTH; the service layer
-        # enforces the same cap so the POST body and GET path agree.
-        max_length=256,
+        # Reference the service-layer constant so the POST body and the
+        # GET path stay in sync without a second source of truth.
+        max_length=MAX_IDENTIFIER_LENGTH,
         description="Entity identifier (id or slug)",
     )

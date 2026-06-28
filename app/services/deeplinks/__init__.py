@@ -15,6 +15,8 @@ truth. Add a new app or a new shareable entity there and every other layer
 (verification files, redirect pages, generation API) updates automatically.
 """
 
+from __future__ import annotations
+
 from app.services.deeplinks.registry import (
     APP_REGISTRY,
     AppLinkConfig,
@@ -24,6 +26,7 @@ from app.services.deeplinks.registry import (
     get_app_for_path,
 )
 from app.services.deeplinks.service import (
+    MAX_IDENTIFIER_LENGTH,
     GeneratedLink,
     build_apple_app_site_association,
     build_assetlinks,
@@ -36,6 +39,7 @@ __all__ = [
     "AppLinkConfig",
     "EntityPattern",
     "Platform",
+    "MAX_IDENTIFIER_LENGTH",
     "GeneratedLink",
     "get_app",
     "get_app_for_path",

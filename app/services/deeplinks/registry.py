@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from urllib.parse import quote
 
 
 class Platform(str, Enum):
@@ -92,8 +93,15 @@ class AppLinkConfig:
         return self.fingerprint_setting
 
     def https_path(self, entity: str, identifier: str) -> str:
-        """Canonical HTTPS path for an entity, e.g. ``/estate/property/42``."""
-        parts = [p for p in (self.path_prefix, entity, identifier) if p]
+        """Canonical HTTPS path for an entity, e.g. ``/estate/property/42``.
+
+        Each path segment is percent-encoded so identifiers containing
+        reserved characters (e.g. ``?``, ``#``, ``+``, spaces) produce a
+        URL that iOS, Android, and intermediate caches will not re-parse
+        as query strings or fragments. ``quote(s, safe="")`` is the
+        strict RFC 3986 unreserved-only encoder.
+        """
+        parts = [quote(p, safe="") for p in (self.path_prefix, entity, identifier) if p]
         return "/" + "/".join(parts)
 
     def scheme_url(self, entity: str, identifier: str) -> str:
@@ -101,13 +109,21 @@ class AppLinkConfig:
 
         Matches how each app's DeepLinkService parses the host as the first
         path segment (``estate360://property/42`` -> segments ``[property, 42]``).
+        Identifier is percent-encoded for the same reason as :meth:`https_path`.
         """
-        return f"{self.custom_scheme}://{entity}/{identifier}"
+        return f"{self.custom_scheme}://{quote(entity, safe='')}/{quote(identifier, safe='')}"
 
     def aasa_paths(self) -> list[str]:
-        """Path globs claimed by this app for the AASA ``paths`` array."""
+        """Path globs claimed by this app for the AASA ``paths`` array.
+
+        Emits one glob per registered entity, not a single ``/{prefix}/*``
+        wildcard. iOS Universal Link resolution is opt-in per path glob; a
+        broad wildcard would cause the OS to open the app for paths the
+        registry does not actually serve (e.g. ``/estate/unknown``), where
+        the backend would 404.
+        """
         if self.path_prefix:
-            return [f"/{self.path_prefix}/*"]
+            return [f"/{self.path_prefix}/{e.entity}/*" for e in self.entities]
         # Flagship app claims one glob per top-level entity at the root.
         return [f"/{e.entity}/*" for e in self.entities]
 
@@ -256,8 +272,9 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
     """Resolve an incoming request path to ``(app, entity, identifier)``.
 
     Handles both namespaced apps (``/estate/property/42``) and the flagship
-    root app (``/p/42``, ``/tour/abc``). Returns ``None`` when no app claims
-    the path. ``identifier`` may be empty if the path stops at the entity.
+    root app (``/p/42``). Returns ``None`` when no app claims the path or
+    when the path stops at the entity without an identifier
+    (``/property/`` is NOT a valid deep link).
     """
     segments = [s for s in path.split("/") if s]
     if not segments:
@@ -266,21 +283,33 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
     # Namespaced apps: first segment is the path prefix.
     for app in _PREFIXED_APPS:
         if segments[0] == app.path_prefix:
-            if len(segments) < 2:
+            if len(segments) < 3:
+                # Need at least prefix/entity/identifier. /estate/ and
+                # /estate/foo (unknown entity) both return None.
                 return None
             entity = segments[1]
+            if not any(e.entity == entity for e in app.entities):
+                return None
             # Preserve multi-segment identifiers (e.g. slugs containing "/").
-            identifier = "/".join(segments[2:]) if len(segments) >= 3 else ""
-            if any(e.entity == entity for e in app.entities):
-                return (app, entity, identifier)
-            return None
+            # Strip surrounding whitespace so ``/estate/property/  `` is
+            # treated the same as an empty identifier (None) — matches
+            # generate_link()'s behaviour.
+            identifier = "/".join(segments[2:]).strip()
+            if not identifier:
+                return None
+            return (app, entity, identifier)
 
     # Root flagship app: first segment is the entity itself.
     head = segments[0]
     app = _ROOT_ENTITY_INDEX.get(head)
     if app is not None:
+        if len(segments) < 2:
+            # /p and /property without an identifier are not valid deep links.
+            return None
         # Preserve multi-segment identifiers (e.g. slugs containing "/").
-        identifier = "/".join(segments[1:]) if len(segments) >= 2 else ""
+        identifier = "/".join(segments[1:]).strip()
+        if not identifier:
+            return None
         return (app, head, identifier)
 
     return None
