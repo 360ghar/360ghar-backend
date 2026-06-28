@@ -124,11 +124,15 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         ios_bundle_id="com.the360ghar.ghar360",
         use_webcredentials=True,
         custom_scheme="ghar360",
-        path_prefix="",  # flagship app: links at domain root (/p, /property, /tour)
+        path_prefix="",  # flagship app: links at domain root (/p, /property)
+        # NOTE: no `tour` entity. The ghar app's tour UX is "tap a tour badge
+        # on a property card" — `TourView` consumes a tour *URL* (not an id)
+        # via Get.arguments, and there is no deep-link entry point that maps
+        # a tour id to its URL. The /tour/* surface belongs to the dedicated
+        # Virtual Tours module on the web; do not advertise it for ghar.
         entities=(
             EntityPattern("p", "Property short link", public=True),
             EntityPattern("property", "Property detail", public=True),
-            EntityPattern("tour", "Virtual tour", public=True),
         ),
         play_store_url="https://play.google.com/store/apps/details?id=com.the360ghar.ghar360",
         app_store_url="",
@@ -143,6 +147,7 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         name="360 Estate",
         android_packages=("com.the360ghar.estate_app",),
         ios_bundle_id="com.the360ghar.estateApp",
+        use_webcredentials=True,
         custom_scheme="estate360",
         path_prefix="estate",
         entities=(
@@ -200,11 +205,13 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         # Android package CONFIRMED from Play Console (canonical, matches the
         # house convention com.the360ghar.*). The source repo was realigned to
         # this id (was drifting on com.a360ghar.stays / com.example.stays_app).
+        # iOS bundle id mirrors the same canonical id (was ``com.example.staysApp``
+        # when the source still used the Flutter default; corrected in tandem
+        # with the Android rename so the AASA ``appID`` matches the installed
+        # binary's signing identity).
         android_packages=("com.the360ghar.stays_app",),
-        # AUDIT: iOS bundle id is UNVERIFIED — source still shows the Flutter
-        # default ``com.example.staysApp``. Do NOT change until the real App
-        # Store bundle id is confirmed. AASA targets the source value meanwhile.
-        ios_bundle_id="com.example.staysApp",
+        ios_bundle_id="com.the360ghar.stays_app",
+        use_webcredentials=True,
         custom_scheme="stays360",
         path_prefix="stays",
         entities=(

@@ -117,11 +117,11 @@ async def generate(body: GenerateLinkRequest) -> GeneratedLinkResponse:
     return GeneratedLinkResponse(**dataclasses.asdict(link))
 
 
-@api_router.get("/{app_key}/{entity}/{identifier}", response_model=GeneratedLinkResponse)
+@api_router.get("/{app_key}/{entity}/{identifier:path}", response_model=GeneratedLinkResponse)
 async def generate_path(
     app_key: str = Path(..., description="App key: ghar/estate/flatmates/stays"),
     entity: str = Path(..., description="Entity type, e.g. 'property'"),
-    identifier: str = Path(..., description="Entity identifier"),
+    identifier: str = Path(..., description="Entity identifier (may contain slashes)"),
 ) -> GeneratedLinkResponse:
     """Convenience GET form of link generation."""
     try:

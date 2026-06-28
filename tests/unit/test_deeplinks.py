@@ -82,7 +82,6 @@ def test_get_app_unknown_returns_none():
     [
         ("/p/5", "ghar", "p", "5"),
         ("/property/9", "ghar", "property", "9"),
-        ("/tour/abc", "ghar", "tour", "abc"),
         ("/estate/property/42", "estate", "property", "42"),
         ("/estate/apply/some-slug", "estate", "apply", "some-slug"),
         ("/flatmates/listing/7", "flatmates", "listing", "7"),
@@ -137,7 +136,7 @@ def test_https_path_and_scheme_url_examples():
     ghar = get_app("ghar")
     # Flagship app has empty prefix => path lives at root.
     assert ghar.https_path("p", "5") == "/p/5"
-    assert ghar.scheme_url("tour", "abc") == "ghar360://tour/abc"
+    assert ghar.scheme_url("property", "42") == "ghar360://property/42"
 
 
 # ===========================================================================
@@ -236,20 +235,26 @@ def _paths_for_bundle(aasa, bundle_id):
 
 def test_aasa_paths_match_expected_globs():
     aasa = build_apple_app_site_association()
-    assert set(_paths_for_bundle(aasa, "com.the360ghar.ghar360")) == {"/p/*", "/property/*", "/tour/*"}
+    # ghar flagships /p and /property at the domain root. `/tour/*` is
+    # intentionally NOT advertised — the ghar app's tour view takes a tour
+    # URL (not an id) and has no deep-link entry point for `/tour/{id}`.
+    assert set(_paths_for_bundle(aasa, "com.the360ghar.ghar360")) == {"/p/*", "/property/*"}
     assert _paths_for_bundle(aasa, "com.the360ghar.estateApp") == ["/estate/*"]
     assert _paths_for_bundle(aasa, "com.the360ghar.flatmates360") == ["/flatmates/*"]
-    # NOTE: Stays iOS bundle id is the unconfirmed source default; update when
-    # the real App Store bundle id is verified (see registry audit comment).
-    assert _paths_for_bundle(aasa, "com.example.staysApp") == ["/stays/*"]
+    assert _paths_for_bundle(aasa, "com.the360ghar.stays_app") == ["/stays/*"]
 
 
-def test_aasa_webcredentials_ghar_and_flatmates_only():
+def test_aasa_webcredentials_includes_all_apps():
     aasa = build_apple_app_site_association()
     apps = aasa["webcredentials"]["apps"]
+    # Every app's iOS bundle id is registered in the webcredentials block so
+    # iOS Password AutoFill / Sign in with Apple can pair the native app with
+    # the web domain the entitlements file declares.
     assert set(apps) == {
         f"{EXPECTED_TEAM_ID}.com.the360ghar.ghar360",
+        f"{EXPECTED_TEAM_ID}.com.the360ghar.estateApp",
         f"{EXPECTED_TEAM_ID}.com.the360ghar.flatmates360",
+        f"{EXPECTED_TEAM_ID}.com.the360ghar.stays_app",
     }
 
 
