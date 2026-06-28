@@ -49,6 +49,7 @@ from app.api.api_v1.endpoints import (
     visits,
     webhooks,
 )
+from app.api.deeplinks import api_router as deeplinks_api_router
 
 api_router = APIRouter()
 
@@ -97,6 +98,9 @@ api_router.include_router(design_studio.router, prefix="/design-studio", tags=["
 
 # Vastu Checker - public endpoint (no auth required)
 api_router.include_router(vastu.router, prefix="/vastu", tags=["vastu"])
+
+# Deep Links - public link generation API (no auth required)
+api_router.include_router(deeplinks_api_router, prefix="/deeplinks", tags=["deeplinks"])
 
 # 360 Virtual Tours
 api_router.include_router(tours.router, prefix="/tours", tags=["tours"])

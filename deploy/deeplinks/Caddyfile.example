@@ -1,0 +1,28 @@
+# Caddy reverse-proxy rules for backend-driven deep linking.
+# Merge the `handle` blocks into your existing site block(s) for
+# the360ghar.com, www.the360ghar.com, and app.the360ghar.com.
+
+the360ghar.com, www.the360ghar.com, app.the360ghar.com {
+    # Android + iOS verification files (served at the root).
+    @wellknown path /.well-known/assetlinks.json /.well-known/apple-app-site-association
+    handle @wellknown {
+        reverse_proxy https://api.360ghar.com {
+            header_up Host {host}
+        }
+    }
+
+    # Deep-link fallback pages for every app.
+    # NOTE: /tour/* is intentionally NOT in this list — the ghar app's
+    # AppLinkConfig no longer registers `tour` (TourView consumes a tour
+    # URL, not an id). The /tour/* surface is owned by the dedicated
+    # Virtual Tours module on the web; it must NOT be routed to
+    # api.360ghar.com. See docs/deep-linking.md §3.
+    @deeplinks path /p/* /property/* /estate/* /flatmates/* /stays/*
+    handle @deeplinks {
+        reverse_proxy https://api.360ghar.com {
+            header_up Host {host}
+        }
+    }
+
+    # … your existing marketing-site routes go here (handle / handle_path) …
+}

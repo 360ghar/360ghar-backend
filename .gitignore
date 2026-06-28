@@ -189,6 +189,9 @@ blog_verify_full.png
 
 # Disk cache files
 cache/
+
+# Local audit run artifacts — contain live Supabase admin JWTs and must
+# never be committed. Regenerated on demand by the audit script.
 .audit-tokens.json
 audit_results_*.json
 /tmp/360ghar-audit-*

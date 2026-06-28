@@ -4,7 +4,10 @@
     "docs/contribution-contract.md",
     "docs/testing-contract.md",
     "docs/terminology-and-ownership.md",
-    "docs/repo-contract.json"
+    "docs/repo-contract.json",
+    "docs/deep-linking.md",
+    "docs/deep-linking-deployment-checklist.md",
+    "docs/deep-linking-production-readiness.md"
   ],
   "top_level_paths": [
     "AGENTS.md",
@@ -194,6 +197,9 @@
     "data_hub/rera_complaints.py",
     "data_hub/rera_projects.py",
     "data_hub/utils.py",
+    "deeplinks/registry.py",
+    "deeplinks/service.py",
+    "deeplinks/validation.py",
     "data_hub/yeida_auctions.py",
     "data_hub/zoning.py",
     "data_hub_scheduler.py",

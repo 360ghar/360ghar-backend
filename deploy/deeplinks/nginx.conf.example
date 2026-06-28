@@ -1,0 +1,50 @@
+# Nginx reverse-proxy rules for backend-driven deep linking.
+# Include this inside the server { } block that serves the360ghar.com
+# (and www./app. — either duplicate the server block per host or use a
+# server_name covering all three).
+#
+# Each location block uses a LITERAL proxy_pass URL (not a variable) so
+# nginx resolves the backend hostname at config-load time and we don't
+# need a `resolver` directive. Variables in proxy_pass defer DNS to
+# request time and require a resolver, otherwise nginx returns 502
+# `no resolver defined to resolve api.360ghar.com`.
+
+# --- Android / iOS verification files (served at the domain root) ---------
+location = /.well-known/assetlinks.json {
+    proxy_pass https://api.360ghar.com;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Do NOT add a trailing slash or rewrite the path.
+}
+
+location = /.well-known/apple-app-site-association {
+    proxy_pass https://api.360ghar.com;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Apple requires application/json and no redirect — the backend sets this.
+}
+
+# --- Deep-link fallback pages (per app) -----------------------------------
+# 360 Ghar (flagship, root paths). NOTE: `tour` is intentionally NOT in
+# the regex — the ghar app's AppLinkConfig no longer registers `tour`
+# (TourView consumes a tour URL, not an id). The /tour/* surface is
+# owned by the dedicated Virtual Tours module on the web; it must NOT
+# be routed to api.360ghar.com. See docs/deep-linking.md §3.
+location ~ ^/(p|property)/ {
+    proxy_pass https://api.360ghar.com;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# 360 Estate / FlatMates / Stays (namespaced)
+location ~ ^/(estate|flatmates|stays)/ {
+    proxy_pass https://api.360ghar.com;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Everything else on the360ghar.com falls through to your existing site config.

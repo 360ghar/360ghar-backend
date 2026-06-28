@@ -36,6 +36,12 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
         # request-time init would otherwise cause.
         async with user_mcp_app.lifespan(app):
             async with admin_mcp_app.lifespan(app):
+                if not testing:
+                    # Fail-fast config check runs OUTSIDE the degraded-mode
+                    # try/except below: a placeholder Apple Team ID in
+                    # production must abort startup, not be logged-and-ignored.
+                    # It raises before the cache / DB initialize.
+                    _validate_deeplink_config()
                 try:
                     if not testing:
                         await _initialize_cache()
@@ -141,6 +147,20 @@ async def _initialize_cache() -> None:
         await initialize_cache()
     except Exception as cache_e:
         logger.warning("Cache connection skipped/failed: %s", cache_e)
+
+
+def _validate_deeplink_config() -> None:
+    """Run the deep-link startup validator.
+
+    In production (``DEEPLINK_FAIL_ON_PLACEHOLDER=True``) this raises if
+    ``DEEPLINK_APPLE_TEAM_ID`` is the placeholder or otherwise malformed.
+    In dev/CI it just logs a warning. Imported lazily so the module is
+    only loaded when startup actually runs (avoids a top-level import of
+    ``app.services.deeplinks`` from the lifespan module).
+    """
+    from app.services.deeplinks.validation import validate_deeplink_config
+
+    validate_deeplink_config()
 
 
 async def _verify_database_ready() -> None:

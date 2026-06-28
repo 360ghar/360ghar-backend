@@ -1,0 +1,30 @@
+# Netlify proxy rules — use ONLY if the360ghar.com stays hosted on Netlify.
+#
+# This REPLACES the old static link repos (ghar_sale_links / the360ghar_links).
+# Instead of serving static files, Netlify proxies (status 200, not 301/302)
+# the verification files and deep-link paths to the backend, which becomes the
+# single source of truth.
+#
+# Place these lines at the TOP of the site's _redirects file (Netlify applies
+# the first matching rule). Adjust the backend origin if needed.
+
+# --- Android / iOS verification files -------------------------------------
+/.well-known/assetlinks.json                https://api.360ghar.com/.well-known/assetlinks.json                200
+/.well-known/apple-app-site-association     https://api.360ghar.com/.well-known/apple-app-site-association     200
+
+# --- Deep-link fallback pages ---------------------------------------------
+# NOTE: /tour/* is intentionally NOT proxied here — the ghar app's
+# AppLinkConfig no longer registers `tour` as a deep-link entity
+# (TourView consumes a tour URL, not an id, so there is no /tour/{id}
+# entry point). The /tour/* surface is owned by the dedicated Virtual
+# Tours module on the web; it must NOT be routed to api.360ghar.com.
+# See docs/deep-linking.md §3 for the ghar app's entity surface.
+/p/*           https://api.360ghar.com/p/:splat           200
+/property/*    https://api.360ghar.com/property/:splat     200
+/estate/*      https://api.360ghar.com/estate/:splat       200
+/flatmates/*   https://api.360ghar.com/flatmates/:splat    200
+/stays/*       https://api.360ghar.com/stays/:splat        200
+
+# NOTE: Netlify proxying preserves the upstream Content-Type, so the AASA file
+# keeps application/json. Verify after deploy with:
+#   curl -I https://the360ghar.com/.well-known/apple-app-site-association
