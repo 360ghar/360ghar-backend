@@ -118,9 +118,11 @@ def format_property_list_summary(
         parts.append("360Ghar is expanding to new areas. Check back soon for more listings.")
         return " ".join(parts)
 
-    # Extract price range
+    # Extract price range — use `is not None` so 0 is not treated as missing
     prices: list[float] = [
-        v for p in properties if (v := p.get("base_price") or p.get("monthly_rent")) is not None
+        v
+        for p in properties
+        if (v := p.get("base_price") if p.get("base_price") is not None else p.get("monthly_rent")) is not None
     ]
     if prices:
         min_price = min(prices)
@@ -133,13 +135,15 @@ def format_property_list_summary(
     types = {p.get("property_type", "property") for p in properties}
     type_str = ", ".join(types) if len(types) <= 3 else "various types"
 
-    # Extract locations
-    locations = {
-        p.get("locality") or p.get("city", "")
-        for p in properties
-        if p.get("locality") or p.get("city")
-    }
-    location_str = ", ".join(list(locations)[:3]) if locations else "your search area"
+    # Extract locations — sort for deterministic ordering
+    locations = sorted(
+        {
+            p.get("locality") or p.get("city", "")
+            for p in properties
+            if p.get("locality") or p.get("city")
+        }
+    )
+    location_str = ", ".join(locations[:3]) if locations else "your search area"
 
     showing = len(properties)
     return f"Found {total} properties. Showing {showing} {type_str} in {location_str}, with prices ranging from {price_range}."

@@ -156,8 +156,8 @@ exclude_lines = [
 ]
 show_missing = true
 # fail_under is intentionally absent here.
-# The 90% threshold is enforced exclusively by the coverage-check job
-# (uv run coverage report --fail-under=90) after combining all shards,
+# The 60% threshold is enforced exclusively by the coverage-check job
+# (uv run coverage report --fail-under=60) after combining all shards,
 # so that per-shard runs measuring ~33% of the codebase do not fail.
 
 [tool.coverage.xml]

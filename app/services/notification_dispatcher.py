@@ -22,6 +22,24 @@ logger = get_logger(__name__)
 DEFAULT_SEGMENT_LIMIT = 5000
 
 
+
+def _truthy(value: object, default: bool = True) -> bool:
+    """Safely coerce a JSON setting value to bool.
+
+    Handles the case where a client stores string-valued booleans like
+    ``"false"`` or ``"0"`` in the notification_settings JSON column.
+    ``bool("false")`` is ``True`` in Python, which would incorrectly treat
+    an opt-out as opt-in.
+    """
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() not in ("false", "0", "no", "off", "")
+    return bool(value)
+
+
 def _get_user_channels_from_settings(
     *,
     settings_json: dict[str, Any] | None,
@@ -37,21 +55,23 @@ def _get_user_channels_from_settings(
     cfg = settings_json or {}
 
     # Global channel toggles
-    push_enabled = bool(cfg.get("push_notifications", cfg.get("push", True)))
-    email_enabled = bool(cfg.get("email_notifications", cfg.get("email", True)))
-    sms_enabled = bool(cfg.get("sms_notifications", False))
+    push_enabled = _truthy(cfg.get("push_notifications", cfg.get("push")), default=True)
+    email_enabled = _truthy(cfg.get("email_notifications", cfg.get("email")), default=True)
+    sms_enabled = _truthy(cfg.get("sms_notifications"), default=False)
 
     # Marketing-specific toggles
     marketing_allowed = True
     if category == NotificationCategory.MARKETING:
         marketing_allowed = False
         # 360 Ghar style flags
-        promo_flag = bool(cfg.get("promotional_emails", cfg.get("promotional_push", True)))
+        promo_flag = _truthy(
+            cfg.get("promotional_emails", cfg.get("promotional_push")), default=True
+        )
         # Stays app style categories map: { categories: { promotions: true, ... } }
         categories_cfg = cfg.get("categories") or {}
         if not isinstance(categories_cfg, dict):
             categories_cfg = {}
-        promotions_cat = bool(categories_cfg.get("promotions", True))
+        promotions_cat = _truthy(categories_cfg.get("promotions"), default=True)
 
         marketing_allowed = promo_flag or promotions_cat
 
@@ -62,7 +82,7 @@ def _get_user_channels_from_settings(
             if specific_flag is None and isinstance(categories_cfg, dict):
                 specific_flag = categories_cfg.get(marketing_opt_in_key)
             if specific_flag is not None:
-                marketing_allowed = marketing_allowed and bool(specific_flag)
+                marketing_allowed = marketing_allowed and _truthy(specific_flag)
 
     if push_enabled and (category != NotificationCategory.MARKETING or marketing_allowed):
         enabled.add(NotificationChannel.PUSH)

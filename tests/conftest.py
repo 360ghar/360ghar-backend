@@ -71,9 +71,11 @@ async def test_engine():
         await conn.execute(text("DROP SCHEMA public CASCADE"))
         await conn.execute(text("CREATE SCHEMA public"))
         await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
-        # Create required extensions
-        # await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        # await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        # Recreate extensions that were wiped by DROP SCHEMA CASCADE.
+        # The CI Docker image has these installed at the cluster level;
+        # they must be re-enabled in the public schema before create_all.
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine

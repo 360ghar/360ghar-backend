@@ -137,7 +137,7 @@ class GeminiProvider(AIProvider):
                 "provider": self.name,
                 "model": self.config.model,
                 "duration_ms": round(elapsed_ms, 1),
-                "endpoint": url,
+                "endpoint": url.split("?")[0],  # strip ?key=... to avoid leaking API key
             },
         )
         try:
@@ -178,7 +178,7 @@ class GeminiProvider(AIProvider):
                 "provider": self.name,
                 "model": self.config.model,
                 "duration_ms": round(elapsed_ms, 1),
-                "endpoint": url,
+                "endpoint": url.split("?")[0],  # strip ?key=... to avoid leaking API key
                 "json_mode": True,
             },
         )

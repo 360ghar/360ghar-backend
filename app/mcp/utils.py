@@ -39,12 +39,13 @@ async def get_db():
         try:
             yield db
         except Exception as e:
-            logger.error("MCP database session error: %s", e)
+            # Log only the exception type — raw DBAPI error messages can
+            # include SQL text and bound parameters (potential data leak).
+            logger.error("MCP database session error: %s", type(e).__name__)
             sentry_sdk.set_context(
                 "database",
                 {
                     "error_type": type(e).__name__,
-                    "error_message": str(e),
                 },
             )
             await db.rollback()

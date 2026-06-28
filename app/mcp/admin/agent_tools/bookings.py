@@ -20,7 +20,7 @@ from app.mcp.admin.agent_tools.common import (
     not_found_response,
     serialize_booking,
 )
-from app.models.enums import UserRole
+from app.models.enums import BookingStatus, UserRole
 from app.schemas.pagination import decode_cursor, encode_cursor
 
 
@@ -131,9 +131,11 @@ async def agent_bookings_update_status(
         notes: Status update notes
     """
     try:
-        valid_statuses = ["confirmed", "checked_in", "checked_out", "cancelled", "completed"]
-        if status.lower() not in valid_statuses:
-            return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
+        # Agents cannot manually set a booking back to 'pending'; all other
+        # transitions are allowed. Derive the list from the enum to stay in sync.
+        agent_settable = {s.value for s in BookingStatus if s != BookingStatus.pending}
+        if status.lower() not in agent_settable:
+            return invalid_input_response(f"status must be one of: {', '.join(sorted(agent_settable))}")
 
         async for db in get_db():
             user = await _get_user(db)
