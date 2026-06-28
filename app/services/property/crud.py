@@ -273,9 +273,6 @@ async def create_property(
             await geocode_listing(db, db_property.id)
         await PropertyCacheManager.invalidate_property_caches(db_property.id)
 
-        # Fetch the complete property with relations to return
-        import inspect
-
         result = repo.get_property_with_owner(db_property.id)
         if inspect.isawaitable(result):
             property_with_relations = await result
