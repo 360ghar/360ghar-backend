@@ -66,7 +66,7 @@ The script tracks applied versions in a `schema_migrations` table, making it ide
 - New service modules must follow existing naming conventions, keep I/O async when touching the database, and be registered in `docs/repo-contract.json`.
 - New MCP tools, widget bindings, or AI-agent tool bridges must update the architecture and terminology docs when they add a new public surface or execution pattern.
 - New background jobs or schedulers must be wired through `app/infrastructure/lifespan.py` startup, register their jobs on the shared scheduler from `app/infrastructure/scheduler.py`, and be documented in the architecture contract. Do not create new `AsyncIOScheduler` instances — use `get_scheduler()` to add jobs.
-- Do not add new dependencies without checking current upstream documentation and compatibility with Python 3.10+, FastAPI, SQLAlchemy 2.x, and Pydantic v2.
+- Do not add new dependencies without checking current upstream documentation and compatibility with Python 3.12+, FastAPI, SQLAlchemy 2.x, and Pydantic v2.
 - New outbound HTTP call sites must use the shared httpx clients from `app/core/http.py` (`get_scraper_client()`, `get_blog_client()`, `get_general_client()`, `get_supabase_auth_http_client()`) instead of creating ephemeral `async with httpx.AsyncClient()` per request. Use per-request `timeout=` overrides when the call needs a different timeout than the client default.
 
 ## Use Latest Versions & References

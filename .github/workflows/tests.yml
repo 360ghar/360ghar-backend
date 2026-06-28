@@ -229,7 +229,7 @@ jobs:
       - name: Combine coverage and enforce threshold
         run: |
           uv run coverage combine .coverage.*
-          uv run coverage report --fail-under=50
+          uv run coverage report --fail-under=90
           uv run coverage xml -o coverage-combined.xml
 
       - name: Upload combined coverage to Codecov

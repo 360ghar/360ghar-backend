@@ -1,7 +1,7 @@
 # 360 Ghar Backend
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Framework](https://img.shields.io/badge/framework-FastAPI-green.svg)](https://fastapi.tiangolo.com/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20+%20PostGIS-blue.svg)](https://www.postgresql.org/)
 
@@ -183,7 +183,7 @@ All endpoints are prefixed with `/api/v1`.
 
 ### Prerequisites
 
-- [Python 3.10+](https://www.python.org/)
+- [Python 3.12+](https://www.python.org/)
 - [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/install/)
 - A [Supabase](https://supabase.com/) project for authentication
 

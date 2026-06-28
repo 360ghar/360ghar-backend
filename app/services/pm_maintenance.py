@@ -181,15 +181,36 @@ async def update_maintenance_request(
         }
         current = req.request_status.value if hasattr(req.request_status, "value") else str(req.request_status)
         target = request_status.value if hasattr(request_status, "value") else str(request_status)
-        allowed = ALLOWED_TRANSITIONS.get(current, set())
-        if target not in allowed:
-            raise BadRequestException(
-                detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
-            )
+        # Allow idempotent updates (same status) — clients may re-submit.
+        if target != current:
+            allowed = ALLOWED_TRANSITIONS.get(current, set())
+            if target not in allowed:
+                raise BadRequestException(
+                    detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
+                )
         req.request_status = request_status
     if assigned_agent_id is not None:
         req.assigned_agent_id = assigned_agent_id
     if work_order_status is not None:
+        # Validate work order status transition
+        WO_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+            "created": {"assigned", "cancelled"},
+            "assigned": {"in_progress", "cancelled"},
+            "in_progress": {"completed", "cancelled"},
+            "completed": {"closed"},
+            "closed": set(),
+            "cancelled": set(),
+        }
+        wo_current = req.work_order_status.value if req.work_order_status and hasattr(req.work_order_status, "value") else None
+        if wo_current is not None:
+            wo_target = work_order_status.value if hasattr(work_order_status, "value") else str(work_order_status)
+            # Allow idempotent updates (same status) — clients may re-submit.
+            if wo_target != wo_current:
+                wo_allowed = WO_ALLOWED_TRANSITIONS.get(wo_current, set())
+                if wo_target not in wo_allowed:
+                    raise BadRequestException(
+                        detail=f"Cannot transition work order from '{wo_current}' to '{wo_target}'. Allowed: {wo_allowed or 'none (terminal state)'}"
+                    )
         req.work_order_status = work_order_status
     if priority is not None:
         req.priority = priority
