@@ -86,9 +86,7 @@ def get_supabase_auth_http_client() -> httpx.AsyncClient:
     """
     global _supabase_auth_client
     if _supabase_auth_client is None or _supabase_auth_client.is_closed:
-        _supabase_auth_client = _make_client(
-            timeout=10.0, max_connections=10, max_keepalive=5
-        )
+        _supabase_auth_client = _make_client(timeout=10.0, max_connections=10, max_keepalive=5)
     return _supabase_auth_client
 
 

@@ -4,6 +4,7 @@ Owner and agent/owner property, lease, rent, and maintenance tools.
 Includes both user-facing owner tools and admin/agent tools for managing
 owner resources — properties, leases, rent collection, and maintenance.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -29,6 +30,7 @@ logger = get_logger(__name__)
 # USER TOOLS — Owner Property Management
 # ============================================================================
 
+
 async def owner_properties_list(
     ctx: RunContext[AgentDeps],
     page: int = 1,
@@ -47,8 +49,13 @@ async def owner_properties_list(
     actor = _user_schema(user)
 
     properties, _next, _total = await list_managed_properties(
-        db, actor=actor, owner_id=user.id, occupancy=occupancy, q=q,
-        cursor_payload={}, limit=limit,
+        db,
+        actor=actor,
+        owner_id=user.id,
+        occupancy=occupancy,
+        q=q,
+        cursor_payload={},
+        limit=limit,
     )
 
     property_ids = [p.id for p in properties]
@@ -82,8 +89,7 @@ async def owner_properties_list(
             "occupied": occupied,
             "vacant": len(items) - occupied,
             "total_monthly_income": sum(
-                float(p.get("monthly_rent") or 0)
-                for p in items if p.get("has_active_lease")
+                float(p.get("monthly_rent") or 0) for p in items if p.get("has_active_lease")
             ),
         },
     }
@@ -134,26 +140,48 @@ async def owner_properties_create(
     prop_purpose = PropertyPurpose(purpose.lower())
 
     if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-        logger.warning("Non-absolute main_image_url in AI agent owner_properties_create: %s", main_image_url)
+        logger.warning(
+            "Non-absolute main_image_url in AI agent owner_properties_create: %s", main_image_url
+        )
     if virtual_tour_url is not None and not ValidationUtils.is_absolute_url(virtual_tour_url):
-        logger.warning("Non-absolute virtual_tour_url in AI agent owner_properties_create: %s", virtual_tour_url)
+        logger.warning(
+            "Non-absolute virtual_tour_url in AI agent owner_properties_create: %s",
+            virtual_tour_url,
+        )
 
     data = PropertyCreate(
-        title=title, description=description, property_type=prop_type,
-        purpose=prop_purpose, full_address=full_address, city=city,
-        locality=locality, sub_locality=sub_locality, pincode=pincode,
-        state=state, latitude=latitude, longitude=longitude,
-        base_price=base_price, monthly_rent=monthly_rent,
-        daily_rate=daily_rate, security_deposit=security_deposit,
-        maintenance_charges=maintenance_charges, area_sqft=area_sqft,
-        bedrooms=bedrooms, bathrooms=bathrooms, balconies=balconies,
-        parking_spaces=parking_spaces, floor_number=floor_number,
-        total_floors=total_floors, max_occupancy=max_occupancy,
-        minimum_stay_days=minimum_stay_days, main_image_url=main_image_url,
+        title=title,
+        description=description,
+        property_type=prop_type,
+        purpose=prop_purpose,
+        full_address=full_address,
+        city=city,
+        locality=locality,
+        sub_locality=sub_locality,
+        pincode=pincode,
+        state=state,
+        latitude=latitude,
+        longitude=longitude,
+        base_price=base_price,
+        monthly_rent=monthly_rent,
+        daily_rate=daily_rate,
+        security_deposit=security_deposit,
+        maintenance_charges=maintenance_charges,
+        area_sqft=area_sqft,
+        bedrooms=bedrooms,
+        bathrooms=bathrooms,
+        balconies=balconies,
+        parking_spaces=parking_spaces,
+        floor_number=floor_number,
+        total_floors=total_floors,
+        max_occupancy=max_occupancy,
+        minimum_stay_days=minimum_stay_days,
+        main_image_url=main_image_url,
         virtual_tour_url=virtual_tour_url,
     )
-    prop = await create_managed_property(db, actor=_user_schema(user), owner_id=user.id,
-                                         property_data=data)
+    prop = await create_managed_property(
+        db, actor=_user_schema(user), owner_id=user.id, property_data=data
+    )
     await db.commit()
     return {"message": "Property created successfully", "property": serialize_property_basic(prop)}
 
@@ -166,8 +194,9 @@ async def owner_properties_get(
     from app.services.pm_properties import get_managed_property_detail
 
     db, user = ctx.deps.db, ctx.deps.user
-    result = await get_managed_property_detail(db, actor=_user_schema(user),
-                                               property_id=property_id)
+    result = await get_managed_property_detail(
+        db, actor=_user_schema(user), property_id=property_id
+    )
     prop = result["property"]
     active_lease = result.get("active_lease")
     return {
@@ -192,16 +221,21 @@ async def owner_properties_update(
     from app.services.pm_authz import assert_can_access_property
 
     db, user = ctx.deps.db, ctx.deps.user
-    prop = await assert_can_access_property(db, actor=_user_schema(user),
-                                            property_id=property_id)
+    prop = await assert_can_access_property(db, actor=_user_schema(user), property_id=property_id)
 
     if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-        logger.warning("Non-absolute main_image_url in AI agent owner_properties_update: %s", main_image_url)
+        logger.warning(
+            "Non-absolute main_image_url in AI agent owner_properties_update: %s", main_image_url
+        )
 
     updates = {
-        "title": title, "description": description, "base_price": base_price,
-        "monthly_rent": monthly_rent, "daily_rate": daily_rate,
-        "is_available": is_available, "max_occupancy": max_occupancy,
+        "title": title,
+        "description": description,
+        "base_price": base_price,
+        "monthly_rent": monthly_rent,
+        "daily_rate": daily_rate,
+        "is_available": is_available,
+        "max_occupancy": max_occupancy,
         "main_image_url": main_image_url,
     }
     for field, value in updates.items():
@@ -222,8 +256,7 @@ async def owner_properties_toggle_availability(
     from app.services.pm_authz import assert_can_access_property
 
     db, user = ctx.deps.db, ctx.deps.user
-    prop = await assert_can_access_property(db, actor=_user_schema(user),
-                                            property_id=property_id)
+    prop = await assert_can_access_property(db, actor=_user_schema(user), property_id=property_id)
     prop.is_available = is_available
     await db.flush()
     await db.commit()
@@ -234,6 +267,7 @@ async def owner_properties_toggle_availability(
 # ============================================================================
 # ADMIN TOOLS — Agent Property Management
 # ============================================================================
+
 
 async def agent_properties_list(
     ctx: RunContext[AgentDeps],
@@ -250,8 +284,13 @@ async def agent_properties_list(
     limit = min(max(1, limit), 100)
     actor = _user_schema(user)
     properties, _next, _total = await list_managed_properties(
-        db, actor=actor, owner_id=owner_id, occupancy=occupancy, q=q,
-        cursor_payload={}, limit=limit,
+        db,
+        actor=actor,
+        owner_id=owner_id,
+        occupancy=occupancy,
+        q=q,
+        cursor_payload={},
+        limit=limit,
     )
     items = [serialize_property_basic(p) for p in properties]
     return {"items": items, "total": len(items), "page": page}
@@ -265,8 +304,9 @@ async def agent_properties_get(
     from app.services.pm_properties import get_managed_property_detail
 
     db, user = ctx.deps.db, ctx.deps.user
-    result = await get_managed_property_detail(db, actor=_user_schema(user),
-                                               property_id=property_id)
+    result = await get_managed_property_detail(
+        db, actor=_user_schema(user), property_id=property_id
+    )
     prop = result["property"]
     lease = result.get("active_lease")
     return {
@@ -300,16 +340,24 @@ async def agent_properties_create_for_owner(
 
     db, user = ctx.deps.db, ctx.deps.user
     data = PropertyCreate(
-        title=title, description=description,
+        title=title,
+        description=description,
         property_type=PropertyType(property_type.lower()),
         purpose=PropertyPurpose(purpose.lower()),
-        full_address=full_address, city=city, locality=locality,
-        latitude=latitude, longitude=longitude, base_price=base_price,
-        monthly_rent=monthly_rent, area_sqft=area_sqft,
-        bedrooms=bedrooms, bathrooms=bathrooms,
+        full_address=full_address,
+        city=city,
+        locality=locality,
+        latitude=latitude,
+        longitude=longitude,
+        base_price=base_price,
+        monthly_rent=monthly_rent,
+        area_sqft=area_sqft,
+        bedrooms=bedrooms,
+        bathrooms=bathrooms,
     )
-    prop = await create_managed_property(db, actor=_user_schema(user), owner_id=owner_id,
-                                         property_data=data)
+    prop = await create_managed_property(
+        db, actor=_user_schema(user), owner_id=owner_id, property_data=data
+    )
     await db.commit()
     return {"message": "Property created for owner", "property": serialize_property_basic(prop)}
 
@@ -324,8 +372,7 @@ async def agent_properties_verify(
     from app.services.pm_authz import assert_can_access_property
 
     db, user = ctx.deps.db, ctx.deps.user
-    prop = await assert_can_access_property(db, actor=_user_schema(user),
-                                            property_id=property_id)
+    prop = await assert_can_access_property(db, actor=_user_schema(user), property_id=property_id)
     features = prop.features or {}
     features["verified"] = is_verified
     features["verification_notes"] = verification_notes
@@ -333,13 +380,17 @@ async def agent_properties_verify(
     prop.features = features
     await db.flush()
     await db.commit()
-    return {"message": "Property verification updated", "property_id": property_id,
-            "is_verified": is_verified}
+    return {
+        "message": "Property verification updated",
+        "property_id": property_id,
+        "is_verified": is_verified,
+    }
 
 
 # ============================================================================
 # ADMIN TOOLS — Lease Management
 # ============================================================================
+
 
 async def agent_leases_list(
     ctx: RunContext[AgentDeps],
@@ -364,7 +415,11 @@ async def agent_leases_list(
         stmt = stmt.where(Lease.status == LeaseStatus(status.lower()))
     stmt = stmt.order_by(Lease.created_at.desc()).offset((page - 1) * limit).limit(limit)
     leases = (await db.execute(stmt)).scalars().all()
-    return {"items": [serialize_lease(lease) for lease in leases], "total": len(leases), "page": page}
+    return {
+        "items": [serialize_lease(lease) for lease in leases],
+        "total": len(leases),
+        "page": page,
+    }
 
 
 async def agent_leases_create(
@@ -387,9 +442,9 @@ async def agent_leases_create(
     from app.services.user import get_user_by_id
 
     db, _user = ctx.deps.db, ctx.deps.user
-    prop = (await db.execute(
-        select(Property).where(Property.id == property_id)
-    )).scalar_one_or_none()
+    prop = (
+        await db.execute(select(Property).where(Property.id == property_id))
+    ).scalar_one_or_none()
     if not prop:
         return {"error": True, "message": f"Property {property_id} not found"}
 
@@ -398,13 +453,18 @@ async def agent_leases_create(
         return {"error": True, "message": f"Tenant user {tenant_user_id} not found"}
 
     lease = Lease(
-        property_id=property_id, owner_id=prop.owner_id,
+        property_id=property_id,
+        owner_id=prop.owner_id,
         tenant_user_id=tenant_user_id,
         start_date=datetime.fromisoformat(start_date).date(),
         end_date=datetime.fromisoformat(end_date).date(),
-        monthly_rent=monthly_rent, security_deposit=security_deposit,
-        payment_due_day=payment_due_day, grace_period_days=grace_period_days,
-        terms=terms, notes=notes, status=LeaseStatus.active,
+        monthly_rent=monthly_rent,
+        security_deposit=security_deposit,
+        payment_due_day=payment_due_day,
+        grace_period_days=grace_period_days,
+        terms=terms,
+        notes=notes,
+        status=LeaseStatus.active,
     )
     db.add(lease)
     await db.flush()
@@ -424,9 +484,7 @@ async def agent_leases_terminate(
     from app.models.pm_leases import Lease
 
     db = ctx.deps.db
-    lease = (await db.execute(
-        select(Lease).where(Lease.id == lease_id)
-    )).scalar_one_or_none()
+    lease = (await db.execute(select(Lease).where(Lease.id == lease_id))).scalar_one_or_none()
     if not lease:
         return {"error": True, "message": f"Lease {lease_id} not found"}
 
@@ -441,6 +499,7 @@ async def agent_leases_terminate(
 # ============================================================================
 # ADMIN TOOLS — Rent Collection
 # ============================================================================
+
 
 async def agent_rent_list_due(
     ctx: RunContext[AgentDeps],
@@ -474,14 +533,17 @@ async def agent_rent_list_due(
         is_overdue = now > deadline
         if overdue_only and not is_overdue:
             continue
-        items.append({
-            "lease_id": lease.id, "property_id": lease.property_id,
-            "tenant_user_id": lease.tenant_user_id,
-            "monthly_rent": float(lease.monthly_rent or 0),
-            "payment_due_day": due_day,
-            "is_overdue": is_overdue,
-            "days_overdue": max(0, (now - deadline).days) if is_overdue else 0,
-        })
+        items.append(
+            {
+                "lease_id": lease.id,
+                "property_id": lease.property_id,
+                "tenant_user_id": lease.tenant_user_id,
+                "monthly_rent": float(lease.monthly_rent or 0),
+                "payment_due_day": due_day,
+                "is_overdue": is_overdue,
+                "days_overdue": max(0, (now - deadline).days) if is_overdue else 0,
+            }
+        )
     return {"items": items, "total": len(items), "page": page}
 
 
@@ -524,6 +586,7 @@ async def agent_rent_record_payment(
 # ADMIN TOOLS — Maintenance Management
 # ============================================================================
 
+
 async def agent_maintenance_list(
     ctx: RunContext[AgentDeps],
     owner_id: int | None = None,
@@ -546,7 +609,9 @@ async def agent_maintenance_list(
     if property_id:
         stmt = stmt.where(MaintenanceRequest.property_id == property_id)
     # status filtering is approximate — mirrors MCP admin logic
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    stmt = (
+        stmt.order_by(MaintenanceRequest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    )
     items = [serialize_maintenance_request(r) for r in (await db.execute(stmt)).scalars().all()]
     return {"items": items, "total": len(items), "page": page}
 
@@ -567,9 +632,9 @@ async def agent_maintenance_update_status(
     from app.models.pm_maintenance import MaintenanceRequest
 
     db = ctx.deps.db
-    req = (await db.execute(
-        select(MaintenanceRequest).where(MaintenanceRequest.id == request_id)
-    )).scalar_one_or_none()
+    req = (
+        await db.execute(select(MaintenanceRequest).where(MaintenanceRequest.id == request_id))
+    ).scalar_one_or_none()
     if not req:
         return {"error": True, "message": f"Maintenance request {request_id} not found"}
 
@@ -606,6 +671,7 @@ async def agent_maintenance_update_status(
 # ADMIN TOOLS — Dashboard
 # ============================================================================
 
+
 async def agent_dashboard_overview(
     ctx: RunContext[AgentDeps],
     owner_id: int | None = None,
@@ -621,30 +687,36 @@ async def agent_dashboard_overview(
     if owner_id:
         prop_filter = prop_filter.where(Property.owner_id == owner_id)
 
-    total_props = (await db.execute(
-        select(func.count()).select_from(prop_filter.subquery())
-    )).scalar() or 0
+    total_props = (
+        await db.execute(select(func.count()).select_from(prop_filter.subquery()))
+    ).scalar() or 0
 
-    active_leases_count = (await db.execute(
-        select(func.count(Lease.id)).where(
-            Lease.status == LeaseStatus.active,
-            *([Lease.owner_id == owner_id] if owner_id else []),
+    active_leases_count = (
+        await db.execute(
+            select(func.count(Lease.id)).where(
+                Lease.status == LeaseStatus.active,
+                *([Lease.owner_id == owner_id] if owner_id else []),
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
 
-    open_maintenance = (await db.execute(
-        select(func.count(MaintenanceRequest.id)).where(
-            MaintenanceRequest.request_status == MaintenanceRequestStatus.open,
-            *([MaintenanceRequest.owner_id == owner_id] if owner_id else []),
+    open_maintenance = (
+        await db.execute(
+            select(func.count(MaintenanceRequest.id)).where(
+                MaintenanceRequest.request_status == MaintenanceRequestStatus.open,
+                *([MaintenanceRequest.owner_id == owner_id] if owner_id else []),
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
 
-    monthly_rent = (await db.execute(
-        select(func.coalesce(func.sum(Lease.monthly_rent), 0)).where(
-            Lease.status == LeaseStatus.active,
-            *([Lease.owner_id == owner_id] if owner_id else []),
+    monthly_rent = (
+        await db.execute(
+            select(func.coalesce(func.sum(Lease.monthly_rent), 0)).where(
+                Lease.status == LeaseStatus.active,
+                *([Lease.owner_id == owner_id] if owner_id else []),
+            )
         )
-    )).scalar() or 0
+    ).scalar() or 0
 
     occupancy = (active_leases_count / total_props * 100) if total_props else 0
 

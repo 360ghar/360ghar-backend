@@ -1,6 +1,5 @@
 """RERA project, complaint, and builder endpoints."""
 
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,7 +26,9 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/rera-projects", response_model=CursorPage[ReraProjectResponse], summary="List RERA projects")
+@router.get(
+    "/rera-projects", response_model=CursorPage[ReraProjectResponse], summary="List RERA projects"
+)
 async def list_rera_projects(
     status: str | None = Query(None),
     q: str | None = Query(None, description="Search project name or developer"),
@@ -40,8 +41,7 @@ async def list_rera_projects(
         filters.append(ReraProject.status == status)
     if q:
         filters.append(
-            ReraProject.project_name.ilike(f"%{q}%")
-            | ReraProject.developer_name.ilike(f"%{q}%")
+            ReraProject.project_name.ilike(f"%{q}%") | ReraProject.developer_name.ilike(f"%{q}%")
         )
 
     count_q = select(func.count()).select_from(ReraProject)
@@ -65,21 +65,19 @@ async def list_rera_projects(
 @router.get("/rera-projects/verify/{rera_number}", summary="Verify RERA number")
 async def verify_rera_project(rera_number: str, db: AsyncSession = Depends(get_db)):
     """Verify a RERA number — returns validity, status, and project name."""
-    result = await db.execute(
-        select(ReraProject).where(ReraProject.rera_number == rera_number)
-    )
+    result = await db.execute(select(ReraProject).where(ReraProject.rera_number == rera_number))
     row = result.scalar_one_or_none()
     if row is None:
         return {"valid": False, "status": None, "project_name": None}
     return {"valid": True, "status": row.status, "project_name": row.project_name}
 
 
-@router.get("/rera-projects/{rera_number}", response_model=ReraProjectResponse, summary="Get RERA project")
+@router.get(
+    "/rera-projects/{rera_number}", response_model=ReraProjectResponse, summary="Get RERA project"
+)
 async def get_rera_project(rera_number: str, db: AsyncSession = Depends(get_db)):
     """Get a single RERA project by its RERA number."""
-    result = await db.execute(
-        select(ReraProject).where(ReraProject.rera_number == rera_number)
-    )
+    result = await db.execute(select(ReraProject).where(ReraProject.rera_number == rera_number))
     row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="RERA project not found")
@@ -91,7 +89,9 @@ async def get_rera_project(rera_number: str, db: AsyncSession = Depends(get_db))
 # ---------------------------------------------------------------------------
 
 
-@router.get("/builders", response_model=CursorPage[BuilderReputationResponse], summary="List builders")
+@router.get(
+    "/builders", response_model=CursorPage[BuilderReputationResponse], summary="List builders"
+)
 async def list_builders(
     q: str | None = Query(None, description="Search builder name"),
     order_by: str | None = Query(None, description="Set to 'score' to sort by builder score"),
@@ -119,7 +119,9 @@ async def list_builders(
         all_rows = (await db.execute(slug_q)).all()
     except Exception as exc:
         logger.warning("Builders query failed: %s", exc)
-        return build_cursor_page([], limit=page.limit, next_payload=None, total=0 if page.include_total else None)
+        return build_cursor_page(
+            [], limit=page.limit, next_payload=None, total=0 if page.include_total else None
+        )
 
     all_slugs = [r.slug for r in all_rows if r.slug]
 
@@ -162,7 +164,7 @@ async def list_builders(
     total = len(all_items)
     cursor_payload = page.decoded()
     offset = read_offset(cursor_payload)
-    page_items = all_items[offset: offset + page.limit]
+    page_items = all_items[offset : offset + page.limit]
 
     page_slugs = [item.slug for item in page_items if item.slug]
 
@@ -170,10 +172,14 @@ async def list_builders(
     if page_slugs:
         try:
             proj_rows = (
-                await db.execute(
-                    select(ReraProject).where(ReraProject.developer_slug.in_(page_slugs))
+                (
+                    await db.execute(
+                        select(ReraProject).where(ReraProject.developer_slug.in_(page_slugs))
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for p in proj_rows:
                 if p.developer_slug in projects_by_slug:
                     projects_by_slug[p.developer_slug].append(p)
@@ -184,12 +190,16 @@ async def list_builders(
     if page_slugs:
         try:
             comp_rows = (
-                await db.execute(
-                    select(ReraComplaint)
-                    .where(ReraComplaint.builder_slug.in_(page_slugs))
-                    .order_by(ReraComplaint.order_date.desc())
+                (
+                    await db.execute(
+                        select(ReraComplaint)
+                        .where(ReraComplaint.builder_slug.in_(page_slugs))
+                        .order_by(ReraComplaint.order_date.desc())
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for c in comp_rows:
                 if c.builder_slug in complaints_by_slug:
                     complaints_by_slug[c.builder_slug].append(c)
@@ -204,10 +214,17 @@ async def list_builders(
 
     has_more = (offset + page.limit) < total
     next_payload = offset_payload(offset + page.limit) if has_more else None
-    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total if page.include_total else None)
+    return build_cursor_page(
+        items,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total if page.include_total else None,
+    )
 
 
-@router.get("/builders/{slug}", response_model=BuilderReputationResponse, summary="Get builder reputation")
+@router.get(
+    "/builders/{slug}", response_model=BuilderReputationResponse, summary="Get builder reputation"
+)
 async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
     """Get builder reputation details by slug."""
     projects_result = await db.execute(
@@ -221,8 +238,7 @@ async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
     builder_name = projects[0].developer_name or slug
 
     complaint_count_result = await db.execute(
-        select(func.count()).select_from(ReraComplaint)
-        .where(ReraComplaint.builder_slug == slug)
+        select(func.count()).select_from(ReraComplaint).where(ReraComplaint.builder_slug == slug)
     )
     total_complaints = complaint_count_result.scalar_one()
 

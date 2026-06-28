@@ -72,8 +72,8 @@ async def test_engine():
         await conn.execute(text("CREATE SCHEMA public"))
         await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
         # Create required extensions
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        # await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+        # await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine

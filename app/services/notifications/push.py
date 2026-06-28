@@ -132,7 +132,11 @@ async def send_to_token(
         return {"ok": False, "error": "FCM not configured"}
     except httpx.HTTPStatusError as e:
         err_text = e.response.text
-        logger.error("FCM send failed", extra={"status": e.response.status_code, "error": err_text}, exc_info=True)
+        logger.error(
+            "FCM send failed",
+            extra={"status": e.response.status_code, "error": err_text},
+            exc_info=True,
+        )
 
         def _sync_record_failure():
             supa = _supa()
@@ -144,7 +148,9 @@ async def send_to_token(
                 }
             ).execute()
             if "UNREGISTERED" in err_text or "NotRegistered" in err_text:
-                supa.table("device_tokens").update({"is_active": False}).eq("token", token).execute()
+                supa.table("device_tokens").update({"is_active": False}).eq(
+                    "token", token
+                ).execute()
 
         await _run_sync(_sync_record_failure)
         raise
@@ -224,7 +230,9 @@ async def send_to_user(
             def _sync_record_failed():
                 supa = _supa()
                 if "UNREGISTERED" in err or "NotRegistered" in err:
-                    supa.table("device_tokens").update({"is_active": False}).eq("token", tk).execute()
+                    supa.table("device_tokens").update({"is_active": False}).eq(
+                        "token", tk
+                    ).execute()
                 supa.table("notification_deliveries").insert(
                     {
                         "notification_id": notif["id"],
@@ -350,7 +358,9 @@ async def send_bulk(
             def _sync_record_failed():
                 supa = _supa()
                 if "UNREGISTERED" in err or "NotRegistered" in err:
-                    supa.table("device_tokens").update({"is_active": False}).eq("token", tk).execute()
+                    supa.table("device_tokens").update({"is_active": False}).eq(
+                        "token", tk
+                    ).execute()
                 supa.table("notification_deliveries").insert(
                     {
                         "notification_id": notif["id"],

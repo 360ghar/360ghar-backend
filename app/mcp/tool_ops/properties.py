@@ -228,7 +228,11 @@ async def create_property(
         extra["grace_period_days"] = grace_period_days
 
     prop = await create_managed_property(
-        db, actor=actor_schema, owner_id=owner_id, property_data=property_data, **extra  # type: ignore[arg-type]
+        db,
+        actor=actor_schema,
+        owner_id=owner_id,
+        property_data=property_data,
+        **extra,  # type: ignore[arg-type]
     )
 
     # Add amenities if provided
@@ -259,9 +263,17 @@ async def get_property_detail(
     try:
         result = await get_managed_property_detail(db, actor=actor_schema, property_id=property_id)
     except PropertyNotFoundException:
-        return {"error": True, "code": TOOL_OPS_NOT_FOUND, "message": f"Property {property_id} not found."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_NOT_FOUND,
+            "message": f"Property {property_id} not found.",
+        }
     except InsufficientPermissionsError:
-        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "You do not have access to this property."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
+            "message": "You do not have access to this property.",
+        }
 
     prop = result["property"]
     active_lease = result.get("active_lease")

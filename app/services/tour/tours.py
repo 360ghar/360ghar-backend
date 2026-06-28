@@ -3,6 +3,7 @@ Tour CRUD service functions.
 
 Create, read, update, delete, publish, unpublish, and duplicate tours.
 """
+
 from __future__ import annotations
 
 from uuid import uuid4
@@ -48,7 +49,9 @@ async def get_tours(
 
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
 
     predicate = keyset_filter(Tour.created_at, Tour.id, cursor_payload, descending=True)
     if predicate is not None:
@@ -80,28 +83,30 @@ async def get_tours(
 
     tours = []
     for tour, scene_count in rows:
-        tours.append({
-            "id": tour.id,
-            "user_id": tour.user_id,
-            "title": tour.title,
-            "description": tour.description,
-            "status": tour.status,
-            "is_public": tour.is_public,
-            "settings": tour.settings,
-            "is_featured": tour.is_featured,
-            "view_count": tour.view_count,
-            "like_count": tour.like_count,
-            "share_count": tour.share_count,
-            "thumbnail_url": tour.thumbnail_url,
-            "published_at": tour.published_at,
-            "archived_at": tour.archived_at,
-            "created_at": tour.created_at,
-            "updated_at": tour.updated_at,
-            "deleted_at": tour.deleted_at,
-            "scene_count": int(scene_count or 0),
-            "scenes": None,
-            "visibility": tour.visibility,
-        })
+        tours.append(
+            {
+                "id": tour.id,
+                "user_id": tour.user_id,
+                "title": tour.title,
+                "description": tour.description,
+                "status": tour.status,
+                "is_public": tour.is_public,
+                "settings": tour.settings,
+                "is_featured": tour.is_featured,
+                "view_count": tour.view_count,
+                "like_count": tour.like_count,
+                "share_count": tour.share_count,
+                "thumbnail_url": tour.thumbnail_url,
+                "published_at": tour.published_at,
+                "archived_at": tour.archived_at,
+                "created_at": tour.created_at,
+                "updated_at": tour.updated_at,
+                "deleted_at": tour.deleted_at,
+                "scene_count": int(scene_count or 0),
+                "scenes": None,
+                "visibility": tour.visibility,
+            }
+        )
 
     return tours, next_payload, count_total
 

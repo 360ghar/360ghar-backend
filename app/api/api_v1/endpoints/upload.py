@@ -183,13 +183,15 @@ async def create_presigned_uploads(
             scene_id=item.scene_id,
             visibility=item.visibility or "private",
         )
-        items.append({
-            "upload_id": result["upload_id"],
-            "signed_url": result["signed_url"],
-            "token": result["token"],
-            "path": result["path"],
-            "public_url": result["public_url"],
-        })
+        items.append(
+            {
+                "upload_id": result["upload_id"],
+                "signed_url": result["signed_url"],
+                "token": result["token"],
+                "path": result["path"],
+                "public_url": result["public_url"],
+            }
+        )
     return {"items": items}
 
 
@@ -224,7 +226,9 @@ async def list_media(
     mime_type: str | None = Query(None),
     visibility: str | None = Query(None),
     is_processed: bool | None = Query(None),
-    upload_status: str | None = Query(None, description="Filter by upload status: pending, complete, failed"),
+    upload_status: str | None = Query(
+        None, description="Filter by upload status: pending, complete, failed"
+    ),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -247,7 +251,9 @@ async def list_media(
 
     count_total = None
     if page.include_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
 
     predicate = keyset_filter(MediaFile.created_at, MediaFile.id, cursor_payload, descending=True)
     if predicate is not None:
@@ -258,7 +264,7 @@ async def list_media(
 
     next_payload = None
     if len(items) > page.limit:
-        items = items[:page.limit]
+        items = items[: page.limit]
         next_payload = keyset_payload(keyset_sort_value(items[-1].created_at), items[-1].id)
 
     return build_cursor_page(
@@ -305,7 +311,9 @@ async def get_media(
     return MediaFileResponse.model_validate(media)
 
 
-@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete media file")
+@router.delete(
+    "/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete media file"
+)
 async def delete_media(
     media_id: str,
     current_user: UserSchema = Depends(get_current_active_user),

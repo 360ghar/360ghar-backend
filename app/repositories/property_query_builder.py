@@ -5,7 +5,6 @@ Eliminates duplicated filter/sort logic across property.py, swipe.py, and proper
 All property query construction should go through this builder.
 """
 
-
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -161,9 +160,7 @@ class PropertyQueryBuilder:
         if f.latitude is None or f.longitude is None or not f.radius_km:
             return None
 
-        user_location = func.ST_SetSRID(
-            func.ST_MakePoint(f.longitude, f.latitude), 4326
-        )
+        user_location = func.ST_SetSRID(func.ST_MakePoint(f.longitude, f.latitude), 4326)
         radius_m = f.radius_km * 1000
         conditions.append(func.ST_DWithin(Property.location, user_location, radius_m))
 
@@ -189,9 +186,12 @@ class PropertyQueryBuilder:
         search_vector = func.to_tsvector(
             "english",
             func.concat(
-                Property.title, " ",
-                Property.description, " ",
-                Property.locality, " ",
+                Property.title,
+                " ",
+                Property.description,
+                " ",
+                Property.locality,
+                " ",
                 Property.city,
             ),
         )
@@ -222,9 +222,7 @@ class PropertyQueryBuilder:
                 amenity_names.append(amenity)
 
         if amenity_names:
-            result = await db.execute(
-                select(Amenity.id).where(Amenity.title.in_(amenity_names))
-            )
+            result = await db.execute(select(Amenity.id).where(Amenity.title.in_(amenity_names)))
             amenity_ids.extend(row[0] for row in result.fetchall())
 
         if amenity_ids:

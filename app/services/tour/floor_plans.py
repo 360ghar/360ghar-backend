@@ -86,7 +86,11 @@ async def update_floor_plan(
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if field == "image_url" and value is not None and not ValidationUtils.is_absolute_url(value):
+        if (
+            field == "image_url"
+            and value is not None
+            and not ValidationUtils.is_absolute_url(value)
+        ):
             logger.warning("Non-absolute floor plan image URL provided: %s", value)
         if field == "markers" and value is not None:
             # Convert markers to list of dicts

@@ -98,7 +98,11 @@ class CloudinaryService:
             }
             if content_type:
                 options["resource_type"] = self._resource_type(content_type)
-            options.update(self._upload_options(is_image=is_image, is_document=options.get("resource_type") == "raw"))
+            options.update(
+                self._upload_options(
+                    is_image=is_image, is_document=options.get("resource_type") == "raw"
+                )
+            )
             options.update(extra_options)
 
             if isinstance(file_bytes, bytes):
@@ -110,7 +114,9 @@ class CloudinaryService:
             return {
                 "public_id": result.get("public_id", full_public_id),
                 "secure_url": secure_url,
-                "bytes": result.get("bytes", len(file_bytes) if isinstance(file_bytes, bytes) else 0),
+                "bytes": result.get(
+                    "bytes", len(file_bytes) if isinstance(file_bytes, bytes) else 0
+                ),
                 "width": result.get("width"),
                 "height": result.get("height"),
                 "format": result.get("format"),

@@ -80,7 +80,7 @@ async def rent_roll_report(
             }
         )
 
-    page_items = all_items[offset: offset + limit]
+    page_items = all_items[offset : offset + limit]
     has_more = (offset + limit) < len(all_items)
     next_payload = offset_payload(offset + limit) if has_more else None
     return page_items, next_payload, total

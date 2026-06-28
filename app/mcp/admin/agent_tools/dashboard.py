@@ -59,7 +59,7 @@ async def agent_dashboard_overview(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services.pm_authz import get_accessible_owner_ids
@@ -110,7 +110,7 @@ async def agent_dashboard_overview(
                 .join(Property, Booking.property_id == Property.id)
                 .where(
                     Booking.check_in_date > today,
-                    Booking.booking_status.in_(["confirmed", "pending"])
+                    Booking.booking_status.in_(["confirmed", "pending"]),
                 )
             )
             if owner_filter:
@@ -119,24 +119,30 @@ async def agent_dashboard_overview(
             upcoming_bookings = booking_result.scalar() or 0
 
             # Calculate monthly rent expected
-            rent_stmt = select(func.sum(Lease.monthly_rent)).where(Lease.status == LeaseStatus.active)
+            rent_stmt = select(func.sum(Lease.monthly_rent)).where(
+                Lease.status == LeaseStatus.active
+            )
             if owner_filter:
                 rent_stmt = rent_stmt.where(Lease.owner_id.in_(owner_filter))
             rent_result = await db.execute(rent_stmt)
             monthly_rent_expected = float(rent_result.scalar() or 0)
 
-            return MCPResponse.success({
-                "metrics": {
-                    "total_properties": total_properties,
-                    "active_leases": active_leases,
-                    "occupancy_rate": round(occupancy_rate, 1),
-                    "open_maintenance_requests": open_maintenance,
-                    "upcoming_bookings": upcoming_bookings,
-                    "monthly_rent_expected": monthly_rent_expected,
-                },
-                "user_role": user_role.value,
-                "scope": "owner" if owner_id else ("agent" if user_role == UserRole.agent else "all"),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "metrics": {
+                        "total_properties": total_properties,
+                        "active_leases": active_leases,
+                        "occupancy_rate": round(occupancy_rate, 1),
+                        "open_maintenance_requests": open_maintenance,
+                        "upcoming_bookings": upcoming_bookings,
+                        "monthly_rent_expected": monthly_rent_expected,
+                    },
+                    "user_role": user_role.value,
+                    "scope": "owner"
+                    if owner_id
+                    else ("agent" if user_role == UserRole.agent else "all"),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:

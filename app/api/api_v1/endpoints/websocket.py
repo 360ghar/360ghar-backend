@@ -11,6 +11,7 @@ serverless idle detection monitors outbound traffic, so any active
 WebSocket session will prevent scale-to-zero. This is expected —
 clients maintaining real-time connections need the server running.
 """
+
 import asyncio
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -98,27 +99,27 @@ async def websocket_job_updates(
         # Connect to job updates (accept websocket)
         await manager.connect_job(websocket, job_id)
 
-        await websocket.send_json({
-            "type": "job_update",
-            "job_id": job_id,
-            "data": {
-                "status": job.status,
-                "progress": job.progress,
-                "result": job.result if hasattr(job, "result") else None,
-                "error_message": job.error_message,
-            },
-        })
+        await websocket.send_json(
+            {
+                "type": "job_update",
+                "job_id": job_id,
+                "data": {
+                    "status": job.status,
+                    "progress": job.progress,
+                    "result": job.result if hasattr(job, "result") else None,
+                    "error_message": job.error_message,
+                },
+            }
+        )
         break
 
     try:
-
         # Keep connection alive and handle incoming messages
         while True:
             try:
                 # Wait for message or timeout (heartbeat)
                 message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
+                    websocket.receive_text(), timeout=HEARTBEAT_INTERVAL
                 )
 
                 # Handle ping/pong for keep-alive
@@ -178,17 +179,15 @@ async def websocket_user_updates(
 
     try:
         # Send welcome message
-        await websocket.send_json({
-            "type": "connected",
-            "message": "Connected to user notifications"
-        })
+        await websocket.send_json(
+            {"type": "connected", "message": "Connected to user notifications"}
+        )
 
         # Keep connection alive
         while True:
             try:
                 message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
+                    websocket.receive_text(), timeout=HEARTBEAT_INTERVAL
                 )
 
                 if message == "ping":
@@ -198,7 +197,9 @@ async def websocket_user_updates(
                 try:
                     await websocket.send_json({"type": "heartbeat"})
                 except Exception:
-                    logger.debug("Heartbeat send failed for user %s; closing", user_id, exc_info=True)
+                    logger.debug(
+                        "Heartbeat send failed for user %s; closing", user_id, exc_info=True
+                    )
                     break
 
     except WebSocketDisconnect:
@@ -239,16 +240,14 @@ async def websocket_tour_updates(
     await manager.connect_job(websocket, connection_key)
 
     try:
-        await websocket.send_json({
-            "type": "connected",
-            "message": f"Connected to tour {tour_id} updates"
-        })
+        await websocket.send_json(
+            {"type": "connected", "message": f"Connected to tour {tour_id} updates"}
+        )
 
         while True:
             try:
                 message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
+                    websocket.receive_text(), timeout=HEARTBEAT_INTERVAL
                 )
 
                 if message == "ping":
@@ -258,7 +257,9 @@ async def websocket_tour_updates(
                 try:
                     await websocket.send_json({"type": "heartbeat"})
                 except Exception:
-                    logger.debug("Heartbeat send failed for tour %s; closing", tour_id, exc_info=True)
+                    logger.debug(
+                        "Heartbeat send failed for tour %s; closing", tour_id, exc_info=True
+                    )
                     break
 
     except WebSocketDisconnect:

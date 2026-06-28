@@ -285,7 +285,11 @@ async def update_location(
     return MessageResponse(message="Location updated successfully")
 
 
-@router.get("/notification-settings", response_model=NotificationSettings, summary="Get notification settings")
+@router.get(
+    "/notification-settings",
+    response_model=NotificationSettings,
+    summary="Get notification settings",
+)
 async def get_notification_settings(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -301,7 +305,9 @@ async def get_notification_settings(
     return NotificationSettings(**raw)
 
 
-@router.put("/notification-settings", response_model=MessageResponse, summary="Update notification settings")
+@router.put(
+    "/notification-settings", response_model=MessageResponse, summary="Update notification settings"
+)
 async def update_notification_settings(
     settings: NotificationSettings,
     current_user: User = Depends(get_current_active_user),
@@ -441,7 +447,9 @@ async def update_user_details(
     return UserSchema.model_validate(updated_user)
 
 
-@router.post("/{user_id}/assign-agent", response_model=MessageResponse, summary="Assign agent to user")
+@router.post(
+    "/{user_id}/assign-agent", response_model=MessageResponse, summary="Assign agent to user"
+)
 async def assign_agent_to_specific_user(
     user_id: int,
     payload: AssignAgentPayload,

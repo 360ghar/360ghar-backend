@@ -46,7 +46,10 @@ _TIMEOUT = 180
 def _is_retryable(exc: BaseException) -> bool:
     if isinstance(exc, httpx.RequestError):
         return True
-    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in _RETRYABLE_STATUS_CODES:
+    if (
+        isinstance(exc, httpx.HTTPStatusError)
+        and exc.response.status_code in _RETRYABLE_STATUS_CODES
+    ):
         return True
     return False
 

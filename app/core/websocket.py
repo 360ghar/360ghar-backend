@@ -4,6 +4,7 @@ WebSocket Connection Manager.
 This module provides real-time communication capabilities for AI job progress
 updates and user notifications.
 """
+
 import asyncio
 import json
 from typing import Any
@@ -84,11 +85,13 @@ class ConnectionManager:
         if job_id not in self.job_connections:
             return
 
-        message = json.dumps({
-            "type": "job_update",
-            "job_id": job_id,
-            "data": data,
-        })
+        message = json.dumps(
+            {
+                "type": "job_update",
+                "job_id": job_id,
+                "data": data,
+            }
+        )
 
         # Create a copy to avoid modification during iteration
         connections = list(self.job_connections.get(job_id, set()))
@@ -121,10 +124,12 @@ class ConnectionManager:
         if user_id not in self.user_connections:
             return
 
-        message = json.dumps({
-            "type": "notification",
-            "data": notification,
-        })
+        message = json.dumps(
+            {
+                "type": "notification",
+                "data": notification,
+            }
+        )
 
         connections = list(self.user_connections.get(user_id, set()))
         dead_connections = []
@@ -155,18 +160,24 @@ class ConnectionManager:
             result: Job result data
         """
         # Send to job-specific connections
-        await self.send_job_update(job_id, {
-            "status": "completed",
-            "progress": 100,
-            "result": result,
-        })
+        await self.send_job_update(
+            job_id,
+            {
+                "status": "completed",
+                "progress": 100,
+                "result": result,
+            },
+        )
 
         # Send notification to user connections
-        await self.send_user_notification(user_id, {
-            "type": "job_completed",
-            "job_id": job_id,
-            "result": result,
-        })
+        await self.send_user_notification(
+            user_id,
+            {
+                "type": "job_completed",
+                "job_id": job_id,
+                "result": result,
+            },
+        )
 
     async def broadcast_job_error(
         self,
@@ -182,16 +193,22 @@ class ConnectionManager:
             user_id: The user who owns the job
             error_message: Error message
         """
-        await self.send_job_update(job_id, {
-            "status": "failed",
-            "error": error_message,
-        })
+        await self.send_job_update(
+            job_id,
+            {
+                "status": "failed",
+                "error": error_message,
+            },
+        )
 
-        await self.send_user_notification(user_id, {
-            "type": "job_failed",
-            "job_id": job_id,
-            "error": error_message,
-        })
+        await self.send_user_notification(
+            user_id,
+            {
+                "type": "job_failed",
+                "job_id": job_id,
+                "error": error_message,
+            },
+        )
 
     def get_job_connection_count(self, job_id: str) -> int:
         """Get the number of connections for a job."""

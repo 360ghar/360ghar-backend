@@ -1,4 +1,5 @@
 """HSVP e-Auction Portal scraper — eauction.hsvphry.org.in."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,10 +35,27 @@ _HSVP_CATEGORY_MAP: dict[str, str] = {
 
 # HSVP districts/cities in Haryana
 _HSVP_CITIES = [
-    "Gurugram", "Faridabad", "Panchkula", "Ambala", "Yamunanagar",
-    "Kurukshetra", "Kaithal", "Karnal", "Panipat", "Sonipat",
-    "Rohtak", "Jhajjar", "Rewari", "Mahendragarh", "Bhiwani",
-    "Hisar", "Fatehabad", "Sirsa", "Jind", "Palwal", "Nuh",
+    "Gurugram",
+    "Faridabad",
+    "Panchkula",
+    "Ambala",
+    "Yamunanagar",
+    "Kurukshetra",
+    "Kaithal",
+    "Karnal",
+    "Panipat",
+    "Sonipat",
+    "Rohtak",
+    "Jhajjar",
+    "Rewari",
+    "Mahendragarh",
+    "Bhiwani",
+    "Hisar",
+    "Fatehabad",
+    "Sirsa",
+    "Jind",
+    "Palwal",
+    "Nuh",
     "Charkhi Dadri",
 ]
 
@@ -87,7 +105,19 @@ class HsvpAuctionScraper(BaseScraper):
         def strategy_table(soup: BeautifulSoup, cfg: dict) -> list[dict]:
             """Strategy 1: Parse auction tables with header validation."""
             records = []
-            expected_headers = ["estate", "sector", "plot", "category", "area", "reserve", "price", "emd", "date", "location", "address"]
+            expected_headers = [
+                "estate",
+                "sector",
+                "plot",
+                "category",
+                "area",
+                "reserve",
+                "price",
+                "emd",
+                "date",
+                "location",
+                "address",
+            ]
             for table in soup.find_all("table"):
                 headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
                 # Validate headers match expected pattern
@@ -113,7 +143,10 @@ class HsvpAuctionScraper(BaseScraper):
                     continue
                 # Check for HSVP estate pattern: "Sector XX, City" or "Estate Name, City"
                 import re
-                estate_match = re.search(r"(?:sector|estate|scheme)\s+[\w\s]+,\s*(\w+)", text, re.IGNORECASE)
+
+                estate_match = re.search(
+                    r"(?:sector|estate|scheme)\s+[\w\s]+,\s*(\w+)", text, re.IGNORECASE
+                )
                 if estate_match:
                     city = estate_match.group(1)
                     if city in _HSVP_CITIES:
@@ -129,7 +162,9 @@ class HsvpAuctionScraper(BaseScraper):
             [strategy_table, strategy_estate_location],
         )
 
-    def _parse_table_row(self, source_cfg: dict, headers: list[str], cells: list[str]) -> dict | None:
+    def _parse_table_row(
+        self, source_cfg: dict, headers: list[str], cells: list[str]
+    ) -> dict | None:
         """Parse a single table row into a record."""
         record: dict = {
             "source": source_cfg["source"],
@@ -155,24 +190,42 @@ class HsvpAuctionScraper(BaseScraper):
                 price = _parse_currency(val)
                 if price is not None:
                     record["emd_amount"] = price
-            elif "date" in h_lower and ("auction" in h_lower or "bid" in h_lower or "eauction" in h_lower):
+            elif "date" in h_lower and (
+                "auction" in h_lower or "bid" in h_lower or "eauction" in h_lower
+            ):
                 parsed = _parse_date(val)
                 if parsed:
                     record["auction_date"] = parsed
-            elif "address" in h_lower or "location" in h_lower or "sector" in h_lower or "locality" in h_lower:
+            elif (
+                "address" in h_lower
+                or "location" in h_lower
+                or "sector" in h_lower
+                or "locality" in h_lower
+            ):
                 record["locality"] = val
                 if not record.get("full_address"):
                     record["full_address"] = val
                 # Capture estate_location for city extraction
                 if "estate" in h_lower or "location" in h_lower:
                     estate_location = val
-            elif "property" in h_lower or "type" in h_lower or "category" in h_lower or "scheme" in h_lower:
+            elif (
+                "property" in h_lower
+                or "type" in h_lower
+                or "category" in h_lower
+                or "scheme" in h_lower
+            ):
                 normalized = _infer_property_type(val, _HSVP_CATEGORY_MAP)
                 if normalized:
                     record["property_type"] = normalized
                 if val and not record["property_description"]:
                     record["property_description"] = val
-            elif "area" in h_lower or "size" in h_lower or "sq" in h_lower or "yard" in h_lower or "sqm" in h_lower:
+            elif (
+                "area" in h_lower
+                or "size" in h_lower
+                or "sq" in h_lower
+                or "yard" in h_lower
+                or "sqm" in h_lower
+            ):
                 area = _parse_area_sqft(val)
                 if area is not None:
                     record["area_sqft"] = area
@@ -184,7 +237,9 @@ class HsvpAuctionScraper(BaseScraper):
         # Build property description if missing
         if not record.get("property_description"):
             parts = [record.get("locality", ""), record.get("property_type", "")]
-            record["property_description"] = " - ".join(p for p in parts if p) or "HSVP Auction Property"
+            record["property_description"] = (
+                " - ".join(p for p in parts if p) or "HSVP Auction Property"
+            )
 
         # Infer property_type from description if still missing
         if "property_type" not in record:
@@ -205,11 +260,13 @@ class HsvpAuctionScraper(BaseScraper):
                     record["city"] = city
             # Then try other fields
             if "city" not in record:
-                full_text = " ".join([
-                    record.get("property_description", ""),
-                    record.get("locality", ""),
-                    record.get("full_address", ""),
-                ])
+                full_text = " ".join(
+                    [
+                        record.get("property_description", ""),
+                        record.get("locality", ""),
+                        record.get("full_address", ""),
+                    ]
+                )
                 city = _extract_city_from_text(full_text, _HSVP_CITIES)
                 if city:
                     record["city"] = city
@@ -244,13 +301,16 @@ class HsvpAuctionScraper(BaseScraper):
 
         # Parse common fields from the context text
         import re
+
         date_match = re.search(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})", text)
         if date_match:
             parsed = _parse_date(date_match.group(1))
             if parsed:
                 record["auction_date"] = parsed
 
-        price_match = re.search(r"(?:reserve|base|price)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        price_match = re.search(
+            r"(?:reserve|base|price)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE
+        )
         if price_match:
             record["reserve_price"] = _parse_currency(price_match.group(1))
 
@@ -258,12 +318,18 @@ class HsvpAuctionScraper(BaseScraper):
         if emd_match:
             record["emd_amount"] = _parse_currency(emd_match.group(1))
 
-        area_match = re.search(r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yard|meter|acre)))", text, re.IGNORECASE)
+        area_match = re.search(
+            r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yard|meter|acre)))",
+            text,
+            re.IGNORECASE,
+        )
         if area_match:
             record["area_sqft"] = _parse_area_sqft(area_match.group(1))
 
         # Extract locality/sector
-        sector_match = re.search(r"(?:sector|scheme|estate)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE)
+        sector_match = re.search(
+            r"(?:sector|scheme|estate)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE
+        )
         if sector_match:
             record["locality"] = sector_match.group(1).strip()
 
@@ -286,6 +352,7 @@ class HsvpAuctionScraper(BaseScraper):
                 # Ensure auction_date is a date object
                 if isinstance(rec.get("auction_date"), str):
                     from datetime import datetime
+
                     try:
                         rec["auction_date"] = datetime.fromisoformat(rec["auction_date"]).date()
                     except ValueError:

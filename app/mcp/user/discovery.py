@@ -5,6 +5,7 @@ Imports the ChatGPT discovery tools module to register discovery_*
 tools on the user_mcp server instance. The actual tool implementations
 live in app.mcp.chatgpt.discovery_tools.
 """
+
 from __future__ import annotations
 
 from app.core.logging import get_logger

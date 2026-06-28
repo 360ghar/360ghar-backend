@@ -67,10 +67,11 @@ router = APIRouter()
 async def create_new_booking(
     booking: BookingCreate,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Create booking."""
     return await create_booking(db, current_user.id, booking)
+
 
 @router.get("", response_model=CursorPage[Booking], summary="List my bookings")
 async def get_my_bookings(
@@ -80,13 +81,19 @@ async def get_my_bookings(
 ):
     """List my bookings."""
     rows, next_payload, total = await get_user_bookings(
-        db, current_user.id,
-        cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
+        db,
+        current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
     return build_cursor_page(
         [Booking.model_validate(r, from_attributes=True) for r in rows],
-        limit=page.limit, next_payload=next_payload, total=total,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
+
 
 @router.get("/upcoming", response_model=CursorPage[Booking], summary="List upcoming bookings")
 async def get_upcoming_bookings(
@@ -96,13 +103,19 @@ async def get_upcoming_bookings(
 ):
     """List upcoming bookings."""
     rows, next_payload, total = await get_user_upcoming_bookings(
-        db, current_user.id,
-        cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
+        db,
+        current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
     return build_cursor_page(
         [Booking.model_validate(r, from_attributes=True) for r in rows],
-        limit=page.limit, next_payload=next_payload, total=total,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
+
 
 @router.get("/past", response_model=CursorPage[Booking], summary="List past bookings")
 async def get_past_bookings(
@@ -112,32 +125,37 @@ async def get_past_bookings(
 ):
     """List past bookings."""
     rows, next_payload, total = await get_user_past_bookings(
-        db, current_user.id,
-        cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
+        db,
+        current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
     return build_cursor_page(
         [Booking.model_validate(r, from_attributes=True) for r in rows],
-        limit=page.limit, next_payload=next_payload, total=total,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
+
 
 @router.post("/check-availability", summary="Check booking availability")
 async def check_booking_availability(
-    availability_check: BookingAvailability,
-    db: AsyncSession = Depends(get_db)
+    availability_check: BookingAvailability, db: AsyncSession = Depends(get_db)
 ):
     """Check booking availability."""
     return await check_availability(
         db,
         availability_check.property_id,
-        availability_check.check_in_date.strftime('%Y-%m-%d'),
-        availability_check.check_out_date.strftime('%Y-%m-%d'),
-        availability_check.guests
+        availability_check.check_in_date.strftime("%Y-%m-%d"),
+        availability_check.check_out_date.strftime("%Y-%m-%d"),
+        availability_check.guests,
     )
+
 
 @router.post("/calculate-pricing", summary="Calculate booking pricing")
 async def calculate_booking_pricing(
-    pricing_request: BookingAvailability,
-    db: AsyncSession = Depends(get_db)
+    pricing_request: BookingAvailability, db: AsyncSession = Depends(get_db)
 ):
     """Calculate booking pricing."""
     return await calculate_pricing(
@@ -145,8 +163,9 @@ async def calculate_booking_pricing(
         pricing_request.property_id,
         pricing_request.check_in_date,
         pricing_request.check_out_date,
-        pricing_request.guests
+        pricing_request.guests,
     )
+
 
 @router.get("/all", response_model=CursorPage[Booking], summary="List all bookings")
 async def list_all_bookings(
@@ -181,54 +200,74 @@ async def list_all_bookings(
     )
     return build_cursor_page(
         [Booking.model_validate(r, from_attributes=True) for r in rows],
-        limit=page.limit, next_payload=next_payload, total=total,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
+
 
 @router.get("/{booking_id}", response_model=Booking, summary="Get booking details")
 async def get_booking_details(
     booking_id: int,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get booking details."""
     booking = await get_booking(db, booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
+    if not await can_access_booking(
+        db,
+        actor=current_user,
+        booking_user_id=booking.user_id,
+        booking_property_id=getattr(booking, "property_id", None),
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return booking
+
 
 @router.put("/{booking_id}", response_model=Booking, summary="Update booking")
 async def update_booking_details(
     booking_id: int,
     booking_update: BookingUpdate,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Update booking."""
     booking = await get_booking(db, booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
+    if not await can_access_booking(
+        db,
+        actor=current_user,
+        booking_user_id=booking.user_id,
+        booking_property_id=getattr(booking, "property_id", None),
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return await update_booking(db, booking_id, booking_update)
+
 
 @router.post("/cancel", response_model=MessageResponse, summary="Cancel booking")
 async def cancel_booking_request(
     cancel_data: BookingCancel,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Cancel booking."""
     booking = await get_booking(db, cancel_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
+    if not await can_access_booking(
+        db,
+        actor=current_user,
+        booking_user_id=booking.user_id,
+        booking_property_id=getattr(booking, "property_id", None),
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await cancel_booking(db, cancel_data.booking_id, cancel_data.reason)
@@ -237,18 +276,24 @@ async def cancel_booking_request(
 
     return MessageResponse(message="Booking cancelled successfully")
 
+
 @router.post("/payment", response_model=MessageResponse, summary="Process booking payment")
 async def process_booking_payment(
     payment_data: BookingPayment,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Process booking payment."""
     booking = await get_booking(db, payment_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
+    if not await can_access_booking(
+        db,
+        actor=current_user,
+        booking_user_id=booking.user_id,
+        booking_property_id=getattr(booking, "property_id", None),
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await process_payment(db, payment_data)
@@ -275,18 +320,24 @@ async def process_booking_payment(
 
     return MessageResponse(message="Payment processed successfully")
 
+
 @router.post("/review", response_model=MessageResponse, summary="Add booking review")
 async def add_booking_review(
     review_data: BookingReview,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Add booking review."""
     booking = await get_booking(db, review_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=getattr(booking, "property_id", None)):
+    if not await can_access_booking(
+        db,
+        actor=current_user,
+        booking_user_id=booking.user_id,
+        booking_property_id=getattr(booking, "property_id", None),
+    ):
         raise HTTPException(status_code=403, detail="Access denied")
 
     success = await add_review(db, review_data)

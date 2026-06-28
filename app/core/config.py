@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     VALID_API_KEYS: str = ""  # API keys for middleware (comma-separated)
 
     # ── Serverless ──────────────────────────────────────────────────────────────
-    SERVERLESS_ENABLED: bool = False  # When true, skips in-process schedulers to allow scale-to-zero
+    SERVERLESS_ENABLED: bool = (
+        False  # When true, skips in-process schedulers to allow scale-to-zero
+    )
 
     # ── Public URLs ─────────────────────────────────────────────────────────────
     PUBLIC_BASE_URL: str | None = None  # e.g., https://xyz.ngrok-free.app (OAuth/MCP)

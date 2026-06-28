@@ -94,11 +94,7 @@ async def _sample_urls(db: AsyncSession, sample_size: int) -> list[tuple[str, st
         .order_by(func.random())
         .limit(half)
     )
-    rand_img = (
-        select(PropertyImage.id, PropertyImage.image_url)
-        .order_by(func.random())
-        .limit(half)
-    )
+    rand_img = select(PropertyImage.id, PropertyImage.image_url).order_by(func.random()).limit(half)
 
     out: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -141,16 +137,12 @@ async def run_image_integrity_sweep(
 
     # Verify concurrently for speed; verify_image_url never raises.
     urls = [u for _, u in samples]
-    results = await asyncio.gather(
-        *(verify_image_url(u) for u in urls), return_exceptions=False
-    )
+    results = await asyncio.gather(*(verify_image_url(u) for u in urls), return_exceptions=False)
 
     for (source_tag, url), ok in zip(samples, results, strict=False):
         if not ok:
             report.broken.append(url)
-            logger.warning(
-                "Image integrity sweep: BROKEN %s -- %s", source_tag, url
-            )
+            logger.warning("Image integrity sweep: BROKEN %s -- %s", source_tag, url)
 
     if report.broken_count:
         logger.error(
@@ -159,8 +151,6 @@ async def run_image_integrity_sweep(
             report.checked,
         )
     else:
-        logger.info(
-            "Image integrity sweep: all %d sampled URLs OK.", report.checked
-        )
+        logger.info("Image integrity sweep: all %d sampled URLs OK.", report.checked)
 
     return report

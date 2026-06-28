@@ -54,7 +54,9 @@ class GLMProvider(AIProvider):
 
     def _get_api_url(self) -> str:
         """Get the API URL from settings or use default."""
-        return getattr(settings, "GLM_API_URL", "https://api.z.ai/api/coding/paas/v4/chat/completions")
+        return getattr(
+            settings, "GLM_API_URL", "https://api.z.ai/api/coding/paas/v4/chat/completions"
+        )
 
     def _build_headers(self) -> dict[str, str]:
         """Build common request headers."""
@@ -88,8 +90,8 @@ class GLMProvider(AIProvider):
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:{vision_input.mime_type};base64,{vision_input.image_base64}"
-                        }
-                    }
+                        },
+                    },
                 ]
                 result.append({"role": role, "content": content})
                 vision_attached = True
@@ -119,7 +121,12 @@ class GLMProvider(AIProvider):
         elapsed_ms = (time.monotonic() - t_start) * 1000
         logger.info(
             "External call completed",
-            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url},
+            extra={
+                "provider": self.name,
+                "model": self.config.model,
+                "duration_ms": round(elapsed_ms, 1),
+                "endpoint": url,
+            },
         )
         try:
             data = response.json()
@@ -154,7 +161,7 @@ class GLMProvider(AIProvider):
                     "name": "response",
                     "schema": json_schema,
                     "strict": True,
-                }
+                },
             }
 
         client = self._get_http_client()
@@ -163,7 +170,13 @@ class GLMProvider(AIProvider):
         elapsed_ms = (time.monotonic() - t_start) * 1000
         logger.info(
             "External call completed",
-            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url, "json_mode": True},
+            extra={
+                "provider": self.name,
+                "model": self.config.model,
+                "duration_ms": round(elapsed_ms, 1),
+                "endpoint": url,
+                "json_mode": True,
+            },
         )
         try:
             data = response.json()

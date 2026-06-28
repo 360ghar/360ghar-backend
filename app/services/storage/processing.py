@@ -47,6 +47,7 @@ async def upload_scene_image(
             file_content = await file.read()
 
             import io
+
             with Image.open(io.BytesIO(file_content)) as img:
                 width, height = img.size
                 aspect_ratio = width / height if height > 0 else 0

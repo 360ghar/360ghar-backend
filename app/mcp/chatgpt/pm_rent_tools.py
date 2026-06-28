@@ -82,7 +82,11 @@ async def owner_rent_status(
                     limit=limit,
                 )
             else:
-                unpaid_statuses = [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
+                unpaid_statuses = [
+                    RentChargeStatus.pending,
+                    RentChargeStatus.partial,
+                    RentChargeStatus.overdue,
+                ]
                 all_charges: list = []
                 for i, s in enumerate(unpaid_statuses):
                     batch, _next, _total = await list_rent_charges(
@@ -95,6 +99,7 @@ async def owner_rent_status(
                         limit=limit,
                     )
                     all_charges.extend(batch)
+
                 # Sort by due_date ascending (matching service default)
                 def _sort_key(c: Any) -> Any:
                     charge_obj = c.get("charge") if isinstance(c, dict) and "charge" in c else c

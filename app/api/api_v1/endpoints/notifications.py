@@ -238,7 +238,11 @@ class NotificationLogEntry(BaseModel):
     created_at: str | None = None
 
 
-@router.get("/users/{user_id}", response_model=CursorPage[NotificationLogEntry], summary="List user notifications")
+@router.get(
+    "/users/{user_id}",
+    response_model=CursorPage[NotificationLogEntry],
+    summary="List user notifications",
+)
 async def list_user_notifications(
     user_id: int,
     _: UserSchema = Depends(get_current_admin),
@@ -353,7 +357,11 @@ async def send_marketing_segment(
         limit=MAX_MARKETING_RECIPIENTS,
     )
     if not user_ids:
-        return {"requested": 0, "processed": 0, "summary": {"requested": 0, "succeeded": 0, "details": []}}
+        return {
+            "requested": 0,
+            "processed": 0,
+            "summary": {"requested": 0, "succeeded": 0, "details": []},
+        }
     summary = await dispatch_notification_to_users(
         db,
         user_db_ids=user_ids,

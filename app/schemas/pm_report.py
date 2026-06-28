@@ -42,4 +42,3 @@ class OccupancyReport(BaseModel):
 
 class MaintenanceReport(BaseModel):
     total_requests: int
-

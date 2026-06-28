@@ -1,4 +1,5 @@
 """IBBI auction scraper — Insolvency and Bankruptcy Board of India liquidation auction notices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -149,7 +150,11 @@ class IBBIAuctionScraper(BaseScraper):
                 rec.setdefault("is_active", True)
                 rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
-                    **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")}
+                    **{
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
+                    }
                 )
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_bank_auctions_key",

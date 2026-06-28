@@ -3,6 +3,7 @@
 Provides AI-powered scene analysis (room type, quality scoring) and
 description generation for individual scenes and entire tours.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -33,11 +34,8 @@ logger = get_logger(__name__)
 # Scene Analysis
 # ====================
 
-async def analyze_scene(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int
-) -> AIJob:
+
+async def analyze_scene(db: AsyncSession, scene_id: str, user_id: int) -> AIJob:
     """Analyze a single scene using AI."""
     from app.services.tour import get_scene
 
@@ -50,16 +48,14 @@ async def analyze_scene(
     job = await create_ai_job(db, user_id, "analyze_scene", scene_id=scene_id)
 
     # Run analysis in background - pass only IDs, not ORM objects
-    _track_background_task(_run_with_semaphore(_run_scene_analysis(job.id, scene_id, scene.image_url)))
+    _track_background_task(
+        _run_with_semaphore(_run_scene_analysis(job.id, scene_id, scene.image_url))
+    )
 
     return job
 
 
-async def analyze_tour_scenes(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> AIJob:
+async def analyze_tour_scenes(db: AsyncSession, tour_id: str, user_id: int) -> AIJob:
     """Analyze all scenes in a tour using AI."""
     from app.services.tour import get_tour
 
@@ -102,7 +98,7 @@ async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
 
             messages = [
                 AIMessage(role=AIRole.SYSTEM, content=SCENE_ANALYSIS_PROMPT),
-                AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
+                AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image."),
             ]
 
             await update_job_status(db, job_id, "processing", 50)
@@ -119,8 +115,12 @@ async def _run_scene_analysis(job_id: str, scene_id: str, image_url: str):
             logger.info("Scene analysis completed for scene %s", scene_id)
 
         except AIProviderError as e:
-            logger.error("AI provider error during scene analysis after retries: %s", e, exc_info=True)
-            await update_job_status(db, job_id, "failed", error_message=str(e), increment_retry=True)
+            logger.error(
+                "AI provider error during scene analysis after retries: %s", e, exc_info=True
+            )
+            await update_job_status(
+                db, job_id, "failed", error_message=str(e), increment_retry=True
+            )
             await db.commit()
         except Exception as e:
             logger.error("Error during scene analysis: %s", e, exc_info=True)
@@ -141,9 +141,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
             await update_job_status(db, job_id, "processing", 5)
 
             # Re-fetch tour with scenes in this session
-            result = await db.execute(
-                select(Tour).where(Tour.id == tour_id)
-            )
+            result = await db.execute(select(Tour).where(Tour.id == tour_id))
             tour = result.scalar_one_or_none()
             if not tour:
                 await update_job_status(db, job_id, "failed", error_message="Tour not found")
@@ -172,7 +170,7 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
 
                     messages = [
                         AIMessage(role=AIRole.SYSTEM, content=SCENE_ANALYSIS_PROMPT),
-                        AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image.")
+                        AIMessage(role=AIRole.USER, content="Analyze this 360° panorama image."),
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
@@ -182,14 +180,13 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
 
                 except Exception as e:
                     logger.error("Error analyzing scene %s: %s", scene.id, e, exc_info=True)
-                    analysis_results.append({
-                        "scene_id": scene.id,
-                        "error": str(e)
-                    })
+                    analysis_results.append({"scene_id": scene.id, "error": str(e)})
 
                 await update_job_status(db, job_id, "processing", progress)
 
-            await update_job_status(db, job_id, "completed", 100, result={"analysis": analysis_results})
+            await update_job_status(
+                db, job_id, "completed", 100, result={"analysis": analysis_results}
+            )
             await db.commit()
             logger.info("Tour analysis completed for tour %s", tour_id)
 
@@ -203,11 +200,9 @@ async def _run_tour_analysis(job_id: str, tour_id: str):
 # Description Generation
 # ====================
 
+
 async def generate_scene_description(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int,
-    options: dict[str, Any] | None = None
+    db: AsyncSession, scene_id: str, user_id: int, options: dict[str, Any] | None = None
 ) -> AIJob:
     """Generate AI description for a scene."""
     from app.services.tour import get_scene
@@ -222,17 +217,16 @@ async def generate_scene_description(
 
     # Run generation in background - pass only IDs and options
     _track_background_task(
-        _run_with_semaphore(_run_description_generation(job.id, scene_id, scene.image_url, options or {}))
+        _run_with_semaphore(
+            _run_description_generation(job.id, scene_id, scene.image_url, options or {})
+        )
     )
 
     return job
 
 
 async def generate_tour_descriptions(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    options: dict[str, Any] | None = None
+    db: AsyncSession, tour_id: str, user_id: int, options: dict[str, Any] | None = None
 ) -> AIJob:
     """Generate AI descriptions for all scenes in a tour."""
     from app.services.tour import get_tour
@@ -249,12 +243,16 @@ async def generate_tour_descriptions(
     job = await create_ai_job(db, user_id, "generate_descriptions", tour_id=tour_id)
 
     # Run generation in background - pass only tour_id
-    _track_background_task(_run_with_semaphore(_run_tour_description_generation(job.id, tour_id, options or {})))
+    _track_background_task(
+        _run_with_semaphore(_run_tour_description_generation(job.id, tour_id, options or {}))
+    )
 
     return job
 
 
-async def _run_description_generation(job_id: str, scene_id: str, image_url: str, options: dict[str, Any]):
+async def _run_description_generation(
+    job_id: str, scene_id: str, image_url: str, options: dict[str, Any]
+):
     """Generate description for a scene.
 
     Creates its own database session for the background task.
@@ -282,7 +280,7 @@ async def _run_description_generation(job_id: str, scene_id: str, image_url: str
             length_guide = {
                 "short": "1-2 sentences",
                 "medium": "2-4 sentences",
-                "long": "4-6 sentences"
+                "long": "4-6 sentences",
             }
 
             system_prompt = f"""You are a professional real estate copywriter.
@@ -298,7 +296,7 @@ Respond in JSON format:
 
             messages = [
                 AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
+                AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama."),
             ]
 
             await update_job_status(db, job_id, "processing", 60)
@@ -308,7 +306,9 @@ Respond in JSON format:
 
             descriptions = {scene_id: result.get("description", "")}
 
-            await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
+            await update_job_status(
+                db, job_id, "completed", 100, result={"descriptions": descriptions}
+            )
             await db.commit()
             logger.info("Description generated for scene %s", scene_id)
 
@@ -356,7 +356,11 @@ async def _run_tour_description_generation(job_id: str, tour_id: str, options: d
                     tone = options.get("tone", "professional")
                     length = options.get("length", "medium")
 
-                    length_guide = {"short": "1-2 sentences", "medium": "2-4 sentences", "long": "4-6 sentences"}
+                    length_guide = {
+                        "short": "1-2 sentences",
+                        "medium": "2-4 sentences",
+                        "long": "4-6 sentences",
+                    }
 
                     system_prompt = f"""You are a professional real estate copywriter.
 Write a compelling description in a {tone} tone.
@@ -369,7 +373,9 @@ Respond in JSON format:
 
                     messages = [
                         AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                        AIMessage(role=AIRole.USER, content="Write a description for this 360° panorama.")
+                        AIMessage(
+                            role=AIRole.USER, content="Write a description for this 360° panorama."
+                        ),
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
@@ -377,12 +383,16 @@ Respond in JSON format:
                     descriptions[scene.id] = result.get("description", "")
 
                 except Exception as e:
-                    logger.error("Error generating description for scene %s: %s", scene.id, e, exc_info=True)
+                    logger.error(
+                        "Error generating description for scene %s: %s", scene.id, e, exc_info=True
+                    )
                     descriptions[scene.id] = ""
 
                 await update_job_status(db, job_id, "processing", progress)
 
-            await update_job_status(db, job_id, "completed", 100, result={"descriptions": descriptions})
+            await update_job_status(
+                db, job_id, "completed", 100, result={"descriptions": descriptions}
+            )
             await db.commit()
             logger.info("Tour descriptions generated for tour %s", tour_id)
 

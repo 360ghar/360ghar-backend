@@ -3,6 +3,7 @@
 Provides natural language query parsing, city alias resolution,
 and empty-result UX helpers for property search.
 """
+
 from __future__ import annotations
 
 import re
@@ -189,9 +190,24 @@ def parse_natural_query(query: str) -> dict[str, Any]:
 
     # 6. Clean up remaining text for FTS
     # Remove common filler words
-    filler_words = {"in", "for", "with", "near", "around", "the", "a", "an", "and", "or", "is", "are"}
+    filler_words = {
+        "in",
+        "for",
+        "with",
+        "near",
+        "around",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "is",
+        "are",
+    }
     cleaned_tokens = [
-        t.strip() for t in re.split(r"\s+", text.strip()) if t.strip() and t.strip().lower() not in filler_words
+        t.strip()
+        for t in re.split(r"\s+", text.strip())
+        if t.strip() and t.strip().lower() not in filler_words
     ]
     cleaned_query = " ".join(cleaned_tokens).strip()
 

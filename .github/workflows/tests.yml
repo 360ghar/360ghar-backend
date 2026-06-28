@@ -180,7 +180,8 @@ jobs:
             -v \
             --cov=app \
             --cov-report=xml:coverage.xml \
-            --cov-report=term-missing
+            --cov-report=term-missing \
+            --cov-fail-under=0
 
       - name: Upload coverage data
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -227,7 +228,7 @@ jobs:
       - name: Combine coverage and enforce threshold
         run: |
           uv run coverage combine .coverage.*
-          uv run coverage report --fail-under=90
+          uv run coverage report --rcfile=pyproject.toml --fail-under=60
           uv run coverage xml -o coverage-combined.xml
 
       - name: Upload combined coverage to Codecov

@@ -6,6 +6,7 @@ GET  /agent/conversations     — List the user's conversations
 GET  /agent/conversations/{id}/messages — Get messages for a conversation
 DELETE /agent/conversations/{id}       — Delete a conversation
 """
+
 from __future__ import annotations
 
 import json as _json
@@ -37,9 +38,7 @@ router = APIRouter()
 async def _check_public_chat_rate_limit(request: Request) -> None:
     """FastAPI dependency: rate-limits the public chat endpoint (10 req/60s per IP)."""
     client_id = _public_chat_limiter.get_client_id(request)
-    allowed = await _public_chat_limiter.check_rate_limit(
-        client_id, "POST:/agent/chat-public"
-    )
+    allowed = await _public_chat_limiter.check_rate_limit(client_id, "POST:/agent/chat-public")
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -114,12 +113,17 @@ async def agent_chat(
 
     # Get or create conversation
     conversation = await conversation_store.get_or_create_conversation(
-        db, user_id=current_user.id, conversation_id=body.conversation_id,
+        db,
+        user_id=current_user.id,
+        conversation_id=body.conversation_id,
     )
 
     # Persist the user message
     await conversation_store.add_message(
-        db, conversation_id=conversation.id, role="user", content=body.message,
+        db,
+        conversation_id=conversation.id,
+        role="user",
+        content=body.message,
     )
     await db.commit()
 
@@ -147,6 +151,7 @@ async def agent_chat(
         widget_events: list[dict] = []
         # Open a background-pool session for tool calls during streaming
         from app.core.database import AsyncSessionLocalBG
+
         async with AsyncSessionLocalBG() as stream_db:
             try:
                 async for event in service.stream_response(
@@ -183,12 +188,14 @@ async def agent_chat(
         # which is a FastAPI dependency not designed for manual consumption
         # outside of request scope (causes _ConnectionRecord.pool errors).
         from app.core.database import AsyncSessionLocal
+
         async with AsyncSessionLocal() as fresh_db:
             try:
                 # Persist widget events
                 for we in widget_events:
                     await conversation_store.add_message(
-                        fresh_db, conversation_id=conversation_id,
+                        fresh_db,
+                        conversation_id=conversation_id,
                         role="widget",
                         tool_name=we.get("widget_name"),
                         tool_result=we.get("structured_content"),
@@ -196,8 +203,10 @@ async def agent_chat(
                 # Persist assistant response (even if empty when widgets were emitted)
                 if full_response or widget_events:
                     await conversation_store.add_message(
-                        fresh_db, conversation_id=conversation_id,
-                        role="assistant", content=full_response or "",
+                        fresh_db,
+                        conversation_id=conversation_id,
+                        role="assistant",
+                        content=full_response or "",
                     )
                     await fresh_db.commit()
             except Exception as exc:
@@ -214,7 +223,11 @@ async def agent_chat(
     )
 
 
-@router.get("/conversations", response_model=CursorPage[ConversationSummary], summary="List agent conversations")
+@router.get(
+    "/conversations",
+    response_model=CursorPage[ConversationSummary],
+    summary="List agent conversations",
+)
 async def list_conversations(
     page: CursorParams = Depends(),
     current_user=Depends(get_current_active_user),
@@ -231,9 +244,10 @@ async def list_conversations(
     return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.get("/conversations/{conversation_id}/messages",
-            response_model=list[ConversationMessageOut],
-            summary="List conversation messages",
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=list[ConversationMessageOut],
+    summary="List conversation messages",
 )
 async def get_conversation_messages(
     conversation_id: int,
@@ -247,21 +261,26 @@ async def get_conversation_messages(
 
     from app.models.ai_conversations import AIConversation
 
-    conv = (await db.execute(
-        select(AIConversation).where(
-            AIConversation.id == conversation_id,
-            AIConversation.user_id == current_user.id,
+    conv = (
+        await db.execute(
+            select(AIConversation).where(
+                AIConversation.id == conversation_id,
+                AIConversation.user_id == current_user.id,
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if not conv:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Conversation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
 
     messages = await conversation_store.get_history(db, conversation_id, limit=limit)
     return [ConversationMessageOut.model_validate(m) for m in messages]
 
 
-@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete conversation")
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete conversation",
+)
 async def delete_conversation(
     conversation_id: int,
     current_user=Depends(get_current_active_user),
@@ -269,11 +288,12 @@ async def delete_conversation(
 ):
     """Delete a conversation and all its messages."""
     deleted = await conversation_store.delete_conversation(
-        db, conversation_id=conversation_id, user_id=current_user.id,
+        db,
+        conversation_id=conversation_id,
+        user_id=current_user.id,
     )
     if not deleted:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail="Conversation not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     await db.commit()
 
 

@@ -59,8 +59,7 @@ class CacheControlMiddleware:
 
         # Skip MCP streaming tool routes (OAuth/well-known still pass through).
         if path.startswith("/mcp") and not (
-            path.startswith("/mcp/oauth")
-            or path.startswith("/mcp-admin/oauth")
+            path.startswith("/mcp/oauth") or path.startswith("/mcp-admin/oauth")
         ):
             await self.app(scope, receive, send)
             return
@@ -86,16 +85,13 @@ class CacheControlMiddleware:
                 if 200 <= status < 300:
                     existing_headers = message.get("headers", [])
                     already_set = any(
-                        name.lower() == b"cache-control"
-                        for name, _ in existing_headers
+                        name.lower() == b"cache-control" for name, _ in existing_headers
                     )
                     new_headers = list(existing_headers)
                     # Vary is always needed on cacheable responses so
                     # Cloudflare segments its cache by auth state — even
                     # when the endpoint sets its own Cache-Control.
-                    has_vary = any(
-                        name.lower() == b"vary" for name, _ in existing_headers
-                    )
+                    has_vary = any(name.lower() == b"vary" for name, _ in existing_headers)
                     if not has_vary:
                         new_headers.append((b"Vary", _VARY_HEADER))
                     # Never override a Cache-Control the endpoint set
@@ -106,9 +102,7 @@ class CacheControlMiddleware:
                             # Cache-Control already says no-store, but
                             # Cloudflare-CDN-Cache-Control is the
                             # authoritative signal for Cloudflare's edge.
-                            new_headers.append(
-                                (b"Cloudflare-CDN-Cache-Control", _CDN_NO_STORE)
-                            )
+                            new_headers.append((b"Cloudflare-CDN-Cache-Control", _CDN_NO_STORE))
                     message["headers"] = new_headers
             await original_send(message)
 

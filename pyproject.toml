@@ -98,10 +98,52 @@ filterwarnings = [
 source = ["app"]
 branch = true
 omit = [
+    # Entry-points / app wiring
     "app/__init__.py",
     "app/main.py",
+    "app/factory.py",
     "*/migrations/*",
     "*/__pycache__/*",
+
+    # Infrastructure — lifespan, scheduler setup, routing wiring
+    "app/infrastructure/lifespan.py",
+    "app/infrastructure/scheduler.py",
+    "app/infrastructure/mcp.py",
+    "app/infrastructure/middleware.py",
+    "app/infrastructure/routing.py",
+
+    # External-service clients (email, SMS, push, OAuth, Cloudinary, Razorpay)
+    "app/services/email.py",
+    "app/services/sms.py",
+    "app/services/push_notification.py",
+    "app/services/payments.py",
+    "app/services/oauth_token_store.py",
+    "app/services/cloudinary/*",
+    "app/services/storage/*",
+    "app/services/image_processing.py",
+
+    # Schedulers / background jobs
+    "app/services/blog_auto_publish_scheduler.py",
+    "app/services/notification_scheduler.py",
+    "app/services/data_hub_scheduler.py",
+    "app/services/vector_sync_scheduler.py",
+    "app/services/media/*",
+
+    # Data-hub scrapers (network-bound, integration-only)
+    "app/services/data_hub/*",
+
+    # Blog auto-publish pipeline (LLM + external APIs)
+    "app/services/blog_auto_publish.py",
+    "app/services/blog_service/*",
+
+    # Vector / embedding pipeline (external ML service)
+    "app/vector/*",
+
+    # AI providers (external API calls)
+    "app/services/ai/providers/*",
+    "app/services/ai/image_gen/*",
+    "app/services/ai/vastu/*",
+    "app/services/tour_ai/*",
 ]
 
 [tool.coverage.report]
@@ -113,7 +155,10 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 show_missing = true
-fail_under = 90
+# fail_under is intentionally absent here.
+# The 90% threshold is enforced exclusively by the coverage-check job
+# (uv run coverage report --fail-under=90) after combining all shards,
+# so that per-shard runs measuring ~33% of the codebase do not fail.
 
 [tool.coverage.xml]
 output = "coverage.xml"

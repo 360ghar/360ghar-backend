@@ -4,6 +4,7 @@ AI Job management for tour AI operations.
 Provides CRUD operations for AI processing jobs, including creation,
 status updates with WebSocket broadcasting, retrieval, and cancellation.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -27,7 +28,7 @@ async def create_ai_job(
     user_id: int,
     job_type: str,
     tour_id: str | None = None,
-    scene_id: str | None = None
+    scene_id: str | None = None,
 ) -> AIJob:
     """Create a new AI processing job."""
     job = AIJob(
@@ -37,7 +38,7 @@ async def create_ai_job(
         scene_id=scene_id,
         job_type=job_type,
         status="pending",
-        progress=0
+        progress=0,
     )
     db.add(job)
     await db.commit()
@@ -53,7 +54,7 @@ async def update_job_status(
     progress: int = 0,
     result: dict[str, Any] | None = None,
     error_message: str | None = None,
-    increment_retry: bool = False
+    increment_retry: bool = False,
 ) -> AIJob:
     """Update an AI job's status and broadcast via WebSocket."""
     query = select(AIJob).where(AIJob.id == job_id)
@@ -106,11 +107,7 @@ async def update_job_status(
     return job
 
 
-async def get_ai_job(
-    db: AsyncSession,
-    job_id: str,
-    user_id: int | None = None
-) -> AIJob:
+async def get_ai_job(db: AsyncSession, job_id: str, user_id: int | None = None) -> AIJob:
     """Get an AI job by ID."""
     query = select(AIJob).where(AIJob.id == job_id)
 
@@ -165,11 +162,7 @@ async def get_user_ai_jobs(
     return rows, next_pg, count_total
 
 
-async def cancel_ai_job(
-    db: AsyncSession,
-    job_id: str,
-    user_id: int
-) -> bool:
+async def cancel_ai_job(db: AsyncSession, job_id: str, user_id: int) -> bool:
     """Cancel an AI job."""
     job = await get_ai_job(db, job_id, user_id)
 

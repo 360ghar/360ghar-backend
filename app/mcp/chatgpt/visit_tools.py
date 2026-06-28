@@ -7,6 +7,7 @@ These tools enable property visit scheduling and management:
 - Get visit details
 - Cancel a visit
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -229,7 +230,11 @@ async def visits_list(
             # client-side because get_user_visits does not accept a status filter;
             # counts may therefore be approximate when a status filter is applied.
             rows, next_payload, total_count = await get_user_visits(
-                db, user.id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+                db,
+                user.id,
+                cursor_payload=cursor_payload,
+                limit=limit,
+                with_total=True,
             )
 
             # Filter by status if provided (applied after pagination).
@@ -237,7 +242,11 @@ async def visits_list(
             # DB-level count across all statuses because get_user_visits does
             # not accept a status filter server-side.
             if status:
-                all_visits = [v for v in rows if (v.status.value if hasattr(v.status, "value") else v.status) == status]
+                all_visits = [
+                    v
+                    for v in rows
+                    if (v.status.value if hasattr(v.status, "value") else v.status) == status
+                ]
             else:
                 all_visits = rows
 
@@ -246,6 +255,7 @@ async def visits_list(
             # not the full dataset).
             def _s(v):
                 return v.status.value if hasattr(v.status, "value") else v.status
+
             page_counts = {"upcoming": 0, "completed": 0, "cancelled": 0}
             for v in all_visits:
                 s = _s(v)

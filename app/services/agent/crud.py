@@ -27,6 +27,7 @@ async def get_all_agents(db: AsyncSession) -> list[AgentSchema]:
     agents = result.scalars().all()
     return [AgentSchema.model_validate(agent) for agent in agents]
 
+
 async def get_active_agents(db: AsyncSession) -> list[AgentSchema]:
     """Get all active agents"""
     stmt = select(Agent).where(Agent.is_active)
@@ -34,12 +35,14 @@ async def get_active_agents(db: AsyncSession) -> list[AgentSchema]:
     agents = result.scalars().all()
     return [AgentSchema.model_validate(agent) for agent in agents]
 
+
 async def get_available_agents(db: AsyncSession) -> list[AgentSchema]:
     """Get all available agents (active and available)"""
     stmt = select(Agent).where(and_(Agent.is_active, Agent.is_available))
     result = await db.execute(stmt)
     agents = result.scalars().all()
     return [AgentSchema.model_validate(agent) for agent in agents]
+
 
 async def get_available_agents_paginated(
     db: AsyncSession,
@@ -166,6 +169,7 @@ async def get_all_agents_paginated(
 
     return rows, next_payload, count_total
 
+
 async def get_agent_by_id(db: AsyncSession, agent_id: int) -> AgentSchema | None:
     """Get a specific agent by ID"""
     stmt = select(Agent).where(Agent.id == agent_id)
@@ -190,7 +194,10 @@ async def create_agent(db: AsyncSession, agent_data: AgentCreate) -> AgentSchema
 
     return AgentSchema.model_validate(db_agent)
 
-async def update_agent(db: AsyncSession, agent_id: int, update_data: AgentUpdate) -> AgentSchema | None:
+
+async def update_agent(
+    db: AsyncSession, agent_id: int, update_data: AgentUpdate
+) -> AgentSchema | None:
     """Update agent details"""
     stmt = select(Agent).where(Agent.id == agent_id)
     result = await db.execute(stmt)
@@ -213,6 +220,7 @@ async def update_agent(db: AsyncSession, agent_id: int, update_data: AgentUpdate
     await db.refresh(agent)
     return AgentSchema.model_validate(agent)
 
+
 async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
     """Soft delete an agent (set as inactive)"""
     stmt = select(Agent).where(Agent.id == agent_id)
@@ -229,7 +237,10 @@ async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
     await db.flush()
     return True
 
-async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = True) -> AgentSchema | None:
+
+async def get_user_agent(
+    db: AsyncSession, user_id: int, auto_assign: bool = True
+) -> AgentSchema | None:
     """Get the assigned agent for a user, auto-assign if none exists"""
     # Check if user already has an agent
     user_stmt = select(User).where(User.id == user_id)
@@ -252,7 +263,10 @@ async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = Tru
 
     return None
 
-async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | None = None) -> AgentAssignment | None:
+
+async def assign_agent_to_user(
+    db: AsyncSession, user_id: int, agent_id: int | None = None
+) -> AgentAssignment | None:
     """Assign an agent to a user (auto-assign if no agent_id provided)"""
     # Check if user already has an agent
     user_stmt = select(User).where(User.id == user_id)
@@ -273,7 +287,7 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
                 user_id=user_id,
                 agent=agent_schema,
                 assigned_at=utc_now(),
-                assignment_reason="already_assigned"
+                assignment_reason="already_assigned",
             )
 
     # Determine which agent to assign
@@ -287,11 +301,14 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
             return None
     else:
         # Auto-assign based on load balancing - get agent with least users
-        load_stmt = select(Agent, func.count(User.id).label('user_count')).outerjoin(
-            User, Agent.id == User.agent_id
-        ).where(
-            and_(Agent.is_active, Agent.is_available)
-        ).group_by(Agent.id).order_by(func.count(User.id).asc()).limit(1)
+        load_stmt = (
+            select(Agent, func.count(User.id).label("user_count"))
+            .outerjoin(User, Agent.id == User.agent_id)
+            .where(and_(Agent.is_active, Agent.is_available))
+            .group_by(Agent.id)
+            .order_by(func.count(User.id).asc())
+            .limit(1)
+        )
 
         load_result = await db.execute(load_stmt)
         agent_with_count = load_result.first()
@@ -317,17 +334,17 @@ async def assign_agent_to_user(db: AsyncSession, user_id: int, agent_id: int | N
         user_id=user_id,
         agent=agent_schema,
         assigned_at=utc_now(),
-        assignment_reason="auto_assigned" if not agent_id else "manual_assigned"
+        assignment_reason="auto_assigned" if not agent_id else "manual_assigned",
     )
+
 
 async def get_agents_by_type(db: AsyncSession, agent_type: str) -> list[AgentSchema]:
     """Get agents by type (general, specialist, senior)"""
-    stmt = select(Agent).where(
-        and_(Agent.is_active, Agent.agent_type == agent_type)
-    )
+    stmt = select(Agent).where(and_(Agent.is_active, Agent.agent_type == agent_type))
     result = await db.execute(stmt)
     agents = result.scalars().all()
     return [AgentSchema.model_validate(agent) for agent in agents]
+
 
 async def update_agent_availability(db: AsyncSession, agent_id: int, is_available: bool) -> bool:
     """Update agent availability status"""

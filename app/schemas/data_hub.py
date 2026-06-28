@@ -16,8 +16,10 @@ from app.models.enums import AuctionSource, ComplaintNature, GazetteType, Scrape
 # Shared meta schema
 # ---------------------------------------------------------------------------
 
+
 class DataHubMeta(BaseModel):
     """Metadata attached to every paginated data-hub list response."""
+
     last_updated: datetime | None = None
     is_stale: bool = False
 
@@ -25,6 +27,7 @@ class DataHubMeta(BaseModel):
 # ---------------------------------------------------------------------------
 # 1. Circle Rates
 # ---------------------------------------------------------------------------
+
 
 class CircleRateResponse(BaseModel):
     id: int
@@ -48,6 +51,7 @@ class CircleRateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 2. RERA Projects
 # ---------------------------------------------------------------------------
+
 
 class ReraProjectResponse(BaseModel):
     id: int
@@ -80,6 +84,7 @@ class ReraProjectResponse(BaseModel):
 # 3. Bank Auctions
 # ---------------------------------------------------------------------------
 
+
 class BankAuctionResponse(BaseModel):
     id: int
     bank_name: str
@@ -110,6 +115,7 @@ class BankAuctionResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 4. Auction Alerts
 # ---------------------------------------------------------------------------
+
 
 class AuctionAlertCreate(BaseModel):
     bank_name: str | None = None
@@ -142,6 +148,7 @@ class AuctionAlertResponse(BaseModel):
 # 5. Bank Rates
 # ---------------------------------------------------------------------------
 
+
 class BankRateResponse(BaseModel):
     id: int
     bank_name: str
@@ -160,6 +167,7 @@ class BankRateResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 6. Jamabandi (land records) — request + response (no ORM model)
 # ---------------------------------------------------------------------------
+
 
 class JamabandiLookupRequest(BaseModel):
     tehsil: str
@@ -185,6 +193,7 @@ class JamabandiLookupResponse(BaseModel):
 # 7. Zoning Data
 # ---------------------------------------------------------------------------
 
+
 class ZoningDataResponse(BaseModel):
     id: int
     sector: str
@@ -209,6 +218,7 @@ class ZoningDataResponse(BaseModel):
 # 8. Colony Approvals
 # ---------------------------------------------------------------------------
 
+
 class ColonyApprovalResponse(BaseModel):
     id: int
     colony_name: str
@@ -232,6 +242,7 @@ class ColonyApprovalResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 9. Gazette Notifications
 # ---------------------------------------------------------------------------
+
 
 class GazetteNotificationResponse(BaseModel):
     id: int
@@ -258,6 +269,7 @@ class GazetteNotificationResponse(BaseModel):
 # 10. RERA Complaints
 # ---------------------------------------------------------------------------
 
+
 class ReraComplaintResponse(BaseModel):
     id: int
     rera_number: str | None = None
@@ -283,6 +295,7 @@ class ReraComplaintResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 11. Court Auctions
 # ---------------------------------------------------------------------------
+
 
 class CourtAuctionResponse(BaseModel):
     id: int
@@ -313,6 +326,7 @@ class CourtAuctionResponse(BaseModel):
 # 12. Neighbourhood Scores
 # ---------------------------------------------------------------------------
 
+
 class NeighbourhoodScoreResponse(BaseModel):
     id: int
     listing_id: int | None = None
@@ -337,6 +351,7 @@ class NeighbourhoodScoreResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # 13. Scraper Runs
 # ---------------------------------------------------------------------------
+
 
 class ScraperRunResponse(BaseModel):
     id: int
@@ -368,6 +383,7 @@ class ScraperRunResponse(BaseModel):
 # Stamp Duty Calculation
 # ---------------------------------------------------------------------------
 
+
 class StampDutyCalculationRequest(BaseModel):
     property_value: float = Field(..., gt=0)
     sector: str | None = None
@@ -388,6 +404,7 @@ class StampDutyCalculationResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Builder Reputation
 # ---------------------------------------------------------------------------
+
 
 class BuilderReputationResponse(BaseModel):
     builder_name: str

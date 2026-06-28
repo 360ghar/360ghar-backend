@@ -88,7 +88,9 @@ async def create_lease(
             db.add(lease)
             await db.flush()
     except IntegrityError:
-        raise BadRequestException(detail="Property already has an active lease (concurrent conflict)") from None
+        raise BadRequestException(
+            detail="Property already has an active lease (concurrent conflict)"
+        ) from None
     await db.refresh(lease)
 
     # Mark property as managed and set convenience pointers when lease is active.
@@ -200,7 +202,11 @@ async def terminate_lease(
     # Only active or expiring_soon leases can be terminated
     # Draft leases should be deleted, not terminated
     # Renewed leases are historical records
-    if lease.status not in {LeaseStatus.active, LeaseStatus.expiring_soon, LeaseStatus.pending_signature}:
+    if lease.status not in {
+        LeaseStatus.active,
+        LeaseStatus.expiring_soon,
+        LeaseStatus.pending_signature,
+    }:
         raise BadRequestException(
             detail=f"Cannot terminate a lease with status '{lease.status.value}'. "
             f"Only active, expiring_soon, or pending_signature leases can be terminated."
@@ -276,4 +282,3 @@ async def renew_lease(
             await db.flush()
 
     return new
-

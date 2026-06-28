@@ -1,6 +1,5 @@
 """Auction alert endpoints."""
 
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,7 +24,11 @@ from app.schemas.user import User as UserSchema
 router = APIRouter()
 
 
-@router.get("/auctions/alerts/me", response_model=CursorPage[AuctionAlertResponse], summary="List my auction alerts")
+@router.get(
+    "/auctions/alerts/me",
+    response_model=CursorPage[AuctionAlertResponse],
+    summary="List my auction alerts",
+)
 async def get_my_auction_alerts(
     page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
@@ -59,7 +62,12 @@ async def get_my_auction_alerts(
     return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/auctions/alerts", response_model=AuctionAlertResponse, status_code=201, summary="Create auction alert")
+@router.post(
+    "/auctions/alerts",
+    response_model=AuctionAlertResponse,
+    status_code=201,
+    summary="Create auction alert",
+)
 async def create_auction_alert(
     payload: AuctionAlertCreate,
     db: AsyncSession = Depends(get_db),
@@ -80,7 +88,11 @@ async def create_auction_alert(
     return alert
 
 
-@router.put("/auctions/alerts/{alert_id}", response_model=AuctionAlertResponse, summary="Update auction alert")
+@router.put(
+    "/auctions/alerts/{alert_id}",
+    response_model=AuctionAlertResponse,
+    summary="Update auction alert",
+)
 async def update_auction_alert(
     alert_id: int,
     payload: AuctionAlertUpdate,
@@ -105,7 +117,11 @@ async def update_auction_alert(
     return alert
 
 
-@router.delete("/auctions/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete auction alert")
+@router.delete(
+    "/auctions/alerts/{alert_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete auction alert",
+)
 async def delete_auction_alert(
     alert_id: int,
     db: AsyncSession = Depends(get_db),

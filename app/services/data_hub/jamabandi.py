@@ -1,4 +1,5 @@
 """Jamabandi cache service — user-initiated lookups with CAPTCHA proxy."""
+
 from __future__ import annotations
 
 import logging
@@ -28,6 +29,7 @@ class JamabandiScraper(BaseScraper):
 
     The base `run()` / scheduler methods are unused; direct methods are called by the API.
     """
+
     name = "jamabandi"
 
     async def _scrape(self) -> list[dict]:
@@ -82,8 +84,7 @@ class JamabandiScraper(BaseScraper):
         """Return a cache row if present and not expired."""
         now = datetime.now(timezone.utc)
         result = await db.execute(
-            select(JamabandiCache)
-            .where(
+            select(JamabandiCache).where(
                 JamabandiCache.tehsil == tehsil,
                 JamabandiCache.village == village,
                 JamabandiCache.khasra_number == khasra_number,
@@ -111,11 +112,10 @@ class JamabandiScraper(BaseScraper):
         resp.raise_for_status()
         return self._parse_nakal_html(resp.text, tehsil, village, khasra_number)
 
-    def _parse_nakal_html(
-        self, html: str, tehsil: str, village: str, khasra_number: str
-    ) -> dict:
+    def _parse_nakal_html(self, html: str, tehsil: str, village: str, khasra_number: str) -> dict:
         """Parse ownership details from Jamabandi nakal HTML."""
         from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(html, "html.parser")
         owner_names = []
         area_kanal = None
@@ -162,10 +162,16 @@ class JamabandiScraper(BaseScraper):
         }
 
     async def _cache_result(
-        self, db: AsyncSession, tehsil: str, village: str,
-        khasra_number: str, result: dict, ttl_days: int
+        self,
+        db: AsyncSession,
+        tehsil: str,
+        village: str,
+        khasra_number: str,
+        result: dict,
+        ttl_days: int,
     ) -> None:
         from sqlalchemy.dialects.postgresql import insert as pg_insert
+
         expires_at = datetime.now(timezone.utc) + timedelta(days=ttl_days)
         values = {
             "tehsil": tehsil,
@@ -192,7 +198,7 @@ class JamabandiScraper(BaseScraper):
                 "source_html": stmt.excluded.source_html,
                 "fetched_at": stmt.excluded.fetched_at,
                 "expires_at": stmt.excluded.expires_at,
-            }
+            },
         )
         await db.execute(stmt)
         await db.commit()

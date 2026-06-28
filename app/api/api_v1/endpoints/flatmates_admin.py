@@ -119,10 +119,8 @@ async def get_pending_listings(
     listings = list((await db.execute(stmt)).scalars().all())
     next_payload: dict[str, Any] | None = None
     if len(listings) > page.limit:
-        listings = listings[:page.limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(listings[-1].created_at), listings[-1].id
-        )
+        listings = listings[: page.limit]
+        next_payload = keyset_payload(keyset_sort_value(listings[-1].created_at), listings[-1].id)
 
     return build_cursor_page(
         [_serialize_flatmate_listing(listing) for listing in listings],
@@ -251,22 +249,22 @@ async def get_pending_reports(
             select(func.count()).select_from(UserReport).where(UserReport.status == status)
         )
         count_total = count_result.scalar_one()
-    predicate = keyset_filter(UserReport.created_at, UserReport.id, cursor_payload, descending=False)
+    predicate = keyset_filter(
+        UserReport.created_at, UserReport.id, cursor_payload, descending=False
+    )
     if predicate is not None:
         base_stmt = base_stmt.where(predicate)
-    stmt = base_stmt.order_by(UserReport.created_at.asc(), UserReport.id.asc()).limit(page.limit + 1)
+    stmt = base_stmt.order_by(UserReport.created_at.asc(), UserReport.id.asc()).limit(
+        page.limit + 1
+    )
     reports = list((await db.execute(stmt)).scalars().all())
     next_payload: dict[str, Any] | None = None
     if len(reports) > page.limit:
-        reports = reports[:page.limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(reports[-1].created_at), reports[-1].id
-        )
+        reports = reports[: page.limit]
+        next_payload = keyset_payload(keyset_sort_value(reports[-1].created_at), reports[-1].id)
 
     user_ids = {
-        uid
-        for report in reports
-        for uid in (report.reporter_user_id, report.reported_user_id)
+        uid for report in reports for uid in (report.reporter_user_id, report.reported_user_id)
     }
     user_map: dict[int, User] = {}
     if user_ids:

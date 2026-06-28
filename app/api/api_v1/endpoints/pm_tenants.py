@@ -42,7 +42,9 @@ async def tenant_details(
     db: AsyncSession = Depends(get_db),
 ):
     """Get tenant details."""
-    res = await get_tenant_detail(db, actor=current_user, tenant_user_id=tenant_user_id, owner_id=owner_id)  # type: ignore[arg-type]
+    res = await get_tenant_detail(
+        db, actor=current_user, tenant_user_id=tenant_user_id, owner_id=owner_id
+    )  # type: ignore[arg-type]
     leases = [LeaseSchema.model_validate(lease) for lease in res["leases"]]
     return TenantDetail(
         user_id=res["user_id"],
@@ -51,4 +53,3 @@ async def tenant_details(
         email=res.get("email"),
         leases=leases,
     )
-

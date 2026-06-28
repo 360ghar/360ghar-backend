@@ -9,19 +9,30 @@ from app.models.enums import BlogPostStatus
 
 class BlogSource(BaseModel):
     """A single cited source for a blog post."""
+
     url: str = Field(..., min_length=1, description="Source URL")
     name: str = Field("", description="Display name of the source (e.g. 'Economic Times')")
-    type: str = Field("article", description="Source type: primary, article, government, data, image, video, other")
+    type: str = Field(
+        "article",
+        description="Source type: primary, article, government, data, image, video, other",
+    )
     retrieved_at: str | None = Field(None, description="ISO 8601 date when the source was accessed")
 
 
 class BlogSEOMetadata(BaseModel):
     """Flexible SEO metadata container."""
-    schema_markup: dict | None = Field(None, description="JSON-LD structured data (Article, FAQPage, etc.)")
-    keyword_analysis: dict | None = Field(None, description="Keyword research data: volume, difficulty, related terms")
+
+    schema_markup: dict | None = Field(
+        None, description="JSON-LD structured data (Article, FAQPage, etc.)"
+    )
+    keyword_analysis: dict | None = Field(
+        None, description="Keyword research data: volume, difficulty, related terms"
+    )
     trending_score: float | None = Field(None, description="0-100 score indicating trend virality")
     secondary_keywords: list[str] | None = Field(None, description="Additional target keywords")
-    internal_links: list[str] | None = Field(None, description="Slugs of related blog posts for internal linking")
+    internal_links: list[str] | None = Field(
+        None, description="Slugs of related blog posts for internal linking"
+    )
     custom_data: dict | None = Field(None, description="Any additional SEO data")
 
 
@@ -48,7 +59,6 @@ class BlogCategory(BlogCategoryBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class BlogTagBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Tag name")
     slug: str | None = Field(None, description="URL-friendly slug (auto-generated if not provided)")
@@ -70,10 +80,20 @@ class BlogTag(BlogTagBase):
     model_config = ConfigDict(from_attributes=True)
 
 
-
 class BlogPostBase(BaseModel):
-    title: str = Field(..., min_length=1, max_length=500, description="Post title", examples=["Top 10 Areas to Live in Bengaluru"])
-    content: str = Field(..., min_length=10, description="Post content (HTML/markdown)", examples=["<p>Bengaluru offers a vibrant lifestyle...</p>"])
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+        description="Post title",
+        examples=["Top 10 Areas to Live in Bengaluru"],
+    )
+    content: str = Field(
+        ...,
+        min_length=10,
+        description="Post content (HTML/markdown)",
+        examples=["<p>Bengaluru offers a vibrant lifestyle...</p>"],
+    )
     excerpt: str | None = Field(None, max_length=1000, description="Post excerpt/summary")
     cover_image_url: str | None = Field(None, description="Cover image URL")
 
@@ -82,22 +102,36 @@ class BlogPostBase(BaseModel):
     tags: list[str] | None = Field(default=None, description="Tag slugs or names")
 
     # SEO fields
-    meta_title: str | None = Field(None, max_length=60, description="SEO title tag (distinct from display title)")
+    meta_title: str | None = Field(
+        None, max_length=60, description="SEO title tag (distinct from display title)"
+    )
     meta_description: str | None = Field(None, max_length=160, description="SERP snippet text")
     focus_keyword: str | None = Field(None, max_length=200, description="Primary target keyword")
-    canonical_url: str | None = Field(None, max_length=500, description="Canonical URL for duplicate content")
-    og_image_url: str | None = Field(None, max_length=500, description="Open Graph / social share image URL")
+    canonical_url: str | None = Field(
+        None, max_length=500, description="Canonical URL for duplicate content"
+    )
+    og_image_url: str | None = Field(
+        None, max_length=500, description="Open Graph / social share image URL"
+    )
 
     # Structured sources
-    sources: list[BlogSource] | None = Field(default=None, description="Cited sources for the blog post")
+    sources: list[BlogSource] | None = Field(
+        default=None, description="Cited sources for the blog post"
+    )
 
     # Flexible SEO metadata
-    seo_metadata: BlogSEOMetadata | None = Field(None, description="SEO analysis, schema markup, etc.")
+    seo_metadata: BlogSEOMetadata | None = Field(
+        None, description="SEO analysis, schema markup, etc."
+    )
 
 
 class BlogPostCreate(BlogPostBase):
-    active: bool | None = Field(default=False, description="Publish status (defaults to draft)", examples=[False, True])
-    published_at: datetime | None = Field(None, description="Explicit publish timestamp (defaults to now if active=True)")
+    active: bool | None = Field(
+        default=False, description="Publish status (defaults to draft)", examples=[False, True]
+    )
+    published_at: datetime | None = Field(
+        None, description="Explicit publish timestamp (defaults to now if active=True)"
+    )
     status: BlogPostStatus | None = Field(
         default=None,
         description="Lifecycle status (draft/published/archived/scheduled). Overrides `active` when provided.",

@@ -83,10 +83,18 @@ async def get_tour_analytics(
             heatmap_points.append(
                 HeatmapPoint(
                     scene_id=event.scene_id,
-                    yaw=float(event_payload.get("yaw", 0.0)) if event_payload.get("yaw") is not None else None,
-                    pitch=float(event_payload.get("pitch", 0.0)) if event_payload.get("pitch") is not None else None,
-                    x=float(event_payload.get("x", 0.0)) if event_payload.get("x") is not None else None,
-                    y=float(event_payload.get("y", 0.0)) if event_payload.get("y") is not None else None,
+                    yaw=float(event_payload.get("yaw", 0.0))
+                    if event_payload.get("yaw") is not None
+                    else None,
+                    pitch=float(event_payload.get("pitch", 0.0))
+                    if event_payload.get("pitch") is not None
+                    else None,
+                    x=float(event_payload.get("x", 0.0))
+                    if event_payload.get("x") is not None
+                    else None,
+                    y=float(event_payload.get("y", 0.0))
+                    if event_payload.get("y") is not None
+                    else None,
                     intensity=float(event_payload.get("intensity", 1.0)),
                 )
             )
@@ -219,12 +227,14 @@ async def get_tour_heatmap(
 
     if start_date:
         conditions.append(
-            TourAnalyticsEvent.created_at >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+            TourAnalyticsEvent.created_at
+            >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         )
 
     if end_date:
         conditions.append(
-            TourAnalyticsEvent.created_at <= datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+            TourAnalyticsEvent.created_at
+            <= datetime.combine(end_date, time.max, tzinfo=timezone.utc)
         )
 
     query = select(TourAnalyticsEvent).where(and_(*conditions))

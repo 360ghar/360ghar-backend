@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,8 +14,10 @@ if TYPE_CHECKING:
     from app.models.properties import Visit
     from app.models.users import User
 
+
 class AgentInteraction(Base):
     """Track all interactions between agents and users."""
+
     __tablename__ = "agent_interactions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -42,8 +43,12 @@ class Agent(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
     languages: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    agent_type: Mapped[AgentType] = mapped_column(SQLEnum(AgentType, name='agent_type'), nullable=False)
-    experience_level: Mapped[ExperienceLevel] = mapped_column(SQLEnum(ExperienceLevel, name='experience_level'), nullable=False)
+    agent_type: Mapped[AgentType] = mapped_column(
+        SQLEnum(AgentType, name="agent_type"), nullable=False
+    )
+    experience_level: Mapped[ExperienceLevel] = mapped_column(
+        SQLEnum(ExperienceLevel, name="experience_level"), nullable=False
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     working_hours: Mapped[dict | None] = mapped_column(JSON, nullable=True)
@@ -51,7 +56,9 @@ class Agent(Base):
     user_satisfaction_rating: Mapped[float] = mapped_column(Float, default=0.0)
     is_seed_data: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     users: Mapped[list[User]] = relationship(back_populates="agent")
     visits: Mapped[list[Visit]] = relationship(back_populates="agent")

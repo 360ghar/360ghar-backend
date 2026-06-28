@@ -4,6 +4,7 @@ Shared helpers for AI agent tool functions.
 Contains the dependency container (``AgentDeps``) and common
 serialization/auth utilities used across all tool modules.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,6 +24,7 @@ logger = get_logger(__name__)
 # Dependency container passed through RunContext
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentDeps:
     """Injected into every tool call via ``RunContext``."""
@@ -36,7 +38,9 @@ class AgentDeps:
 # Helper
 # ---------------------------------------------------------------------------
 
+
 def _user_schema(user: User):
     """Convert a SQLAlchemy User to the Pydantic UserSchema expected by services."""
     from app.schemas.user import User as UserSchema
+
     return UserSchema.model_validate(user)

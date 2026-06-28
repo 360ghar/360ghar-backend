@@ -106,7 +106,11 @@ def _format_lease_summary(lease_data: dict[str, Any]) -> str:
     start_date = lease_data.get("start_date", "")
     end_date = lease_data.get("end_date", "")
 
-    rent_str = f"₹{format_price(monthly_rent, is_monthly_rent=True)}/month" if monthly_rent else "rent not set"
+    rent_str = (
+        f"₹{format_price(monthly_rent, is_monthly_rent=True)}/month"
+        if monthly_rent
+        else "rent not set"
+    )
     return f"Lease for {property_title} with {tenant_name}. Status: {status}. {rent_str}. Period: {start_date} to {end_date}."
 
 

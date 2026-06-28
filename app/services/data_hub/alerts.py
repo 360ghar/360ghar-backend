@@ -1,4 +1,5 @@
 """Auction alert matching — finds new auctions matching user alert preferences."""
+
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -17,11 +18,13 @@ class AlertMatcherService(BaseScraper):
     Runs after bank_auctions and court_auctions scrapers complete.
     Dispatches notifications via email (FCM/push is a future extension).
     """
+
     name = "alerts"
 
     async def _scrape(self) -> list[dict]:
         """Find auction-alert matches. Returns list of match dicts."""
         from app.core.database import get_bg_session_factory
+
         session_factory = get_bg_session_factory()
         async with session_factory() as db:
             return await self._find_matches(db)
@@ -50,9 +53,7 @@ class AlertMatcherService(BaseScraper):
             if alert.max_price is not None:
                 filters.append(BankAuction.reserve_price <= alert.max_price)
 
-            bank_result = await db.execute(
-                select(BankAuction).where(and_(*filters)).limit(10)
-            )
+            bank_result = await db.execute(select(BankAuction).where(and_(*filters)).limit(10))
             new_bank_auctions = bank_result.scalars().all()
 
             # Build filter for court auctions
@@ -71,15 +72,19 @@ class AlertMatcherService(BaseScraper):
 
             auctions: list[BankAuction | CourtAuction] = [*new_bank_auctions, *new_court_auctions]
             for auction in auctions:
-                matches.append({
-                    "alert_id": alert.id,
-                    "user_id": alert.user_id,
-                    "alert_channels": alert.alert_channels or ["email"],
-                    "auction_id": auction.id,
-                    "auction_type": "bank" if isinstance(auction, BankAuction) else "court",
-                    "auction_description": getattr(auction, "property_description", ""),
-                    "reserve_price": float(auction.reserve_price) if auction.reserve_price else None,
-                })
+                matches.append(
+                    {
+                        "alert_id": alert.id,
+                        "user_id": alert.user_id,
+                        "alert_channels": alert.alert_channels or ["email"],
+                        "auction_id": auction.id,
+                        "auction_type": "bank" if isinstance(auction, BankAuction) else "court",
+                        "auction_description": getattr(auction, "property_description", ""),
+                        "reserve_price": float(auction.reserve_price)
+                        if auction.reserve_price
+                        else None,
+                    }
+                )
         return matches
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
@@ -106,8 +111,10 @@ class AlertMatcherService(BaseScraper):
         """Stub: log the match. Email/FCM integration to be implemented."""
         logger.info(
             "ALERT MATCH: user=%s alert=%s auction=%s type=%s price=%s",
-            match["user_id"], match["alert_id"],
-            match["auction_id"], match["auction_type"],
+            match["user_id"],
+            match["alert_id"],
+            match["auction_id"],
+            match["auction_type"],
             match.get("reserve_price"),
         )
         # TODO: integrate with email service when EMAIL_SMTP_HOST is configured

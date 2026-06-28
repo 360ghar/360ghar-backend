@@ -1,4 +1,5 @@
 """Bank auction scraper — 3 sources: SARFAESI (SBI), IBAPI, MSTC."""
+
 from __future__ import annotations
 
 import asyncio
@@ -117,7 +118,20 @@ class BankAuctionScraper(BaseScraper):
 
                 # Look for property-like links
                 text_lower = text.lower()
-                if not any(kw in text_lower for kw in ["property", "auction", "e-auction", "sale", "lot", "flat", "plot", "shop", "office"]):
+                if not any(
+                    kw in text_lower
+                    for kw in [
+                        "property",
+                        "auction",
+                        "e-auction",
+                        "sale",
+                        "lot",
+                        "flat",
+                        "plot",
+                        "shop",
+                        "office",
+                    ]
+                ):
                     continue
 
                 record = {
@@ -129,7 +143,17 @@ class BankAuctionScraper(BaseScraper):
                 }
 
                 # Try to extract city from text
-                cities = ["mumbai", "delhi", "gurugram", "bangalore", "chennai", "hyderabad", "pune", "kolkata", "ahmedabad"]
+                cities = [
+                    "mumbai",
+                    "delhi",
+                    "gurugram",
+                    "bangalore",
+                    "chennai",
+                    "hyderabad",
+                    "pune",
+                    "kolkata",
+                    "ahmedabad",
+                ]
                 for city in cities:
                     if city in text_lower:
                         record["city"] = city.title()
@@ -142,7 +166,9 @@ class BankAuctionScraper(BaseScraper):
                     if parsed:
                         record["auction_date"] = parsed
 
-                price_match = re.search(r"(?:reserve|price|base)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+                price_match = re.search(
+                    r"(?:reserve|price|base)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE
+                )
                 if price_match:
                     record["reserve_price"] = _parse_currency(price_match.group(1))
 

@@ -83,4 +83,3 @@ class LeaseRenew(BaseModel):
     monthly_rent: float | None = None
     security_deposit: float | None = None
     make_active: bool = False
-

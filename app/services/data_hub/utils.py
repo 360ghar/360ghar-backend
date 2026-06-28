@@ -141,7 +141,15 @@ def _parse_date(val: str) -> str | None:
         return None
     from datetime import datetime
 
-    for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%d %b %Y", "%d %B %Y", "%B %d, %Y"):
+    for fmt in (
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%Y-%m-%d",
+        "%d.%m.%Y",
+        "%d %b %Y",
+        "%d %B %Y",
+        "%B %d, %Y",
+    ):
         try:
             return datetime.strptime(val.strip(), fmt).date().isoformat()
         except ValueError:
@@ -257,7 +265,9 @@ def _parse_notice_list_items(
                     break
 
         # Price patterns
-        price_match = re.search(r"(?:reserve|base|price|amount)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE)
+        price_match = re.search(
+            r"(?:reserve|base|price|amount)[\s:]*[₹Rs]?\s*([\d,]+\.?\d*)", text, re.IGNORECASE
+        )
         if price_match:
             record["reserve_price"] = _parse_currency(price_match.group(1))
 
@@ -266,12 +276,18 @@ def _parse_notice_list_items(
             record["emd_amount"] = _parse_currency(emd_match.group(1))
 
         # Area patterns
-        area_match = re.search(r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yd|meter|yard|acre|hectare)))", text, re.IGNORECASE)
+        area_match = re.search(
+            r"(?:area|size)[\s:]*([\d,]+\.?\d*\s*(?:sq\.?\s*(?:ft|yd|m|yd|meter|yard|acre|hectare)))",
+            text,
+            re.IGNORECASE,
+        )
         if area_match:
             record["area_sqft"] = _parse_area_sqft(area_match.group(1))
 
         # Locality/sector patterns
-        sector_match = re.search(r"(?:sector|scheme|locality|zone)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE)
+        sector_match = re.search(
+            r"(?:sector|scheme|locality|zone)[\s:]*([A-Za-z0-9\s\-]+)", text, re.IGNORECASE
+        )
         if sector_match:
             record["locality"] = sector_match.group(1).strip()
 
@@ -341,7 +357,12 @@ def _parse_generic_auction_table(
                 else:
                     # Default mapping logic
                     h_lower = h.lower()
-                    if "reserve" in h_lower or "price" in h_lower or "base" in h_lower or "tender" in h_lower:
+                    if (
+                        "reserve" in h_lower
+                        or "price" in h_lower
+                        or "base" in h_lower
+                        or "tender" in h_lower
+                    ):
                         price = _parse_currency(val)
                         if price is not None:
                             record["reserve_price"] = price
@@ -349,19 +370,47 @@ def _parse_generic_auction_table(
                         price = _parse_currency(val)
                         if price is not None:
                             record["emd_amount"] = price
-                    elif "date" in h_lower and ("auction" in h_lower or "bid" in h_lower or "closing" in h_lower or "opening" in h_lower or "sale" in h_lower):
+                    elif "date" in h_lower and (
+                        "auction" in h_lower
+                        or "bid" in h_lower
+                        or "closing" in h_lower
+                        or "opening" in h_lower
+                        or "sale" in h_lower
+                    ):
                         parsed = _parse_date(val)
                         if parsed:
                             record["auction_date"] = parsed
-                    elif "address" in h_lower or "location" in h_lower or "sector" in h_lower or "locality" in h_lower:
-                        if "sq" not in h_lower and "sqft" not in h_lower and "sqm" not in h_lower and "sqyd" not in h_lower:
+                    elif (
+                        "address" in h_lower
+                        or "location" in h_lower
+                        or "sector" in h_lower
+                        or "locality" in h_lower
+                    ):
+                        if (
+                            "sq" not in h_lower
+                            and "sqft" not in h_lower
+                            and "sqm" not in h_lower
+                            and "sqyd" not in h_lower
+                        ):
                             record["locality"] = val
                             if not record.get("full_address"):
                                 record["full_address"] = val
-                    elif "property" in h_lower or "type" in h_lower or "category" in h_lower or "scheme" in h_lower:
+                    elif (
+                        "property" in h_lower
+                        or "type" in h_lower
+                        or "category" in h_lower
+                        or "scheme" in h_lower
+                    ):
                         if val and not record["property_description"]:
                             record["property_description"] = val
-                    elif ("area" in h_lower or "size" in h_lower) and ("sq" in h_lower or "yard" in h_lower or "sqm" in h_lower or "sqyd" in h_lower or "ft" in h_lower or "meter" in h_lower):
+                    elif ("area" in h_lower or "size" in h_lower) and (
+                        "sq" in h_lower
+                        or "yard" in h_lower
+                        or "sqm" in h_lower
+                        or "sqyd" in h_lower
+                        or "ft" in h_lower
+                        or "meter" in h_lower
+                    ):
                         area = _parse_area_sqft(val)
                         if area is not None:
                             record["area_sqft"] = area
@@ -393,10 +442,17 @@ def _parse_auction_with_fallback(
         try:
             records = strategy(soup, source_cfg)
             if records:
-                logger.info("Strategy %s returned %d records for %s", strategy.__name__, len(records), source_cfg.get("url"))
+                logger.info(
+                    "Strategy %s returned %d records for %s",
+                    strategy.__name__,
+                    len(records),
+                    source_cfg.get("url"),
+                )
                 return records
         except Exception as e:
-            logger.warning("Strategy %s failed for %s: %s", strategy.__name__, source_cfg.get("url"), e)
+            logger.warning(
+                "Strategy %s failed for %s: %s", strategy.__name__, source_cfg.get("url"), e
+            )
             continue
 
     logger.warning("All strategies failed for %s", source_cfg.get("url"))

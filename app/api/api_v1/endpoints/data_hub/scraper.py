@@ -68,10 +68,16 @@ async def trigger_scraper(
         return {"message": f"Scraper '{scraper_name}' triggered", "result": result}
     except Exception as exc:
         logger.error("Failed to trigger scraper %s: %s", scraper_name, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Scraper trigger failed — see server logs") from None
+        raise HTTPException(
+            status_code=500, detail="Scraper trigger failed — see server logs"
+        ) from None
 
 
-@router.get("/admin/scraper/runs", response_model=CursorPage[ScraperRunResponse], summary="List scraper runs")
+@router.get(
+    "/admin/scraper/runs",
+    response_model=CursorPage[ScraperRunResponse],
+    summary="List scraper runs",
+)
 async def list_scraper_runs(
     page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
@@ -83,9 +89,7 @@ async def list_scraper_runs(
 
     total: int | None = None
     if page.include_total:
-        total = (
-            await db.execute(select(func.count()).select_from(ScraperRun))
-        ).scalar_one()
+        total = (await db.execute(select(func.count()).select_from(ScraperRun))).scalar_one()
 
     result = await db.execute(
         select(ScraperRun)
@@ -108,8 +112,14 @@ async def bulk_import(
 ):
     """Placeholder for bulk data import (admin only)."""
     _SUPPORTED_TABLES = {
-        "circle_rates", "rera_projects", "bank_auctions", "bank_rates",
-        "court_auctions", "rera_complaints", "zoning_data", "colony_approvals",
+        "circle_rates",
+        "rera_projects",
+        "bank_auctions",
+        "bank_rates",
+        "court_auctions",
+        "rera_complaints",
+        "zoning_data",
+        "colony_approvals",
         "gazette_notifications",
     }
     if table_name not in _SUPPORTED_TABLES:

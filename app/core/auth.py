@@ -452,7 +452,9 @@ class SupabaseClientManager:
         )
         return None
 
-    async def admin_link_identity(self, user_id: str, provider: str, id_token: str) -> bool | dict[str, Any]:
+    async def admin_link_identity(
+        self, user_id: str, provider: str, id_token: str
+    ) -> bool | dict[str, Any]:
         """Link an OAuth identity to an existing Supabase user via GoTrue Admin API.
 
         Returns ``True`` on success, ``False`` on a non-retryable

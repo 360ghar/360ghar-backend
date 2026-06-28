@@ -4,6 +4,7 @@ App-scoped threads that work across flatmates, property management,
 real estate, and stays. Supports N-party conversations via a
 separate participants table (not just 1:1 pairs).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -77,15 +78,11 @@ class Conversation(Base):
         String(30), default=ConversationSource.listing_interest
     )
     last_message_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_message_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     context_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     context_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     context_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -122,19 +119,11 @@ class ConversationParticipant(Base):
     conversation_id: Mapped[int] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
-    user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
-    )
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="member")
-    joined_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    last_read_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    muted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    muted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="participants")
     user: Mapped[User] = relationship(foreign_keys=[user_id])
@@ -166,20 +155,12 @@ class Message(Base):
     sender_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    message_type: Mapped[MessageType] = mapped_column(
-        String(30), default=MessageType.text
-    )
+    message_type: Mapped[MessageType] = mapped_column(String(30), default=MessageType.text)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    message_metadata: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
-    )
-    read_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    message_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

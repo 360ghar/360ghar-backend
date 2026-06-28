@@ -76,7 +76,7 @@ async def agent_properties_list(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -96,19 +96,20 @@ async def agent_properties_list(
                 )
             except InsufficientPermissionsError as e:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    str(e)
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, str(e)
                 ).model_dump()
 
             items = [serialize_property_basic(p) for p in rows]
 
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "items": items,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": len(items),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "items": items,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -117,6 +118,7 @@ async def agent_properties_list(
         logger.error("Error in agent.properties.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list properties: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_get",
@@ -149,7 +151,7 @@ async def agent_properties_get(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -167,8 +169,7 @@ async def agent_properties_get(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             prop = result["property"]
@@ -180,6 +181,7 @@ async def agent_properties_get(
             owner_data = None
             if prop.owner_id:
                 from app.services.user import get_user_by_id
+
                 owner = await get_user_by_id(db, prop.owner_id)
                 if owner:
                     owner_data = serialize_user_basic(owner)
@@ -193,12 +195,14 @@ async def agent_properties_get(
                     if tenant:
                         tenant_data = serialize_user_basic(tenant)
 
-            return MCPResponse.success({
-                "property": property_data,
-                "owner": owner_data,
-                "active_lease": lease_data,
-                "tenant": tenant_data,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "property": property_data,
+                    "owner": owner_data,
+                    "active_lease": lease_data,
+                    "tenant": tenant_data,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -207,6 +211,7 @@ async def agent_properties_get(
         logger.error("Error in agent.properties.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_create_for_owner",
@@ -273,7 +278,7 @@ async def agent_properties_create_for_owner(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.property import PropertyCreate
@@ -283,7 +288,10 @@ async def agent_properties_create_for_owner(
             user_schema = UserSchema.model_validate(user)
 
             if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-                logger.warning("Non-absolute main_image_url in agent_properties_create_for_owner: %s", main_image_url)
+                logger.warning(
+                    "Non-absolute main_image_url in agent_properties_create_for_owner: %s",
+                    main_image_url,
+                )
 
             property_data = PropertyCreate(
                 title=title,
@@ -316,14 +324,15 @@ async def agent_properties_create_for_owner(
                 await db.commit()
             except InsufficientPermissionsError as e:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    str(e)
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, str(e)
                 ).model_dump()
 
-            return MCPResponse.success({
-                "message": "Property created successfully",
-                "property": serialize_property_basic(prop),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Property created successfully",
+                    "property": serialize_property_basic(prop),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -332,6 +341,7 @@ async def agent_properties_create_for_owner(
         logger.error("Error in agent.properties.create_for_owner: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_verify",
@@ -368,7 +378,7 @@ async def agent_properties_verify(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -384,8 +394,7 @@ async def agent_properties_verify(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             prop.is_verified = is_verified  # type: ignore[attr-defined]
@@ -401,11 +410,13 @@ async def agent_properties_verify(
             await db.commit()
 
             status = "verified" if is_verified else "unverified"
-            return MCPResponse.success({
-                "message": f"Property marked as {status}",
-                "property_id": property_id,
-                "is_verified": is_verified,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": f"Property marked as {status}",
+                    "property_id": property_id,
+                    "is_verified": is_verified,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

@@ -348,7 +348,9 @@ async def get_unified_properties_optimized(
         # while "Gurugram" does NOT match a search for "Delhi".
         if filters.city:
             normalized_city = normalize_city(filters.city)
-            logger.debug("Adding city filter: %s (normalized from: %s)", normalized_city, filters.city)
+            logger.debug(
+                "Adding city filter: %s (normalized from: %s)", normalized_city, filters.city
+            )
             conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
         if filters.locality:
             logger.debug("Adding locality filter: %s", filters.locality)

@@ -21,6 +21,7 @@ USER_TOKEN_REFERENCE_TTL_SECONDS = 24 * 60 * 60
 
 class OAuthStorageError(Exception):
     """Raised when OAuth token store cannot persist or retrieve security-critical data."""
+
     pass
 
 
@@ -156,24 +157,30 @@ class OAuthTokenStore:
                 "access_token": access_token,
             }
 
-            await cache.set(self._key("access_token", access_token), access_data, ttl=access_token_expires_in)
-            await cache.set(self._key("refresh_token", refresh_token), refresh_data, ttl=refresh_token_expires_in)
+            await cache.set(
+                self._key("access_token", access_token), access_data, ttl=access_token_expires_in
+            )
+            await cache.set(
+                self._key("refresh_token", refresh_token),
+                refresh_data,
+                ttl=refresh_token_expires_in,
+            )
 
             # Store user's tokens for lookup
             user_tokens_key = self._key("user_tokens", user_id)
             existing: list = await cache.get(user_tokens_key) or []
             cutoff = now - USER_TOKEN_REFERENCE_TTL_SECONDS
-            existing = [
-                token
-                for token in existing
-                if token.get("created_at", 0) > cutoff
-            ][-MAX_USER_TOKEN_REFERENCES:]
-            existing.append({
-                "access_token": access_token,
-                "refresh_token": refresh_token,
-                "client_id": client_id,
-                "created_at": now,
-            })
+            existing = [token for token in existing if token.get("created_at", 0) > cutoff][
+                -MAX_USER_TOKEN_REFERENCES:
+            ]
+            existing.append(
+                {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "client_id": client_id,
+                    "created_at": now,
+                }
+            )
             existing = existing[-MAX_USER_TOKEN_REFERENCES:]
             await cache.set(user_tokens_key, existing, ttl=refresh_token_expires_in)
 

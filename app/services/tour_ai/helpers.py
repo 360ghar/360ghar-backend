@@ -4,6 +4,7 @@ Shared helpers for tour AI operations.
 Contains retry configuration, concurrency semaphore, AI provider wrappers,
 prompt templates, image download utilities, and navigation hotspot helpers.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -113,10 +114,26 @@ async def _complete_json_with_retry(
 
 # Room type mappings for scene analysis
 ROOM_TYPES = [
-    "living_room", "bedroom", "bathroom", "kitchen", "dining_room",
-    "home_office", "hallway", "entrance", "balcony", "terrace",
-    "garden", "garage", "basement", "attic", "pool_area",
-    "gym", "laundry_room", "storage", "exterior", "other"
+    "living_room",
+    "bedroom",
+    "bathroom",
+    "kitchen",
+    "dining_room",
+    "home_office",
+    "hallway",
+    "entrance",
+    "balcony",
+    "terrace",
+    "garden",
+    "garage",
+    "basement",
+    "attic",
+    "pool_area",
+    "gym",
+    "laundry_room",
+    "storage",
+    "exterior",
+    "other",
 ]
 
 # Scene analysis prompt template

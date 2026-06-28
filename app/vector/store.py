@@ -17,9 +17,7 @@ def compute_text_hash(text: str) -> str:
 
 
 async def get_existing_hash(db: AsyncSession, property_id: int) -> str | None:
-    q = text(
-        "SELECT emb_text_hash FROM public.property_embeddings WHERE property_id = :pid"
-    )
+    q = text("SELECT emb_text_hash FROM public.property_embeddings WHERE property_id = :pid")
     res = await db.execute(q, {"pid": property_id})
     row = res.first()
     return row[0] if row else None
@@ -60,7 +58,16 @@ async def upsert_embedding(
             """
         )
         import json as _json
-        await db.execute(q, {"pid": property_id, "emb": embedding_str, "md_json": _json.dumps(metadata), "hash": emb_text_hash})
+
+        await db.execute(
+            q,
+            {
+                "pid": property_id,
+                "emb": embedding_str,
+                "md_json": _json.dumps(metadata),
+                "hash": emb_text_hash,
+            },
+        )
     else:
         zero_vec = _zero_vector_literal(768)
         q = text(
@@ -74,7 +81,16 @@ async def upsert_embedding(
             """
         )
         import json as _json
-        await db.execute(q, {"pid": property_id, "md_json": _json.dumps(metadata), "hash": emb_text_hash, "zero_vec": zero_vec})
+
+        await db.execute(
+            q,
+            {
+                "pid": property_id,
+                "md_json": _json.dumps(metadata),
+                "hash": emb_text_hash,
+                "zero_vec": zero_vec,
+            },
+        )
 
 
 async def read_watermark(db: AsyncSession) -> datetime | None:
@@ -85,9 +101,7 @@ async def read_watermark(db: AsyncSession) -> datetime | None:
 
 
 async def write_watermark(db: AsyncSession, watermark: datetime) -> None:
-    q = text(
-        "UPDATE public.vector_sync_state SET last_watermark = :wm WHERE key = 'properties'"
-    )
+    q = text("UPDATE public.vector_sync_state SET last_watermark = :wm WHERE key = 'properties'")
     await db.execute(q, {"wm": watermark})
 
 

@@ -90,9 +90,7 @@ async def tour_share_preview(
     viewer_url_esc = html.escape(viewer_url)
     redirect_url_esc = html.escape(redirect_url)
     image_url_esc = html.escape(image_url)
-    og_image_meta = (
-        f'<meta property="og:image" content="{image_url_esc}" />' if image_url else ""
-    )
+    og_image_meta = f'<meta property="og:image" content="{image_url_esc}" />' if image_url else ""
     twitter_image_meta = (
         f'<meta name="twitter:image" content="{image_url_esc}" />' if image_url else ""
     )

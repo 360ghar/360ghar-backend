@@ -151,14 +151,22 @@ async def create_maintenance_request(
         cat = MaintenanceCategory(category.lower())
     except ValueError:
         valid = [c.value for c in MaintenanceCategory]
-        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid category. Valid: {', '.join(valid)}"}
+        return {
+            "error": True,
+            "code": TOOL_OPS_INVALID_INPUT,
+            "message": f"Invalid category. Valid: {', '.join(valid)}",
+        }
 
     # Map priority to urgency
     priority_norm = priority.lower().strip()
     urgency = _PRIORITY_TO_URGENCY.get(priority_norm)
     if urgency is None:
         valid = list(_PRIORITY_TO_URGENCY.keys())
-        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid priority. Valid: {', '.join(valid)}"}
+        return {
+            "error": True,
+            "code": TOOL_OPS_INVALID_INPUT,
+            "message": f"Invalid priority. Valid: {', '.join(valid)}",
+        }
 
     # Verify tenant has active lease on this property
     lease = (

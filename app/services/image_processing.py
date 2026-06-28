@@ -2,6 +2,7 @@
 Image Processing Service for 360 Tour panoramas.
 Uses Pillow for thumbnail generation, format conversion, and EXIF extraction.
 """
+
 from __future__ import annotations
 
 import io
@@ -397,7 +398,10 @@ def validate_360_panorama(image_bytes: bytes, tolerance: float = 0.1) -> bool:
         is_valid = abs(actual_ratio - expected_ratio) <= tolerance
 
         if not is_valid:
-            logger.warning("Image aspect ratio %f deviates from expected 2:1 ratio. May not be a valid 360 panorama.", actual_ratio)
+            logger.warning(
+                "Image aspect ratio %f deviates from expected 2:1 ratio. May not be a valid 360 panorama.",
+                actual_ratio,
+            )
 
         return is_valid
 
@@ -440,7 +444,12 @@ def get_image_info(
             is_360 = abs(aspect_ratio - expected_ratio) <= 0.1
             raw_exif = img.getexif()
 
-            exif_data: dict[str, Any] = {"camera": {}, "gps": {}, "datetime": None, "software": None}
+            exif_data: dict[str, Any] = {
+                "camera": {},
+                "gps": {},
+                "datetime": None,
+                "software": None,
+            }
             if raw_exif:
                 for tag_id, value in raw_exif.items():
                     tag_name = TAGS.get(tag_id, str(tag_id))

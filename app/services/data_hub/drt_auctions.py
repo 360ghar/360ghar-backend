@@ -1,5 +1,6 @@
 """DRT auction scraper — Debt Recovery Tribunal Delhi benches (DRT-I and DRT-II)
 for court-ordered property sales under RDDBFI/SARFAESI Acts."""
+
 from __future__ import annotations
 
 import asyncio
@@ -86,7 +87,12 @@ class DRTAuctionScraper(BaseScraper):
                     "property_description": cells[0] if cells else "",
                     "city": "Delhi",
                     "source_url": link_url or bench_cfg["url"],
-                    "raw_data": {"headers": headers, "cells": cells, "bench": bench_cfg["bench"], "detail_url": link_url},
+                    "raw_data": {
+                        "headers": headers,
+                        "cells": cells,
+                        "bench": bench_cfg["bench"],
+                        "detail_url": link_url,
+                    },
                 }
 
                 for i, h in enumerate(headers):
@@ -134,7 +140,9 @@ class DRTAuctionScraper(BaseScraper):
 
         # Try notice/list cards as fallback
         if not records:
-            for item in soup.find_all(["div", "li"], class_=re.compile(r"notice|auction|listing", re.I)):
+            for item in soup.find_all(
+                ["div", "li"], class_=re.compile(r"notice|auction|listing", re.I)
+            ):
                 text = item.get_text(separator=" ", strip=True)
                 if not text or len(text) < 15:
                     continue
@@ -201,7 +209,16 @@ class DRTAuctionScraper(BaseScraper):
         """Detect city from address text."""
         text_lower = text.lower()
         city_keywords = {
-            "Delhi": ["delhi", "new delhi", "narela", "jhilmil", "nangloi", "dwarka", "rohini", "saket"],
+            "Delhi": [
+                "delhi",
+                "new delhi",
+                "narela",
+                "jhilmil",
+                "nangloi",
+                "dwarka",
+                "rohini",
+                "saket",
+            ],
             "Gurugram": ["gurugram", "gurgaon"],
             "Noida": ["noida", "greater noida"],
             "Faridabad": ["faridabad"],
@@ -223,7 +240,11 @@ class DRTAuctionScraper(BaseScraper):
                 rec.setdefault("is_active", True)
                 rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
-                    **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")}
+                    **{
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
+                    }
                 )
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_bank_auctions_key",

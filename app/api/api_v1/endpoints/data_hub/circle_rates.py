@@ -1,6 +1,5 @@
 """Circle rate endpoints."""
 
-
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -33,7 +32,9 @@ from .helpers import _STAMP_DUTY_RATES, _safe_list_query
 router = APIRouter()
 
 
-@router.get("/circle-rates", response_model=CursorPage[CircleRateResponse], summary="List circle rates")
+@router.get(
+    "/circle-rates", response_model=CursorPage[CircleRateResponse], summary="List circle rates"
+)
 async def list_circle_rates(
     sector: str | None = Query(None),
     year: int | None = Query(None),
@@ -72,9 +73,7 @@ async def list_circle_rate_sectors_cached(db: AsyncSession) -> list[str]:
     """Cached version of list_circle_rate_sectors."""
     from sqlalchemy import distinct
 
-    result = await db.execute(
-        select(distinct(CircleRate.sector)).order_by(CircleRate.sector)
-    )
+    result = await db.execute(select(distinct(CircleRate.sector)).order_by(CircleRate.sector))
     return [r for r in result.scalars().all() if r]
 
 
@@ -84,7 +83,11 @@ async def list_circle_rate_sectors(db: AsyncSession = Depends(get_db)):
     return await list_circle_rate_sectors_cached(db)
 
 
-@router.post("/circle-rates/calculate-duty", response_model=StampDutyCalculationResponse, summary="Calculate stamp duty")
+@router.post(
+    "/circle-rates/calculate-duty",
+    response_model=StampDutyCalculationResponse,
+    summary="Calculate stamp duty",
+)
 async def calculate_duty_from_circle_rates(
     req: StampDutyCalculationRequest,
     db: AsyncSession = Depends(get_db),
@@ -126,9 +129,7 @@ async def calculate_duty_from_circle_rates(
 @router.get("/circle-rates/{slug}", response_model=CircleRateResponse, summary="Get circle rate")
 async def get_circle_rate(slug: str, db: AsyncSession = Depends(get_db)):
     """Get a single circle rate entry by slug."""
-    result = await db.execute(
-        select(CircleRate).where(CircleRate.slug == slug)
-    )
+    result = await db.execute(select(CircleRate).where(CircleRate.slug == slug))
     row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Circle rate not found")

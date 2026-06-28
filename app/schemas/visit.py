@@ -19,6 +19,7 @@ class VisitBase(BaseModel):
     conversation_id: int | None = None
     match_id: int | None = None
 
+
 class VisitCreate(BaseModel):
     property_id: int = Field(
         ...,
@@ -40,6 +41,7 @@ class VisitCreate(BaseModel):
     counterparty_user_id: int | None = None
     conversation_id: int | None = None
     match_id: int | None = None
+
 
 class VisitUpdate(BaseModel):
     scheduled_date: datetime | None = None
@@ -63,17 +65,22 @@ class VisitUpdate(BaseModel):
             return VisitStatus.scheduled
         return v
 
+
 class VisitReschedule(BaseModel):
     new_date: datetime
     reason: str | None = None
 
+
 class VisitCancel(BaseModel):
     reason: str
 
+
 class VisitComplete(BaseModel):
     """Payload for marking a visit as completed."""
+
     notes: str | None = None
     feedback: str | None = None
+
 
 class VisitAgentInfo(BaseModel):
     id: int
@@ -101,6 +108,7 @@ class Visit(VisitBase):
         if v == VisitStatus.scheduled:
             return "requested"
         return v.value
+
     visit_notes: str | None = None
     visitor_feedback: str | None = None
     interest_level: str | None = None
@@ -122,6 +130,7 @@ class Visit(VisitBase):
             return VisitContext(v)
         except ValueError:
             return VisitContext.property_tour
+
 
 class VisitSlice(BaseModel):
     visits: list[Visit]

@@ -52,7 +52,9 @@ async def create_rm_assignment(
     )
 
 
-@router.patch("/{owner_user_id}", response_model=OwnerRMAssignmentResponse, summary="Update RM assignment")
+@router.patch(
+    "/{owner_user_id}", response_model=OwnerRMAssignmentResponse, summary="Update RM assignment"
+)
 async def update_rm_assignment(
     owner_user_id: int,
     payload: OwnerRMAssignmentUpdate,

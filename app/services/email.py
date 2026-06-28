@@ -61,4 +61,3 @@ async def send_email(
             return False
 
     return await asyncio.to_thread(lambda: _send())
-

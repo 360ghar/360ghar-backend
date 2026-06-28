@@ -364,6 +364,7 @@ class QnAAnswers(BaseModel):
 
 class MessageListResponse(BaseModel):
     """Paginated message list envelope."""
+
     messages: list[MessageOut]
     total: int
     has_more: bool
@@ -371,6 +372,7 @@ class MessageListResponse(BaseModel):
 
 class BlockedUserOut(BaseModel):
     """Block record with nested peer data for the blocked user."""
+
     id: int
     blocked_user: FlatmatesPeer
     created_at: datetime | None = None
@@ -378,17 +380,20 @@ class BlockedUserOut(BaseModel):
 
 class ConversationCreate(BaseModel):
     """Payload for creating (or retrieving) a conversation with a peer."""
+
     peer_user_id: int
     initial_message: str | None = None
 
 
 class ListingModerationAction(BaseModel):
     """Payload for moderating a flatmates listing (approve, reject, or request edit)."""
+
     action: Literal["approve", "reject", "request_edit"]
     reason: str = ""
 
 
 class ReportModerationAction(BaseModel):
     """Payload for moderating a user report (dismiss, warn, suspend, or escalate)."""
+
     action: Literal["dismiss", "warn_user", "suspend_user", "escalate"]
     notes: str = ""

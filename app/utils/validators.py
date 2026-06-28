@@ -15,20 +15,32 @@ class ValidationUtils:
     """Utility class for input validation and sanitization"""
 
     # Regex patterns
-    PHONE_PATTERN = re.compile(r'^[+]?[1-9]\d{1,14}$')  # E.164 format
-    PINCODE_PATTERN = re.compile(r'^\d{6}$')  # Indian pincode
-    USERNAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{3,30}$')
-    SAFE_STRING_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_.,!?()]+$')
+    PHONE_PATTERN = re.compile(r"^[+]?[1-9]\d{1,14}$")  # E.164 format
+    PINCODE_PATTERN = re.compile(r"^\d{6}$")  # Indian pincode
+    USERNAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{3,30}$")
+    SAFE_STRING_PATTERN = re.compile(r"^[a-zA-Z0-9\s\-_.,!?()]+$")
 
     # Allowed HTML tags for rich text
     ALLOWED_TAGS = [
-        'p', 'br', 'strong', 'em', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-        'blockquote', 'ul', 'ol', 'li', 'a', 'img'
+        "p",
+        "br",
+        "strong",
+        "em",
+        "u",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "ul",
+        "ol",
+        "li",
+        "a",
+        "img",
     ]
-    ALLOWED_ATTRIBUTES = {
-        'a': ['href', 'title'],
-        'img': ['src', 'alt', 'width', 'height']
-    }
+    ALLOWED_ATTRIBUTES = {"a": ["href", "title"], "img": ["src", "alt", "width", "height"]}
 
     @staticmethod
     def sanitize_string(value: str, max_length: int = 255) -> str:
@@ -54,12 +66,14 @@ class ValidationUtils:
         if not value:
             return value
 
-        return str(bleach.clean(
-            value,
-            tags=ValidationUtils.ALLOWED_TAGS,
-            attributes=ValidationUtils.ALLOWED_ATTRIBUTES,
-            strip=True
-        ))
+        return str(
+            bleach.clean(
+                value,
+                tags=ValidationUtils.ALLOWED_TAGS,
+                attributes=ValidationUtils.ALLOWED_ATTRIBUTES,
+                strip=True,
+            )
+        )
 
     @staticmethod
     def validate_phone(phone: str) -> str:
@@ -68,20 +82,20 @@ class ValidationUtils:
             return phone
 
         # Remove spaces, dashes, parentheses
-        phone = re.sub(r'[\s\-()]', '', phone)
+        phone = re.sub(r"[\s\-()]", "", phone)
 
         # Convert leading 00 to + (common international prefix)
-        if phone.startswith('00') and not phone.startswith('+'):
-            phone = '+' + phone[2:]
+        if phone.startswith("00") and not phone.startswith("+"):
+            phone = "+" + phone[2:]
 
         # Ensure E.164 leading '+' where possible
-        if not phone.startswith('+'):
+        if not phone.startswith("+"):
             # 10-digit assumed India
             if len(phone) == 10 and phone.isdigit():
-                phone = f'+91{phone}'
+                phone = f"+91{phone}"
             # Likely includes country code without '+' (e.g., 91XXXXXXXXXX)
             elif 11 <= len(phone) <= 15 and phone.isdigit():
-                phone = f'+{phone}'
+                phone = f"+{phone}"
 
         if not ValidationUtils.PHONE_PATTERN.match(phone):
             raise ValidationException("Invalid phone number format")
@@ -96,10 +110,8 @@ class ValidationUtils:
         email = email.lower().strip()
 
         # Check for disposable email domains
-        disposable_domains = [
-            'tempmail.com', 'throwaway.email', 'guerrillamail.com'
-        ]
-        domain = email.split('@')[1]
+        disposable_domains = ["tempmail.com", "throwaway.email", "guerrillamail.com"]
+        domain = email.split("@")[1]
         if domain in disposable_domains:
             raise ValidationException("Disposable email addresses are not allowed")
 
@@ -168,9 +180,7 @@ class ValidationUtils:
 
     @staticmethod
     def validate_list_input(
-        items: list[Any],
-        max_items: int = 100,
-        allowed_values: list[Any] | None = None
+        items: list[Any], max_items: int = 100, allowed_values: list[Any] | None = None
     ) -> list[Any]:
         """Validate list input"""
         if len(items) > max_items:
@@ -179,9 +189,7 @@ class ValidationUtils:
         if allowed_values:
             invalid_items = [item for item in items if item not in allowed_values]
             if invalid_items:
-                raise ValidationException(
-                    f"Invalid values: {', '.join(map(str, invalid_items))}"
-                )
+                raise ValidationException(f"Invalid values: {', '.join(map(str, invalid_items))}")
 
         return items
 
@@ -219,7 +227,9 @@ class ValidationUtils:
                 ctx = f" [{context}]" if context else ""
                 _logger.warning(
                     "Skipping non-absolute %s: %s%s",
-                    field_name, url, ctx,
+                    field_name,
+                    url,
+                    ctx,
                 )
         return filtered
 

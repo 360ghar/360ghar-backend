@@ -10,6 +10,7 @@ These tools enable property discovery features:
 - Get shortlist (liked properties)
 - Get AI recommendations
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -196,7 +197,10 @@ async def discovery_search(
                 except ValueError:
                     valid = [e.value for e in PropertyPurpose]
                     return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        data={
+                            "error": True,
+                            "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}",
+                        },
                         content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
                         widget_uri=get_widget_for_tool("discovery_search"),
                     )
@@ -208,7 +212,10 @@ async def discovery_search(
                 except ValueError:
                     valid = [e.value for e in PropertyType]
                     return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid property_type: '{property_type}'. Valid values: {valid}"},
+                        data={
+                            "error": True,
+                            "message": f"Invalid property_type: '{property_type}'. Valid values: {valid}",
+                        },
                         content_summary=f"Invalid property type '{property_type}'. Valid options are: {', '.join(valid)}.",
                         widget_uri=get_widget_for_tool("discovery_search"),
                     )
@@ -245,7 +252,8 @@ async def discovery_search(
 
             # Format response
             filters_applied = {
-                k: v for k, v in {
+                k: v
+                for k, v in {
                     "query": query,
                     "property_type": property_type,
                     "purpose": purpose,
@@ -255,7 +263,8 @@ async def discovery_search(
                     "bedrooms_max": bedrooms_max,
                     "city": city,
                     "locality": locality,
-                }.items() if v is not None
+                }.items()
+                if v is not None
             }
 
             # Provide helpful message when no results found
@@ -275,7 +284,9 @@ async def discovery_search(
                 },
                 content_summary=content_summary,
                 meta={
-                    "search_center": {"latitude": latitude, "longitude": longitude} if latitude and longitude else None,
+                    "search_center": {"latitude": latitude, "longitude": longitude}
+                    if latitude and longitude
+                    else None,
                 },
                 widget_uri=get_widget_for_tool("discovery_search"),
             )
@@ -330,6 +341,7 @@ async def discovery_property_get(
             # Check if user has liked this property
             if user:
                 from app.services.swipe import get_user_like_for_property
+
                 liked = await get_user_like_for_property(db, user.id, property_id)
                 property_data["user_liked"] = liked
 
@@ -389,7 +401,6 @@ async def discovery_feed(
         List of properties for discovery feed.
     """
     try:
-
         from app.services.property import get_unified_properties_optimized
 
         limit = min(max(1, limit), 20)
@@ -406,7 +417,10 @@ async def discovery_feed(
                 except ValueError:
                     valid = [e.value for e in PropertyPurpose]
                     return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        data={
+                            "error": True,
+                            "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}",
+                        },
                         content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
                         widget_uri=get_widget_for_tool("discovery_feed"),
                     )
@@ -477,8 +491,7 @@ async def discovery_amenities() -> dict[str, Any]:
             amenities = result.scalars().all()
 
             amenity_list: list[dict[str, Any]] = [
-                {"id": a.id, "name": a.title, "icon": a.icon}
-                for a in amenities
+                {"id": a.id, "name": a.title, "icon": a.icon} for a in amenities
             ]
 
             return format_chatgpt_response(
@@ -635,7 +648,9 @@ async def discovery_shortlist(
             for swipe in swipes:
                 if swipe.property:
                     prop_data = serialize_property_basic(swipe.property)
-                    prop_data["swiped_at"] = swipe.created_at.isoformat() if swipe.created_at else None
+                    prop_data["swiped_at"] = (
+                        swipe.created_at.isoformat() if swipe.created_at else None
+                    )
                     properties.append(prop_data)
 
             total = total_count or 0

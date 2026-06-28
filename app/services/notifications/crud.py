@@ -86,6 +86,7 @@ async def list_notifications_for_user(
 
     count_total: int | None = None
     if with_total:
+
         def _sync_count():
             supa = _supa()
             res = (

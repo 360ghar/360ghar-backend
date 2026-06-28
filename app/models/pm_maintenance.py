@@ -87,12 +87,8 @@ class MaintenanceRequest(Base):
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
 
-    property: Mapped[Property] = relationship(
-        "Property", back_populates="maintenance_requests"
-    )
-    lease: Mapped[Lease | None] = relationship(
-        "Lease", back_populates="maintenance_requests"
-    )
+    property: Mapped[Property] = relationship("Property", back_populates="maintenance_requests")
+    lease: Mapped[Lease | None] = relationship("Lease", back_populates="maintenance_requests")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
     tenant_user: Mapped[User | None] = relationship("User", foreign_keys=[tenant_user_id])
     assigned_agent: Mapped[Agent | None] = relationship("Agent", foreign_keys=[assigned_agent_id])
@@ -102,4 +98,3 @@ class MaintenanceRequest(Base):
         back_populates="maintenance_request",
         cascade="all, delete-orphan",
     )
-

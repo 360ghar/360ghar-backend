@@ -88,11 +88,19 @@ async def list_available_agents(
     """Get list of available agents with optional filters"""
     if specialization:
         rows, next_payload, total = await get_agents_by_specialization_paginated(
-            db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, specialization=specialization
+            db,
+            cursor_payload=page.decoded(),
+            limit=page.limit,
+            with_total=page.include_total,
+            specialization=specialization,
         )
     else:
         rows, next_payload, total = await get_available_agents_paginated(
-            db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, agent_type=agent_type
+            db,
+            cursor_payload=page.decoded(),
+            limit=page.limit,
+            with_total=page.include_total,
+            agent_type=agent_type,
         )
     return build_cursor_page(
         [Agent.model_validate(r) for r in rows],
@@ -112,9 +120,16 @@ async def get_agents_by_agent_type(
     """Get agents by type (general, specialist, senior)"""
     valid_types = {t.value for t in AgentType}
     if agent_type not in valid_types:
-        raise HTTPException(status_code=422, detail=f"Invalid agent_type. Must be one of: {', '.join(sorted(valid_types))}")
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid agent_type. Must be one of: {', '.join(sorted(valid_types))}",
+        )
     rows, next_payload, total = await get_agents_by_type_paginated(
-        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, agent_type=agent_type
+        db,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+        agent_type=agent_type,
     )
     return build_cursor_page(
         [Agent.model_validate(r) for r in rows],
@@ -124,7 +139,11 @@ async def get_agents_by_agent_type(
     )
 
 
-@router.get("/specializations/{specialization}", response_model=CursorPage[Agent], summary="List agents by specialization")
+@router.get(
+    "/specializations/{specialization}",
+    response_model=CursorPage[Agent],
+    summary="List agents by specialization",
+)
 async def get_agents_by_agent_specialization(
     specialization: str,
     page: CursorParams = Depends(),
@@ -133,7 +152,11 @@ async def get_agents_by_agent_specialization(
 ):
     """Get agents by specialization - returns all active agents"""
     rows, next_payload, total = await get_agents_by_specialization_paginated(
-        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, specialization=specialization
+        db,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+        specialization=specialization,
     )
     return build_cursor_page(
         [Agent.model_validate(r) for r in rows],
@@ -144,7 +167,9 @@ async def get_agents_by_agent_specialization(
 
 
 # System monitoring endpoints (must be before /{agent_id})
-@router.get("/system/workload", response_model=CursorPage[AgentWorkload], summary="Get system workload")
+@router.get(
+    "/system/workload", response_model=CursorPage[AgentWorkload], summary="Get system workload"
+)
 async def get_system_workload(
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_admin),
@@ -221,7 +246,9 @@ async def get_agent_statistics(
     return agent_with_stats
 
 
-@router.get("/{agent_id}/visits", response_model=CursorPage[VisitSchema], summary="Get agent visit history")
+@router.get(
+    "/{agent_id}/visits", response_model=CursorPage[VisitSchema], summary="Get agent visit history"
+)
 async def get_agent_visit_history(
     agent_id: int,
     page: CursorParams = Depends(),
@@ -254,7 +281,9 @@ async def get_agent_visit_history(
             items, next_payload, total = await get_agent_visits(
                 db, agent_id, page.decoded(), page.limit, page.include_total
             )
-            return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
+            return build_cursor_page(
+                items, limit=page.limit, next_payload=next_payload, total=total
+            )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You can only view your own agent visits"
         )
@@ -282,7 +311,11 @@ async def list_all_agents(
 ):
     """Get list of all agents (admin endpoint)"""
     rows, next_payload, total = await get_all_agents_paginated(
-        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, include_inactive=include_inactive
+        db,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+        include_inactive=include_inactive,
     )
     return build_cursor_page(
         [Agent.model_validate(r) for r in rows],
@@ -335,7 +368,9 @@ async def deactivate_agent(
     return MessageResponse(message="Agent deactivated successfully")
 
 
-@router.patch("/{agent_id}/availability", response_model=MessageResponse, summary="Update agent availability")
+@router.patch(
+    "/{agent_id}/availability", response_model=MessageResponse, summary="Update agent availability"
+)
 async def update_agent_availability_status(
     agent_id: int,
     is_available: bool,

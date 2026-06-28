@@ -7,6 +7,7 @@ Tools for tenants to manage their rental experience:
 - Create maintenance request
 - List maintenance requests
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -209,6 +210,7 @@ async def tenant_maintenance_create(
                 if code == TOOL_OPS_INVALID_INPUT:
                     if "category" in msg.lower():
                         from app.models.enums import MaintenanceCategory
+
                         valid_categories = [c.value for c in MaintenanceCategory]
                         return invalid_input_response(
                             f"Invalid category: {category}.",

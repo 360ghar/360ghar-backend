@@ -33,7 +33,9 @@ async def create_maintenance_request(
     preferred_contact_method: str | None = None,
     availability_notes: str | None = None,
 ) -> MaintenanceRequest:
-    prop = await assert_can_access_property(db, actor=actor, property_id=property_id, allow_tenant=True)
+    prop = await assert_can_access_property(
+        db, actor=actor, property_id=property_id, allow_tenant=True
+    )
 
     owner_id = prop.owner_id
     lease_id: int | None = None
@@ -58,7 +60,9 @@ async def create_maintenance_request(
             res = await db.execute(stmt)
             lease = res.scalar_one_or_none()
             if not lease:
-                raise InsufficientPermissionsError("Tenant does not have an active lease for this property")
+                raise InsufficientPermissionsError(
+                    "Tenant does not have an active lease for this property"
+                )
             lease_id = lease.id
             tenant_user_id = actor.id
 
@@ -109,7 +113,8 @@ async def list_maintenance_requests(
         # - owner: requests for their portfolio
         # - tenant: requests they created
         stmt = stmt.where(
-            (MaintenanceRequest.owner_id == actor.id) | (MaintenanceRequest.tenant_user_id == actor.id)
+            (MaintenanceRequest.owner_id == actor.id)
+            | (MaintenanceRequest.tenant_user_id == actor.id)
         )
 
     if property_id is not None:
@@ -126,11 +131,15 @@ async def list_maintenance_requests(
         count_stmt = select(func.count()).select_from(stmt.subquery())
         count_total = (await db.execute(count_stmt)).scalar_one()
 
-    predicate = keyset_filter(MaintenanceRequest.created_at, MaintenanceRequest.id, cursor_payload, descending=True)
+    predicate = keyset_filter(
+        MaintenanceRequest.created_at, MaintenanceRequest.id, cursor_payload, descending=True
+    )
     if predicate is not None:
         stmt = stmt.where(predicate)
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc()).limit(limit + 1)
+    stmt = stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc()).limit(
+        limit + 1
+    )
     rows = list((await db.execute(stmt)).scalars().all())
 
     next_payload = None
@@ -179,7 +188,11 @@ async def update_maintenance_request(
             "resolved": {"closed", "open"},
             "closed": set(),
         }
-        current = req.request_status.value if hasattr(req.request_status, "value") else str(req.request_status)
+        current = (
+            req.request_status.value
+            if hasattr(req.request_status, "value")
+            else str(req.request_status)
+        )
         target = request_status.value if hasattr(request_status, "value") else str(request_status)
         allowed = ALLOWED_TRANSITIONS.get(current, set())
         if target not in allowed:
@@ -213,4 +226,3 @@ async def update_maintenance_request(
     await db.flush()
     await db.refresh(req)
     return req
-

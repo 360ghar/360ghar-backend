@@ -6,6 +6,7 @@ ChatGPT Apps expect tool responses in a specific format:
 - content: Narrative text for the model to use in responses
 - _meta: Data only the widget sees (for large/sensitive data)
 """
+
 from __future__ import annotations
 
 from typing import Any, NoReturn
@@ -119,9 +120,7 @@ def format_property_list_summary(
 
     # Extract price range
     prices: list[float] = [
-        v
-        for p in properties
-        if (v := p.get("base_price") or p.get("monthly_rent")) is not None
+        v for p in properties if (v := p.get("base_price") or p.get("monthly_rent")) is not None
     ]
     if prices:
         min_price = min(prices)
@@ -135,7 +134,11 @@ def format_property_list_summary(
     type_str = ", ".join(types) if len(types) <= 3 else "various types"
 
     # Extract locations
-    locations = {p.get("locality") or p.get("city", "") for p in properties if p.get("locality") or p.get("city")}
+    locations = {
+        p.get("locality") or p.get("city", "")
+        for p in properties
+        if p.get("locality") or p.get("city")
+    }
     location_str = ", ".join(list(locations)[:3]) if locations else "your search area"
 
     showing = len(properties)
@@ -154,7 +157,9 @@ def format_property_detail_summary(property_data: dict[str, Any]) -> str:
     title = property_data.get("title", "Property")
     locality = property_data.get("locality", "")
     city = property_data.get("city", "")
-    location = f"{locality}, {city}" if locality and city else locality or city or "Unknown location"
+    location = (
+        f"{locality}, {city}" if locality and city else locality or city or "Unknown location"
+    )
 
     bedrooms = property_data.get("bedrooms")
     bathrooms = property_data.get("bathrooms")
@@ -348,7 +353,9 @@ def format_dashboard_summary(dashboard: dict[str, Any]) -> str:
 
     if expected > 0:
         collection_rate = (collected / expected * 100) if expected else 0
-        parts.append(f"₹{format_price(collected, is_monthly_rent=True)}/₹{format_price(expected, is_monthly_rent=True)} rent collected ({collection_rate:.0f}%)")
+        parts.append(
+            f"₹{format_price(collected, is_monthly_rent=True)}/₹{format_price(expected, is_monthly_rent=True)} rent collected ({collection_rate:.0f}%)"
+        )
 
     if open_maint > 0:
         parts.append(f"{open_maint} open maintenance requests")

@@ -3,6 +3,7 @@ Error response schemas and utilities for MCP tools.
 
 Provides standardized error handling and response formats for all MCP tools.
 """
+
 from enum import Enum
 from typing import Any
 
@@ -67,17 +68,10 @@ class MCPResponse(BaseModel):
 
     @classmethod
     def failure(
-        cls,
-        code: MCPErrorCode,
-        message: str,
-        details: dict[str, Any] | None = None
+        cls, code: MCPErrorCode, message: str, details: dict[str, Any] | None = None
     ) -> "MCPResponse":
         """Create an error response."""
-        return cls(
-            ok=False,
-            data=None,
-            error=MCPError(code=code, message=message, details=details)
-        )
+        return cls(ok=False, data=None, error=MCPError(code=code, message=message, details=details))
 
     def model_dump(self, *args, **kwargs) -> dict[str, Any]:
         """Override model_dump to exclude None values.
@@ -92,36 +86,22 @@ class MCPResponse(BaseModel):
         return result
 
 
-def invalid_input_response(
-    message: str,
-    details: dict[str, Any] | None = None
-) -> dict[str, Any]:
+def invalid_input_response(message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     """Helper to create invalid input response."""
     return MCPResponse.failure(
-        code=MCPErrorCode.INVALID_INPUT,
-        message=message,
-        details=details
+        code=MCPErrorCode.INVALID_INPUT, message=message, details=details
     ).model_dump()
 
 
-def not_found_response(
-    resource: str,
-    resource_id: str | int | None = None
-) -> dict[str, Any]:
+def not_found_response(resource: str, resource_id: str | int | None = None) -> dict[str, Any]:
     """Helper to create not found response."""
     message = f"{resource} not found"
     if resource_id:
         message += f" (id: {resource_id})"
 
-    return MCPResponse.failure(
-        code=MCPErrorCode.NOT_FOUND,
-        message=message
-    ).model_dump()
+    return MCPResponse.failure(code=MCPErrorCode.NOT_FOUND, message=message).model_dump()
 
 
 def internal_error_response(message: str = "Internal server error") -> dict[str, Any]:
     """Helper to create internal error response."""
-    return MCPResponse.failure(
-        code=MCPErrorCode.INTERNAL_ERROR,
-        message=message
-    ).model_dump()
+    return MCPResponse.failure(code=MCPErrorCode.INTERNAL_ERROR, message=message).model_dump()

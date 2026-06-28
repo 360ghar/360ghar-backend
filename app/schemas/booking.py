@@ -44,14 +44,16 @@ class BookingBase(BaseModel):
     )
     special_requests: str | None = None
 
+
 class BookingCreate(BookingBase):
     guest_details: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def validate_dates(self):
         if self.check_out_date <= self.check_in_date:
-            raise ValueError('Check-out date must be after check-in date')
+            raise ValueError("Check-out date must be after check-in date")
         return self
+
 
 class BookingUpdate(BaseModel):
     booking_status: str | None = None
@@ -65,15 +67,18 @@ class BookingUpdate(BaseModel):
     guest_details: dict[str, Any] | None = None
     notes: str | None = None
 
+
 class BookingCancel(BaseModel):
     booking_id: int
     reason: str
+
 
 class BookingPayment(BaseModel):
     booking_id: int
     payment_method: str
     transaction_id: str
     amount: float
+
 
 class BookingReview(BaseModel):
     booking_id: int
@@ -84,8 +89,9 @@ class BookingReview(BaseModel):
     @classmethod
     def validate_rating(cls, v: int) -> int:
         if v < 1 or v > 5:
-            raise ValueError('Rating must be between 1 and 5')
+            raise ValueError("Rating must be between 1 and 5")
         return v
+
 
 class Booking(BookingBase):
     id: int
@@ -120,11 +126,13 @@ class Booking(BookingBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class BookingAvailability(BaseModel):
     property_id: int
     check_in_date: datetime
     check_out_date: datetime
     guests: int
+
 
 class BookingPricing(BaseModel):
     property_id: int

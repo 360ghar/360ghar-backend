@@ -7,6 +7,7 @@ This module contains SQLAlchemy models for the 360 virtual tour platform:
 - Hotspot: Interactive elements placed within scenes
 - TourAnalyticsEvent: Analytics tracking for tour views and interactions
 """
+
 from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -46,6 +47,7 @@ class Tour(Base):
     A tour is a collection of 360° panoramic scenes that users can navigate through.
     Tours can be published publicly or kept as drafts for editing.
     """
+
     __tablename__ = "tours"
     __table_args__ = (
         Index("idx_tours_user_id", "user_id"),
@@ -58,15 +60,13 @@ class Tour(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[TourStatus] = mapped_column(
-        SQLEnum(TourStatus, name="tour_status"),
-        default=TourStatus.draft,
-        nullable=False
+        SQLEnum(TourStatus, name="tour_status"), default=TourStatus.draft, nullable=False
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
     visibility: Mapped[TourVisibility] = mapped_column(
         SQLEnum(TourVisibility, name="tour_visibility"),
         default=TourVisibility.private,
-        nullable=False
+        nullable=False,
     )
     is_featured: Mapped[bool] = mapped_column(Boolean, default=False)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -77,25 +77,17 @@ class Tour(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="tours")
     scenes: Mapped[list["Scene"]] = relationship(
-        "Scene",
-        back_populates="tour",
-        cascade="all, delete-orphan",
-        order_by="Scene.order_index"
+        "Scene", back_populates="tour", cascade="all, delete-orphan", order_by="Scene.order_index"
     )
 
     @property
@@ -111,6 +103,7 @@ class Scene(Base):
     Each scene represents a single 360° panorama with its own hotspots
     and view settings.
     """
+
     __tablename__ = "scenes"
     __table_args__ = (
         Index("idx_scenes_tour_id", "tour_id"),
@@ -119,9 +112,7 @@ class Scene(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     tour_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("tours.id", ondelete="CASCADE"),
-        nullable=False
+        String(36), ForeignKey("tours.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -133,15 +124,10 @@ class Scene(Base):
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     processing_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # Relationships
@@ -150,7 +136,7 @@ class Scene(Base):
         "Hotspot",
         back_populates="scene",
         cascade="all, delete-orphan",
-        order_by="Hotspot.order_index"
+        order_by="Hotspot.order_index",
     )
 
 
@@ -161,21 +147,16 @@ class Hotspot(Base):
     Hotspots can be navigation points (linking to other scenes),
     information popups, audio/video players, or custom elements.
     """
+
     __tablename__ = "hotspots"
-    __table_args__ = (
-        Index("idx_hotspots_scene_id", "scene_id"),
-    )
+    __table_args__ = (Index("idx_hotspots_scene_id", "scene_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     scene_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("scenes.id", ondelete="CASCADE"),
-        nullable=False
+        String(36), ForeignKey("scenes.id", ondelete="CASCADE"), nullable=False
     )
     type: Mapped[HotspotType] = mapped_column(
-        SQLEnum(HotspotType, name="hotspot_type"),
-        default=HotspotType.info,
-        nullable=False
+        SQLEnum(HotspotType, name="hotspot_type"), default=HotspotType.info, nullable=False
     )
     position: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {yaw, pitch, radius?}
     target_scene_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -190,15 +171,10 @@ class Hotspot(Base):
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
     # Relationships
@@ -212,6 +188,7 @@ class TourAnalyticsEvent(Base):
     Records various user interactions like tour views, scene navigation,
     hotspot clicks, and shares for analytics purposes.
     """
+
     __tablename__ = "tour_analytics_events"
     __table_args__ = (
         Index("idx_analytics_tour_id", "tour_id"),
@@ -221,9 +198,7 @@ class TourAnalyticsEvent(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tour_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("tours.id", ondelete="CASCADE"),
-        nullable=False
+        String(36), ForeignKey("tours.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -243,9 +218,7 @@ class TourAnalyticsEvent(Base):
     screen_resolution: Mapped[str | None] = mapped_column(String(20), nullable=True)
     session_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 
@@ -256,6 +229,7 @@ class AIJob(Base):
     Tracks the status of AI processing tasks like scene analysis,
     hotspot suggestions, and description generation.
     """
+
     __tablename__ = "ai_jobs"
     __table_args__ = (
         Index("idx_ai_jobs_user_id", "user_id"),
@@ -267,8 +241,12 @@ class AIJob(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     tour_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     scene_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    job_type: Mapped[str] = mapped_column(String(50), nullable=False)  # analyze_scenes, suggest_hotspots, generate_descriptions
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending, processing, completed, failed, cancelled
+    job_type: Mapped[str] = mapped_column(
+        String(50), nullable=False
+    )  # analyze_scenes, suggest_hotspots, generate_descriptions
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending"
+    )  # pending, processing, completed, failed, cancelled
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0-100
     retry_count: Mapped[int] = mapped_column(Integer, default=0)  # Number of retry attempts
     result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -276,15 +254,10 @@ class AIJob(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
 
@@ -292,8 +265,10 @@ class AIJob(Base):
 # Additional Tour Data Models
 # ====================
 
+
 class MediaFile(Base):
     """Media file metadata for uploads and processing."""
+
     __tablename__ = "media_files"
     __table_args__ = (
         Index("idx_media_files_user_id", "user_id"),
@@ -307,7 +282,9 @@ class MediaFile(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    tour_id: Mapped[str | None] = mapped_column(ForeignKey("tours.id", ondelete="SET NULL"), nullable=True)
+    tour_id: Mapped[str | None] = mapped_column(
+        ForeignKey("tours.id", ondelete="SET NULL"), nullable=True
+    )
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     file_url: Mapped[str] = mapped_column(String(512), nullable=False)
@@ -333,6 +310,7 @@ class MediaFile(Base):
 
 class UserSession(Base):
     """Auth session tracking for refresh tokens."""
+
     __tablename__ = "user_sessions"
     __table_args__ = (
         Index("idx_sessions_user_id", "user_id"),
@@ -351,11 +329,14 @@ class UserSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    last_accessed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_accessed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class TourLocation(Base):
     """Location metadata for tours."""
+
     __tablename__ = "tour_locations"
     __table_args__ = (
         Index("idx_locations_tour_id", "tour_id"),
@@ -375,11 +356,14 @@ class TourLocation(Base):
     timezone: Mapped[str | None] = mapped_column(String(50), nullable=True)
     elevation: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class SearchIndex(Base):
     """Full-text search index for tours and scenes."""
+
     __tablename__ = "search_index"
     __table_args__ = (
         Index("idx_search_vector", "search_vector"),
@@ -389,15 +373,20 @@ class SearchIndex(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     tour_id: Mapped[str] = mapped_column(ForeignKey("tours.id", ondelete="CASCADE"), nullable=False)
-    scene_id: Mapped[str | None] = mapped_column(ForeignKey("scenes.id", ondelete="CASCADE"), nullable=True)
+    scene_id: Mapped[str | None] = mapped_column(
+        ForeignKey("scenes.id", ondelete="CASCADE"), nullable=True
+    )
     search_vector: Mapped[str | None] = mapped_column(Text, nullable=True)
     weight_tsrank: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class CacheEntry(Base):
     """Database-level cache entries for frequently accessed tour data."""
+
     __tablename__ = "cache"
     __table_args__ = (
         Index("idx_cache_expires_at", "expires_at"),
@@ -408,15 +397,16 @@ class CacheEntry(Base):
     value: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class FloorPlan(Base):
     """Floor plan images and markers for tours."""
+
     __tablename__ = "floor_plans"
-    __table_args__ = (
-        Index("idx_floor_plans_tour_id", "tour_id"),
-    )
+    __table_args__ = (Index("idx_floor_plans_tour_id", "tour_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     tour_id: Mapped[str] = mapped_column(ForeignKey("tours.id", ondelete="CASCADE"), nullable=False)
@@ -425,25 +415,29 @@ class FloorPlan(Base):
     floor_number: Mapped[int] = mapped_column(Integer, default=1)
     markers: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TourBranding(Base):
     """Branding configuration for a tour."""
+
     __tablename__ = "tour_branding"
-    __table_args__ = (
-        Index("idx_tour_branding_tour_id", "tour_id"),
-    )
+    __table_args__ = (Index("idx_tour_branding_tour_id", "tour_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     tour_id: Mapped[str] = mapped_column(ForeignKey("tours.id", ondelete="CASCADE"), nullable=False)
     settings: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class CustomDomain(Base):
     """Custom domain configuration for branded tour URLs."""
+
     __tablename__ = "custom_domains"
     __table_args__ = (
         Index("idx_custom_domains_user_id", "user_id"),
@@ -457,18 +451,21 @@ class CustomDomain(Base):
     ssl_status: Mapped[str] = mapped_column(String(20), default="pending")
     verification_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class VideoMetadata(Base):
     """Video metadata for uploaded video assets."""
+
     __tablename__ = "video_metadata"
-    __table_args__ = (
-        Index("idx_video_metadata_media_file_id", "media_file_id"),
-    )
+    __table_args__ = (Index("idx_video_metadata_media_file_id", "media_file_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    media_file_id: Mapped[str] = mapped_column(ForeignKey("media_files.id", ondelete="CASCADE"), nullable=False)
+    media_file_id: Mapped[str] = mapped_column(
+        ForeignKey("media_files.id", ondelete="CASCADE"), nullable=False
+    )
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -478,4 +475,6 @@ class VideoMetadata(Base):
     thumbnail_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     stream_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

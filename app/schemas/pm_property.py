@@ -21,4 +21,3 @@ class ManagedPropertyUpdate(BaseModel):
 class ManagedPropertyDetail(BaseModel):
     property: PropertySchema
     active_lease: LeaseSchema | None = None
-

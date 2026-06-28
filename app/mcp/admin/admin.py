@@ -4,6 +4,7 @@ Admin tools for the Admin MCP server.
 Tools:
     - admin_system_status
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -63,44 +64,46 @@ async def admin_system_status() -> dict[str, Any]:
                     "is_authorized": is_authorized,
                 }
 
-        return MCPResponse.success({
-            "status": "operational",
-            "version": settings.APP_VERSION,
-            "server": "admin",
-            "auth": {
-                "status": auth_status,
-                "user": user_info,
-            },
-            "access": "granted" if is_authorized else "denied",
-            "features": {
-                "agent.properties": {
-                    "list": True,
-                    "get": True,
-                    "create_for_owner": True,
-                    "verify": True,
+        return MCPResponse.success(
+            {
+                "status": "operational",
+                "version": settings.APP_VERSION,
+                "server": "admin",
+                "auth": {
+                    "status": auth_status,
+                    "user": user_info,
                 },
-                "agent.leases": {
-                    "list": True,
-                    "create": True,
-                    "terminate": True,
+                "access": "granted" if is_authorized else "denied",
+                "features": {
+                    "agent.properties": {
+                        "list": True,
+                        "get": True,
+                        "create_for_owner": True,
+                        "verify": True,
+                    },
+                    "agent.leases": {
+                        "list": True,
+                        "create": True,
+                        "terminate": True,
+                    },
+                    "agent.rent": {
+                        "list_due": True,
+                        "record_payment": True,
+                    },
+                    "agent.maintenance": {
+                        "list": True,
+                        "update_status": True,
+                    },
+                    "agent.bookings": {
+                        "list_all": True,
+                        "update_status": True,
+                    },
+                    "agent.dashboard": {
+                        "overview": True,
+                    },
                 },
-                "agent.rent": {
-                    "list_due": True,
-                    "record_payment": True,
-                },
-                "agent.maintenance": {
-                    "list": True,
-                    "update_status": True,
-                },
-                "agent.bookings": {
-                    "list_all": True,
-                    "update_status": True,
-                },
-                "agent.dashboard": {
-                    "overview": True,
-                },
-            },
-        }).model_dump()
+            }
+        ).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:

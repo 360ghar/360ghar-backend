@@ -56,9 +56,7 @@ async def get_pricing(
     except ValueError:
         return {"error": True, "message": "Dates must be in ISO-8601 format"}
 
-    pricing = await booking_svc.calculate_pricing(
-        db, property_id, check_in, check_out, guests
-    )
+    pricing = await booking_svc.calculate_pricing(db, property_id, check_in, check_out, guests)
     if isinstance(pricing, dict) and pricing.get("error"):
         return {"error": True, "message": pricing["error"]}
     return {"pricing": pricing}
@@ -123,9 +121,17 @@ async def get_booking_detail(
     """Get booking details, verifying ownership."""
     booking = await booking_svc.get_booking(db, booking_id)
     if not booking:
-        return {"error": True, "code": TOOL_OPS_NOT_FOUND, "message": f"Booking {booking_id} not found."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_NOT_FOUND,
+            "message": f"Booking {booking_id} not found.",
+        }
     if booking.user_id != user_id:
-        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "You can only view your own bookings."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
+            "message": "You can only view your own bookings.",
+        }
 
     prop = (
         await db.execute(select(Property).where(Property.id == booking.property_id))
@@ -147,13 +153,25 @@ async def cancel_booking(
     """Cancel a booking, verifying ownership."""
     booking = await booking_svc.get_booking(db, booking_id)
     if not booking:
-        return {"error": True, "code": TOOL_OPS_NOT_FOUND, "message": f"Booking {booking_id} not found."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_NOT_FOUND,
+            "message": f"Booking {booking_id} not found.",
+        }
     if booking.user_id != user_id:
-        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "You can only cancel your own bookings."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
+            "message": "You can only cancel your own bookings.",
+        }
 
     status = getattr(booking, "booking_status", "")
     if status in ("cancelled", "completed", "checked_out"):
-        return {"error": True, "code": TOOL_OPS_OPERATION_FAILED, "message": f"Cannot cancel booking (status: {status})"}
+        return {
+            "error": True,
+            "code": TOOL_OPS_OPERATION_FAILED,
+            "message": f"Cannot cancel booking (status: {status})",
+        }
 
     await booking_svc.cancel_booking(db, booking_id, reason)
     await db.commit()
@@ -175,7 +193,11 @@ async def list_user_bookings(
         cursor_payload = {}
 
     rows, next_payload, _total = await booking_svc.get_user_bookings(
-        db, user_id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+        db,
+        user_id,
+        cursor_payload=cursor_payload,
+        limit=limit,
+        with_total=True,
     )
 
     bookings = rows

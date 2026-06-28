@@ -6,6 +6,7 @@ Tool bridge: adapts MCP tool logic into Pydantic AI tool functions.
    Import from the new package directly.  This file is retained as a
    thin re-export shim for backward compatibility.
 """
+
 from __future__ import annotations
 
 from app.services.ai_agent.tools import (  # noqa: F401 — re-exports

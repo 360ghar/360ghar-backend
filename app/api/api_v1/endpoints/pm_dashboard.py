@@ -24,7 +24,9 @@ async def dashboard_overview(
     return data
 
 
-@router.get("/activity", response_model=CursorPage[ActivityItem], summary="Get PM dashboard activity")
+@router.get(
+    "/activity", response_model=CursorPage[ActivityItem], summary="Get PM dashboard activity"
+)
 async def dashboard_activity(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     page: CursorParams = Depends(),

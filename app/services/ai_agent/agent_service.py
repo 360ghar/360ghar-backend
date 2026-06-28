@@ -4,6 +4,7 @@ Core Pydantic AI Agent service.
 Creates a Pydantic AI Agent with all MCP tools registered, manages
 conversation history, and streams SSE events back to the client.
 """
+
 from __future__ import annotations
 
 import json
@@ -95,9 +96,7 @@ def _build_message_history(
             tool_result = msg.get("tool_result", {})
             call_id = msg.get("tool_call_id", "unknown")
             result_content = (
-                json.dumps(tool_result)
-                if isinstance(tool_result, dict)
-                else str(tool_result)
+                json.dumps(tool_result) if isinstance(tool_result, dict) else str(tool_result)
             )
 
             if pending_tool_calls:
@@ -227,27 +226,32 @@ class PydanticAIAgentService:
                             async for event in handle_stream:  # type: ignore[assignment]
                                 if isinstance(event, FunctionToolCallEvent):
                                     call_id = (
-                                        event.part.tool_call_id
-                                        or f"tc_{uuid.uuid4().hex[:8]}"
+                                        event.part.tool_call_id or f"tc_{uuid.uuid4().hex[:8]}"
                                     )
                                     tool_calls_count += 1
-                                    yield ("tool_call_start", {
-                                        "call_id": call_id,
-                                        "tool": event.part.tool_name,
-                                    })
+                                    yield (
+                                        "tool_call_start",
+                                        {
+                                            "call_id": call_id,
+                                            "tool": event.part.tool_name,
+                                        },
+                                    )
                                 elif isinstance(event, FunctionToolResultEvent):
                                     call_id = event.tool_call_id or "unknown"
                                     result_part = event.result
                                     is_retry = isinstance(result_part, RetryPromptPart)
                                     tool_name = getattr(result_part, "tool_name", None) or "unknown"
-                                    yield ("tool_call_end", {
-                                        "call_id": call_id,
-                                        "tool": tool_name,
-                                        "success": not is_retry,
-                                        "summary": _summarize_result(
-                                            getattr(result_part, "content", "")
-                                        ),
-                                    })
+                                    yield (
+                                        "tool_call_end",
+                                        {
+                                            "call_id": call_id,
+                                            "tool": tool_name,
+                                            "success": not is_retry,
+                                            "summary": _summarize_result(
+                                                getattr(result_part, "content", "")
+                                            ),
+                                        },
+                                    )
                                     if not is_retry:
                                         widget_name = get_widget_name_for_tool(tool_name)
                                         if widget_name:
@@ -257,10 +261,13 @@ class PydanticAIAgentService:
                                                     result_data = json.loads(result_data)
                                                 except (json.JSONDecodeError, TypeError):
                                                     result_data = {"raw": result_data}
-                                            yield ("widget", {
-                                                "widget_name": widget_name,
-                                                "structured_content": result_data,
-                                            })
+                                            yield (
+                                                "widget",
+                                                {
+                                                    "widget_name": widget_name,
+                                                    "structured_content": result_data,
+                                                },
+                                            )
 
             try:
                 final_output = run.result.output  # type: ignore[union-attr]
@@ -337,14 +344,21 @@ class PydanticAIAgentService:
         for idx, (label, agent) in enumerate(candidates):
             if idx > 0:
                 logger.warning("Primary agent failed; falling back to %s", label)
-                yield _sse_event("fallback", {
-                    "provider": label,
-                    "reason": last_error or "unknown",
-                })
+                yield _sse_event(
+                    "fallback",
+                    {
+                        "provider": label,
+                        "reason": last_error or "unknown",
+                    },
+                )
 
             try:
                 async for event_name, event_data in self._run_agent_stream(
-                    agent, user_message, deps, message_history, conversation_id,
+                    agent,
+                    user_message,
+                    deps,
+                    message_history,
+                    conversation_id,
                     emit_conversation_info=(idx == 0),
                 ):
                     yield _sse_event(event_name, event_data)
@@ -355,11 +369,14 @@ class PydanticAIAgentService:
                 continue
 
         # All providers failed
-        yield _sse_event("error", {
-            "code": "AGENT_ERROR",
-            "message": f"All providers failed. Last error: {last_error}"[:200],
-            "recoverable": False,
-        })
+        yield _sse_event(
+            "error",
+            {
+                "code": "AGENT_ERROR",
+                "message": f"All providers failed. Last error: {last_error}"[:200],
+                "recoverable": False,
+            },
+        )
 
 
 def _summarize_result(content: Any, max_len: int = 100) -> str:

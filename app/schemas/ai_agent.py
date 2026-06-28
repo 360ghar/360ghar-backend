@@ -1,4 +1,5 @@
 """Pydantic schemas for the AI Agent chat feature."""
+
 from __future__ import annotations
 
 from datetime import datetime

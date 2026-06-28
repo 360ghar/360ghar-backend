@@ -28,7 +28,9 @@ def _get_client():
     return _client
 
 
-def _embed_one(client: object, model: str, text: str, *, task_type: str = "retrieval_document") -> list[float]:
+def _embed_one(
+    client: object, model: str, text: str, *, task_type: str = "retrieval_document"
+) -> list[float]:
     from google.genai import types
 
     retries = max(1, int(settings.VECTOR_SYNC_MAX_RETRIES))

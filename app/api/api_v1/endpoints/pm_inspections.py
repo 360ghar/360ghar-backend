@@ -54,7 +54,9 @@ async def create_inspection(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.get("", response_model=CursorPage[InspectionChecklistSchema], summary="List inspection checklists")
+@router.get(
+    "", response_model=CursorPage[InspectionChecklistSchema], summary="List inspection checklists"
+)
 async def list_inspection_checklists(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     lease_id: int | None = Query(None),
@@ -82,7 +84,9 @@ async def list_inspection_checklists(
     )
 
 
-@router.get("/{inspection_id}", response_model=InspectionChecklistSchema, summary="Get inspection checklist")
+@router.get(
+    "/{inspection_id}", response_model=InspectionChecklistSchema, summary="Get inspection checklist"
+)
 async def get_inspection_checklist(
     inspection_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -93,7 +97,11 @@ async def get_inspection_checklist(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.post("/{inspection_id}/sign", response_model=InspectionChecklistSchema, summary="Sign inspection checklist")
+@router.post(
+    "/{inspection_id}/sign",
+    response_model=InspectionChecklistSchema,
+    summary="Sign inspection checklist",
+)
 async def sign(
     inspection_id: int,
     payload: InspectionSign,
@@ -109,4 +117,3 @@ async def sign(
         owner_signature_document_id=payload.owner_signature_document_id,
     )
     return InspectionChecklistSchema.model_validate(checklist)
-

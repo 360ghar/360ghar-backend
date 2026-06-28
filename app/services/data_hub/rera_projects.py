@@ -1,4 +1,5 @@
 """RERA project scraper — HRERA Gurugram (Playwright, JS-rendered tables)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -47,7 +48,9 @@ class ReraProjectScraper(BaseScraper):
                     results.extend(self._parse_rera_html(html))
                     # Try to paginate (up to 5 pages)
                     for _ in range(4):
-                        next_btn = page.locator("a:has-text('Next'), a:has-text('>'), .pagination .next")
+                        next_btn = page.locator(
+                            "a:has-text('Next'), a:has-text('>'), .pagination .next"
+                        )
                         if await next_btn.count() == 0:
                             break
                         await next_btn.first.click()
@@ -65,6 +68,7 @@ class ReraProjectScraper(BaseScraper):
 
     def _parse_rera_html(self, html: str) -> list[dict]:
         import re
+
         soup = BeautifulSoup(html, "html.parser")
         records = []
         for table in soup.find_all("table"):
@@ -73,7 +77,10 @@ class ReraProjectScraper(BaseScraper):
                 cells = [td.get_text(strip=True) for td in row.find_all("td")]
                 if len(cells) < 2:
                     continue
-                rec: dict[str, Any] = {"district": "Gurugram", "raw_data": {"headers": headers, "cells": cells}}
+                rec: dict[str, Any] = {
+                    "district": "Gurugram",
+                    "raw_data": {"headers": headers, "cells": cells},
+                }
                 for i, h in enumerate(headers):
                     if i >= len(cells):
                         break
@@ -117,8 +124,11 @@ class ReraProjectScraper(BaseScraper):
         failed = 0
         for rec in records:
             try:
-                values = {k: v for k, v in rec.items()
-                          if hasattr(ReraProject, k) and k not in ("id", "created_at", "updated_at")}
+                values = {
+                    k: v
+                    for k, v in rec.items()
+                    if hasattr(ReraProject, k) and k not in ("id", "created_at", "updated_at")
+                }
                 stmt = pg_insert(ReraProject).values(**values)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["rera_number"],
@@ -127,7 +137,7 @@ class ReraProjectScraper(BaseScraper):
                         "units_booked": stmt.excluded.units_booked,
                         "raw_data": stmt.excluded.raw_data,
                         "source_url": stmt.excluded.source_url,
-                    }
+                    },
                 )
                 await db.execute(stmt)
                 upserted += 1

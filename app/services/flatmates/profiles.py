@@ -151,10 +151,7 @@ async def list_discoverable_profiles(
     if requesting_user and requesting_user.phone:
         base_phone = requesting_user.phone.split("_dup_")[0]
         phone_excluded_subq = select(User.id).where(
-            or_(
-                User.phone == base_phone,
-                User.phone.like(f"{base_phone}_dup_%")
-            ),
+            or_(User.phone == base_phone, User.phone.like(f"{base_phone}_dup_%")),
             User.id != user_id,
         )
         phone_dup_ids = list((await db.execute(phone_excluded_subq)).scalars().all())
@@ -173,21 +170,16 @@ async def list_discoverable_profiles(
         elif nn == "food_vegan_only":
             filters.append(User.flatmates_food_habits.in_(["vegan"]))
         elif nn == "no_smoking":
-            filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "drink_occasionally"]
-            ))
+            filters.append(User.flatmates_smoking_drinking.in_(["neither", "drink_occasionally"]))
         elif nn == "no_drinking":
-            filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "smoke_outside"]
-            ))
+            filters.append(User.flatmates_smoking_drinking.in_(["neither", "smoke_outside"]))
         elif nn == "no_overnight_guests":
-            filters.append(User.flatmates_guests_policy.in_(
-                ["no_overnight_guests"]
-            ))
+            filters.append(User.flatmates_guests_policy.in_(["no_overnight_guests"]))
         elif nn == "no_pets":
             # pets is stored inside preferences.flatmates.pets
             filters.append(
-                func.coalesce(cast(User.preferences[("flatmates", "pets")], String), "no_pets") == "no_pets"
+                func.coalesce(cast(User.preferences[("flatmates", "pets")], String), "no_pets")
+                == "no_pets"
             )
         elif nn == "gender_female_only":
             # gender stored in preferences.flatmates.gender
@@ -207,23 +199,25 @@ async def list_discoverable_profiles(
             # JSON text extraction returns quoted strings (e.g. '"never"'), so
             # we must include both quoted and unquoted variants.
             filters.append(
-                func.coalesce(cast(User.preferences[("flatmates", "parties_at_home")], String), "").notin_(
+                func.coalesce(
+                    cast(User.preferences[("flatmates", "parties_at_home")], String), ""
+                ).notin_(
                     [
-                        "occasional_weekends", '"occasional_weekends"',
-                        "party_friendly", '"party_friendly"',
-                        "occasionally", '"occasionally"',
-                        "regularly", '"regularly"',
+                        "occasional_weekends",
+                        '"occasional_weekends"',
+                        "party_friendly",
+                        '"party_friendly"',
+                        "occasionally",
+                        '"occasionally"',
+                        "regularly",
+                        '"regularly"',
                     ]
                 )
             )
         elif nn == "min_tidy":
-            filters.append(User.flatmates_cleanliness.in_(
-                ["tidy", "spotless"]
-            ))
+            filters.append(User.flatmates_cleanliness.in_(["tidy", "spotless"]))
         elif nn == "early_riser":
-            filters.append(User.flatmates_sleep_schedule.in_(
-                ["early_bird"]
-            ))
+            filters.append(User.flatmates_sleep_schedule.in_(["early_bird"]))
 
     # --- Discovery filtering (P0-8) ---
     if city is not None:
@@ -249,10 +243,12 @@ async def list_discoverable_profiles(
     # --- Geolocation filtering ---
     if lat is not None and lng is not None and radius is not None:
         min_lat, max_lat, min_lon, max_lon = get_bounding_box(lat, lng, radius)
-        filters.extend([
-            User.current_latitude.between(min_lat, max_lat),
-            User.current_longitude.between(min_lon, max_lon),
-        ])
+        filters.extend(
+            [
+                User.current_latitude.between(min_lat, max_lat),
+                User.current_longitude.between(min_lon, max_lon),
+            ]
+        )
 
     _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
     _offset = read_offset(_payload)
@@ -500,8 +496,8 @@ async def get_bootstrap(db: AsyncSession, user_id: int) -> dict[str, Any]:
             Conversation.app == ConversationApp.flatmates,
         )
     )
-    conversation_count_stmt = select(func.count()).select_from(Conversation).where(
-        Conversation.id.in_(conv_id_subq)
+    conversation_count_stmt = (
+        select(func.count()).select_from(Conversation).where(Conversation.id.in_(conv_id_subq))
     )
     conversation_count = int((await db.execute(conversation_count_stmt)).scalar() or 0)
 

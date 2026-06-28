@@ -1,5 +1,6 @@
 """DFC Delhi auction scraper — Delhi Development Authority (DSIDC/DFC) public auctions
 for industrial plots, sheds, and commercial land in Narela, Jhilmil, Nangloi etc."""
+
 from __future__ import annotations
 
 import asyncio
@@ -113,7 +114,11 @@ class DFCDelhiAuctionScraper(BaseScraper):
 
                 # Classify property type from description if not already set
                 if not record.get("property_type"):
-                    desc = (record.get("property_description", "") + " " + record.get("full_address", "")).lower()
+                    desc = (
+                        record.get("property_description", "")
+                        + " "
+                        + record.get("full_address", "")
+                    ).lower()
                     record["property_type"] = self._classify_type(desc)
 
                 if record.get("property_description"):
@@ -121,7 +126,9 @@ class DFCDelhiAuctionScraper(BaseScraper):
 
         # Also try notice/article cards (DFC sometimes lists auctions as news items)
         if not records:
-            for item in soup.find_all(["div", "li"], class_=re.compile(r"auction|notice|tender|news", re.I)):
+            for item in soup.find_all(
+                ["div", "li"], class_=re.compile(r"auction|notice|tender|news", re.I)
+            ):
                 text = item.get_text(separator=" ", strip=True)
                 if not text or len(text) < 15:
                     continue
@@ -146,7 +153,15 @@ class DFCDelhiAuctionScraper(BaseScraper):
     @staticmethod
     def _enrich_address(text: str) -> str:
         """Prepend 'Delhi — ' to addresses that mention known DFC industrial areas."""
-        known_areas = ["narela", "jhilmil", "nangloi", "okhla", "wazirpur", "mohan cooperative", "badli"]
+        known_areas = [
+            "narela",
+            "jhilmil",
+            "nangloi",
+            "okhla",
+            "wazirpur",
+            "mohan cooperative",
+            "badli",
+        ]
         text_lower = text.lower()
         if any(area in text_lower for area in known_areas):
             if "delhi" not in text_lower:
@@ -214,7 +229,11 @@ class DFCDelhiAuctionScraper(BaseScraper):
                 rec.setdefault("is_active", True)
                 rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
-                    **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")}
+                    **{
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
+                    }
                 )
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_bank_auctions_key",

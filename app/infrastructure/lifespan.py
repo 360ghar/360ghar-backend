@@ -105,11 +105,11 @@ async def _apply_pending_migrations() -> None:
                         CREATE TYPE tour_visibility AS ENUM ('private', 'unlisted', 'public');
                     END IF;
                 END$$;
-                """
+                """,
             ),
             (
                 "tours: add visibility column",
-                "ALTER TABLE public.tours ADD COLUMN IF NOT EXISTS visibility public.tour_visibility NOT NULL DEFAULT 'private'"
+                "ALTER TABLE public.tours ADD COLUMN IF NOT EXISTS visibility public.tour_visibility NOT NULL DEFAULT 'private'",
             ),
             (
                 "tours: migrate is_public to visibility",
@@ -120,15 +120,15 @@ async def _apply_pending_migrations() -> None:
                     ELSE 'private'::public.tour_visibility
                 END
                 WHERE visibility = 'private' AND is_public = true
-                """
+                """,
             ),
             (
                 "tours: create visibility index",
-                "CREATE INDEX IF NOT EXISTS idx_tours_visibility ON public.tours(visibility)"
+                "CREATE INDEX IF NOT EXISTS idx_tours_visibility ON public.tours(visibility)",
             ),
             (
                 "tours: create status_visibility index",
-                "CREATE INDEX IF NOT EXISTS idx_tours_status_visibility ON public.tours(status, visibility) WHERE deleted_at IS NULL"
+                "CREATE INDEX IF NOT EXISTS idx_tours_status_visibility ON public.tours(status, visibility) WHERE deleted_at IS NULL",
             ),
         ):
             try:
@@ -273,6 +273,7 @@ async def _shutdown_ai_providers() -> None:
     """Close cached AI provider HTTP clients."""
     try:
         from app.services.ai import close_all_providers
+
         await close_all_providers()
     except Exception as e:
         logger.warning("Failed to close AI providers: %s", e)
@@ -294,6 +295,7 @@ def _shutdown_notification_executor() -> None:
     """Shut down the notification thread pool."""
     try:
         from app.services.notifications.helpers import shutdown_executor
+
         shutdown_executor()
     except Exception as e:
         logger.warning("Failed to shutdown notification executor: %s", e)

@@ -140,4 +140,3 @@ async def update_pm_property(
         floor_plans=payload.floor_plans,
     )
     return PropertySchema.model_validate(prop)
-

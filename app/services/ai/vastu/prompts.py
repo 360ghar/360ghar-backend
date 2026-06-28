@@ -274,13 +274,13 @@ def generate_markdown_report(result: dict) -> str:
                 "good": "👍",
                 "neutral": "➖",
                 "concerning": "⚠️",
-                "problematic": "❌"
+                "problematic": "❌",
             }.get(room.get("status", "").lower(), "•")
 
-            report += f"""### {room.get('room', 'Unknown')} - {room.get('direction', 'Unknown')}
-**Status**: {status_emoji} {room.get('status', 'Unknown').title()}
+            report += f"""### {room.get("room", "Unknown")} - {room.get("direction", "Unknown")}
+**Status**: {status_emoji} {room.get("status", "Unknown").title()}
 
-{room.get('analysis', '')}
+{room.get("analysis", "")}
 
 """
 
@@ -288,15 +288,13 @@ def generate_markdown_report(result: dict) -> str:
     if major_defects:
         report += "## 4. Major Vastu Defects\n\n"
         for i, defect in enumerate(major_defects[:5], 1):
-            severity_emoji = {
-                "high": "🔴",
-                "medium": "🟡",
-                "low": "🟢"
-            }.get(defect.get("severity", "").lower(), "•")
+            severity_emoji = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(
+                defect.get("severity", "").lower(), "•"
+            )
 
-            report += f"""### Defect {i}: {defect.get('issue', 'Unknown')}
-- **Severity**: {severity_emoji} {defect.get('severity', 'Unknown').title()}
-- **Impact**: {defect.get('impact', '')}
+            report += f"""### Defect {i}: {defect.get("issue", "Unknown")}
+- **Severity**: {severity_emoji} {defect.get("severity", "Unknown").title()}
+- **Impact**: {defect.get("impact", "")}
 
 """
 
@@ -304,9 +302,9 @@ def generate_markdown_report(result: dict) -> str:
     if remedies:
         report += "## 5. Practical Remedies\n\n"
         for remedy in remedies:
-            report += f"""### For {remedy.get('problem', 'Unknown Issue')}
-**Solution**: {remedy.get('solution', '')}
-**Type**: {remedy.get('type', 'general').title()}
+            report += f"""### For {remedy.get("problem", "Unknown Issue")}
+**Solution**: {remedy.get("solution", "")}
+**Type**: {remedy.get("type", "general").title()}
 
 """
 

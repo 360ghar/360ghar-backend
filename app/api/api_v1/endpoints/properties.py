@@ -298,7 +298,11 @@ async def get_properties_list(
     try:
         await pause_expired_flatmate_listings(db)
         rows, next_payload, total = await get_unified_properties_optimized(
-            db, filters, user_id, cursor_payload, page.limit,
+            db,
+            filters,
+            user_id,
+            cursor_payload,
+            page.limit,
             with_total=page.include_total,
         )
 
@@ -328,7 +332,9 @@ async def get_properties_list(
         raise
 
 
-@router.get("/semantic-search", response_model=CursorPage[Property], summary="Semantic property search")
+@router.get(
+    "/semantic-search", response_model=CursorPage[Property], summary="Semantic property search"
+)
 async def semantic_property_search(
     filters: UnifiedPropertyFilter = Depends(build_property_filters),
     page: CursorParams = Depends(),
@@ -357,7 +363,11 @@ async def semantic_property_search(
         cursor_payload = page.decoded()
         await pause_expired_flatmate_listings(db)
         rows, next_payload, total = await get_unified_properties_optimized(
-            db, filters, user_id, cursor_payload, page.limit,
+            db,
+            filters,
+            user_id,
+            cursor_payload,
+            page.limit,
             with_total=page.include_total,
         )
         return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
@@ -376,7 +386,9 @@ async def semantic_property_search(
         raise
 
 
-@router.get("/recommendations", response_model=CursorPage[Property], summary="List recommended properties")
+@router.get(
+    "/recommendations", response_model=CursorPage[Property], summary="List recommended properties"
+)
 async def get_recommendations(
     page: CursorParams = Depends(),
     current_user: UserSchema | None = Depends(get_current_user_optional),
@@ -397,7 +409,10 @@ async def get_recommendations(
         cursor_payload = page.decoded()
         await pause_expired_flatmate_listings(db)
         rows, next_payload, total = await get_property_recommendations(
-            db, user_id, cursor_payload, page.limit,
+            db,
+            user_id,
+            cursor_payload,
+            page.limit,
             with_total=page.include_total,
         )
         return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)

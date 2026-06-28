@@ -42,9 +42,7 @@ async def upload_document(
 
             raise InsufficientPermissionsError("Only admins/agents can set owner_id")
 
-    upload_res = await storage_service.upload_document(
-        file, user_id=target_owner_id
-    )
+    upload_res = await storage_service.upload_document(file, user_id=target_owner_id)
 
     doc = await create_document(
         db,
@@ -103,7 +101,9 @@ async def get_documents(
     )
 
 
-@router.patch("/{document_id}", response_model=DocumentSchema, summary="Update property document metadata")
+@router.patch(
+    "/{document_id}", response_model=DocumentSchema, summary="Update property document metadata"
+)
 async def patch_document(
     document_id: int,
     payload: DocumentUpdate,
@@ -122,7 +122,9 @@ async def patch_document(
     return DocumentSchema.model_validate(doc)
 
 
-@router.get("/{document_id}/download", response_model=DocumentDownload, summary="Download property document")
+@router.get(
+    "/{document_id}/download", response_model=DocumentDownload, summary="Download property document"
+)
 async def download_document(
     document_id: int,
     current_user: User = Depends(get_current_active_user),

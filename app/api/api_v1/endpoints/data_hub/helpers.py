@@ -32,7 +32,9 @@ async def _safe_list_query(
             total = (await db.execute(count_q)).scalar_one()
         rows = (await db.execute(data_q.offset(offset).limit(limit + 1))).scalars().all()
     except (ProgrammingError, OperationalError) as exc:
-        logger.error("Data-hub table query failed for %s (tables may not exist yet): %s", model.__name__, exc)
+        logger.error(
+            "Data-hub table query failed for %s (tables may not exist yet): %s", model.__name__, exc
+        )
         total = 0 if with_total else None
         rows = []
     return rows, total

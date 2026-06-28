@@ -64,7 +64,7 @@ async def agent_bookings_list_all(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services import booking as booking_svc
@@ -89,13 +89,15 @@ async def agent_bookings_list_all(
 
             items = [serialize_booking(b) for b in rows]
 
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "bookings": items,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": len(items),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "bookings": items,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -104,6 +106,7 @@ async def agent_bookings_list_all(
         logger.error("Error in agent.bookings.list_all: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_bookings_update_status",
@@ -128,7 +131,7 @@ async def agent_bookings_update_status(
         notes: Status update notes
     """
     try:
-        valid_statuses = ['confirmed', 'checked_in', 'checked_out', 'cancelled', 'completed']
+        valid_statuses = ["confirmed", "checked_in", "checked_out", "cancelled", "completed"]
         if status.lower() not in valid_statuses:
             return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
 
@@ -144,7 +147,7 @@ async def agent_bookings_update_status(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services import booking as booking_svc
@@ -155,6 +158,7 @@ async def agent_bookings_update_status(
 
             # Update booking status
             from app.schemas.booking import BookingUpdate
+
             update_data = BookingUpdate(booking_status=status.lower())
             if notes:
                 update_data.notes = notes
@@ -162,10 +166,12 @@ async def agent_bookings_update_status(
             updated = await booking_svc.update_booking(db, booking_id, update_data)
             await db.commit()
 
-            return MCPResponse.success({
-                "message": f"Booking status updated to {status}",
-                "booking": serialize_booking(updated) if updated else None,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": f"Booking status updated to {status}",
+                    "booking": serialize_booking(updated) if updated else None,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

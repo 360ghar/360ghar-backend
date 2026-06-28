@@ -13,7 +13,11 @@ from app.schemas.data_hub import NeighbourhoodScoreResponse
 router = APIRouter()
 
 
-@router.get("/neighbourhood/{listing_id}", response_model=NeighbourhoodScoreResponse, summary="Get neighbourhood score")
+@router.get(
+    "/neighbourhood/{listing_id}",
+    response_model=NeighbourhoodScoreResponse,
+    summary="Get neighbourhood score",
+)
 async def get_neighbourhood_score(listing_id: int, db: AsyncSession = Depends(get_db)):
     """Get neighbourhood score for a property listing."""
     result = await db.execute(
@@ -49,6 +53,7 @@ async def refresh_neighbourhood_score(
 ):
     """Trigger a neighbourhood score refresh for a listing (admin only)."""
     from app.services.data_hub.neighbourhood import NeighbourhoodScraper
+
     scraper = NeighbourhoodScraper(listing_ids=[listing_id])
     result = await scraper.run(run_type="manual", triggered_by=current_user.id)
     return {"message": "Neighbourhood refresh triggered", "result": result}

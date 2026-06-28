@@ -7,6 +7,7 @@ their tools via ``@admin_mcp.tool()`` decorators.
 
 This module also defines the shared auth helpers used by every tool.
 """
+
 from __future__ import annotations
 
 from typing import NoReturn

@@ -18,13 +18,14 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     # Haversine formula
     dlat = lat2_rad - lat1_rad
     dlon = lon2_rad - lon1_rad
-    a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
     c = 2 * math.asin(math.sqrt(a))
 
     # Radius of earth in kilometers
     earth_radius_km = 6371
 
     return c * earth_radius_km
+
 
 def distance_in_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -35,7 +36,10 @@ def distance_in_meters(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     """
     return haversine_distance(lat1, lon1, lat2, lon2) * 1000
 
-def are_coordinates_within_radius(lat1: float, lon1: float, lat2: float, lon2: float, radius_km: float) -> bool:
+
+def are_coordinates_within_radius(
+    lat1: float, lon1: float, lat2: float, lon2: float, radius_km: float
+) -> bool:
     """
     Check if two coordinates are within a specified radius.
 
@@ -49,6 +53,7 @@ def are_coordinates_within_radius(lat1: float, lon1: float, lat2: float, lon2: f
     """
     distance = haversine_distance(lat1, lon1, lat2, lon2)
     return distance <= radius_km
+
 
 def get_bounding_box(lat: float, lon: float, radius_km: float) -> tuple[float, float, float, float]:
     """
@@ -71,5 +76,5 @@ def get_bounding_box(lat: float, lon: float, radius_km: float) -> tuple[float, f
         lat - lat_delta,  # min_lat
         lat + lat_delta,  # max_lat
         lon - lon_delta,  # min_lon
-        lon + lon_delta   # max_lon
+        lon + lon_delta,  # max_lon
     )

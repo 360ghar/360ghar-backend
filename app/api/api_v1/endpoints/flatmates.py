@@ -96,7 +96,7 @@ async def flatmates_sse(
 
     async def event_stream():
         try:
-            yield "event: connected\ndata: {\"status\":\"ok\"}\n\n"
+            yield 'event: connected\ndata: {"status":"ok"}\n\n'
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=60)
@@ -179,7 +179,9 @@ async def create_profile(
     return await update_flatmates_profile(db, current_user.id, payload)
 
 
-@router.get("/profiles/{user_id}", response_model=FlatmatesPeer, summary="Get flatmate profile by user")
+@router.get(
+    "/profiles/{user_id}", response_model=FlatmatesPeer, summary="Get flatmate profile by user"
+)
 async def get_user_profile(
     user_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -189,7 +191,9 @@ async def get_user_profile(
     return await get_profile_by_id(db, user_id, current_user_id=current_user.id)
 
 
-@router.get("/profiles", response_model=CursorPage[FlatmatesPeer], summary="Discover flatmate profiles")
+@router.get(
+    "/profiles", response_model=CursorPage[FlatmatesPeer], summary="Discover flatmate profiles"
+)
 async def get_discoverable_profiles(
     city: str | None = Query(default=None),
     budget_min: int | None = Query(default=None),
@@ -268,7 +272,9 @@ async def get_incoming_likes(
     )
 
 
-@router.get("/outgoing-likes", response_model=CursorPage[IncomingLikeSummary], summary="List outgoing likes")
+@router.get(
+    "/outgoing-likes", response_model=CursorPage[IncomingLikeSummary], summary="List outgoing likes"
+)
 async def get_outgoing_likes(
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -300,7 +306,11 @@ async def record_profile_view(
     return await record_profile_view_event(db, current_user.id, payload)
 
 
-@router.post("/listings/{listing_id}/society-tags/votes", response_model=SocietyTagVoteOut, summary="Vote on society tag")
+@router.post(
+    "/listings/{listing_id}/society-tags/votes",
+    response_model=SocietyTagVoteOut,
+    summary="Vote on society tag",
+)
 async def vote_society_tag(
     listing_id: int,
     payload: SocietyTagVoteCreate,
@@ -311,7 +321,9 @@ async def vote_society_tag(
     return await record_society_tag_vote(db, current_user.id, listing_id, payload)
 
 
-@router.get("/conversations", response_model=CursorPage[ConversationSummary], summary="List conversations")
+@router.get(
+    "/conversations", response_model=CursorPage[ConversationSummary], summary="List conversations"
+)
 async def get_conversations(
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -343,7 +355,11 @@ async def create_conversation(
     return await create_conversation_from_payload(db, current_user.id, payload)
 
 
-@router.get("/conversations/{conversation_id}", response_model=ConversationSummary, summary="Get conversation detail")
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationSummary,
+    summary="Get conversation detail",
+)
 async def get_conversation_detail(
     conversation_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -353,7 +369,11 @@ async def get_conversation_detail(
     return await get_conversation_summary(db, conversation_id, current_user.id)
 
 
-@router.get("/conversations/{conversation_id}/messages", response_model=MessageListResponse, summary="List conversation messages")
+@router.get(
+    "/conversations/{conversation_id}/messages",
+    response_model=MessageListResponse,
+    summary="List conversation messages",
+)
 async def get_conversation_messages(
     conversation_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -364,7 +384,11 @@ async def get_conversation_messages(
     return MessageListResponse(messages=messages, total=len(messages), has_more=False)
 
 
-@router.post("/conversations/{conversation_id}/messages", response_model=MessageOut, summary="Send conversation message")
+@router.post(
+    "/conversations/{conversation_id}/messages",
+    response_model=MessageOut,
+    summary="Send conversation message",
+)
 async def post_conversation_message(
     conversation_id: int,
     payload: MessageCreate,
@@ -461,7 +485,11 @@ async def report_user(
     return await create_report(db, current_user.id, payload)
 
 
-@router.get("/notifications", response_model=CursorPage[FlatmatesNotificationOut], summary="List flatmates notifications")
+@router.get(
+    "/notifications",
+    response_model=CursorPage[FlatmatesNotificationOut],
+    summary="List flatmates notifications",
+)
 async def get_flatmates_notifications(
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -494,7 +522,11 @@ async def mark_flatmates_notifications(
     return await mark_all_flatmates_notifications_read(db, current_user.id)
 
 
-@router.put("/notifications/{notification_id}", response_model=dict[str, Any], summary="Mark flatmates notification")
+@router.put(
+    "/notifications/{notification_id}",
+    response_model=dict[str, Any],
+    summary="Mark flatmates notification",
+)
 async def mark_flatmates_notification(
     notification_id: str,
     payload: FlatmatesNotificationUpdate,

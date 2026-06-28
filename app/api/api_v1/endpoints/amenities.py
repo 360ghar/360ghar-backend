@@ -1,4 +1,3 @@
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,4 +21,3 @@ async def get_amenities_cached(db: AsyncSession) -> list[Amenity]:
 async def list_amenities(db: AsyncSession = Depends(get_db)):
     """List all available amenities (cached for 24 hours)."""
     return await get_amenities_cached(db)
-

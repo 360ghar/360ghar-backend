@@ -137,7 +137,9 @@ async def last_method(
             "content": {
                 "application/json": {
                     "examples": {
-                        "google": {"value": {"provider": "google", "id_token": "eyJhbGciOiJSUzI1NiIs..."}},
+                        "google": {
+                            "value": {"provider": "google", "id_token": "eyJhbGciOiJSUzI1NiIs..."}
+                        },
                     }
                 }
             }

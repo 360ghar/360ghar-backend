@@ -80,7 +80,7 @@ async def agent_maintenance_list(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services.pm_authz import get_accessible_owner_ids
@@ -104,19 +104,27 @@ async def agent_maintenance_list(
             if status:
                 status_norm = status.lower().strip()
                 if status_norm == "open":
-                    stmt = stmt.where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
+                    stmt = stmt.where(
+                        MaintenanceRequest.request_status == MaintenanceRequestStatus.open
+                    )
                 elif status_norm == "in_progress":
-                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress)
+                    stmt = stmt.where(
+                        MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress
+                    )
                 elif status_norm == "scheduled":
                     stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
                 elif status_norm == "completed":
                     stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
                 elif status_norm == "cancelled":
-                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
+                    stmt = stmt.where(
+                        MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled
+                    )
                 else:
                     return invalid_input_response(f"Invalid status: {status}")
 
-            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
+            stmt = (
+                stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
+            )
 
             result = await db.execute(stmt)
             requests = list(result.scalars().all())
@@ -128,13 +136,15 @@ async def agent_maintenance_list(
             items = [serialize_maintenance_request(r) for r in requests]
             next_payload = offset_payload(offset + len(items)) if has_more else None
 
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "requests": items,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": len(items),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "requests": items,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -143,6 +153,7 @@ async def agent_maintenance_list(
         logger.error("Error in agent.maintenance.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_maintenance_update_status",
@@ -182,7 +193,7 @@ async def agent_maintenance_update_status(
         from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
         from app.models.pm_maintenance import MaintenanceRequest
 
-        valid_statuses = ['open', 'in_progress', 'scheduled', 'completed', 'cancelled']
+        valid_statuses = ["open", "in_progress", "scheduled", "completed", "cancelled"]
         if status.lower() not in valid_statuses:
             return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
 
@@ -200,7 +211,7 @@ async def agent_maintenance_update_status(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             # Get the request with property for auth check
@@ -224,7 +235,7 @@ async def agent_maintenance_update_status(
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property's maintenance requests"
+                    "You do not have access to this property's maintenance requests",
                 ).model_dump()
 
             # Update the request
@@ -267,10 +278,12 @@ async def agent_maintenance_update_status(
             await db.flush()
             await db.commit()
 
-            return MCPResponse.success({
-                "message": "Maintenance request updated successfully",
-                "request": serialize_maintenance_request(request),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Maintenance request updated successfully",
+                    "request": serialize_maintenance_request(request),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

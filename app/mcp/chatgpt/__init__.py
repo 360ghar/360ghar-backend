@@ -13,6 +13,7 @@ Widgets:
 - VisitSchedulerWidget, VisitListWidget
 - LeaseDetailsWidget, MaintenanceWidget, OwnerDashboardWidget
 """
+
 from __future__ import annotations
 
 import hashlib

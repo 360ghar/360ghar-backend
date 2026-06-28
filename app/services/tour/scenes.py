@@ -86,7 +86,9 @@ async def create_scene(db: AsyncSession, tour_id: str, user_id: int, data: Scene
     if image_url and not ValidationUtils.is_absolute_url(image_url):
         logger.warning("Non-absolute image_url for scene in tour %s: %s", tour_id, image_url)
     if thumbnail_url and not ValidationUtils.is_absolute_url(thumbnail_url):
-        logger.warning("Non-absolute thumbnail_url for scene in tour %s: %s", tour_id, thumbnail_url)
+        logger.warning(
+            "Non-absolute thumbnail_url for scene in tour %s: %s", tour_id, thumbnail_url
+        )
 
     scene = Scene(
         id=str(uuid4()),
@@ -127,7 +129,11 @@ async def update_scene(db: AsyncSession, scene_id: str, user_id: int, data: Scen
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if field in ("image_url", "thumbnail_url") and value is not None and not ValidationUtils.is_absolute_url(value):
+        if (
+            field in ("image_url", "thumbnail_url")
+            and value is not None
+            and not ValidationUtils.is_absolute_url(value)
+        ):
             logger.warning("Non-absolute %s for scene %s: %s", field, scene_id, value)
         if field == "metadata" and value is not None:
             value = value if isinstance(value, dict) else value.model_dump()
@@ -190,7 +196,7 @@ async def reorder_scenes(
         result = await db.execute(query)
         scene_obj = result.scalar_one_or_none()
 
-        if scene_obj is not None and hasattr(scene_obj, 'order_index'):
+        if scene_obj is not None and hasattr(scene_obj, "order_index"):
             scene_obj.order_index = index
 
     await db.commit()

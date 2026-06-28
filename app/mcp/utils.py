@@ -40,10 +40,13 @@ async def get_db():
             yield db
         except Exception as e:
             logger.error("MCP database session error: %s", e)
-            sentry_sdk.set_context("database", {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            })
+            sentry_sdk.set_context(
+                "database",
+                {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            )
             await db.rollback()
             raise
         else:
@@ -304,7 +307,9 @@ def serialize_lease(lease: Lease) -> dict:
 def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
     """Serialize a maintenance request for MCP responses."""
     category = getattr(req, "category", None)
-    category_value = category.value if category is not None and hasattr(category, "value") else category
+    category_value = (
+        category.value if category is not None and hasattr(category, "value") else category
+    )
 
     urgency = getattr(req, "urgency", None)
     urgency_value = urgency.value if urgency is not None and hasattr(urgency, "value") else urgency
@@ -315,12 +320,16 @@ def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
 
     request_status = getattr(req, "request_status", None)
     request_status_value = (
-        request_status.value if request_status is not None and hasattr(request_status, "value") else request_status
+        request_status.value
+        if request_status is not None and hasattr(request_status, "value")
+        else request_status
     )
 
     work_order_status = getattr(req, "work_order_status", None)
     work_order_status_value = (
-        work_order_status.value if work_order_status is not None and hasattr(work_order_status, "value") else work_order_status
+        work_order_status.value
+        if work_order_status is not None and hasattr(work_order_status, "value")
+        else work_order_status
     )
 
     scheduled_for = getattr(req, "scheduled_for", None)

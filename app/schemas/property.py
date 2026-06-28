@@ -207,13 +207,10 @@ class PropertyCreate(PropertyBase):
         positive monthly_rent. Prevents zero-rent rows from being created via
         any client path (Flutter, web, AI agent, direct API)."""
         is_rent_listing = (
-            self.purpose == PropertyPurpose.rent
-            or self.property_type in PG_FLATMATE_TYPES
+            self.purpose == PropertyPurpose.rent or self.property_type in PG_FLATMATE_TYPES
         )
         if is_rent_listing and (self.monthly_rent is None or self.monthly_rent <= 0):
-            raise ValueError(
-                "monthly_rent must be a positive number for rent/flatmate/PG listings"
-            )
+            raise ValueError("monthly_rent must be a positive number for rent/flatmate/PG listings")
         return self
 
 
@@ -316,7 +313,14 @@ class PropertyInDB(PropertyBase):
     created_at: datetime
     updated_at: datetime | None = None
 
-    @field_validator("main_image_url", "floor_plan_url", "video_tour_url", "virtual_tour_url", "google_street_view_url", mode="before")
+    @field_validator(
+        "main_image_url",
+        "floor_plan_url",
+        "video_tour_url",
+        "virtual_tour_url",
+        "google_street_view_url",
+        mode="before",
+    )
     @classmethod
     def strip_relative_urls(cls, v: object) -> str | None:
         """Blank out relative paths so the app never builds a localhost URL from them."""
@@ -390,7 +394,9 @@ class PropertyInDB(PropertyBase):
 
 class Property(PropertyInDB):
     images: list[PropertyImage] | None = None
-    amenities: list[PropertyAmenityResponse] | None = Field(None, validation_alias="property_amenities")
+    amenities: list[PropertyAmenityResponse] | None = Field(
+        None, validation_alias="property_amenities"
+    )
     distance_km: float | None = None  # For location-based searches
     liked: bool | None = None  # For swipe history - indicates if user liked this property
     vector_distance: float | None = None  # For semantic similarity scoring
@@ -501,5 +507,3 @@ class UnifiedPropertyResponse(BaseModel):
     total_pages: int
     filters_applied: dict[str, Any]
     search_center: dict[str, float] | None = None
-
-

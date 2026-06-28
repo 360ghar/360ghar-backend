@@ -184,9 +184,7 @@ class DailyPerplexityBlogPublisher:
 
     async def _acquire_publish_lock(self, db: AsyncSession) -> bool:
         result = await db.execute(
-            text(
-                "SELECT pg_try_advisory_xact_lock(hashtext(:lock_key))"
-            ),
+            text("SELECT pg_try_advisory_xact_lock(hashtext(:lock_key))"),
             {"lock_key": AUTO_BLOG_PUBLISH_LOCK_KEY},
         )
         got_lock = bool(result.scalar_one())
@@ -194,7 +192,9 @@ class DailyPerplexityBlogPublisher:
             logger.info("Auto blog publish skipped; another worker holds the advisory lock")
         return got_lock
 
-    async def _publish_with_session(self, db: AsyncSession, *, manage_commit: bool) -> dict[str, Any]:
+    async def _publish_with_session(
+        self, db: AsyncSession, *, manage_commit: bool
+    ) -> dict[str, Any]:
         stats = AutoBlogRunStats()
         today = self._today_ist()
         today_label = self._format_perplexity_date(today)
@@ -268,7 +268,9 @@ class DailyPerplexityBlogPublisher:
         return user
 
     async def _get_recent_published_posts(self, db: AsyncSession) -> list[RecentPublishedPost]:
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=RECENT_POST_LOOKBACK_DAYS)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+            days=RECENT_POST_LOOKBACK_DAYS
+        )
         result = await db.execute(
             select(BlogPost)
             .where(BlogPost.active.is_(True), BlogPost.created_at >= cutoff)
@@ -357,7 +359,9 @@ class DailyPerplexityBlogPublisher:
             },
         )
         draft = result.output
-        citations = self._unique_urls([*draft.citations, *item.citations, *self._result_citations(result)])
+        citations = self._unique_urls(
+            [*draft.citations, *item.citations, *self._result_citations(result)]
+        )
         draft.citations = citations
         return draft
 
@@ -417,7 +421,9 @@ class DailyPerplexityBlogPublisher:
             "- Include source URLs in the citations field.\n"
         )
 
-    def _build_blog_payload(self, *, item: DiscoveredNewsItem, draft: GeneratedBlogDraft) -> BlogPostCreate:
+    def _build_blog_payload(
+        self, *, item: DiscoveredNewsItem, draft: GeneratedBlogDraft
+    ) -> BlogPostCreate:
         from app.schemas.blog import BlogSEOMetadata, BlogSource
 
         citations = self._unique_urls([*draft.citations, *item.citations, item.source_url])
@@ -431,12 +437,14 @@ class DailyPerplexityBlogPublisher:
         sources = []
         for url in citations:
             parsed = urlparse(url)
-            sources.append(BlogSource(
-                url=url,
-                name=parsed.netloc or url,
-                type="article",
-                retrieved_at=today_iso,
-            ))
+            sources.append(
+                BlogSource(
+                    url=url,
+                    name=parsed.netloc or url,
+                    type="article",
+                    retrieved_at=today_iso,
+                )
+            )
         # Mark the primary source
         if item.source_url:
             for s in sources:
@@ -579,7 +587,10 @@ class DailyPerplexityBlogPublisher:
 
     def _is_blocked_source(self, source_url: str) -> bool:
         domain = urlparse(source_url).netloc.lower().removeprefix("www.")
-        return any(domain == blocked or domain.endswith(f".{blocked}") for blocked in BLOCKED_SOURCE_DOMAINS)
+        return any(
+            domain == blocked or domain.endswith(f".{blocked}")
+            for blocked in BLOCKED_SOURCE_DOMAINS
+        )
 
     def _matches_today(self, publication_date: str, today: date) -> bool:
         normalized = publication_date.strip()

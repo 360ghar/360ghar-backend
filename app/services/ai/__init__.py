@@ -40,6 +40,7 @@ logger = get_logger(__name__)
 
 class AIProviderType(str, Enum):
     """Supported AI provider types."""
+
     GEMINI = "gemini"
     GLM = "glm"
 

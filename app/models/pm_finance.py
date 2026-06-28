@@ -128,7 +128,9 @@ class RentPayment(Base):
     property: Mapped[Property] = relationship("Property")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
     tenant_user: Mapped[User | None] = relationship("User", foreign_keys=[tenant_user_id])
-    receipt_document: Mapped[Document | None] = relationship("Document", foreign_keys=[receipt_document_id])
+    receipt_document: Mapped[Document | None] = relationship(
+        "Document", foreign_keys=[receipt_document_id]
+    )
 
 
 class Expense(Base):
@@ -171,4 +173,6 @@ class Expense(Base):
 
     property: Mapped[Property] = relationship("Property", back_populates="expenses")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
-    receipt_document: Mapped[Document | None] = relationship("Document", foreign_keys=[receipt_document_id])
+    receipt_document: Mapped[Document | None] = relationship(
+        "Document", foreign_keys=[receipt_document_id]
+    )

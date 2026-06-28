@@ -3,6 +3,7 @@ Pydantic schemas for 360 Virtual Tour API.
 
 These schemas define the request/response models for the tour management endpoints.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -16,8 +17,10 @@ from app.models.enums import HotspotType, TourStatus, TourVisibility
 # Tour Settings Schema
 # ====================
 
+
 class TourBrandingSettings(BaseModel):
     """Branding settings for a tour."""
+
     logo_url: str | None = None
     primary_color: str | None = None
     secondary_color: str | None = None
@@ -33,6 +36,7 @@ class TourBrandingSettings(BaseModel):
 
 class FloorPlanMarker(BaseModel):
     """Marker data for floor plan hotspots."""
+
     scene_id: str
     x: float = Field(..., ge=0, le=100)
     y: float = Field(..., ge=0, le=100)
@@ -41,6 +45,7 @@ class FloorPlanMarker(BaseModel):
 
 class FloorPlan(BaseModel):
     """Floor plan configuration stored in tour settings."""
+
     id: str
     name: str
     image_url: str
@@ -52,8 +57,10 @@ class FloorPlan(BaseModel):
 # Floor Plan CRUD Schemas (for dedicated table)
 # ====================
 
+
 class FloorPlanCreate(BaseModel):
     """Schema for creating a floor plan."""
+
     name: str = Field(..., min_length=1, max_length=255)
     image_url: str = Field(..., min_length=1)
     floor_number: int = Field(default=1, ge=1)
@@ -62,6 +69,7 @@ class FloorPlanCreate(BaseModel):
 
 class FloorPlanUpdate(BaseModel):
     """Schema for updating a floor plan."""
+
     name: str | None = Field(default=None, min_length=1, max_length=255)
     image_url: str | None = None
     floor_number: int | None = Field(default=None, ge=1)
@@ -70,6 +78,7 @@ class FloorPlanUpdate(BaseModel):
 
 class FloorPlanResponse(BaseModel):
     """Response schema for floor plan."""
+
     id: str
     tour_id: str
     name: str
@@ -84,6 +93,7 @@ class FloorPlanResponse(BaseModel):
 
 class TourSettings(BaseModel):
     """Tour configuration settings."""
+
     auto_rotate: bool | None = False
     auto_rotate_speed: float | None = Field(default=1.0, ge=0.1, le=10.0)
     initial_scene_id: str | None = None
@@ -101,15 +111,20 @@ class TourSettings(BaseModel):
 # Hotspot Schemas
 # ====================
 
+
 class HotspotPosition(BaseModel):
     """Position of a hotspot in 3D space."""
+
     yaw: float = Field(..., ge=-180, le=180, description="Horizontal angle in degrees")
     pitch: float = Field(..., ge=-90, le=90, description="Vertical angle in degrees")
-    radius: float | None = Field(default=None, gt=0, description="Optional radius for interaction area")
+    radius: float | None = Field(
+        default=None, gt=0, description="Optional radius for interaction area"
+    )
 
 
 class HotspotBase(BaseModel):
     """Base hotspot schema with common fields."""
+
     type: HotspotType = HotspotType.info
     position: HotspotPosition
     target_scene_id: str | None = None
@@ -125,11 +140,13 @@ class HotspotBase(BaseModel):
 
 class HotspotCreate(HotspotBase):
     """Schema for creating a hotspot."""
+
     pass
 
 
 class HotspotUpdate(BaseModel):
     """Schema for updating a hotspot."""
+
     type: HotspotType | None = None
     position: HotspotPosition | None = None
     target_scene_id: str | None = None
@@ -146,12 +163,14 @@ class HotspotUpdate(BaseModel):
 
 class HotspotPositionUpdate(BaseModel):
     """Schema for updating only hotspot position."""
+
     yaw: float = Field(..., ge=-180, le=180)
     pitch: float = Field(..., ge=-90, le=90)
 
 
 class Hotspot(HotspotBase):
     """Hotspot response schema."""
+
     id: str
     scene_id: str
     order_index: int
@@ -166,8 +185,10 @@ class Hotspot(HotspotBase):
 # Scene Metadata Schema
 # ====================
 
+
 class SceneInitialView(BaseModel):
     """Initial camera view for a scene."""
+
     yaw: float = 0
     pitch: float = 0
     zoom: float | None = 50
@@ -175,6 +196,7 @@ class SceneInitialView(BaseModel):
 
 class SceneCameraSettings(BaseModel):
     """Camera settings for a scene."""
+
     fov: float | None = 70
     min_fov: float | None = 30
     max_fov: float | None = 90
@@ -182,6 +204,7 @@ class SceneCameraSettings(BaseModel):
 
 class SceneMetadata(BaseModel):
     """Metadata for a scene."""
+
     initial_view: SceneInitialView | None = None
     camera: SceneCameraSettings | None = None
     gps: dict[str, float] | None = None  # {latitude, longitude}
@@ -192,8 +215,10 @@ class SceneMetadata(BaseModel):
 # Scene Schemas
 # ====================
 
+
 class SceneBase(BaseModel):
     """Base scene schema with common fields."""
+
     title: str | None = Field(default=None, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     order_index: int | None = Field(default=None, ge=0)
@@ -209,23 +234,27 @@ class SceneBase(BaseModel):
 
 class SceneCreate(SceneBase):
     """Schema for creating a scene."""
+
     image_url: str = Field(..., max_length=500)
     thumbnail_url: str | None = Field(default=None, max_length=500)
 
 
 class SceneUpdate(SceneBase):
     """Schema for updating a scene."""
+
     image_url: str | None = Field(default=None, max_length=500)
     thumbnail_url: str | None = Field(default=None, max_length=500)
 
 
 class SceneReorder(BaseModel):
     """Schema for reordering scenes."""
+
     scene_ids: list[str] = Field(..., min_length=1)
 
 
 class Scene(SceneBase):
     """Scene response schema."""
+
     id: str
     tour_id: str
     image_url: str
@@ -244,8 +273,10 @@ class Scene(SceneBase):
 # Tour Schemas
 # ====================
 
+
 class TourBase(BaseModel):
     """Base tour schema with common fields."""
+
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=5000)
     status: TourStatus | None = TourStatus.draft
@@ -256,11 +287,13 @@ class TourBase(BaseModel):
 
 class TourCreate(TourBase):
     """Schema for creating a tour."""
+
     pass
 
 
 class TourUpdate(BaseModel):
     """Schema for updating a tour."""
+
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=5000)
     status: TourStatus | None = None
@@ -273,6 +306,7 @@ class TourUpdate(BaseModel):
 
 class Tour(TourBase):
     """Tour response schema."""
+
     id: str
     user_id: int
     is_featured: bool
@@ -294,6 +328,7 @@ class Tour(TourBase):
 
 class TourWithScenes(Tour):
     """Tour with all scenes loaded."""
+
     scenes: list[Scene] = []
 
 
@@ -301,8 +336,10 @@ class TourWithScenes(Tour):
 # Analytics Schemas
 # ====================
 
+
 class DeviceBreakdown(BaseModel):
     """Device type breakdown for analytics."""
+
     desktop: int = 0
     mobile: int = 0
     tablet: int = 0
@@ -311,12 +348,14 @@ class DeviceBreakdown(BaseModel):
 
 class DailyView(BaseModel):
     """Daily view count for analytics."""
+
     date: str
     views: int
 
 
 class TourEventPayload(BaseModel):
     """Payload for tracking tour analytics events."""
+
     event_type: str
     scene_id: str | None = None
     hotspot_id: str | None = None
@@ -326,6 +365,7 @@ class TourEventPayload(BaseModel):
 
 class HeatmapPoint(BaseModel):
     """Heatmap point for viewer analytics."""
+
     scene_id: str | None = None
     yaw: float | None = None
     pitch: float | None = None
@@ -336,6 +376,7 @@ class HeatmapPoint(BaseModel):
 
 class TourAnalytics(BaseModel):
     """Analytics data for a tour."""
+
     tour_id: str
     total_views: int = 0
     unique_views: int = 0
@@ -354,6 +395,7 @@ class TourAnalytics(BaseModel):
 
 class DashboardStats(BaseModel):
     """Dashboard statistics for a user."""
+
     total_tours: int = 0
     published_tours: int = 0
     total_views: int = 0
@@ -364,6 +406,7 @@ class DashboardStats(BaseModel):
 
 class DashboardRealtimeStats(BaseModel):
     """Realtime dashboard metrics."""
+
     active_sessions: int = 0
     views_last_hour: int = 0
     likes_last_hour: int = 0
@@ -376,8 +419,10 @@ class DashboardRealtimeStats(BaseModel):
 # API Response Wrapper
 # ====================
 
+
 class ApiResponse(BaseModel):
     """Standard API response wrapper."""
+
     success: bool = True
     data: Any
     message: str | None = None
@@ -387,8 +432,10 @@ class ApiResponse(BaseModel):
 # AI Processing Schemas
 # ====================
 
+
 class AIJobBase(BaseModel):
     """Base AI Job schema."""
+
     id: str
     job_type: str
     status: str
@@ -405,11 +452,13 @@ class AIJobBase(BaseModel):
 
 class AIJobResponse(BaseModel):
     """Response containing an AI job."""
+
     job: AIJobBase
 
 
 class SceneAnalysisResult(BaseModel):
     """Result of AI scene analysis."""
+
     scene_id: str
     room_type: str
     room_confidence: float = Field(..., ge=0, le=1)
@@ -422,6 +471,7 @@ class SceneAnalysisResult(BaseModel):
 
 class HotspotSuggestion(BaseModel):
     """AI-suggested hotspot."""
+
     id: str
     type: str = "navigation"
     position: HotspotPosition
@@ -433,13 +483,17 @@ class HotspotSuggestion(BaseModel):
 
 class AIJobStatusResponse(BaseModel):
     """Response containing AI job status with optional results."""
+
     job: AIJobBase
     result: dict[str, Any] | None = None
 
 
 class DescriptionOptions(BaseModel):
     """Options for AI description generation."""
-    tone: str | None = Field(default="professional", pattern=r"^(professional|casual|luxury|friendly)$")
+
+    tone: str | None = Field(
+        default="professional", pattern=r"^(professional|casual|luxury|friendly)$"
+    )
     length: str | None = Field(default="medium", pattern=r"^(short|medium|long)$")
     include_features: bool | None = True
     target_audience: str | None = None
@@ -447,16 +501,19 @@ class DescriptionOptions(BaseModel):
 
 class ApplySceneAnalysis(BaseModel):
     """Request to apply AI scene analysis suggestions."""
+
     suggestions: list[dict[str, Any]]
 
 
 class ApplyHotspotSuggestions(BaseModel):
     """Request to apply AI hotspot suggestions."""
+
     suggestion_ids: list[str]
 
 
 class TourGenerationSceneInput(BaseModel):
     """Scene input for AI-driven tour generation."""
+
     image_url: str = Field(..., max_length=500)
     thumbnail_url: str | None = Field(default=None, max_length=500)
     title: str | None = Field(default=None, max_length=255)
@@ -474,6 +531,7 @@ class TourGenerationSceneInput(BaseModel):
 
 class TourGenerationRequest(BaseModel):
     """Request payload for AI tour generation."""
+
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=5000)
     status: TourStatus | None = TourStatus.draft
@@ -493,6 +551,7 @@ class TourGenerationRequest(BaseModel):
 
 class TourGenerationResponse(BaseModel):
     """Response for AI tour generation."""
+
     job: AIJobBase
     tour_id: str
     scene_ids: list[str]
@@ -500,6 +559,7 @@ class TourGenerationResponse(BaseModel):
 
 class TourOptimizationRequest(BaseModel):
     """Request payload for AI tour optimization."""
+
     goals: list[str] | None = None
     focus_areas: list[str] | None = None
     update_titles: bool | None = False
@@ -512,4 +572,5 @@ class TourOptimizationRequest(BaseModel):
 
 class TourOptimizationResponse(BaseModel):
     """Response for AI tour optimization."""
+
     job: AIJobBase

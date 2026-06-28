@@ -79,7 +79,7 @@ async def agent_leases_list(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services.pm_authz import get_accessible_owner_ids
@@ -96,7 +96,7 @@ async def agent_leases_list(
                     if owner_id and owner_id not in accessible_owners:
                         return MCPResponse.failure(
                             MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                            "You do not have access to this owner's leases"
+                            "You do not have access to this owner's leases",
                         ).model_dump()
                     stmt = stmt.where(Lease.owner_id.in_(accessible_owners))
 
@@ -121,15 +121,19 @@ async def agent_leases_list(
             leases = result.scalars().all()
 
             items = [serialize_lease(lease) for lease in leases]
-            next_payload = offset_payload(offset + len(items)) if offset + len(items) < total else None
+            next_payload = (
+                offset_payload(offset + len(items)) if offset + len(items) < total else None
+            )
 
-            return MCPResponse.success({
-                "total": total,
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "leases": items,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": total,
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "leases": items,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -138,6 +142,7 @@ async def agent_leases_list(
         logger.error("Error in agent.leases.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list leases: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_leases_create",
@@ -200,7 +205,7 @@ async def agent_leases_create(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -217,12 +222,12 @@ async def agent_leases_create(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             # Verify tenant exists
             from app.services.user import get_user_by_id
+
             tenant = await get_user_by_id(db, tenant_user_id)
             if not tenant:
                 return not_found_response("Tenant user", tenant_user_id)
@@ -247,10 +252,12 @@ async def agent_leases_create(
             await db.refresh(lease)
             await db.commit()
 
-            return MCPResponse.success({
-                "message": "Lease created successfully",
-                "lease": serialize_lease(lease),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Lease created successfully",
+                    "lease": serialize_lease(lease),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -259,6 +266,7 @@ async def agent_leases_create(
         logger.error("Error in agent.leases.create: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create lease: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_leases_terminate",
@@ -304,7 +312,7 @@ async def agent_leases_terminate(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -313,21 +321,18 @@ async def agent_leases_terminate(
             user_schema = UserSchema.model_validate(user)
 
             try:
-                lease = await assert_can_access_lease(
-                    db, actor=user_schema, lease_id=lease_id
-                )
+                lease = await assert_can_access_lease(db, actor=user_schema, lease_id=lease_id)
             except NotFoundException:
                 return not_found_response("Lease", lease_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this lease"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this lease"
                 ).model_dump()
 
             if lease.status != LeaseStatus.active:
                 return MCPResponse.failure(
                     MCPErrorCode.OPERATION_FAILED,
-                    f"Lease cannot be terminated (status: {lease.status.value})"
+                    f"Lease cannot be terminated (status: {lease.status.value})",
                 ).model_dump()
 
             lease.status = LeaseStatus.terminated
@@ -337,11 +342,13 @@ async def agent_leases_terminate(
             await db.flush()
             await db.commit()
 
-            return MCPResponse.success({
-                "message": "Lease terminated successfully",
-                "lease_id": lease_id,
-                "termination_date": term_date.isoformat(),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Lease terminated successfully",
+                    "lease_id": lease_id,
+                    "termination_date": term_date.isoformat(),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

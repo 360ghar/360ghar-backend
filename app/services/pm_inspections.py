@@ -78,11 +78,15 @@ async def list_inspections(
         count_stmt = select(func.count()).select_from(stmt.subquery())
         count_total = (await db.execute(count_stmt)).scalar_one()
 
-    predicate = keyset_filter(InspectionChecklist.conducted_at, InspectionChecklist.id, cursor_payload, descending=True)
+    predicate = keyset_filter(
+        InspectionChecklist.conducted_at, InspectionChecklist.id, cursor_payload, descending=True
+    )
     if predicate is not None:
         stmt = stmt.where(predicate)
 
-    stmt = stmt.order_by(InspectionChecklist.conducted_at.desc(), InspectionChecklist.id.desc()).limit(limit + 1)
+    stmt = stmt.order_by(
+        InspectionChecklist.conducted_at.desc(), InspectionChecklist.id.desc()
+    ).limit(limit + 1)
     rows = list((await db.execute(stmt)).scalars().all())
 
     next_payload = None
@@ -144,4 +148,3 @@ async def sign_inspection(
     await db.flush()
     await db.refresh(checklist)
     return checklist
-

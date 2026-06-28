@@ -24,7 +24,11 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/tours/{tour_id}/floor-plans", response_model=list[FloorPlanResponse], summary="List floor plans")
+@router.get(
+    "/tours/{tour_id}/floor-plans",
+    response_model=list[FloorPlanResponse],
+    summary="List floor plans",
+)
 async def list_floor_plans(
     tour_id: str,
     db: AsyncSession = Depends(get_db),

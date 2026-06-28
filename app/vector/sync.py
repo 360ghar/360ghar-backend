@@ -27,7 +27,9 @@ from .store import (
 logger = get_logger(__name__)
 
 
-async def _fetch_changed_properties(db: AsyncSession, since: datetime | None, limit: int) -> list[dict[str, Any]]:
+async def _fetch_changed_properties(
+    db: AsyncSession, since: datetime | None, limit: int
+) -> list[dict[str, Any]]:
     # Only the columns consumed by build_embedding_text()/build_metadata() in
     # compose.py — anything else (calendar_data, features, owner_*, view/like
     # counters, deposit/rate breakdowns, floor/age details, etc.) ships bytes
@@ -35,14 +37,32 @@ async def _fetch_changed_properties(db: AsyncSession, since: datetime | None, li
     # computed solely from the embedding text, so dropping unused columns does
     # not affect embedding or watermark behaviour.
     embedding_columns: tuple[Any, ...] = (
-        Property.id, Property.title, Property.description, Property.property_type,
-        Property.purpose, Property.status, Property.is_available,
-        Property.latitude, Property.longitude, Property.city, Property.state,
-        Property.country, Property.pincode, Property.locality, Property.landmark,
-        Property.base_price, Property.monthly_rent, Property.area_sqft,
-        Property.bedrooms, Property.bathrooms, Property.parking_spaces,
-        Property.tags, Property.search_keywords, Property.main_image_url,
-        Property.created_at, Property.updated_at,
+        Property.id,
+        Property.title,
+        Property.description,
+        Property.property_type,
+        Property.purpose,
+        Property.status,
+        Property.is_available,
+        Property.latitude,
+        Property.longitude,
+        Property.city,
+        Property.state,
+        Property.country,
+        Property.pincode,
+        Property.locality,
+        Property.landmark,
+        Property.base_price,
+        Property.monthly_rent,
+        Property.area_sqft,
+        Property.bedrooms,
+        Property.bathrooms,
+        Property.parking_spaces,
+        Property.tags,
+        Property.search_keywords,
+        Property.main_image_url,
+        Property.created_at,
+        Property.updated_at,
     )
 
     stmt = select(*embedding_columns).select_from(Property)
@@ -67,7 +87,9 @@ async def _fetch_changed_properties(db: AsyncSession, since: datetime | None, li
     return [dict(r) for r in rows]
 
 
-async def _fetch_amenities_and_tags(db: AsyncSession, property_ids: list[int]) -> tuple[dict[int, list[str]], dict[int, list[str]]]:
+async def _fetch_amenities_and_tags(
+    db: AsyncSession, property_ids: list[int]
+) -> tuple[dict[int, list[str]], dict[int, list[str]]]:
     if not property_ids:
         return {}, {}
     # Amenities titles by property
@@ -87,7 +109,9 @@ async def _fetch_amenities_and_tags(db: AsyncSession, property_ids: list[int]) -
     return amap, tmap
 
 
-async def _prepare_batch(db: AsyncSession, props: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, Any]], list[str], list[bool]]:
+async def _prepare_batch(
+    db: AsyncSession, props: list[dict[str, Any]]
+) -> tuple[list[str], list[dict[str, Any]], list[str], list[bool]]:
     """Fetch amenities, build texts/metadata/hashes, check existing hashes.
 
     Returns (texts, metas, hashes, need_embed_flags) — no embedding yet.
@@ -114,7 +138,7 @@ async def _prepare_batch(db: AsyncSession, props: list[dict[str, Any]]) -> tuple
         meta = build_metadata(p, amenities, tag_list)
         h = compute_text_hash(text)
         existing = await get_existing_hash(db, pid)
-        need_embed = (existing != h)
+        need_embed = existing != h
         texts.append(text)
         metas.append(meta)
         hashes.append(h)
@@ -130,7 +154,9 @@ async def _embed_texts(texts_to_embed: list[str]) -> list[list[float]]:
     try:
         vectors = await embed(texts_to_embed)
     except Exception as e:  # noqa: BLE001
-        logger.error("Embedding API failed for batch of %s: %s", len(texts_to_embed), e, exc_info=True)
+        logger.error(
+            "Embedding API failed for batch of %s: %s", len(texts_to_embed), e, exc_info=True
+        )
         raise
     if not vectors or len(vectors) != len(texts_to_embed):
         logger.error(
@@ -142,7 +168,14 @@ async def _embed_texts(texts_to_embed: list[str]) -> list[list[float]]:
     return vectors
 
 
-async def _upsert_batch(db: AsyncSession, props: list[dict[str, Any]], metas: list[dict[str, Any]], hashes: list[str], need_embed_flags: list[bool], vectors: list[list[float]]) -> None:
+async def _upsert_batch(
+    db: AsyncSession,
+    props: list[dict[str, Any]],
+    metas: list[dict[str, Any]],
+    hashes: list[str],
+    need_embed_flags: list[bool],
+    vectors: list[list[float]],
+) -> None:
     """Upsert embeddings into DB — session held only for writes."""
     vec_iter = iter(vectors)
     for p, meta, h, need_embed in zip(props, metas, hashes, need_embed_flags, strict=True):
@@ -214,7 +247,9 @@ async def run_property_vector_sync() -> dict[str, int | bool]:
 
             stats["updated"] = len(changed)
 
-            timestamps = [t for p in changed if (t := p.get("updated_at") or p.get("created_at")) is not None]
+            timestamps = [
+                t for p in changed if (t := p.get("updated_at") or p.get("created_at")) is not None
+            ]
             new_wm = max(timestamps)
             if isinstance(new_wm, datetime):
                 await write_watermark(db, new_wm)

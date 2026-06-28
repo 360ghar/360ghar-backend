@@ -53,4 +53,3 @@ class DocumentUpdate(BaseModel):
 
 class DocumentDownload(BaseModel):
     url: str
-

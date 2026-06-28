@@ -1,4 +1,5 @@
 """Neighbourhood score scraper — Google Places API scoring for property listings."""
+
 from __future__ import annotations
 
 import asyncio
@@ -42,12 +43,11 @@ class NeighbourhoodScraper(BaseScraper):
         """Fetch property coordinates, then score via Google Places."""
         api_key = getattr(settings, "GOOGLE_PLACES_API_KEY", None)
         if not api_key:
-            logger.warning(
-                "GOOGLE_PLACES_API_KEY not configured — neighbourhood scoring skipped"
-            )
+            logger.warning("GOOGLE_PLACES_API_KEY not configured — neighbourhood scoring skipped")
             return []
 
         from app.core.database import get_bg_session_factory
+
         session_factory = get_bg_session_factory()
         async with session_factory() as db:
             listings_to_score = await self._get_listings_to_score(db)
@@ -89,9 +89,7 @@ class NeighbourhoodScraper(BaseScraper):
 
         # IDs with a stale score
         stale_result = await db.execute(
-            select(NeighbourhoodScore.listing_id).where(
-                NeighbourhoodScore.stale_after < now
-            )
+            select(NeighbourhoodScore.listing_id).where(NeighbourhoodScore.stale_after < now)
         )
         stale_ids = {row.listing_id for row in stale_result}
 

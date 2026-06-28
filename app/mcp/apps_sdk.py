@@ -108,6 +108,7 @@ class AuthRequiredError(ToolError):
 def _public_base_url() -> str:
     """Return the public base URL (scheme+host) for discovery metadata."""
     from app.mcp.auth_provider import get_public_base_url
+
     return get_public_base_url()
 
 
@@ -313,9 +314,7 @@ class AppsSDKFastMCP(FastMCP):
             logger.debug("MCP tool completed", extra={"tool": key})
             return result
         except AuthRequiredError as exc:
-            logger.info(
-                "MCP tool requires auth", extra={"tool": key, "auth_message": exc.message}
-            )
+            logger.info("MCP tool requires auth", extra={"tool": key, "auth_message": exc.message})
             return mcp_types.CallToolResult(
                 content=[
                     mcp_types.TextContent(
@@ -332,9 +331,7 @@ class AppsSDKFastMCP(FastMCP):
         except (NotFoundError, ToolError):
             raise
         except Exception as exc:  # pragma: no cover - defensive fallback
-            logger.error(
-                "MCP tool failed", extra={"tool": key, "error": str(exc)}, exc_info=True
-            )
+            logger.error("MCP tool failed", extra={"tool": key, "error": str(exc)}, exc_info=True)
             return mcp_types.CallToolResult(
                 content=[mcp_types.TextContent(type="text", text=str(exc))],
                 isError=True,

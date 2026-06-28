@@ -9,6 +9,7 @@ Tools for short-stay property bookings:
 - Check availability
 - Get pricing
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -43,6 +44,7 @@ from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
 
+
 class _BookingSvc:
     @staticmethod
     async def get_user_bookings(*args, **kwargs):
@@ -51,6 +53,7 @@ class _BookingSvc:
     @staticmethod
     async def check_availability(*args, **kwargs):
         return await check_availability(*args, **kwargs)
+
 
 booking_svc = _BookingSvc()
 

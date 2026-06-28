@@ -48,6 +48,7 @@ def _is_retryable_error(exc: BaseException) -> bool:
 
 class AIRole(str, Enum):
     """Message roles for AI conversations."""
+
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -55,18 +56,21 @@ class AIRole(str, Enum):
 
 class AIMessage(BaseModel):
     """A message in an AI conversation."""
+
     role: AIRole
     content: str
 
 
 class VisionInput(BaseModel):
     """Input for vision-capable AI models."""
+
     image_base64: str = Field(..., description="Base64-encoded image data")
     mime_type: str = Field(..., description="Image MIME type (image/jpeg, image/png, image/webp)")
 
 
 class AIProviderConfig(BaseModel):
     """Configuration for an AI provider."""
+
     api_key: str = Field(..., description="API key for the provider")
     model: str = Field(..., description="Model name/ID to use")
     max_tokens: int = Field(default=4000, description="Maximum tokens in response")
@@ -135,6 +139,7 @@ class AIProvider(ABC):
         All exceptions are normalised to ``AIProviderError`` before
         propagating so callers only need to handle that single type.
         """
+
         @retry(
             stop=stop_after_attempt(AI_MAX_RETRIES),
             wait=wait_exponential(

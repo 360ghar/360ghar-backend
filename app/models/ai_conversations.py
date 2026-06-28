@@ -4,6 +4,7 @@ AI Conversation models for the in-app AI agent.
 Stores conversation sessions and messages (user, assistant, tool calls)
 for the Pydantic AI Agent chat feature.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -44,9 +45,7 @@ class AIConversation(Base):
         order_by="AIConversationMessage.created_at",
     )
 
-    __table_args__ = (
-        Index("idx_ai_conversations_user", "user_id", "updated_at"),
-    )
+    __table_args__ = (Index("idx_ai_conversations_user", "user_id", "updated_at"),)
 
 
 class AIConversationMessage(Base):
@@ -71,6 +70,4 @@ class AIConversationMessage(Base):
 
     conversation: Mapped[AIConversation] = relationship(back_populates="messages")
 
-    __table_args__ = (
-        Index("idx_ai_messages_conv", "conversation_id", "created_at"),
-    )
+    __table_args__ = (Index("idx_ai_messages_conv", "conversation_id", "created_at"),)

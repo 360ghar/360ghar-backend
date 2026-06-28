@@ -22,4 +22,3 @@ class ActivityItem(BaseModel):
     lease_id: int | None = None
     amount: float | None = None
     status: str | None = None
-

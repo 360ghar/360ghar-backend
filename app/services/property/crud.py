@@ -275,6 +275,7 @@ async def create_property(
 
         # Fetch the complete property with relations to return
         import inspect
+
         result = repo.get_property_with_owner(db_property.id)
         if inspect.isawaitable(result):
             property_with_relations = await result
@@ -358,14 +359,9 @@ async def list_user_properties(
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
     """List properties owned by a specific user (auth enforced by caller)."""
     count_total: int | None = None
-    base_stmt = (
-        select(Property)
-        .where(Property.owner_id == owner_id)
-    )
+    base_stmt = select(Property).where(Property.owner_id == owner_id)
     if with_total:
-        count_result = await db.execute(
-            select(func.count()).select_from(base_stmt.subquery())
-        )
+        count_result = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
         count_total = count_result.scalar_one()
 
     predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=True)
@@ -661,12 +657,12 @@ async def increment_property_view_count(db: AsyncSession, property_id: int):
         result = await db.execute(stmt)
         await db.flush()
 
-        if getattr(result, 'rowcount', 0) > 0:
+        if getattr(result, "rowcount", 0) > 0:
             logger.debug("View count incremented for property %s", property_id)
         else:
             logger.warning("Property %s not found for view count increment", property_id)
 
-        return getattr(result, 'rowcount', 0) > 0
+        return getattr(result, "rowcount", 0) > 0
     except Exception as e:
         logger.error(
             "Failed to increment view count for property %s: %s", property_id, e, exc_info=True

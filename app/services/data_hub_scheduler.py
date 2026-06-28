@@ -57,7 +57,9 @@ async def _run_daily_scrapers() -> None:
         NeighbourhoodScraper(),
         AlertMatcherService(),
     ]
-    results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
+    results = await asyncio.gather(
+        *[_run_scraper_limited(s) for s in scrapers], return_exceptions=True
+    )
     for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Daily scraper %s failed: %s", scraper.name, result, exc_info=result)
@@ -90,7 +92,9 @@ async def _run_weekly_scrapers() -> None:
         AggregatorMiscAuctionScraper(),
         BankSpecificAuctionScraper(),
     ]
-    results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
+    results = await asyncio.gather(
+        *[_run_scraper_limited(s) for s in scrapers], return_exceptions=True
+    )
     for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Weekly scraper %s failed: %s", scraper.name, result, exc_info=result)
@@ -107,7 +111,9 @@ async def _run_quarterly_scrapers() -> None:
         CircleRateScraper(),
         ZoningScraper(),
     ]
-    results = await asyncio.gather(*[_run_scraper_limited(s) for s in scrapers], return_exceptions=True)
+    results = await asyncio.gather(
+        *[_run_scraper_limited(s) for s in scrapers], return_exceptions=True
+    )
     for scraper, result in zip(scrapers, results, strict=False):
         if isinstance(result, Exception):
             logger.error("Quarterly scraper %s failed: %s", scraper.name, result, exc_info=result)
@@ -131,6 +137,7 @@ def start_data_hub_scheduler(app: FastAPI) -> None:
                 await coro_func()
             except Exception as exc:  # noqa: BLE001
                 logger.error("Data hub %s job failed: %s", name, exc, exc_info=True)
+
         return _wrapper
 
     scheduler.add_job(

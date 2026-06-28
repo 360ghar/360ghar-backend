@@ -82,13 +82,15 @@ def _is_safe_http_url(url: str) -> bool:
 
 
 def _sanitize_hotspot_html(value: str) -> str:
-    return str(bleach.clean(
-        value,
-        tags=_HOTSPOT_HTML_ALLOWED_TAGS,
-        attributes=_HOTSPOT_HTML_ALLOWED_ATTRIBUTES,
-        protocols=_HOTSPOT_HTML_ALLOWED_PROTOCOLS,
-        strip=True,
-    ))
+    return str(
+        bleach.clean(
+            value,
+            tags=_HOTSPOT_HTML_ALLOWED_TAGS,
+            attributes=_HOTSPOT_HTML_ALLOWED_ATTRIBUTES,
+            protocols=_HOTSPOT_HTML_ALLOWED_PROTOCOLS,
+            strip=True,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +238,9 @@ def _normalize_hotspot_content(
         poster_url = content.get("poster_url") or content.get("poster")
         if isinstance(poster_url, str) and poster_url.strip():
             if not _is_safe_http_url(poster_url):
-                raise BadRequestException(detail="Video hotspot poster_url must be a valid http(s) URL")
+                raise BadRequestException(
+                    detail="Video hotspot poster_url must be a valid http(s) URL"
+                )
             normalized["poster_url"] = poster_url.strip()
 
         return normalized
@@ -252,7 +256,9 @@ def _normalize_hotspot_content(
             normalized["html"] = _sanitize_hotspot_html(html)
         if isinstance(image_url, str) and image_url.strip():
             if not _is_safe_http_url(image_url):
-                raise BadRequestException(detail="Info hotspot image_url must be a valid http(s) URL")
+                raise BadRequestException(
+                    detail="Info hotspot image_url must be a valid http(s) URL"
+                )
             normalized["image_url"] = image_url.strip()
 
         return normalized if len(normalized) > 1 else None

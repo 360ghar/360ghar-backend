@@ -22,7 +22,9 @@ class BlogCategory(Base):
     slug: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     posts: Mapped[list[BlogPost]] = relationship(
         back_populates="categories",
@@ -42,7 +44,9 @@ class BlogTag(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     posts: Mapped[list[BlogPost]] = relationship(
         back_populates="tags",
@@ -68,7 +72,9 @@ class BlogPost(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=False)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     # Lifecycle status (draft / published / archived / scheduled). Kept in sync
     # with ``active`` in the service layer (active == (status == published)).
@@ -94,7 +100,9 @@ class BlogPost(Base):
     sources: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
 
     # Flexible SEO metadata: schema_markup, keyword_analysis, trending_score, etc.
-    seo_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    seo_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
 
     categories: Mapped[list[BlogCategory]] = relationship(
         back_populates="posts",
@@ -110,9 +118,7 @@ class BlogPost(Base):
 
 class BlogPostCategory(Base):
     __tablename__ = "blog_post_categories"
-    __table_args__ = (
-        Index("ux_blog_post_category_unique", "post_id", "category_id", unique=True),
-    )
+    __table_args__ = (Index("ux_blog_post_category_unique", "post_id", "category_id", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     post_id: Mapped[int] = mapped_column(ForeignKey("blog_posts.id", ondelete="CASCADE"))
@@ -122,9 +128,7 @@ class BlogPostCategory(Base):
 
 class BlogPostTag(Base):
     __tablename__ = "blog_post_tags"
-    __table_args__ = (
-        Index("ux_blog_post_tag_unique", "post_id", "tag_id", unique=True),
-    )
+    __table_args__ = (Index("ux_blog_post_tag_unique", "post_id", "tag_id", unique=True),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     post_id: Mapped[int] = mapped_column(ForeignKey("blog_posts.id", ondelete="CASCADE"))

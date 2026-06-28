@@ -9,6 +9,7 @@ Tool registration constants (``USER_TOOLS``, ``ADMIN_TOOLS``,
 ``GUEST_TOOLS``) and the ``get_tools_for_role`` helper are also
 re-exported here for backward compatibility.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -70,8 +71,11 @@ USER_TOOLS: list[tuple[str, Any, str]] = [
     ("owner_properties_create", owner_properties_create, "Create a new property listing"),
     ("owner_properties_get", owner_properties_get, "Get detailed property info"),
     ("owner_properties_update", owner_properties_update, "Update a property listing"),
-    ("owner_properties_toggle_availability", owner_properties_toggle_availability,
-     "Toggle property availability"),
+    (
+        "owner_properties_toggle_availability",
+        owner_properties_toggle_availability,
+        "Toggle property availability",
+    ),
     ("tenant_lease_current", tenant_lease_current, "View current active lease"),
     ("tenant_rent_history", tenant_rent_history, "View rent payment history"),
     ("tenant_maintenance_create", tenant_maintenance_create, "Submit a maintenance request"),
@@ -88,8 +92,11 @@ USER_TOOLS: list[tuple[str, Any, str]] = [
 ADMIN_TOOLS: list[tuple[str, Any, str]] = [
     ("agent_properties_list", agent_properties_list, "List managed properties"),
     ("agent_properties_get", agent_properties_get, "Get managed property details"),
-    ("agent_properties_create_for_owner", agent_properties_create_for_owner,
-     "Create property for an owner"),
+    (
+        "agent_properties_create_for_owner",
+        agent_properties_create_for_owner,
+        "Create property for an owner",
+    ),
     ("agent_properties_verify", agent_properties_verify, "Verify a property listing"),
     ("agent_leases_list", agent_leases_list, "List leases"),
     ("agent_leases_create", agent_leases_create, "Create a lease"),
@@ -97,8 +104,11 @@ ADMIN_TOOLS: list[tuple[str, Any, str]] = [
     ("agent_rent_list_due", agent_rent_list_due, "List overdue rent"),
     ("agent_rent_record_payment", agent_rent_record_payment, "Record a rent payment"),
     ("agent_maintenance_list", agent_maintenance_list, "List maintenance requests (admin)"),
-    ("agent_maintenance_update_status", agent_maintenance_update_status,
-     "Update maintenance request status"),
+    (
+        "agent_maintenance_update_status",
+        agent_maintenance_update_status,
+        "Update maintenance request status",
+    ),
     ("agent_bookings_list_all", agent_bookings_list_all, "List all bookings (admin)"),
     ("agent_bookings_update_status", agent_bookings_update_status, "Update booking status"),
     ("agent_dashboard_overview", agent_dashboard_overview, "Get dashboard overview"),
@@ -107,12 +117,21 @@ ADMIN_TOOLS: list[tuple[str, Any, str]] = [
 
 
 GUEST_TOOLS: list[tuple[str, Any, str]] = [
-    ("guest_property_search", guest_property_search,
-     "Search properties by city, type, purpose, price, bedrooms, or text query"),
-    ("guest_property_details", guest_property_details,
-     "Get full details for a specific property by ID"),
-    ("guest_property_recommendations", guest_property_recommendations,
-     "Get a list of recommended properties to browse"),
+    (
+        "guest_property_search",
+        guest_property_search,
+        "Search properties by city, type, purpose, price, bedrooms, or text query",
+    ),
+    (
+        "guest_property_details",
+        guest_property_details,
+        "Get full details for a specific property by ID",
+    ),
+    (
+        "guest_property_recommendations",
+        guest_property_recommendations,
+        "Get a list of recommended properties to browse",
+    ),
 ]
 
 

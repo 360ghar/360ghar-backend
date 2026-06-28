@@ -13,9 +13,11 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 # Base class for all models
 class Base(DeclarativeBase):
     pass
+
 
 # Log database connection info
 logger.info("Connecting to database with psycopg for PgBouncer compatibility")
@@ -109,6 +111,7 @@ def _make_checkin_logger(pool_label: str, pool):
                     pool.checkedout(),
                     pool.overflow(),
                 )
+
     return _on_checkin
 
 
@@ -148,10 +151,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         except Exception as e:
             logger.error("Database session error: %s", e)
-            sentry_sdk.set_context("database", {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            })
+            sentry_sdk.set_context(
+                "database",
+                {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            )
             await session.rollback()
             raise
         else:
@@ -183,10 +189,13 @@ async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         except Exception as e:
             logger.error("Background database session error: %s", e)
-            sentry_sdk.set_context("database", {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            })
+            sentry_sdk.set_context(
+                "database",
+                {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            )
             await session.rollback()
             raise
         else:

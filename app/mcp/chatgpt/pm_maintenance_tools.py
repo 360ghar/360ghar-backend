@@ -134,7 +134,9 @@ async def owner_maintenance_list(
             urgent_count = sum(1 for r in serialized if r["priority"] == "urgent")
 
             # Compute next cursor (offset-based) if this page was full
-            next_payload = offset_payload(offset + len(serialized)) if len(serialized) >= limit else None
+            next_payload = (
+                offset_payload(offset + len(serialized)) if len(serialized) >= limit else None
+            )
 
             return format_chatgpt_response(
                 data={

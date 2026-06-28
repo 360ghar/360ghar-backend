@@ -205,9 +205,7 @@ def _build_peer_payload(
             "video_tour_url": property_obj.video_tour_url,
             "virtual_tour_url": property_obj.virtual_tour_url,
             "monthly_rent": (
-                float(property_obj.monthly_rent)
-                if property_obj.monthly_rent is not None
-                else None
+                float(property_obj.monthly_rent) if property_obj.monthly_rent is not None else None
             ),
             "security_deposit": (
                 float(property_obj.security_deposit)
@@ -241,14 +239,10 @@ def _build_peer_payload(
                 else None
             ),
             "floor": (
-                str(property_obj.floor_number)
-                if property_obj.floor_number is not None
-                else None
+                str(property_obj.floor_number) if property_obj.floor_number is not None else None
             ),
             "flat_config": (
-                f"{property_obj.bedrooms} BHK"
-                if property_obj.bedrooms is not None
-                else None
+                f"{property_obj.bedrooms} BHK" if property_obj.bedrooms is not None else None
             ),
             "furnishing": list(property_obj.features or []),
             "flat_amenities": amenities,

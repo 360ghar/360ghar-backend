@@ -1,6 +1,7 @@
 """
 Base repository pattern for data access layer
 """
+
 from typing import Any, Generic, TypeVar
 
 from sqlalchemy import func, select, update
@@ -12,6 +13,7 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 T = TypeVar("T")
+
 
 class BaseRepository(Generic[T]):
     """
@@ -53,7 +55,7 @@ class BaseRepository(Generic[T]):
         filters: dict[str, Any] | None = None,
         skip: int = 0,
         limit: int = 100,
-        order_by: str | None = None
+        order_by: str | None = None,
     ) -> list[T]:
         """
         List entities with optional filtering and pagination
@@ -74,7 +76,7 @@ class BaseRepository(Generic[T]):
 
         # Apply ordering
         if order_by:
-            if order_by.startswith('-'):
+            if order_by.startswith("-"):
                 stmt = stmt.order_by(getattr(self.model, order_by[1:]).desc())
             else:
                 stmt = stmt.order_by(getattr(self.model, order_by))

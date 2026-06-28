@@ -23,7 +23,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.post("", response_model=CustomDomainResponse, status_code=status.HTTP_201_CREATED, summary="Create custom domain")
+@router.post(
+    "",
+    response_model=CustomDomainResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create custom domain",
+)
 async def create_custom_domain(
     domain_data: CustomDomainCreate,
     db: AsyncSession = Depends(get_db),
@@ -85,7 +90,9 @@ async def get_custom_domain(
     return domain
 
 
-@router.post("/{domain_id}/verify", response_model=CustomDomainVerification, summary="Verify custom domain")
+@router.post(
+    "/{domain_id}/verify", response_model=CustomDomainVerification, summary="Verify custom domain"
+)
 async def verify_custom_domain(
     domain_id: str,
     db: AsyncSession = Depends(get_db),
@@ -111,7 +118,9 @@ async def verify_custom_domain(
         ) from None
 
 
-@router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete custom domain")
+@router.delete(
+    "/{domain_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete custom domain"
+)
 async def delete_custom_domain(
     domain_id: str,
     db: AsyncSession = Depends(get_db),

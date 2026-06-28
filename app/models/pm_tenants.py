@@ -111,12 +111,8 @@ class RentalApplication(Base):
     )
     property: Mapped[Property] = relationship("Property")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
-    applicant_user: Mapped[User | None] = relationship(
-        "User", foreign_keys=[applicant_user_id]
-    )
-    decided_by: Mapped[User | None] = relationship(
-        "User", foreign_keys=[decided_by_user_id]
-    )
+    applicant_user: Mapped[User | None] = relationship("User", foreign_keys=[applicant_user_id])
+    decided_by: Mapped[User | None] = relationship("User", foreign_keys=[decided_by_user_id])
 
     documents: Mapped[list[Document]] = relationship(
         "Document",

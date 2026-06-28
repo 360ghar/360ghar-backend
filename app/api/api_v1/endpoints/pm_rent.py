@@ -43,9 +43,13 @@ async def generate_charges(
     )
 
 
-@router.get("/charges", response_model=CursorPage[RentChargeWithTotals], summary="List rent charges")
+@router.get(
+    "/charges", response_model=CursorPage[RentChargeWithTotals], summary="List rent charges"
+)
 async def get_charges(
-    as_tenant: bool = Query(False, description="If true, return charges for the current tenant user"),
+    as_tenant: bool = Query(
+        False, description="If true, return charges for the current tenant user"
+    ),
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     lease_id: int | None = Query(None),
     property_id: int | None = Query(None),
@@ -104,7 +108,11 @@ async def create_payment(
     return RentPaymentSchema.model_validate(payment)
 
 
-@router.post("/charges/{charge_id}/tenant-payment-intent", response_model=RentPaymentSchema, summary="Create tenant payment intent")
+@router.post(
+    "/charges/{charge_id}/tenant-payment-intent",
+    response_model=RentPaymentSchema,
+    summary="Create tenant payment intent",
+)
 async def tenant_payment_intent(
     charge_id: int,
     payload: RentPaymentCreate,

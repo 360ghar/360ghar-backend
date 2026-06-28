@@ -8,9 +8,7 @@ from typing import Any
 
 from app.config import settings
 
-_current_request_id: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "request_id", default=""
-)
+_current_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 
 
 def set_request_id(request_id: str) -> contextvars.Token[str]:
@@ -130,9 +128,7 @@ class ColorFormatter(logging.Formatter):
         bold = self.COLORS["BOLD"]
 
         # Colorize level and name, keep message readable
-        return base.replace(
-            record.levelname, f"{bold}{color}{record.levelname}{reset}"
-        ) + suffix
+        return base.replace(record.levelname, f"{bold}{color}{record.levelname}{reset}") + suffix
 
 
 class StructuredFormatter(logging.Formatter):

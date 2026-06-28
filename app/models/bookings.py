@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import datetime
@@ -29,9 +28,7 @@ if TYPE_CHECKING:
 
 class Booking(Base):
     __tablename__ = "bookings"
-    __table_args__ = (
-        Index("idx_bookings_property_id", "property_id"),
-    )
+    __table_args__ = (Index("idx_bookings_property_id", "property_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -46,8 +43,12 @@ class Booking(Base):
     service_charges: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     discount_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     total_amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    booking_status: Mapped[BookingStatus] = mapped_column(SQLEnum(BookingStatus, name='booking_status'), nullable=False)
-    payment_status: Mapped[PaymentStatus] = mapped_column(SQLEnum(PaymentStatus, name='payment_status'), nullable=False)
+    booking_status: Mapped[BookingStatus] = mapped_column(
+        SQLEnum(BookingStatus, name="booking_status"), nullable=False
+    )
+    payment_status: Mapped[PaymentStatus] = mapped_column(
+        SQLEnum(PaymentStatus, name="payment_status"), nullable=False
+    )
     primary_guest_name: Mapped[str] = mapped_column(String, nullable=False)
     primary_guest_phone: Mapped[str] = mapped_column(String, nullable=False)
     primary_guest_email: Mapped[str] = mapped_column(String, nullable=False)
@@ -55,10 +56,14 @@ class Booking(Base):
     special_requests: Mapped[str | None] = mapped_column(Text, nullable=True)
     internal_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     actual_check_in: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    actual_check_out: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_check_out: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     early_check_in: Mapped[bool] = mapped_column(Boolean, default=False)
     late_check_out: Mapped[bool] = mapped_column(Boolean, default=False)
-    cancellation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancellation_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     refund_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -70,7 +75,9 @@ class Booking(Base):
     host_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     host_review: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     user: Mapped[User] = relationship(back_populates="bookings")
     property: Mapped[Property] = relationship(back_populates="bookings")

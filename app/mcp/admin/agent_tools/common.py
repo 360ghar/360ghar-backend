@@ -2,14 +2,31 @@
 
 from __future__ import annotations
 
-from app.core.logging import get_logger as _get_logger
-from app.core.utils import make_tz_aware, utc_now, utc_now_iso
 import sys as _sys
 
+from app.core.logging import get_logger as _get_logger
+from app.core.utils import make_tz_aware, utc_now, utc_now_iso
 from app.mcp.admin.server import (
     _require_agent_or_admin,
     _require_auth,
     admin_mcp,
+)
+from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError
+from app.mcp.errors import (
+    MCPErrorCode,
+    MCPResponse,
+    internal_error_response,
+    invalid_input_response,
+    not_found_response,
+)
+from app.mcp.utils import (
+    get_user_role,
+    serialize_booking,
+    serialize_lease,
+    serialize_maintenance_request,
+    serialize_property_basic,
+    serialize_property_full,
+    serialize_user_basic,
 )
 
 
@@ -31,23 +48,6 @@ def get_db():
     """
     return _sys.modules["app.mcp.admin.agent"].get_db()
 
-from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError
-from app.mcp.errors import (
-    MCPErrorCode,
-    MCPResponse,
-    internal_error_response,
-    invalid_input_response,
-    not_found_response,
-)
-from app.mcp.utils import (
-    get_user_role,
-    serialize_booking,
-    serialize_lease,
-    serialize_maintenance_request,
-    serialize_property_basic,
-    serialize_property_full,
-    serialize_user_basic,
-)
 
 __all__ = [
     "MCP_SECURITY_SCHEMES_MIXED",

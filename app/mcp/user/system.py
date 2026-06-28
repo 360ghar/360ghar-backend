@@ -4,6 +4,7 @@ System tools for User MCP Server.
 Tools for system-level status and feature information:
 - System status and available features
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -57,37 +58,39 @@ async def user_system_status() -> dict[str, Any]:
                     "full_name": getattr(user, "full_name", None),
                 }
 
-        return MCPResponse.success({
-            "status": "operational",
-            "version": settings.APP_VERSION,
-            "server": "user",
-            "auth": {
-                "status": auth_status,
-                "user": user_info,
-            },
-            "features": {
-                "owner": {
-                    "properties.list": True,
-                    "properties.create": True,
-                    "properties.update": True,
-                    "properties.toggle_availability": True,
+        return MCPResponse.success(
+            {
+                "status": "operational",
+                "version": settings.APP_VERSION,
+                "server": "user",
+                "auth": {
+                    "status": auth_status,
+                    "user": user_info,
                 },
-                "tenant": {
-                    "lease.current": True,
-                    "rent.history": True,
-                    "maintenance.create": True,
-                    "maintenance.list": True,
+                "features": {
+                    "owner": {
+                        "properties.list": True,
+                        "properties.create": True,
+                        "properties.update": True,
+                        "properties.toggle_availability": True,
+                    },
+                    "tenant": {
+                        "lease.current": True,
+                        "rent.history": True,
+                        "maintenance.create": True,
+                        "maintenance.list": True,
+                    },
+                    "bookings": {
+                        "create": True,
+                        "list": True,
+                        "get": True,
+                        "cancel": True,
+                        "check_availability": True,
+                        "get_pricing": True,
+                    },
                 },
-                "bookings": {
-                    "create": True,
-                    "list": True,
-                    "get": True,
-                    "cancel": True,
-                    "check_availability": True,
-                    "get_pricing": True,
-                },
-            },
-        }).model_dump()
+            }
+        ).model_dump()
     except AuthRequiredError:
         raise
     except Exception as e:

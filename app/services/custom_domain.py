@@ -3,6 +3,7 @@ Custom Domain service for managing branded tour URLs.
 
 Handles domain creation, DNS verification, and SSL provisioning.
 """
+
 import secrets
 
 from sqlalchemy import select
@@ -88,7 +89,11 @@ async def get_user_domains(
     user_id: int,
 ) -> list[CustomDomainResponse]:
     """Get all custom domains for a user."""
-    stmt = select(CustomDomain).where(CustomDomain.user_id == user_id).order_by(CustomDomain.created_at.desc())
+    stmt = (
+        select(CustomDomain)
+        .where(CustomDomain.user_id == user_id)
+        .order_by(CustomDomain.created_at.desc())
+    )
     result = await db.execute(stmt)
     domains = result.scalars().all()
 

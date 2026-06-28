@@ -1,4 +1,5 @@
 """Zoning data scraper — TCP Haryana tables + supports CSV admin import."""
+
 from __future__ import annotations
 
 import asyncio
@@ -71,7 +72,9 @@ class ZoningScraper(BaseScraper):
                         rec["sector"] = val
                     elif "area" in h:
                         try:
-                            rec["area_acres"] = float(val.replace(",", "").replace("acres", "").strip())
+                            rec["area_acres"] = float(
+                                val.replace(",", "").replace("acres", "").strip()
+                            )
                         except ValueError:
                             pass
                 if rec.get("colony_name"):
@@ -125,22 +128,32 @@ class ZoningScraper(BaseScraper):
                 table_marker = rec.pop("_table", "zoning_data")
                 if table_marker == "colony_approvals":
                     from sqlalchemy import select as sa_select
-                    values = {k: v for k, v in rec.items()
-                              if hasattr(ColonyApproval, k) and k not in ("id", "created_at", "updated_at")}
+
+                    values = {
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(ColonyApproval, k)
+                        and k not in ("id", "created_at", "updated_at")
+                    }
                     colony_name = values.get("colony_name")
                     licence_number = values.get("licence_number")
                     existing = await db.execute(
-                        sa_select(ColonyApproval.id).where(
+                        sa_select(ColonyApproval.id)
+                        .where(
                             ColonyApproval.colony_name == colony_name,
                             ColonyApproval.licence_number == licence_number,
-                        ).limit(1)
+                        )
+                        .limit(1)
                     )
                     if existing.scalar_one_or_none() is None:
                         db.add(ColonyApproval(**values))
                         await db.flush()
                 else:
-                    values = {k: v for k, v in rec.items()
-                              if hasattr(ZoningData, k) and k not in ("id", "created_at", "updated_at")}
+                    values = {
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(ZoningData, k) and k not in ("id", "created_at", "updated_at")
+                    }
                     stmt = pg_insert(ZoningData).values(**values)
                     stmt = stmt.on_conflict_do_update(
                         constraint="uq_zoning_data_key",
@@ -148,7 +161,7 @@ class ZoningScraper(BaseScraper):
                             "far_limit": stmt.excluded.far_limit,
                             "max_height_m": stmt.excluded.max_height_m,
                             "raw_data": stmt.excluded.raw_data,
-                        }
+                        },
                     )
                     await db.execute(stmt)
                 upserted += 1

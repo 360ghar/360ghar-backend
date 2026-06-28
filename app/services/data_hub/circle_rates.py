@@ -1,4 +1,5 @@
 """Circle rates scraper — IGRS Haryana (Playwright, JS-rendered form)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -59,6 +60,7 @@ class CircleRateScraper(BaseScraper):
 
     def _parse_circle_rates_html(self, html: str) -> list[dict]:
         from bs4 import BeautifulSoup
+
         soup = BeautifulSoup(html, "html.parser")
         records = []
         revision_year = date.today().year
@@ -87,16 +89,25 @@ class CircleRateScraper(BaseScraper):
                         rec["property_type"] = val.lower() or "residential"
                     elif "rate" in h and "sqyd" in h:
                         try:
-                            rec["rate_per_sqyd"] = float(val.replace(",", "").replace("₹", "").strip())
+                            rec["rate_per_sqyd"] = float(
+                                val.replace(",", "").replace("₹", "").strip()
+                            )
                         except ValueError:
                             pass
                     elif "rate" in h and "sqft" in h:
                         try:
-                            rec["rate_per_sqft"] = float(val.replace(",", "").replace("₹", "").strip())
+                            rec["rate_per_sqft"] = float(
+                                val.replace(",", "").replace("₹", "").strip()
+                            )
                         except ValueError:
                             pass
                 if rec.get("sector"):
-                    rec["slug"] = generate_slug(rec["sector"], rec.get("colony", ""), rec["property_type"], str(revision_year))
+                    rec["slug"] = generate_slug(
+                        rec["sector"],
+                        rec.get("colony", ""),
+                        rec["property_type"],
+                        str(revision_year),
+                    )
                     rec["source_url"] = "https://igrs.haryana.gov.in/"
                     records.append(rec)
         return records
@@ -108,8 +119,11 @@ class CircleRateScraper(BaseScraper):
         for rec in records:
             try:
                 rec.setdefault("colony", None)
-                values = {k: v for k, v in rec.items()
-                          if hasattr(CircleRate, k) and k not in ("id", "created_at", "updated_at")}
+                values = {
+                    k: v
+                    for k, v in rec.items()
+                    if hasattr(CircleRate, k) and k not in ("id", "created_at", "updated_at")
+                }
                 stmt = pg_insert(CircleRate).values(**values)
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_circle_rates_key",
@@ -119,7 +133,7 @@ class CircleRateScraper(BaseScraper):
                         "raw_data": stmt.excluded.raw_data,
                         "slug": stmt.excluded.slug,
                         "source_url": stmt.excluded.source_url,
-                    }
+                    },
                 )
                 await db.execute(stmt)
                 upserted += 1

@@ -3,6 +3,7 @@ Conversation persistence for the AI Agent.
 
 Manages CRUD operations for AI conversations and messages.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -112,7 +113,9 @@ async def list_conversations(
     if with_total:
         total = (
             await db.execute(
-                select(func.count()).select_from(AIConversation).where(AIConversation.user_id == user_id)
+                select(func.count())
+                .select_from(AIConversation)
+                .where(AIConversation.user_id == user_id)
             )
         ).scalar_one()
 

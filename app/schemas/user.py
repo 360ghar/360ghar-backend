@@ -35,6 +35,7 @@ class UserBase(BaseModel):
             return None
         return v
 
+
 class UserCreate(UserBase):
     phone: str = Field(
         ...,
@@ -47,12 +48,13 @@ class UserCreate(UserBase):
         examples=["Str0ngP@ssw0rd!"],
     )
 
-    @field_validator('phone')
+    @field_validator("phone")
     @classmethod
     def validate_phone_create(cls, v: str) -> str:
         if not v or not v.strip():
             raise ValueError("Phone number is required for registration")
         return ValidationUtils.validate_phone(v)
+
 
 class UserUpdate(BaseModel):
     email: EmailStr | None = Field(
@@ -79,7 +81,7 @@ class UserUpdate(BaseModel):
     privacy_settings: dict[str, Any] | None = None
     phone_verified: bool | None = None
 
-    @field_validator('full_name')
+    @field_validator("full_name")
     @classmethod
     def validate_name(cls, v):
         if v:
@@ -88,14 +90,14 @@ class UserUpdate(BaseModel):
                 raise ValueError("Name must be at least 2 characters long")
         return v
 
-    @field_validator('phone')
+    @field_validator("phone")
     @classmethod
     def validate_phone(cls, v):
         if v:
             return ValidationUtils.validate_phone(v)
         return v
 
-    @field_validator('date_of_birth')
+    @field_validator("date_of_birth")
     @classmethod
     def validate_dob(cls, v):
         if v:
@@ -118,14 +120,16 @@ class UserUpdate(BaseModel):
             return None
         return v
 
+
 class UserLogin(BaseModel):
     phone: str
     password: str
 
-    @field_validator('phone')
+    @field_validator("phone")
     @classmethod
     def validate_phone_login(cls, v: str) -> str:
         return ValidationUtils.validate_phone(v)
+
 
 class UserInDB(UserBase):
     id: int
@@ -147,7 +151,7 @@ class UserInDB(UserBase):
     created_at: datetime
     updated_at: datetime | None = None
 
-    @field_validator('date_of_birth', mode='before')
+    @field_validator("date_of_birth", mode="before")
     @classmethod
     def coerce_dob(cls, v: Any) -> Any:
         if isinstance(v, datetime):
@@ -156,15 +160,19 @@ class UserInDB(UserBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class User(UserInDB):
     pass
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
 
+
 class TokenData(BaseModel):
     phone: str | None = None
+
 
 class UserPreferences(BaseModel):
     property_type: list[PropertyType] | None = None
@@ -178,6 +186,7 @@ class UserPreferences(BaseModel):
     location_preference: list[str] | None = None
     max_distance_km: int | None = 5
 
+
 class LocationUpdate(BaseModel):
     latitude: float
     longitude: float
@@ -186,7 +195,7 @@ class LocationUpdate(BaseModel):
 class PhoneUpdate(BaseModel):
     phone: str
 
-    @field_validator('phone')
+    @field_validator("phone")
     @classmethod
     def validate_phone(cls, v: str) -> str:
         if not v or not v.strip():

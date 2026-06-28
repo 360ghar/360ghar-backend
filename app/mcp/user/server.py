@@ -4,6 +4,7 @@ User MCP Server - Core instance and shared utilities.
 This module creates the User MCP server instance and provides shared
 helper functions used across all user tool sub-modules.
 """
+
 from __future__ import annotations
 
 from typing import NoReturn
@@ -80,6 +81,7 @@ try:
         pm_rent_tools,  # noqa: F401
         pm_tenant_tools,  # noqa: F401
     )
+
     _after_count = _count_mcp_tools(user_mcp)
     _new_tools = _after_count - _before_count
     if _new_tools == 0:

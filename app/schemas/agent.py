@@ -13,14 +13,11 @@ class AgentBase(BaseModel):
     avatar_url: str | None = None
     languages: list[str] | None = ["english"]
 
+
 class AgentCreate(AgentBase):
     agent_type: AgentType = AgentType.general
     experience_level: ExperienceLevel = ExperienceLevel.intermediate
-    working_hours: dict[str, Any] | None = {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "UTC"
-    }
+    working_hours: dict[str, Any] | None = {"start": "09:00", "end": "18:00", "timezone": "UTC"}
 
 
 class AgentUpdate(BaseModel):
@@ -34,6 +31,7 @@ class AgentUpdate(BaseModel):
     is_active: bool | None = None
     is_available: bool | None = None
     working_hours: dict[str, Any] | None = None
+
 
 class Agent(AgentBase):
     id: int
@@ -49,6 +47,7 @@ class Agent(AgentBase):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class AgentStats(BaseModel):
     total_users_assigned: int
     user_satisfaction_rating: float
@@ -57,8 +56,10 @@ class AgentStats(BaseModel):
     weekly_interactions: int
     efficiency_score: float
 
+
 class AgentWithStats(Agent):
     stats: AgentStats
+
 
 class AgentAssignment(BaseModel):
     user_id: int
@@ -67,6 +68,7 @@ class AgentAssignment(BaseModel):
     assignment_reason: str | None = "auto_assigned"
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class AgentInteraction(BaseModel):
     id: int
@@ -81,6 +83,7 @@ class AgentInteraction(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
 class AgentPerformanceMetrics(BaseModel):
     agent_id: int
     date: datetime
@@ -88,6 +91,7 @@ class AgentPerformanceMetrics(BaseModel):
     successful_resolutions: int
     escalations: int
     active_users: int
+
 
 class AgentWorkload(BaseModel):
     agent_id: int
@@ -97,6 +101,7 @@ class AgentWorkload(BaseModel):
     is_available: bool
     queue_length: int
 
+
 class AgentCapabilities(BaseModel):
     agent_id: int
     can_handle_bookings: bool = True
@@ -105,11 +110,8 @@ class AgentCapabilities(BaseModel):
     can_handle_complaints: bool = True
     can_escalate_to_human: bool = True
     supported_languages: list[str] = ["english"]
-    working_hours: dict[str, Any] = {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "UTC"
-    }
+    working_hours: dict[str, Any] = {"start": "09:00", "end": "18:00", "timezone": "UTC"}
+
 
 # System-level schemas
 class AgentSystemStats(BaseModel):

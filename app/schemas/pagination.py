@@ -99,9 +99,15 @@ class CursorParams:
 
     def __init__(
         self,
-        cursor: str | None = Query(None, description="Opaque pagination cursor from a prior response's next_cursor."),
-        limit: int = Query(DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Max items to return (1-100)."),
-        include_total: bool = Query(False, description="If true, include a total count (extra COUNT query)."),
+        cursor: str | None = Query(
+            None, description="Opaque pagination cursor from a prior response's next_cursor."
+        ),
+        limit: int = Query(
+            DEFAULT_LIMIT, ge=1, le=MAX_LIMIT, description="Max items to return (1-100)."
+        ),
+        include_total: bool = Query(
+            False, description="If true, include a total count (extra COUNT query)."
+        ),
     ) -> None:
         self.cursor = cursor
         self.limit = limit

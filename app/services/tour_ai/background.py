@@ -4,6 +4,7 @@ Background task runners and apply-suggestion functions for tour AI operations.
 Contains tour generation, tour optimization background runners,
 and functions to apply AI-generated suggestions to scenes/hotspots.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -37,11 +38,9 @@ logger = get_logger(__name__)
 # Apply Suggestions
 # ====================
 
+
 async def apply_scene_analysis(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    suggestions: list[dict[str, Any]]
+    db: AsyncSession, tour_id: str, user_id: int, suggestions: list[dict[str, Any]]
 ) -> int:
     """Apply AI scene analysis suggestions (update titles/descriptions)."""
     from app.services.tour import get_scene, get_tour
@@ -85,7 +84,7 @@ async def apply_hotspot_suggestions(
     scene_id: str,
     user_id: int,
     suggestion_ids: list[str],
-    job_id: str | None = None
+    job_id: str | None = None,
 ) -> list[Hotspot]:
     """Apply AI hotspot suggestions by creating hotspots."""
     from app.services.tour import create_hotspot, get_scene
@@ -118,12 +117,11 @@ async def apply_hotspot_suggestions(
             hotspot_data = HotspotCreate(
                 type=hotspot_type,
                 position=HotspotPosition(
-                    yaw=position.get("yaw", 0),
-                    pitch=position.get("pitch", 0)
+                    yaw=position.get("yaw", 0), pitch=position.get("pitch", 0)
                 ),
                 target_scene_id=suggestion.get("target_scene_id"),
                 title=suggestion.get("suggested_title"),
-                description=suggestion.get("reasoning")
+                description=suggestion.get("reasoning"),
             )
 
             hotspot = await create_hotspot(db, scene_id, user_id, hotspot_data)
@@ -139,6 +137,7 @@ async def apply_hotspot_suggestions(
 # ====================
 # Tour Generation
 # ====================
+
 
 async def generate_tour(
     db: AsyncSession,
@@ -212,18 +211,20 @@ async def generate_tour(
 
     job = await create_ai_job(db, user_id, "generate_tour", tour_id=tour.id)
     _track_background_task(
-        _run_with_semaphore(_run_tour_generation(
-            job.id,
-            tour.id,
-            user_id,
-            {
-                "generate_titles": data.generate_titles,
-                "generate_descriptions": data.generate_descriptions,
-                "suggest_hotspots": data.suggest_hotspots,
-                "apply_to_scenes": data.apply_to_scenes,
-                "language": data.language,
-            },
-        ))
+        _run_with_semaphore(
+            _run_tour_generation(
+                job.id,
+                tour.id,
+                user_id,
+                {
+                    "generate_titles": data.generate_titles,
+                    "generate_descriptions": data.generate_descriptions,
+                    "suggest_hotspots": data.suggest_hotspots,
+                    "apply_to_scenes": data.apply_to_scenes,
+                    "language": data.language,
+                },
+            )
+        )
     )
 
     return job, tour, scene_ids
@@ -270,12 +271,14 @@ Respond in JSON with:
 {{
   "title": "Scene title",
   "description": "2-3 sentence description",
-  "room_type": "one of: {', '.join(ROOM_TYPES)}"
+  "room_type": "one of: {", ".join(ROOM_TYPES)}"
 }}"""
 
                     messages = [
                         AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                        AIMessage(role=AIRole.USER, content="Create a scene title and description."),
+                        AIMessage(
+                            role=AIRole.USER, content="Create a scene title and description."
+                        ),
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
@@ -285,7 +288,11 @@ Respond in JSON with:
                     if apply_to_scenes:
                         if generate_titles and result.get("title") and not scene.title:
                             scene.title = result["title"]
-                        if generate_descriptions and result.get("description") and not scene.description:
+                        if (
+                            generate_descriptions
+                            and result.get("description")
+                            and not scene.description
+                        ):
                             scene.description = result["description"]
 
                 await update_job_status(db, job_id, "processing", progress)
@@ -324,6 +331,7 @@ Respond in JSON with:
 # Tour Optimization
 # ====================
 
+
 async def optimize_tour(
     db: AsyncSession,
     tour_id: str,
@@ -341,12 +349,14 @@ async def optimize_tour(
     job = await create_ai_job(db, user_id, "optimize_tour", tour_id=tour_id)
 
     _track_background_task(
-        _run_with_semaphore(_run_tour_optimization(
-            job.id,
-            tour.id,
-            user_id,
-            options or {},
-        ))
+        _run_with_semaphore(
+            _run_tour_optimization(
+                job.id,
+                tour.id,
+                user_id,
+                options or {},
+            )
+        )
     )
     return job
 

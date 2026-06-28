@@ -14,6 +14,7 @@ from app.core.utils import utc_now_iso
 
 class NorthDirection(str, Enum):
     """Direction of North in the floor plan image."""
+
     UP = "up"
     DOWN = "down"
     LEFT = "left"
@@ -23,6 +24,7 @@ class NorthDirection(str, Enum):
 
 class VastuStatus(str, Enum):
     """Status rating for Vastu compliance."""
+
     EXCELLENT = "excellent"
     GOOD = "good"
     NEUTRAL = "neutral"
@@ -32,6 +34,7 @@ class VastuStatus(str, Enum):
 
 class DefectSeverity(str, Enum):
     """Severity level of a Vastu defect."""
+
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
@@ -39,6 +42,7 @@ class DefectSeverity(str, Enum):
 
 class RemedyType(str, Enum):
     """Type of Vastu remedy."""
+
     PLACEMENT = "placement"
     COLOR = "color"
     ELEMENT = "element"
@@ -47,6 +51,7 @@ class RemedyType(str, Enum):
 
 class AnalysisWarningType(str, Enum):
     """Types of warnings that can occur during analysis."""
+
     NOT_FLOOR_PLAN = "not_floor_plan"
     MISSING_KITCHEN = "missing_kitchen"
     MISSING_BEDROOM = "missing_bedroom"
@@ -61,6 +66,7 @@ class AnalysisWarningType(str, Enum):
 
 class AnalysisWarningSeverity(str, Enum):
     """Severity level of an analysis warning."""
+
     INFO = "info"
     WARNING = "warning"
     CRITICAL = "critical"
@@ -69,24 +75,22 @@ class AnalysisWarningSeverity(str, Enum):
 # Request Schemas
 class VastuAnalyzeRequest(BaseModel):
     """Request payload for Vastu analysis."""
+
     north_direction: NorthDirection = Field(
-        default=NorthDirection.UP,
-        description="Direction of North in the floor plan image"
+        default=NorthDirection.UP, description="Direction of North in the floor plan image"
     )
     notes: str | None = Field(
-        default=None,
-        max_length=1000,
-        description="Additional notes or concerns about the property"
+        default=None, max_length=1000, description="Additional notes or concerns about the property"
     )
     provider: str | None = Field(
-        default=DEFAULT_VISION_PROVIDER,
-        description="AI provider to use: 'gemini' or 'glm'"
+        default=DEFAULT_VISION_PROVIDER, description="AI provider to use: 'gemini' or 'glm'"
     )
 
 
 # Response Schemas
 class RoomInfo(BaseModel):
     """Information about a room in the floor plan."""
+
     name: str
     direction: str
     notes: str | None = None
@@ -94,30 +98,35 @@ class RoomInfo(BaseModel):
 
 class EntranceInfo(BaseModel):
     """Information about the main entrance."""
+
     direction: str
     type: str | None = None
 
 
 class ToiletInfo(BaseModel):
     """Information about toilets/bathrooms."""
+
     count: int
     directions: list[str]
 
 
 class StaircaseInfo(BaseModel):
     """Information about staircase."""
+
     direction: str
     type: str | None = None
 
 
 class BalconyInfo(BaseModel):
     """Information about balconies."""
+
     count: int
     directions: list[str]
 
 
 class FloorPlanAnalysis(BaseModel):
     """Extracted floor plan layout information."""
+
     plot_shape: str | None = None
     rooms: list[RoomInfo] = []
     entrance: EntranceInfo | None = None
@@ -132,6 +141,7 @@ class FloorPlanAnalysis(BaseModel):
 
 class RoomVastuAnalysis(BaseModel):
     """Vastu analysis for a specific room."""
+
     room: str
     direction: str
     status: VastuStatus
@@ -140,6 +150,7 @@ class RoomVastuAnalysis(BaseModel):
 
 class VastuDefect(BaseModel):
     """A Vastu defect identified in the floor plan."""
+
     issue: str
     severity: DefectSeverity
     impact: str
@@ -147,6 +158,7 @@ class VastuDefect(BaseModel):
 
 class VastuRemedy(BaseModel):
     """A remedy for a Vastu defect."""
+
     problem: str
     solution: str
     type: RemedyType
@@ -154,6 +166,7 @@ class VastuRemedy(BaseModel):
 
 class AnalysisWarning(BaseModel):
     """A warning about the analysis quality or completeness."""
+
     type: AnalysisWarningType
     severity: AnalysisWarningSeverity
     message: str = Field(description="User-friendly warning message")
@@ -162,34 +175,35 @@ class AnalysisWarning(BaseModel):
 
 class VastuAnalysisResult(BaseModel):
     """Complete Vastu analysis result."""
+
     floor_plan_analysis: FloorPlanAnalysis
     vastu_score: int = Field(ge=1, le=10, description="Overall Vastu score from 1-10")
     score_explanation: str = Field(description="Explanation for the score")
-    assumptions: list[str] = Field(default_factory=list, description="Assumptions made during analysis")
+    assumptions: list[str] = Field(
+        default_factory=list, description="Assumptions made during analysis"
+    )
     room_analysis: list[RoomVastuAnalysis] = Field(default_factory=list)
-    major_defects: list[VastuDefect] = Field(default_factory=list, description="Top 5 major defects")
+    major_defects: list[VastuDefect] = Field(
+        default_factory=list, description="Top 5 major defects"
+    )
     remedies: list[VastuRemedy] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list, description="Improvement suggestions")
     disclaimer: str = Field(description="Legal disclaimer")
     # New fields for edge case handling
     analysis_confidence: float = Field(
-        default=1.0,
-        ge=0.0,
-        le=1.0,
-        description="Confidence level of the analysis (0.0-1.0)"
+        default=1.0, ge=0.0, le=1.0, description="Confidence level of the analysis (0.0-1.0)"
     )
     warnings: list[AnalysisWarning] = Field(
-        default_factory=list,
-        description="Warnings about analysis quality or missing data"
+        default_factory=list, description="Warnings about analysis quality or missing data"
     )
     is_valid_floor_plan: bool = Field(
-        default=True,
-        description="Whether the image appears to be a valid floor plan"
+        default=True, description="Whether the image appears to be a valid floor plan"
     )
 
 
 class VastuAnalyzeResponse(BaseModel):
     """API response for Vastu analysis."""
+
     success: bool
     data: VastuAnalysisResult | None = None
     report_markdown: str | None = None
@@ -208,9 +222,7 @@ class VastuAnalyzeResponse(BaseModel):
                 "data": {
                     "floor_plan_analysis": {
                         "plot_shape": "rectangular",
-                        "rooms": [
-                            {"name": "Living Room", "direction": "North-East"}
-                        ]
+                        "rooms": [{"name": "Living Room", "direction": "North-East"}],
                     },
                     "vastu_score": 7,
                     "score_explanation": "Good overall layout with minor improvements needed",
@@ -219,11 +231,11 @@ class VastuAnalyzeResponse(BaseModel):
                     "major_defects": [],
                     "remedies": [],
                     "improvements": [],
-                    "disclaimer": "This analysis is for informational purposes only."
+                    "disclaimer": "This analysis is for informational purposes only.",
                 },
                 "report_markdown": "# Vastu Analysis Report\n\n...",
                 "provider_used": "gemini",
-                "analyzed_at": "2025-12-30T10:00:00+00:00"
+                "analyzed_at": "2025-12-30T10:00:00+00:00",
             }
         }
     )

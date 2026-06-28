@@ -37,9 +37,9 @@ async def list_tenants(
     else:
         raise InsufficientPermissionsError("Not authorized")
 
-    active_count_expr = func.sum(
-        case((Lease.status == LeaseStatus.active, 1), else_=0)
-    ).label("active_leases_count")
+    active_count_expr = func.sum(case((Lease.status == LeaseStatus.active, 1), else_=0)).label(
+        "active_leases_count"
+    )
 
     stmt = (
         select(
@@ -119,4 +119,3 @@ async def get_tenant_detail(
         "email": tenant.email,
         "leases": leases,
     }
-

@@ -1,4 +1,5 @@
 """Haryana Gazette scraper — official gazette site + PDF extraction."""
+
 from __future__ import annotations
 
 import asyncio
@@ -41,9 +42,7 @@ class GazetteScraper(BaseScraper):
                         item["pdf_text"] = extract_pdf_text(resp.content)
                         await asyncio.sleep(1)
                     except Exception as e:
-                        logger.warning(
-                            "Failed to fetch PDF %s: %s", item.get("pdf_url"), e
-                        )
+                        logger.warning("Failed to fetch PDF %s: %s", item.get("pdf_url"), e)
                 # Classify relevance using title + pdf_text
                 text_for_classify = f"{item.get('title', '')} {item.get('pdf_text', '')}"
                 tags, score = classify_gazette_relevance(text_for_classify)

@@ -4,6 +4,7 @@ System prompt for the 360ghar AI Agent.
 Generates role-aware prompts so the agent knows what tools are available
 for each user type (regular user, owner, tenant, agent, admin).
 """
+
 from __future__ import annotations
 
 BASE_PROMPT = """You are the 360Ghar AI Assistant, a helpful real estate concierge built into \

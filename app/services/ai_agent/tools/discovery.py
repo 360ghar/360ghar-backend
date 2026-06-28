@@ -4,6 +4,7 @@ Guest discovery tools — public property search, detail, and recommendation.
 These tools do not require authentication and allow unauthenticated users
 to browse and discover properties.
 """
+
 from __future__ import annotations
 
 from typing import Any

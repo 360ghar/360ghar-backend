@@ -5,6 +5,7 @@
 
 Each bank has a different URL structure for their auction page.
 Graceful failure if a bank site restructures."""
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,9 @@ class BankSpecificAuctionScraper(BaseScraper):
                 except Exception as e:
                     logger.warning(
                         "Failed to scrape %s (%s): %s",
-                        bank_cfg["name"], url, e,
+                        bank_cfg["name"],
+                        url,
+                        e,
                     )
                 await asyncio.sleep(2)
 
@@ -145,14 +148,19 @@ class BankSpecificAuctionScraper(BaseScraper):
                 # Fill defaults
                 if not record.get("full_address"):
                     record["full_address"] = " ".join(cells)
-                record.setdefault("city", self._detect_city(record.get("full_address", "")) or "Gurugram")
+                record.setdefault(
+                    "city", self._detect_city(record.get("full_address", "")) or "Gurugram"
+                )
 
                 if record.get("property_description"):
                     records.append(record)
 
         # --- Strategy 2: List/card-based (some banks use divs instead of tables) ---
         if not records:
-            for item in soup.find_all(["div", "li", "article"], class_=re.compile(r"auction|property|listing|card|notice", re.I)):
+            for item in soup.find_all(
+                ["div", "li", "article"],
+                class_=re.compile(r"auction|property|listing|card|notice", re.I),
+            ):
                 text = item.get_text(separator=" ", strip=True)
                 if not text or len(text) < 20:
                     continue
@@ -180,14 +188,14 @@ class BankSpecificAuctionScraper(BaseScraper):
 
             link_text = link.get_text(strip=True) or "Auction Notice PDF"
             record = {
-                    "source": bank_cfg["source"],
-                    "bank_name": bank_cfg["bank_name"],
-                    "property_description": link_text,
-                    "full_address": link_text,
-                    "city": "Gurugram",
-                    "source_url": pdf_url,
-                    "raw_data": {"pdf_url": pdf_url, "bank": bank_cfg["name"]},
-                }
+                "source": bank_cfg["source"],
+                "bank_name": bank_cfg["bank_name"],
+                "property_description": link_text,
+                "full_address": link_text,
+                "city": "Gurugram",
+                "source_url": pdf_url,
+                "raw_data": {"pdf_url": pdf_url, "bank": bank_cfg["name"]},
+            }
             records.append(record)
 
         return records
@@ -197,7 +205,18 @@ class BankSpecificAuctionScraper(BaseScraper):
         """Detect city from listing content."""
         text_lower = text.lower()
         city_keywords = {
-            "Delhi": ["delhi", "new delhi", "narela", "jhilmil", "nangloi", "dwarka", "rohini", "saket", "karol bagh", "lajpat nagar"],
+            "Delhi": [
+                "delhi",
+                "new delhi",
+                "narela",
+                "jhilmil",
+                "nangloi",
+                "dwarka",
+                "rohini",
+                "saket",
+                "karol bagh",
+                "lajpat nagar",
+            ],
             "Gurugram": ["gurugram", "gurgaon", "sector"],
             "Noida": ["noida", "greater noida"],
             "Faridabad": ["faridabad"],
@@ -262,7 +281,11 @@ class BankSpecificAuctionScraper(BaseScraper):
                 rec.setdefault("is_active", True)
                 rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
-                    **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")}
+                    **{
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
+                    }
                 )
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_bank_auctions_key",

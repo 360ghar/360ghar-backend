@@ -57,8 +57,7 @@ async def update_scene(
     )
     if not scene:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found or not authorized"
         )
     return scene
 
@@ -81,8 +80,7 @@ async def delete_scene(
     )
     if not success:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found or not authorized"
         )
     return None
 
@@ -107,7 +105,12 @@ async def list_hotspots(
     return hotspots[:limit]
 
 
-@router.post("/{scene_id}/hotspots", response_model=Hotspot, status_code=status.HTTP_201_CREATED, summary="Create scene hotspot")
+@router.post(
+    "/{scene_id}/hotspots",
+    response_model=Hotspot,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create scene hotspot",
+)
 async def create_hotspot(
     scene_id: str,
     hotspot_data: HotspotCreate,
@@ -127,7 +130,6 @@ async def create_hotspot(
     )
     if not hotspot:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene not found or not authorized"
         )
     return hotspot

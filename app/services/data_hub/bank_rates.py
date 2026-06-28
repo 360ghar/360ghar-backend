@@ -1,4 +1,5 @@
 """Bank rate scraper — RBI repo rate (HTML page) + major bank MCLR rates."""
+
 from __future__ import annotations
 
 import asyncio
@@ -52,9 +53,7 @@ class BankRateScraper(BaseScraper):
         """Parse RBI repo rate from press release page."""
         soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text()
-        match = re.search(
-            r"repo rate[^\d]*(\d+\.?\d*)\s*(?:per cent|%)", text, re.IGNORECASE
-        )
+        match = re.search(r"repo rate[^\d]*(\d+\.?\d*)\s*(?:per cent|%)", text, re.IGNORECASE)
         if match:
             return {
                 "bank_name": "RBI",

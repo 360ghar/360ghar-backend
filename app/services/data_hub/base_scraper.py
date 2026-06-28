@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class BaseScraper(ABC):
     """Abstract base for all data hub scrapers."""
 
-    name: str = ""                      # e.g. "circle_rates"
+    name: str = ""  # e.g. "circle_rates"
     requires_playwright: bool = False
 
     async def run(self, run_type: str = "cron", triggered_by: int | None = None) -> dict:
@@ -71,6 +71,7 @@ class BaseScraper(ABC):
     async def _playwright_browser(self):
         """Context manager yielding a headless Chromium browser with guaranteed cleanup."""
         from playwright.async_api import async_playwright
+
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(headless=True)
         try:
@@ -83,6 +84,7 @@ class BaseScraper(ABC):
         """Insert a ScraperRun row and return its id."""
         from app.models.data_hub import ScraperRun
         from app.models.enums import ScraperStatus
+
         run = ScraperRun(
             scraper_name=self.name,
             run_type=run_type,
@@ -96,14 +98,14 @@ class BaseScraper(ABC):
         return run.id
 
     async def _finish_run(
-        self, db: AsyncSession, run_id: int,
-        status: str, stats: dict, error: str | None = None
+        self, db: AsyncSession, run_id: int, status: str, stats: dict, error: str | None = None
     ) -> None:
         """Update ScraperRun row with final status and stats."""
         from sqlalchemy import select
 
         from app.models.data_hub import ScraperRun
         from app.models.enums import ScraperStatus
+
         result = await db.execute(select(ScraperRun).where(ScraperRun.id == run_id))
         run = result.scalar_one_or_none()
         if run is None:

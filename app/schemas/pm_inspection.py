@@ -40,4 +40,3 @@ class InspectionChecklist(BaseModel):
 class InspectionSign(BaseModel):
     tenant_signature_document_id: int | None = None
     owner_signature_document_id: int | None = None
-

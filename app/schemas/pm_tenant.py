@@ -19,4 +19,3 @@ class TenantDetail(BaseModel):
     phone: str | None = None
     email: str | None = None
     leases: list[LeaseSchema] = []
-

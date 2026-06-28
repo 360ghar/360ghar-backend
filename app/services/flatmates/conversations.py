@@ -362,17 +362,16 @@ async def list_conversations(
     participant_rows = list(
         (
             await db.execute(
-                select(ConversationParticipant.conversation_id, ConversationParticipant.user_id).where(
+                select(
+                    ConversationParticipant.conversation_id, ConversationParticipant.user_id
+                ).where(
                     ConversationParticipant.conversation_id.in_(conv_ids),
                     ConversationParticipant.user_id != user_id,
                 )
             )
-        )
-        .all()
+        ).all()
     )
-    peer_by_conv: dict[int, int] = {
-        row.conversation_id: row.user_id for row in participant_rows
-    }
+    peer_by_conv: dict[int, int] = {row.conversation_id: row.user_id for row in participant_rows}
 
     # Bulk-load context properties (flatmates context_type='property')
     property_ids = {
@@ -383,7 +382,9 @@ async def list_conversations(
     property_map: dict[int, Property] = {}
     if property_ids:
         prop_rows = list(
-            (await db.execute(select(Property).where(Property.id.in_(property_ids)))).scalars().all()
+            (await db.execute(select(Property).where(Property.id.in_(property_ids))))
+            .scalars()
+            .all()
         )
         property_map = {p.id: p for p in prop_rows}
 

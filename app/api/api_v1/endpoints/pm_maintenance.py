@@ -69,7 +69,11 @@ async def submit_request(
     return MaintenanceRequestSchema.model_validate(req)
 
 
-@router.get("/requests", response_model=CursorPage[MaintenanceRequestSchema], summary="List maintenance requests")
+@router.get(
+    "/requests",
+    response_model=CursorPage[MaintenanceRequestSchema],
+    summary="List maintenance requests",
+)
 async def list_requests(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -101,7 +105,11 @@ async def list_requests(
     )
 
 
-@router.patch("/requests/{request_id}", response_model=MaintenanceRequestSchema, summary="Update maintenance request")
+@router.patch(
+    "/requests/{request_id}",
+    response_model=MaintenanceRequestSchema,
+    summary="Update maintenance request",
+)
 async def update_request(
     request_id: int,
     payload: MaintenanceRequestUpdate,
@@ -125,4 +133,3 @@ async def update_request(
         completion_notes=payload.completion_notes,
     )
     return MaintenanceRequestSchema.model_validate(req)
-

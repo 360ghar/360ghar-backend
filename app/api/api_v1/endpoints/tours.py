@@ -4,6 +4,7 @@
 This module provides REST API endpoints for managing virtual tours,
 including CRUD operations, publishing, duplication, and analytics.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -181,7 +182,12 @@ async def unpublish_tour(
     )
 
 
-@router.post("/{tour_id}/duplicate", response_model=Tour, status_code=status.HTTP_201_CREATED, summary="Duplicate tour")
+@router.post(
+    "/{tour_id}/duplicate",
+    response_model=Tour,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate tour",
+)
 async def duplicate_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -239,7 +245,12 @@ async def list_scenes(
     return scenes[:limit]
 
 
-@router.post("/{tour_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED, summary="Create tour scene")
+@router.post(
+    "/{tour_id}/scenes",
+    response_model=Scene,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create tour scene",
+)
 async def create_scene(
     tour_id: str,
     scene_data: SceneCreate,
@@ -280,8 +291,7 @@ async def reorder_scenes(
     )
     if scenes is None:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found or not authorized"
         )
     return scenes
 
@@ -306,12 +316,12 @@ async def get_tour_qr_code(
     tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
     if not tour:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found or not authorized"
         )
 
     # Generate tour URL - use PUBLIC_BASE_URL if configured
     from app.config import settings
+
     base_url = settings.PUBLIC_BASE_URL or "https://360ghar.com"
     tour_url = f"{base_url}/tour/{tour_id}"
 
@@ -329,6 +339,7 @@ async def get_tour_qr_code(
 
     # Resize to requested size
     from PIL import Image
+
     img = img.resize((size, size), Image.Resampling.LANCZOS)
 
     # Convert to bytes
@@ -339,7 +350,7 @@ async def get_tour_qr_code(
     return StreamingResponse(
         buffer,
         media_type="image/png",
-        headers={"Content-Disposition": f"inline; filename=tour-{tour_id}-qr.png"}
+        headers={"Content-Disposition": f"inline; filename=tour-{tour_id}-qr.png"},
     )
 
 
@@ -361,8 +372,7 @@ async def get_tour_heatmap(
     tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
     if not tour:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found or not authorized"
         )
 
     heatmap_data = await tour_service.get_tour_heatmap(

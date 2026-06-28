@@ -81,7 +81,9 @@ api_router.include_router(oauth.router, tags=["oauth"])
 api_router.include_router(pm_dashboard.router, prefix="/pm/dashboard", tags=["pm-dashboard"])
 api_router.include_router(pm_properties.router, prefix="/pm/properties", tags=["pm-properties"])
 api_router.include_router(pm_assignments.router, prefix="/pm/assignments", tags=["pm-assignments"])
-api_router.include_router(pm_applications.router, prefix="/pm/applications", tags=["pm-applications"])
+api_router.include_router(
+    pm_applications.router, prefix="/pm/applications", tags=["pm-applications"]
+)
 api_router.include_router(pm_applications.public_router, prefix="/pm/public", tags=["pm-public"])
 api_router.include_router(pm_tenants.router, prefix="/pm/tenants", tags=["pm-tenants"])
 api_router.include_router(pm_leases.router, prefix="/pm/leases", tags=["pm-leases"])

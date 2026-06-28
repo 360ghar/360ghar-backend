@@ -1,4 +1,5 @@
 """BaankNet auction scraper — NPA and insolvency liquidation assets from baanknet.com."""
+
 from __future__ import annotations
 
 import asyncio
@@ -96,16 +97,12 @@ class BaankNetAuctionScraper(BaseScraper):
                         record["city"] = self._detect_city(val) or "Delhi NCR"
                     elif "reserve" in h or "base" in h or "price" in h:
                         try:
-                            record["reserve_price"] = float(
-                                re.sub(r"[,₹\s]", "", val)
-                            )
+                            record["reserve_price"] = float(re.sub(r"[,₹\s]", "", val))
                         except ValueError:
                             pass
                     elif "emd" in h or "earnest" in h:
                         try:
-                            record["emd_amount"] = float(
-                                re.sub(r"[,₹\s]", "", val)
-                            )
+                            record["emd_amount"] = float(re.sub(r"[,₹\s]", "", val))
                         except ValueError:
                             pass
                     elif "auction" in h and "date" in h:
@@ -162,7 +159,11 @@ class BaankNetAuctionScraper(BaseScraper):
                 rec.setdefault("is_active", True)
                 rec.setdefault("auction_date", date(1970, 1, 1))
                 stmt = pg_insert(BankAuction).values(
-                    **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")}
+                    **{
+                        k: v
+                        for k, v in rec.items()
+                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
+                    }
                 )
                 stmt = stmt.on_conflict_do_update(
                     constraint="uq_bank_auctions_key",

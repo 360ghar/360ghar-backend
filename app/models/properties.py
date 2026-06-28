@@ -67,12 +67,13 @@ def _compile_st_as_binary_sqlite(element, compiler, **kw):  # noqa: ANN001
         return "NULL"
     return compiler.process(clauses[0], **kw)
 
+
 class Property(Base):
     __tablename__ = "properties"
     __table_args__ = (
-        Index('idx_property_filters', 'property_type', 'purpose', 'is_available'),
-        Index('idx_property_price', 'base_price'),
-        Index('idx_properties_created_at', 'created_at'),
+        Index("idx_property_filters", "property_type", "purpose", "is_available"),
+        Index("idx_property_price", "base_price"),
+        Index("idx_properties_created_at", "created_at"),
         # PostGIS and FTS indexes are created by migrations:
         # - supabase/migrations/20250818081100_add_geography_to_properties.sql
         # - supabase/migrations/20250818081200_add_full_text_search_to_properties.sql
@@ -82,9 +83,15 @@ class Property(Base):
     __ts_vector__: Mapped[str] = mapped_column(TSVECTOR, nullable=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    property_type: Mapped[PropertyType] = mapped_column(SQLEnum(PropertyType, name='property_type'), nullable=False)
-    purpose: Mapped[PropertyPurpose] = mapped_column(SQLEnum(PropertyPurpose, name='property_purpose'), nullable=False)
-    status: Mapped[PropertyStatus] = mapped_column(SQLEnum(PropertyStatus, name='property_status'), default=PropertyStatus.available)
+    property_type: Mapped[PropertyType] = mapped_column(
+        SQLEnum(PropertyType, name="property_type"), nullable=False
+    )
+    purpose: Mapped[PropertyPurpose] = mapped_column(
+        SQLEnum(PropertyPurpose, name="property_purpose"), nullable=False
+    )
+    status: Mapped[PropertyStatus] = mapped_column(
+        SQLEnum(PropertyStatus, name="property_status"), default=PropertyStatus.available
+    )
 
     # Location
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -162,7 +169,9 @@ class Property(Base):
     like_count: Mapped[int] = mapped_column(Integer, default=0)
     interest_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     # Relationships
     owner: Mapped[User] = relationship(
@@ -170,8 +179,12 @@ class Property(Base):
         back_populates="owned_properties",
         foreign_keys=[owner_id],
     )
-    images: Mapped[list[PropertyImage]] = relationship(back_populates="property", cascade="all, delete-orphan")
-    property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="property", cascade="all, delete-orphan")
+    images: Mapped[list[PropertyImage]] = relationship(
+        back_populates="property", cascade="all, delete-orphan"
+    )
+    property_amenities: Mapped[list[PropertyAmenity]] = relationship(
+        back_populates="property", cascade="all, delete-orphan"
+    )
     swipes: Mapped[list[UserSwipe]] = relationship(
         "UserSwipe",
         back_populates="property",
@@ -195,6 +208,7 @@ class Property(Base):
     )
     documents: Mapped[list[Document]] = relationship("Document", back_populates="property")
 
+
 class PropertyImage(Base):
     __tablename__ = "property_images"
 
@@ -202,13 +216,18 @@ class PropertyImage(Base):
     property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
     image_url: Mapped[str] = mapped_column(String, nullable=False)
     caption: Mapped[str | None] = mapped_column(String, nullable=True)
-    image_category: Mapped[ImageCategory] = mapped_column(SQLEnum(ImageCategory, name='image_category'), default=ImageCategory.others)
+    image_category: Mapped[ImageCategory] = mapped_column(
+        SQLEnum(ImageCategory, name="image_category"), default=ImageCategory.others
+    )
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     is_main_image: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     property: Mapped[Property] = relationship(back_populates="images")
+
 
 class Amenity(Base):
     __tablename__ = "amenities"
@@ -216,18 +235,25 @@ class Amenity(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     icon: Mapped[str | None] = mapped_column(String, nullable=True)
-    category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "safety", "recreation", "convenience"
+    category: Mapped[str | None] = mapped_column(
+        String, nullable=True
+    )  # e.g., "safety", "recreation", "convenience"
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     # Relationships
-    property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="amenity", cascade="all, delete-orphan")
+    property_amenities: Mapped[list[PropertyAmenity]] = relationship(
+        back_populates="amenity", cascade="all, delete-orphan"
+    )
+
 
 class PropertyAmenity(Base):
     __tablename__ = "property_amenities"
     __table_args__ = (
-        Index('idx_property_amenity_unique', 'property_id', 'amenity_id', unique=True),
+        Index("idx_property_amenity_unique", "property_id", "amenity_id", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -239,11 +265,10 @@ class PropertyAmenity(Base):
     property: Mapped[Property] = relationship(back_populates="property_amenities")
     amenity: Mapped[Amenity] = relationship(back_populates="property_amenities")
 
+
 class Visit(Base):
     __tablename__ = "visits"
-    __table_args__ = (
-        Index("idx_visits_scheduled_date", "scheduled_date"),
-    )
+    __table_args__ = (Index("idx_visits_scheduled_date", "scheduled_date"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
@@ -264,7 +289,9 @@ class Visit(Base):
     visit_context: Mapped[str] = mapped_column(String(32), default="property_tour")
     scheduled_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actual_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[VisitStatus] = mapped_column(SQLEnum(VisitStatus, name='visit_status'), default=VisitStatus.scheduled)
+    status: Mapped[VisitStatus] = mapped_column(
+        SQLEnum(VisitStatus, name="visit_status"), default=VisitStatus.scheduled
+    )
     special_requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
     visit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     visitor_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -272,9 +299,13 @@ class Visit(Base):
     follow_up_required: Mapped[bool] = mapped_column(Boolean, default=False)
     follow_up_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancellation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    rescheduled_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rescheduled_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     user: Mapped[User] = relationship(back_populates="visits", foreign_keys=[user_id])
     counterparty_user: Mapped[User | None] = relationship(foreign_keys=[counterparty_user_id])

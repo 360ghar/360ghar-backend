@@ -133,7 +133,12 @@ class GeminiProvider(AIProvider):
         elapsed_ms = (time.monotonic() - t_start) * 1000
         logger.info(
             "External call completed",
-            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url},
+            extra={
+                "provider": self.name,
+                "model": self.config.model,
+                "duration_ms": round(elapsed_ms, 1),
+                "endpoint": url,
+            },
         )
         try:
             data = response.json()
@@ -169,7 +174,13 @@ class GeminiProvider(AIProvider):
         elapsed_ms = (time.monotonic() - t_start) * 1000
         logger.info(
             "External call completed",
-            extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url, "json_mode": True},
+            extra={
+                "provider": self.name,
+                "model": self.config.model,
+                "duration_ms": round(elapsed_ms, 1),
+                "endpoint": url,
+                "json_mode": True,
+            },
         )
         try:
             data = response.json()

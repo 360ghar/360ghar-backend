@@ -74,7 +74,9 @@ class EnumStringType(TypeDecorator[str]):
             return value
 
 
-def enum_check_constraint(column_name: str, enum_cls: type[SocialEnum], name: str) -> CheckConstraint:
+def enum_check_constraint(
+    column_name: str, enum_cls: type[SocialEnum], name: str
+) -> CheckConstraint:
     """Build a DB-level check constraint for a controlled enum value set."""
     quoted_values = ", ".join(f"'{member.value}'" for member in enum_cls)
     return CheckConstraint(f"{column_name} IN ({quoted_values})", name=name)

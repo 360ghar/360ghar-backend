@@ -65,9 +65,7 @@ async def get_dashboard_overview(
         select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
     )
 
-    occupied_stmt = select(func.count(Property.id)).where(
-        Property.is_managed, active_lease_exists
-    )
+    occupied_stmt = select(func.count(Property.id)).where(Property.is_managed, active_lease_exists)
     if owner_ids is not None:
         occupied_stmt = occupied_stmt.where(Property.owner_id.in_(owner_ids))
     occupied_properties = int((await db.execute(occupied_stmt)).scalar_one() or 0)
@@ -85,7 +83,9 @@ async def get_dashboard_overview(
     cur_end = _next_month_start(today)
 
     # previous month
-    prev_month = date(today.year - 1, 12, 1) if today.month == 1 else date(today.year, today.month - 1, 1)
+    prev_month = (
+        date(today.year - 1, 12, 1) if today.month == 1 else date(today.year, today.month - 1, 1)
+    )
     prev_start = _month_start(prev_month)
     prev_end = _next_month_start(prev_month)
 
@@ -108,7 +108,9 @@ async def get_dashboard_overview(
     charges_subquery = (
         select(
             RentCharge.id,
-            (RentCharge.amount_due + func.coalesce(RentCharge.late_fee_assessed, 0.0)).label("due_total"),
+            (RentCharge.amount_due + func.coalesce(RentCharge.late_fee_assessed, 0.0)).label(
+                "due_total"
+            ),
             func.coalesce(func.sum(RentPayment.amount_paid), 0.0).label("paid_total"),
         )
         .outerjoin(RentPayment, RentPayment.charge_id == RentCharge.id)
@@ -180,7 +182,9 @@ async def get_recent_activity(
             }
         )
 
-    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
+    maint_stmt = (
+        select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
+    )
     if owner_ids is not None:
         maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     requests = list((await db.execute(maint_stmt)).scalars().all())

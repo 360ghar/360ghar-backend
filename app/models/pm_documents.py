@@ -92,4 +92,3 @@ class Document(Base):
     )
 
     replaces: Mapped[Document | None] = relationship("Document", remote_side=[id])
-

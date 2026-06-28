@@ -534,6 +534,7 @@ class AgentInteractionType(str, Enum):
 
 class ListingModerationStatus(str, Enum):
     """Status values stored in listing_preferences JSON for flatmate listings."""
+
     pending_review = "pending_review"
     live = "live"
     rejected = "rejected"
@@ -541,6 +542,7 @@ class ListingModerationStatus(str, Enum):
 
 class ModerationAction(str, Enum):
     """Actions available when moderating a flatmate listing."""
+
     approve = "approve"
     reject = "reject"
     request_edit = "request_edit"
@@ -548,6 +550,7 @@ class ModerationAction(str, Enum):
 
 class ReportAction(str, Enum):
     """Actions available when moderating a user report."""
+
     dismiss = "dismiss"
     warn_user = "warn_user"
     suspend_user = "suspend_user"

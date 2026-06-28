@@ -80,7 +80,7 @@ async def agent_rent_list_due(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.services.pm_authz import get_accessible_owner_ids
@@ -122,16 +122,18 @@ async def agent_rent_list_due(
                     continue
 
                 if is_due:
-                    due_items.append({
-                        "lease_id": lease.id,
-                        "property_id": lease.property_id,
-                        "owner_id": lease.owner_id,
-                        "tenant_user_id": lease.tenant_user_id,
-                        "monthly_rent": float(lease.monthly_rent or 0),
-                        "due_date": due_date.isoformat(),
-                        "is_overdue": is_overdue,
-                        "days_overdue": (today - grace_end).days if is_overdue else 0,
-                    })
+                    due_items.append(
+                        {
+                            "lease_id": lease.id,
+                            "property_id": lease.property_id,
+                            "owner_id": lease.owner_id,
+                            "tenant_user_id": lease.tenant_user_id,
+                            "monthly_rent": float(lease.monthly_rent or 0),
+                            "due_date": due_date.isoformat(),
+                            "is_overdue": is_overdue,
+                            "days_overdue": (today - grace_end).days if is_overdue else 0,
+                        }
+                    )
 
             # Paginate
             start = offset
@@ -139,14 +141,16 @@ async def agent_rent_list_due(
             paginated = due_items[start:end]
             next_payload = offset_payload(end) if end < len(due_items) else None
 
-            return MCPResponse.success({
-                "total": len(due_items),
-                "overdue_count": sum(1 for i in due_items if i["is_overdue"]),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "items": paginated,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": len(due_items),
+                    "overdue_count": sum(1 for i in due_items if i["is_overdue"]),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "items": paginated,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -155,6 +159,7 @@ async def agent_rent_list_due(
         logger.error("Error in agent.rent.list_due: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list due rent: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_rent_record_payment",
@@ -194,9 +199,11 @@ async def agent_rent_record_payment(
         if pay_date is None:
             return invalid_input_response("payment_date must be in ISO-8601 format")
 
-        valid_methods = ['cash', 'bank_transfer', 'upi', 'cheque', 'online', 'other']
+        valid_methods = ["cash", "bank_transfer", "upi", "cheque", "online", "other"]
         if payment_method.lower() not in valid_methods:
-            return invalid_input_response(f"payment_method must be one of: {', '.join(valid_methods)}")
+            return invalid_input_response(
+                f"payment_method must be one of: {', '.join(valid_methods)}"
+            )
 
         async for db in get_db():
             user = await _get_user(db)
@@ -210,7 +217,7 @@ async def agent_rent_record_payment(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -219,15 +226,12 @@ async def agent_rent_record_payment(
             user_schema = UserSchema.model_validate(user)
 
             try:
-                await assert_can_access_lease(
-                    db, actor=user_schema, lease_id=lease_id
-                )
+                await assert_can_access_lease(db, actor=user_schema, lease_id=lease_id)
             except NotFoundException:
                 return not_found_response("Lease", lease_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this lease"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this lease"
                 ).model_dump()
 
             # Create payment record
@@ -246,17 +250,19 @@ async def agent_rent_record_payment(
             await db.refresh(payment)
             await db.commit()
 
-            return MCPResponse.success({
-                "message": "Payment recorded successfully",
-                "payment": {
-                    "id": payment.id,
-                    "lease_id": payment.lease_id,
-                    "amount": float(payment.amount_paid),
-                    "payment_date": payment.paid_at.isoformat() if payment.paid_at else None,
-                    "payment_method": payment.payment_method,
-                    "status": payment.status,  # type: ignore[attr-defined]
-                },
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Payment recorded successfully",
+                    "payment": {
+                        "id": payment.id,
+                        "lease_id": payment.lease_id,
+                        "amount": float(payment.amount_paid),
+                        "payment_date": payment.paid_at.isoformat() if payment.paid_at else None,
+                        "payment_method": payment.payment_method,
+                        "status": payment.status,  # type: ignore[attr-defined]
+                    },
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

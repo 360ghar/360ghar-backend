@@ -32,9 +32,15 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 @router.post("/analyze", response_model=VastuAnalyzeResponse, summary="Analyze floor plan vastu")
 async def analyze_floor_plan(
     image: UploadFile = File(..., description="Floor plan image (JPEG, PNG, or WebP)"),
-    north_direction: str = Form(default="up", description="Direction of North in the image: up, down, left, right, unknown"),
-    notes: str | None = Form(default=None, description="Additional notes about the property (max 1000 chars)"),
-    provider: str | None = Form(default=DEFAULT_VISION_PROVIDER, description="AI provider: gemini or glm"),
+    north_direction: str = Form(
+        default="up", description="Direction of North in the image: up, down, left, right, unknown"
+    ),
+    notes: str | None = Form(
+        default=None, description="Additional notes about the property (max 1000 chars)"
+    ),
+    provider: str | None = Form(
+        default=DEFAULT_VISION_PROVIDER, description="AI provider: gemini or glm"
+    ),
 ):
     """
     Analyze a floor plan image for Vastu Shastra compliance.
@@ -66,7 +72,7 @@ async def analyze_floor_plan(
     if content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid file type '{content_type}'. Allowed types: JPEG, PNG, WebP"
+            detail=f"Invalid file type '{content_type}'. Allowed types: JPEG, PNG, WebP",
         )
 
     # Read and validate file size
@@ -74,14 +80,11 @@ async def analyze_floor_plan(
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB",
         )
 
     if len(content) == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Empty file uploaded"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file uploaded")
 
     # Validate north direction
     try:
@@ -90,14 +93,14 @@ async def analyze_floor_plan(
         valid_options = [d.value for d in NorthDirection]
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid north direction '{north_direction}'. Valid options: {valid_options}"
+            detail=f"Invalid north direction '{north_direction}'. Valid options: {valid_options}",
         ) from None
 
     # Validate notes length
     if notes and len(notes) > 1000:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Notes too long. Maximum 1000 characters."
+            detail="Notes too long. Maximum 1000 characters.",
         )
 
     # Validate provider
@@ -106,7 +109,7 @@ async def analyze_floor_plan(
     if provider_clean not in valid_providers:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid provider '{provider}'. Valid options: {valid_providers}"
+            detail=f"Invalid provider '{provider}'. Valid options: {valid_providers}",
         )
 
     # Convert to base64
@@ -119,7 +122,12 @@ async def analyze_floor_plan(
         provider=provider_clean,
     )
 
-    logger.info("Starting Vastu analysis: provider=%s, north=%s, file_size=%s", provider_clean, north_dir.value, len(content))
+    logger.info(
+        "Starting Vastu analysis: provider=%s, north=%s, file_size=%s",
+        provider_clean,
+        north_dir.value,
+        len(content),
+    )
 
     # Analyze
     result = await analyze_vastu(
@@ -132,10 +140,12 @@ async def analyze_floor_plan(
         logger.warning("Vastu analysis failed: %s", result.error)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=result.error or "Analysis failed. Please try with a clearer floor plan image."
+            detail=result.error or "Analysis failed. Please try with a clearer floor plan image.",
         )
 
-    logger.info("Vastu analysis completed: score=%s", result.data.vastu_score if result.data else 'N/A')
+    logger.info(
+        "Vastu analysis completed: score=%s", result.data.vastu_score if result.data else "N/A"
+    )
 
     return result
 

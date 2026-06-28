@@ -129,12 +129,16 @@ async def get_current_user(
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         request.state.user_id = getattr(db_user, "id", None)
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
-        logger.debug("User authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
+        sentry_sdk.set_user(
+            {
+                "id": str(getattr(db_user, "id", None)),
+                "email": getattr(db_user, "email", None),
+                "username": getattr(db_user, "phone", None),
+            }
+        )
+        logger.debug(
+            "User authenticated successfully", extra={"user_id": getattr(db_user, "id", None)}
+        )
         return db_user
     except HTTPException:
         raise
@@ -243,12 +247,16 @@ async def get_current_user_sse(
                 await db.rollback()
                 raise
         request.state.user_id = getattr(db_user, "id", None)
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
-        logger.debug("SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
+        sentry_sdk.set_user(
+            {
+                "id": str(getattr(db_user, "id", None)),
+                "email": getattr(db_user, "email", None),
+                "username": getattr(db_user, "phone", None),
+            }
+        )
+        logger.debug(
+            "SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)}
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -315,11 +323,13 @@ async def get_current_user_optional(
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         request.state.user_id = getattr(db_user, "id", None)
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
+        sentry_sdk.set_user(
+            {
+                "id": str(getattr(db_user, "id", None)),
+                "email": getattr(db_user, "email", None),
+                "username": getattr(db_user, "phone", None),
+            }
+        )
         return db_user
     except Exception:
         logger.warning("Optional auth resolution failed", exc_info=True)

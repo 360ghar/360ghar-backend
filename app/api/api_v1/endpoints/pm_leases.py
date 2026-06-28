@@ -181,4 +181,3 @@ async def terminate(
     """Terminate lease."""
     lease = await terminate_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
-

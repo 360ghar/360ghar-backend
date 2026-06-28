@@ -51,17 +51,19 @@ class InspectionChecklist(Base):
     owner_signature_document_id: Mapped[int | None] = mapped_column(
         ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
-    signed_by_tenant_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    signed_by_owner_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_by_tenant_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    signed_by_owner_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
 
-    property: Mapped[Property] = relationship(
-        "Property", back_populates="inspection_checklists"
-    )
+    property: Mapped[Property] = relationship("Property", back_populates="inspection_checklists")
     lease: Mapped[Lease] = relationship("Lease", back_populates="inspection_checklists")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
     conducted_by: Mapped[User] = relationship("User", foreign_keys=[conducted_by_user_id])

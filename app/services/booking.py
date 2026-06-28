@@ -23,6 +23,7 @@ from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_va
 
 logger = get_logger(__name__)
 
+
 async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate):
     """Create a new booking"""
     booking_data = booking.model_dump()
@@ -36,8 +37,13 @@ async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate)
     if nights <= 0:
         logger.warning(
             "Invalid date range in booking creation",
-            extra={"user_id": user_id, "property_id": booking_data["property_id"],
-                   "check_in": str(check_in), "check_out": str(check_out), "reason": "invalid_date_range"},
+            extra={
+                "user_id": user_id,
+                "property_id": booking_data["property_id"],
+                "check_in": str(check_in),
+                "check_out": str(check_out),
+                "reason": "invalid_date_range",
+            },
         )
         raise BadRequestException(detail="Invalid date range: check-out must be after check-in")
 
@@ -45,8 +51,12 @@ async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate)
     availability = await check_availability(
         db,
         booking_data["property_id"],
-        booking_data["check_in_date"].isoformat() if hasattr(booking_data["check_in_date"], 'isoformat') else str(booking_data["check_in_date"]),
-        booking_data["check_out_date"].isoformat() if hasattr(booking_data["check_out_date"], 'isoformat') else str(booking_data["check_out_date"]),
+        booking_data["check_in_date"].isoformat()
+        if hasattr(booking_data["check_in_date"], "isoformat")
+        else str(booking_data["check_in_date"]),
+        booking_data["check_out_date"].isoformat()
+        if hasattr(booking_data["check_out_date"], "isoformat")
+        else str(booking_data["check_out_date"]),
         booking_data["guests"],
     )
     if not availability.get("available", False):
@@ -96,11 +106,13 @@ async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate)
     )
     return db_booking
 
+
 async def get_booking(db: AsyncSession, booking_id: int):
     """Get a booking by ID"""
     stmt = select(Booking).where(Booking.id == booking_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
+
 
 async def get_user_bookings(
     db: AsyncSession,
@@ -113,7 +125,9 @@ async def get_user_bookings(
     stmt = select(Booking).where(Booking.user_id == user_id)
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
     predicate = keyset_filter(Booking.created_at, Booking.id, cursor_payload, descending=True)
     if predicate is not None:
         stmt = stmt.where(predicate)
@@ -124,6 +138,7 @@ async def get_user_bookings(
         rows = rows[:limit]
         next_payload = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
     return rows, next_payload, count_total
+
 
 async def get_user_upcoming_bookings(
     db: AsyncSession,
@@ -137,11 +152,13 @@ async def get_user_upcoming_bookings(
     stmt = select(Booking).where(
         Booking.user_id == user_id,
         Booking.check_in_date > now,
-        Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.pending])
+        Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.pending]),
     )
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
     predicate = keyset_filter(Booking.check_in_date, Booking.id, cursor_payload, descending=False)
     if predicate is not None:
         stmt = stmt.where(predicate)
@@ -153,6 +170,7 @@ async def get_user_upcoming_bookings(
         next_payload = keyset_payload(keyset_sort_value(rows[-1].check_in_date), rows[-1].id)
     return rows, next_payload, count_total
 
+
 async def get_user_past_bookings(
     db: AsyncSession,
     user_id: int,
@@ -162,13 +180,12 @@ async def get_user_past_bookings(
 ) -> tuple[list, dict | None, int | None]:
     """Get past bookings for a user (keyset-paginated)."""
     now = datetime.now(timezone.utc)
-    stmt = select(Booking).where(
-        Booking.user_id == user_id,
-        Booking.check_out_date < now
-    )
+    stmt = select(Booking).where(Booking.user_id == user_id, Booking.check_out_date < now)
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
     predicate = keyset_filter(Booking.check_out_date, Booking.id, cursor_payload, descending=True)
     if predicate is not None:
         stmt = stmt.where(predicate)
@@ -179,6 +196,7 @@ async def get_user_past_bookings(
         rows = rows[:limit]
         next_payload = keyset_payload(keyset_sort_value(rows[-1].check_out_date), rows[-1].id)
     return rows, next_payload, count_total
+
 
 async def update_booking(db: AsyncSession, booking_id: int, booking_update: BookingUpdate):
     """Update a booking"""
@@ -195,6 +213,7 @@ async def update_booking(db: AsyncSession, booking_id: int, booking_update: Book
         await db.refresh(booking)
 
     return booking
+
 
 async def cancel_booking(db: AsyncSession, booking_id: int, reason: str):
     """Cancel a booking"""
@@ -214,6 +233,7 @@ async def cancel_booking(db: AsyncSession, booking_id: int, reason: str):
         return True
 
     return False
+
 
 async def process_payment(db: AsyncSession, payment_data: BookingPayment):
     """Process payment for a booking"""
@@ -240,6 +260,7 @@ async def process_payment(db: AsyncSession, payment_data: BookingPayment):
 
     return False
 
+
 async def add_review(db: AsyncSession, review_data: BookingReview):
     """Add a review to a booking"""
     stmt = select(Booking).where(Booking.id == review_data.booking_id)
@@ -254,7 +275,10 @@ async def add_review(db: AsyncSession, review_data: BookingReview):
 
     return False
 
-async def check_availability(db: AsyncSession, property_id: int, check_in_date: str, check_out_date: str, guests: int):
+
+async def check_availability(
+    db: AsyncSession, property_id: int, check_in_date: str, check_out_date: str, guests: int
+):
     """Check if property is available for booking.
 
     Business rule: overlapping bookings are allowed — the same property can be
@@ -274,24 +298,38 @@ async def check_availability(db: AsyncSession, property_id: int, check_in_date: 
         logger.info(
             "Availability check: guests exceed max occupancy",
             extra={
-                "property_id": property_id, "guests": guests,
+                "property_id": property_id,
+                "guests": guests,
                 "max_occupancy": property_obj.max_occupancy,
-                "check_in": check_in_date, "check_out": check_out_date,
+                "check_in": check_in_date,
+                "check_out": check_out_date,
             },
         )
-        return {"available": False, "reason": f"Property can accommodate maximum {property_obj.max_occupancy} guests"}
+        return {
+            "available": False,
+            "reason": f"Property can accommodate maximum {property_obj.max_occupancy} guests",
+        }
 
     logger.info(
         "Availability check passed",
         extra={
-            "property_id": property_id, "guests": guests,
+            "property_id": property_id,
+            "guests": guests,
             "max_occupancy": property_obj.max_occupancy,
-            "check_in": check_in_date, "check_out": check_out_date,
+            "check_in": check_in_date,
+            "check_out": check_out_date,
         },
     )
     return {"available": True, "max_occupancy": property_obj.max_occupancy}
 
-async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: datetime, check_out_date: datetime, guests: int):
+
+async def calculate_pricing(
+    db: AsyncSession,
+    property_id: int,
+    check_in_date: datetime,
+    check_out_date: datetime,
+    guests: int,
+):
     """Calculate pricing for a booking.
 
     - Uses `daily_rate` if available, otherwise falls back to `base_price`.
@@ -310,7 +348,9 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
         return {"error": "Invalid date range"}
 
     # Choose a per-night rate: prefer daily_rate, else fall back to base_price
-    per_night_rate = property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
+    per_night_rate = (
+        property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
+    )
     per_night_rate = float(per_night_rate or 0.0)
 
     if per_night_rate <= 0:
@@ -375,7 +415,11 @@ async def get_all_bookings(
         filters.append(Booking.user_id == user_id)
 
     if filter_agent_id is not None:
-        stmt = stmt.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
+        stmt = (
+            stmt.outerjoin(User, Booking.user_id == User.id)
+            .outerjoin(Property, Booking.property_id == Property.id)
+            .outerjoin(Owner, Property.owner_id == Owner.id)
+        )
         filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
 
     if filters:
@@ -383,7 +427,9 @@ async def get_all_bookings(
 
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
 
     predicate = keyset_filter(Booking.created_at, Booking.id, cursor_payload, descending=True)
     if predicate is not None:

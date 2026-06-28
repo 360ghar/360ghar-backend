@@ -208,6 +208,3 @@ class SupabaseAuthProvider(RemoteAuthProvider):
             resource_name="360Ghar MCP API",
             resource_documentation=f"{public_base_url}/docs",  # type: ignore[arg-type]
         )
-
-
-

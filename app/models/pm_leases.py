@@ -64,8 +64,12 @@ class Lease(Base):
     lease_terms: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     special_clauses: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    signed_by_tenant_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    signed_by_owner_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    signed_by_tenant_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    signed_by_owner_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     termination_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     termination_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -86,7 +90,9 @@ class Lease(Base):
     )
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
     tenant_user: Mapped[User | None] = relationship("User", foreign_keys=[tenant_user_id])
-    lease_document: Mapped[Document | None] = relationship("Document", foreign_keys=[lease_document_id])
+    lease_document: Mapped[Document | None] = relationship(
+        "Document", foreign_keys=[lease_document_id]
+    )
 
     rent_charges: Mapped[list[RentCharge]] = relationship(
         "RentCharge", back_populates="lease", cascade="all, delete-orphan"

@@ -133,7 +133,9 @@ class StorageService:
                         quality=quality,
                     )
                     if new_content_type != content_type:
-                        public_id = public_id.rsplit(".", 1)[0] + ".webp" if "." in public_id else public_id
+                        public_id = (
+                            public_id.rsplit(".", 1)[0] + ".webp" if "." in public_id else public_id
+                        )
                     file_content = optimized_bytes
                     content_type = new_content_type
                 except Exception as exc:
@@ -240,9 +242,7 @@ class StorageService:
             # Optimize images to WebP before uploading
             if is_image:
                 try:
-                    max_dim, quality = OPTIMIZE_SETTINGS.get(
-                        StorageFolder.AGENT_AVATAR, (512, 85)
-                    )
+                    max_dim, quality = OPTIMIZE_SETTINGS.get(StorageFolder.AGENT_AVATAR, (512, 85))
                     optimized_bytes, new_content_type = image_processing.optimize_for_web(
                         file_content,
                         max_dimension=max_dim,
@@ -251,7 +251,9 @@ class StorageService:
                     file_content = optimized_bytes
                     content_type = new_content_type
                 except Exception as exc:
-                    logger.warning("Image optimization failed for agent avatar, uploading original: %s", exc)
+                    logger.warning(
+                        "Image optimization failed for agent avatar, uploading original: %s", exc
+                    )
 
             file_extension = get_file_extension(
                 file.filename or "",
@@ -704,9 +706,7 @@ class StorageService:
         for mid, media in owned.items():
             file_path: str | None = media.storage_path
             if not file_path and media.filename:
-                file_path = (
-                    f"{media.folder}/{media.filename}" if media.folder else media.filename
-                )
+                file_path = f"{media.folder}/{media.filename}" if media.folder else media.filename
             if file_path:
                 bucket_name = media.bucket_name if media.bucket_name else None
                 try:

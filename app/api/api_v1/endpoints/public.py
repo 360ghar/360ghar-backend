@@ -4,6 +4,7 @@ Public 360 Virtual Tour API Endpoints.
 This module provides unauthenticated endpoints for viewing published tours.
 These endpoints are used by the public viewer and embed page.
 """
+
 import time
 import uuid as _uuid
 from collections import defaultdict
@@ -141,30 +142,24 @@ async def get_public_tour(
         ) from None
 
     # Query tour with scenes and hotspots
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None)
-        )
-    ).options(
-        selectinload(Tour.scenes).selectinload(Scene.hotspots)
+    query = (
+        select(Tour)
+        .where(and_(Tour.id == tour_id, Tour.deleted_at.is_(None)))
+        .options(selectinload(Tour.scenes).selectinload(Scene.hotspots))
     )
 
     result = await db.execute(query)
     tour = result.scalar_one_or_none()
 
     if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
     # Check if tour is published and publicly accessible (public or unlisted)
     # Private tours require authentication and are handled by authenticated endpoints
     if tour.status != TourStatus.published:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
+            detail="Tour not found or is not publicly accessible",
         )
 
     # Check visibility: both 'public' and 'unlisted' tours are accessible via direct link
@@ -172,7 +167,7 @@ async def get_public_tour(
     if tour.visibility == TourVisibility.private:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
+            detail="Tour not found or is not publicly accessible",
         )
 
     # Track view analytics (optional, disabled with track=false)
@@ -201,7 +196,9 @@ async def get_public_tour(
             logger.warning("Failed to track analytics for tour %s: %s", tour_id, e)
 
     # Hydrate floor plans into tour.settings for the viewer (floor plans are stored in a dedicated table).
-    floor_plans_query = select(FloorPlan).where(FloorPlan.tour_id == tour_id).order_by(FloorPlan.floor_number)
+    floor_plans_query = (
+        select(FloorPlan).where(FloorPlan.tour_id == tour_id).order_by(FloorPlan.floor_number)
+    )
     floor_plans_result = await db.execute(floor_plans_query)
     floor_plans = list(floor_plans_result.scalars().all())
 
@@ -238,7 +235,7 @@ async def get_public_tour_scenes(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted]),
         )
     )
 
@@ -248,15 +245,16 @@ async def get_public_tour_scenes(
     if not tour:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
+            detail="Tour not found or is not publicly accessible",
         )
 
     # Get scenes
-    scenes_query = select(Scene).where(
-        Scene.tour_id == tour_id
-    ).options(
-        selectinload(Scene.hotspots)
-    ).order_by(Scene.order_index)
+    scenes_query = (
+        select(Scene)
+        .where(Scene.tour_id == tour_id)
+        .options(selectinload(Scene.hotspots))
+        .order_by(Scene.order_index)
+    )
 
     scenes_result = await db.execute(scenes_query)
     scenes = list(scenes_result.scalars().all())
@@ -331,7 +329,7 @@ async def track_tour_event(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted]),
         )
     )
 
@@ -339,10 +337,7 @@ async def track_tour_event(
     tour = result.scalar_one_or_none()
 
     if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
     try:
         user_agent = request.headers.get("user-agent", "")
@@ -398,7 +393,7 @@ async def like_tour(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted]),
         )
     )
 
@@ -406,10 +401,7 @@ async def like_tour(
     tour = result.scalar_one_or_none()
 
     if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
     new_like_count = (
         await db.execute(
@@ -464,7 +456,7 @@ async def unlike_tour(
             Tour.id == tour_id,
             Tour.deleted_at.is_(None),
             Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
+            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted]),
         )
     )
 
@@ -472,10 +464,7 @@ async def unlike_tour(
     tour = result.scalar_one_or_none()
 
     if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found")
 
     new_like_count = (
         await db.execute(

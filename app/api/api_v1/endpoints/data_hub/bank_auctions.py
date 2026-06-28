@@ -69,10 +69,11 @@ async def get_auction_cities(db: AsyncSession = Depends(get_db)):
 async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
     """Return grouped source metadata with counts."""
     # Count auctions per source
-    stmt = select(
-        BankAuction.source,
-        func.count(BankAuction.id).label("count")
-    ).where(BankAuction.is_active).group_by(BankAuction.source)
+    stmt = (
+        select(BankAuction.source, func.count(BankAuction.id).label("count"))
+        .where(BankAuction.is_active)
+        .group_by(BankAuction.source)
+    )
     result = await db.execute(stmt)
     source_counts = {str(row[0]): row[1] for row in result.all()}
 
@@ -80,19 +81,31 @@ async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
     categories = {
         "central": [
             {"source": "ibapi", "label": "IBAPI", "url": "https://ibapi.in"},
-            {"source": "ibbi", "label": "IBBI", "url": "https://ibbi.gov.in/liquidation-auction-notices"},
+            {
+                "source": "ibbi",
+                "label": "IBBI",
+                "url": "https://ibbi.gov.in/liquidation-auction-notices",
+            },
             {"source": "baanknet", "label": "BaankNet/eBKray", "url": "https://baanknet.com"},
             {"source": "mstc", "label": "MSTC", "url": "https://mstcecommerce.com"},
         ],
         "delhi": [
             {"source": "dda", "label": "DDA e-Services", "url": "https://eservices.dda.org.in"},
-            {"source": "dfc_delhi", "label": "Delhi Financial Corp", "url": "https://dfc.delhi.gov.in/dfc/public-auction"},
+            {
+                "source": "dfc_delhi",
+                "label": "Delhi Financial Corp",
+                "url": "https://dfc.delhi.gov.in/dfc/public-auction",
+            },
             {"source": "drt", "label": "DRT Delhi", "url": "https://drt.gov.in"},
             {"source": "ecourts", "label": "eCourts", "url": "https://ecourts.gov.in"},
         ],
         "gurgaon": [
             {"source": "hsvp", "label": "HSVP e-Auction", "url": "https://eauction.hsvphry.org.in"},
-            {"source": "hsvp_procure247", "label": "HSVP Procure247", "url": "https://hsvp.procure247.com"},
+            {
+                "source": "hsvp_procure247",
+                "label": "HSVP Procure247",
+                "url": "https://hsvp.procure247.com",
+            },
             {"source": "dtcp", "label": "DTCP Haryana", "url": "https://tcpharyana.gov.in"},
         ],
         "meerut": [
@@ -100,12 +113,32 @@ async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
             {"source": "yeida", "label": "YEIDA", "url": "https://yamunaexpresswayauthority.com"},
         ],
         "aggregators": [
-            {"source": "bank_eauctions", "label": "BankEAuctions", "url": "https://bankeauctions.com"},
-            {"source": "eauctions_india", "label": "eAuctionsIndia", "url": "https://eauctionsindia.com"},
-            {"source": "auction_bazaar", "label": "AuctionBazaar", "url": "https://auctionbazaar.com"},
-            {"source": "eauction_dekho", "label": "eAuctionDekho", "url": "https://eauctiondekho.com"},
+            {
+                "source": "bank_eauctions",
+                "label": "BankEAuctions",
+                "url": "https://bankeauctions.com",
+            },
+            {
+                "source": "eauctions_india",
+                "label": "eAuctionsIndia",
+                "url": "https://eauctionsindia.com",
+            },
+            {
+                "source": "auction_bazaar",
+                "label": "AuctionBazaar",
+                "url": "https://auctionbazaar.com",
+            },
+            {
+                "source": "eauction_dekho",
+                "label": "eAuctionDekho",
+                "url": "https://eauctiondekho.com",
+            },
             {"source": "findauction", "label": "FindAuction.in", "url": "https://findauction.in"},
-            {"source": "findauction_prop", "label": "FindAuctionProperty", "url": "https://findauctionproperty.com"},
+            {
+                "source": "findauction_prop",
+                "label": "FindAuctionProperty",
+                "url": "https://findauctionproperty.com",
+            },
             {"source": "auction_tiger", "label": "AuctionTiger", "url": "https://auctiontiger.net"},
         ],
         "banks": [
@@ -132,16 +165,12 @@ async def get_auction_source_categories(db: AsyncSession = Depends(get_db)):
 @router.get("/auctions/{auction_id}", summary="Get auction details")
 async def get_auction(auction_id: int, db: AsyncSession = Depends(get_db)):
     """Get a single auction by ID — checks bank auctions first, then court auctions."""
-    bank_result = await db.execute(
-        select(BankAuction).where(BankAuction.id == auction_id)
-    )
+    bank_result = await db.execute(select(BankAuction).where(BankAuction.id == auction_id))
     bank_row = bank_result.scalar_one_or_none()
     if bank_row is not None:
         return BankAuctionResponse.model_validate(bank_row)
 
-    court_result = await db.execute(
-        select(CourtAuction).where(CourtAuction.id == auction_id)
-    )
+    court_result = await db.execute(select(CourtAuction).where(CourtAuction.id == auction_id))
     court_row = court_result.scalar_one_or_none()
     if court_row is not None:
         return CourtAuctionResponse.model_validate(court_row)
@@ -149,7 +178,9 @@ async def get_auction(auction_id: int, db: AsyncSession = Depends(get_db)):
     raise HTTPException(status_code=404, detail="Auction not found")
 
 
-@router.get("/auctions", response_model=CursorPage[BankAuctionResponse], summary="List bank auctions")
+@router.get(
+    "/auctions", response_model=CursorPage[BankAuctionResponse], summary="List bank auctions"
+)
 async def list_auctions(
     type: str | None = Query(None, description="'bank' or 'court'"),
     bank: str | None = Query(None),
@@ -194,9 +225,7 @@ async def list_auctions(
             total: int | None = None
             if page.include_total:
                 total = (await db.execute(count_q)).scalar_one()
-            rows = (
-                await db.execute(data_q.offset(offset).limit(page.limit + 1))
-            ).scalars().all()
+            rows = (await db.execute(data_q.offset(offset).limit(page.limit + 1))).scalars().all()
         except Exception as exc:
             logger.warning("Court auctions query failed: %s", exc)
             total = 0 if page.include_total else None

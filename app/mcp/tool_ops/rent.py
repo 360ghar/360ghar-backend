@@ -110,19 +110,21 @@ async def compute_rent_due_items(
 
             prop_title = prop_titles.get(lease.property_id, "Property")
 
-            items.append({
-                "lease_id": lease.id,
-                "property_id": lease.property_id,
-                "property_title": prop_title,
-                "owner_id": lease.owner_id,
-                "tenant_user_id": lease.tenant_user_id,
-                "monthly_rent": float(lease.monthly_rent or 0),
-                "due_date": due_date.isoformat(),
-                "grace_end": grace_end.isoformat(),
-                "is_overdue": is_overdue,
-                "is_due": is_due,
-                "payment_due_day": payment_due_day,
-            })
+            items.append(
+                {
+                    "lease_id": lease.id,
+                    "property_id": lease.property_id,
+                    "property_title": prop_title,
+                    "owner_id": lease.owner_id,
+                    "tenant_user_id": lease.tenant_user_id,
+                    "monthly_rent": float(lease.monthly_rent or 0),
+                    "due_date": due_date.isoformat(),
+                    "grace_end": grace_end.isoformat(),
+                    "is_overdue": is_overdue,
+                    "is_due": is_due,
+                    "payment_due_day": payment_due_day,
+                }
+            )
 
         if len(leases) < fetch_limit:
             db_exhausted = True
@@ -244,15 +246,17 @@ async def get_rent_history(
 
     items = []
     for p in payments:
-        items.append({
-            "id": p.id,
-            "rent_charge_id": getattr(p, "charge_id", None),
-            "amount": float(p.amount_paid or 0),
-            "payment_date": p.paid_at.isoformat() if p.paid_at else None,
-            "payment_method": p.payment_method,
-            "transaction_id": p.reference,
-            "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
-        })
+        items.append(
+            {
+                "id": p.id,
+                "rent_charge_id": getattr(p, "charge_id", None),
+                "amount": float(p.amount_paid or 0),
+                "payment_date": p.paid_at.isoformat() if p.paid_at else None,
+                "payment_method": p.payment_method,
+                "transaction_id": p.reference,
+                "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
+            }
+        )
 
     total_collected = sum(float(p.get("amount") or 0) for p in items)
 

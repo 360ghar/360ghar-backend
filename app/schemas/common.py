@@ -10,6 +10,7 @@ class MessageResponse(BaseModel):
     message: str
     success: bool = True
 
+
 class SearchParams(BaseModel):
     query: str | None = None
     latitude: float | None = None
@@ -17,6 +18,7 @@ class SearchParams(BaseModel):
     radius_km: int = 5
     page: int = 1
     limit: int = 20
+
 
 class AnalyticsData(BaseModel):
     user_id: int
@@ -26,6 +28,7 @@ class AnalyticsData(BaseModel):
     session_id: str | None = None
     user_agent: str | None = None
     ip_address: str | None = None
+
 
 class NotificationSettings(BaseModel):
     email_notifications: bool = True
@@ -50,6 +53,7 @@ class NotificationSettings(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
+
 class PrivacySettings(BaseModel):
     profile_visibility: str = "public"  # public, private
     location_sharing: bool = True
@@ -59,4 +63,5 @@ class PrivacySettings(BaseModel):
 
 class AssignAgentPayload(BaseModel):
     """Payload for assigning an agent to a user."""
+
     agent_id: int

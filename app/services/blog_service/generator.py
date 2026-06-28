@@ -25,13 +25,14 @@ BLOG_CATEGORIES = [
     "Tech in Real Estate (PropTech, AI & VR, Smart Homes, Digital Transactions)",
     "Opinion & Editorials (Expert Interviews, Predictions, Trends, Myths vs. Facts)",
     "Scam & Fraud Awareness (Common Scams, Verifying Builders, Legal Red Flags, Online Safety)",
-    "Relocation & NRI (NRI Buying Guides, Returning to India, State-to-State Relocation)"
+    "Relocation & NRI (NRI Buying Guides, Returning to India, State-to-State Relocation)",
 ]
 
 
 def _build_excerpt_from_html(html: str, max_len: int = 280) -> str:
     try:
         import re
+
         # Strip tags quickly; we don't need perfect HTML parsing for an excerpt
         text = re.sub(r"<[^>]+>", " ", html or "")
         text = re.sub(r"\s+", " ", text).strip()
@@ -259,7 +260,7 @@ async def generate_bulk_blogs(db, *, count: int, actor) -> list[dict[str, Any]]:
         "1. **News Hook:** At least 40% of the topics MUST be about recent developments in Gurgaon (last 3-6 months) - e.g., new RERA rules, specific highway openings, circle rate changes, upcoming commercial corridors.\n"
         "2. **Specificity:** No generic titles like 'How to buy a house'. Instead use: 'Impact of Dwarka Expressway Opening on Sector 102 Property Rates'.\n"
         "3. **User Intent:** target what people actually type into Google (e.g., 'best society in Golf Course Ext Road', 'rent vs buy in Gurgaon 2025').\n"
-        "4. **Format:** Return a JSON object of the shape: {\"topics\": [\"topic 1\", \"topic 2\", ...]}."
+        '4. **Format:** Return a JSON object of the shape: {"topics": ["topic 1", "topic 2", ...]}.'
     )
     payload = {
         "model": settings.PERPLEXITY_MODEL or "sonar",

@@ -102,4 +102,3 @@ async def maintenance(
 ):
     """Get maintenance report."""
     return await maintenance_report(db, actor=current_user, owner_id=owner_id)  # type: ignore[arg-type]
-

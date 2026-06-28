@@ -40,7 +40,7 @@ class RequestLoggingMiddleware:
                     "method": method,
                     "path": full_path,
                     "query": query[:100] if query else None,
-                }
+                },
             )
 
         await self.app(scope, receive, send)
@@ -70,8 +70,7 @@ class RequestIDMiddleware:
         # Skip request ID only for MCP streaming tool routes.
         # OAuth endpoints (/mcp/oauth/*) still need request IDs.
         if path.startswith("/mcp") and not (
-            path.startswith("/mcp/oauth")
-            or path.startswith("/mcp-admin/oauth")
+            path.startswith("/mcp/oauth") or path.startswith("/mcp-admin/oauth")
         ):
             await self.app(scope, receive, send)
             return
@@ -130,8 +129,7 @@ class SecurityHeadersMiddleware:
         # Skip security headers only for MCP streaming tool routes.
         # OAuth endpoints (/mcp/oauth/*) and well-known paths still need headers.
         if path.startswith("/mcp") and not (
-            path.startswith("/mcp/oauth")
-            or path.startswith("/mcp-admin/oauth")
+            path.startswith("/mcp/oauth") or path.startswith("/mcp-admin/oauth")
         ):
             await self.app(scope, receive, send)
             return
@@ -148,14 +146,20 @@ class SecurityHeadersMiddleware:
                 headers.append((b"Referrer-Policy", b"strict-origin-when-cross-origin"))
 
                 if settings.ENVIRONMENT == "production":
-                    headers.append((b"Strict-Transport-Security", b"max-age=31536000; includeSubDomains"))
-                    headers.append((b"Content-Security-Policy",
-                        b"default-src 'self'; "
-                        b"script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                        b"style-src 'self' 'unsafe-inline'; "
-                        b"img-src 'self' data: https: https://res.cloudinary.com; "
-                        b"font-src 'self' data:; "
-                        b"connect-src 'self' https://api.supabase.co https://res.cloudinary.com"))
+                    headers.append(
+                        (b"Strict-Transport-Security", b"max-age=31536000; includeSubDomains")
+                    )
+                    headers.append(
+                        (
+                            b"Content-Security-Policy",
+                            b"default-src 'self'; "
+                            b"script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                            b"style-src 'self' 'unsafe-inline'; "
+                            b"img-src 'self' data: https: https://res.cloudinary.com; "
+                            b"font-src 'self' data:; "
+                            b"connect-src 'self' https://api.supabase.co https://res.cloudinary.com",
+                        )
+                    )
 
                 message["headers"] = headers
             await original_send(message)
@@ -220,39 +224,30 @@ class APIKeyMiddleware:
 
         # In production, check against database
         # For now, check against environment variable
-        valid = any(hmac.compare_digest(api_key, k.strip()) for k in settings.VALID_API_KEYS.split(",") if k.strip())
+        valid = any(
+            hmac.compare_digest(api_key, k.strip())
+            for k in settings.VALID_API_KEYS.split(",")
+            if k.strip()
+        )
 
         # Cache result
         await cache.set(cache_key, valid, ttl=300)
 
         return valid
 
+
 class RequestSignatureValidator:
     """Validate request signatures for webhook security"""
 
     @staticmethod
-    def generate_signature(
-        secret: str,
-        method: str,
-        path: str,
-        body: bytes,
-        timestamp: str
-    ) -> str:
+    def generate_signature(secret: str, method: str, path: str, body: bytes, timestamp: str) -> str:
         """Generate HMAC signature for request"""
         message = f"{method}:{path}:{body.decode('utf-8', errors='replace')}:{timestamp}"
-        signature = hmac.new(
-            secret.encode(),
-            message.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        signature = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
         return signature
 
     @staticmethod
-    async def validate_request(
-        request: Request,
-        secret: str,
-        max_age_seconds: int = 300
-    ) -> bool:
+    async def validate_request(request: Request, secret: str, max_age_seconds: int = 300) -> bool:
         """Validate request signature and timestamp"""
         # Get signature and timestamp from headers
         signature = request.headers.get("X-Signature")
@@ -279,15 +274,12 @@ class RequestSignatureValidator:
 
         # Generate expected signature
         expected_signature = RequestSignatureValidator.generate_signature(
-            secret,
-            request.method,
-            request.url.path,
-            body,
-            timestamp
+            secret, request.method, request.url.path, body, timestamp
         )
 
         # Compare signatures
         return hmac.compare_digest(signature, expected_signature)
+
 
 class IPWhitelistMiddleware:
     """IP whitelist middleware for admin endpoints.
@@ -296,7 +288,9 @@ class IPWhitelistMiddleware:
     deprecation in Starlette 1.0+ and to support streaming responses.
     """
 
-    def __init__(self, app: ASGIApp, whitelist: list[str] | None = None, paths: list[str] | None = None):
+    def __init__(
+        self, app: ASGIApp, whitelist: list[str] | None = None, paths: list[str] | None = None
+    ):
         self.app = app
         self.whitelist = whitelist or []
         self.paths = paths or ["/admin"]

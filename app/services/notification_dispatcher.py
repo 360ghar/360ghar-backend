@@ -37,12 +37,8 @@ def _get_user_channels_from_settings(
     cfg = settings_json or {}
 
     # Global channel toggles
-    push_enabled = bool(
-        cfg.get("push_notifications", cfg.get("push", True))
-    )
-    email_enabled = bool(
-        cfg.get("email_notifications", cfg.get("email", True))
-    )
+    push_enabled = bool(cfg.get("push_notifications", cfg.get("push", True)))
+    email_enabled = bool(cfg.get("email_notifications", cfg.get("email", True)))
     sms_enabled = bool(cfg.get("sms_notifications", False))
 
     # Marketing-specific toggles
@@ -50,9 +46,7 @@ def _get_user_channels_from_settings(
     if category == NotificationCategory.MARKETING:
         marketing_allowed = False
         # 360 Ghar style flags
-        promo_flag = bool(
-            cfg.get("promotional_emails", cfg.get("promotional_push", True))
-        )
+        promo_flag = bool(cfg.get("promotional_emails", cfg.get("promotional_push", True)))
         # Stays app style categories map: { categories: { promotions: true, ... } }
         categories_cfg = cfg.get("categories") or {}
         if not isinstance(categories_cfg, dict):
@@ -116,7 +110,9 @@ async def dispatch_notification_to_user(
     res = await db.execute(select(UserModel).where(UserModel.id == user_db_id))
     user: UserModel | None = res.scalar_one_or_none()
     if not user:
-        logger.warning("dispatch_notification_to_user: user not found", extra={"user_db_id": user_db_id})
+        logger.warning(
+            "dispatch_notification_to_user: user not found", extra={"user_db_id": user_db_id}
+        )
         result["error"] = "user_not_found"
         return result
 
@@ -165,7 +161,12 @@ async def dispatch_notification_to_user(
         except Exception as e:
             logger.error(
                 "Failed to send email notification",
-                extra={"user_id": user.id, "email": user.email, "type_key": cfg.key, "error": str(e)},
+                extra={
+                    "user_id": user.id,
+                    "email": user.email,
+                    "type_key": cfg.key,
+                    "error": str(e),
+                },
             )
             result["channels"]["email"] = {"ok": False, "error": str(e)}
 
@@ -181,7 +182,12 @@ async def dispatch_notification_to_user(
         except Exception as e:
             logger.error(
                 "Failed to send SMS notification",
-                extra={"user_id": user.id, "phone": user.phone, "type_key": cfg.key, "error": str(e)},
+                extra={
+                    "user_id": user.id,
+                    "phone": user.phone,
+                    "type_key": cfg.key,
+                    "error": str(e),
+                },
             )
             result["channels"]["sms"] = {"ok": False, "error": str(e)}
 

@@ -79,10 +79,14 @@ async def list_managed_properties(
     if owner_id is not None:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
-    stmt = select(Property).options(
-        selectinload(Property.images),
-        selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
-    ).where(Property.is_managed)
+    stmt = (
+        select(Property)
+        .options(
+            selectinload(Property.images),
+            selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+        )
+        .where(Property.is_managed)
+    )
     if owner_id is not None:
         stmt = stmt.where(Property.owner_id == owner_id)
 
@@ -94,7 +98,9 @@ async def list_managed_properties(
     if occupancy:
         occupancy_norm = occupancy.lower().strip()
         active_lease_exists = exists(
-            select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
+            select(1).where(
+                and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active)
+            )
         )
         if occupancy_norm == "occupied":
             stmt = stmt.where(active_lease_exists)
@@ -129,7 +135,9 @@ async def get_managed_property_detail(
     actor: UserSchema,
     property_id: int,
 ) -> dict:
-    prop = await assert_can_access_property(db, actor=actor, property_id=property_id, allow_tenant=True)
+    prop = await assert_can_access_property(
+        db, actor=actor, property_id=property_id, allow_tenant=True
+    )
 
     active_lease_stmt = (
         select(Lease)
@@ -191,7 +199,9 @@ async def update_managed_property(
             if not stripped:
                 continue
             if not ValidationUtils.is_absolute_url(stripped):
-                logger.warning("Skipping non-absolute image URL for property %s: %s", property_id, stripped)
+                logger.warning(
+                    "Skipping non-absolute image URL for property %s: %s", property_id, stripped
+                )
                 continue
             stored_images.append(stripped)
             img = PropertyImage(
@@ -220,7 +230,11 @@ async def update_managed_property(
             if not stripped:
                 continue
             if not ValidationUtils.is_absolute_url(stripped):
-                logger.warning("Skipping non-absolute floor plan URL for property %s: %s", property_id, stripped)
+                logger.warning(
+                    "Skipping non-absolute floor plan URL for property %s: %s",
+                    property_id,
+                    stripped,
+                )
                 continue
             img = PropertyImage(
                 property_id=property_id,
@@ -240,4 +254,3 @@ async def update_managed_property(
     await db.refresh(prop, ["images"])
 
     return prop
-

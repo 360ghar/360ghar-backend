@@ -1,4 +1,5 @@
 """RERA complaints/orders scraper — HRERA (Playwright) with builder scoring."""
+
 from __future__ import annotations
 
 import asyncio
@@ -118,7 +119,9 @@ class ReraComplaintScraper(BaseScraper):
                             except ValueError:
                                 pass
                 if rec.get("order_number"):
-                    text_for_nature = f"{rec.get('order_summary', '')} {rec.get('respondent_project', '')}"
+                    text_for_nature = (
+                        f"{rec.get('order_summary', '')} {rec.get('respondent_project', '')}"
+                    )
                     rec["complaint_nature"] = _classify_complaint_nature(text_for_nature)
                     if rec.get("respondent_builder"):
                         rec["builder_slug"] = generate_slug(rec["respondent_builder"])
@@ -132,8 +135,11 @@ class ReraComplaintScraper(BaseScraper):
         failed = 0
         for rec in records:
             try:
-                values = {k: v for k, v in rec.items()
-                          if hasattr(ReraComplaint, k) and k not in ("id", "created_at", "updated_at")}
+                values = {
+                    k: v
+                    for k, v in rec.items()
+                    if hasattr(ReraComplaint, k) and k not in ("id", "created_at", "updated_at")
+                }
                 stmt = pg_insert(ReraComplaint).values(**values)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["order_number"],
@@ -142,7 +148,7 @@ class ReraComplaintScraper(BaseScraper):
                         "penalty_amount": stmt.excluded.penalty_amount,
                         "complaint_nature": stmt.excluded.complaint_nature,
                         "raw_data": stmt.excluded.raw_data,
-                    }
+                    },
                 )
                 await db.execute(stmt)
                 upserted += 1
@@ -163,13 +169,12 @@ class ReraComplaintScraper(BaseScraper):
     async def _update_builder_scores(self, db: AsyncSession) -> None:
         """Update complaint_count on ReraProject rows based on builder_slug matches."""
         from sqlalchemy import func as sqlfunc
+
         try:
             # Get complaint counts per builder_slug
             result = await db.execute(
-                select(
-                    ReraComplaint.builder_slug,
-                    sqlfunc.count(ReraComplaint.id).label("cnt")
-                ).where(ReraComplaint.builder_slug.isnot(None))
+                select(ReraComplaint.builder_slug, sqlfunc.count(ReraComplaint.id).label("cnt"))
+                .where(ReraComplaint.builder_slug.isnot(None))
                 .group_by(ReraComplaint.builder_slug)
             )
             for row in result:

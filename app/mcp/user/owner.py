@@ -8,6 +8,7 @@ Tools for property owners to manage their properties:
 - Update property
 - Toggle availability
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -35,14 +36,10 @@ from app.mcp.tool_ops import (
     TOOL_OPS_NOT_FOUND,
     create_property,
     get_property_detail,
-    list_properties_enriched ,
+    list_properties_enriched,
     toggle_property_availability,
     update_property_fields,
 )
-
-# Backward compatibility for tests
-list_managed_properties = list_properties_enriched
-create_managed_property = create_property
 
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
@@ -51,6 +48,11 @@ from app.schemas.pagination import decode_cursor
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
+
+# Backward compatibility for tests
+list_managed_properties = list_properties_enriched
+create_managed_property = create_property
+
 
 # ChatGPT widget linkage metadata
 OWNER_DASHBOARD_META = build_widget_tool_meta(
@@ -191,7 +193,9 @@ async def owner_properties_create(
 
             # Coerce amenity_ids from string to list if needed
             if isinstance(amenity_ids, str):
-                amenity_ids = [int(x.strip()) for x in amenity_ids.split(",") if x.strip().isdigit()]
+                amenity_ids = [
+                    int(x.strip()) for x in amenity_ids.split(",") if x.strip().isdigit()
+                ]
             elif amenity_ids is not None and not isinstance(amenity_ids, list):
                 amenity_ids = [int(amenity_ids)] if str(amenity_ids).isdigit() else None
 
@@ -336,10 +340,13 @@ async def owner_properties_update(
                 )
 
             if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-                logger.warning("Non-absolute main_image_url in owner_properties_update: %s", main_image_url)
+                logger.warning(
+                    "Non-absolute main_image_url in owner_properties_update: %s", main_image_url
+                )
 
             updates = {
-                k: v for k, v in {
+                k: v
+                for k, v in {
                     "title": title,
                     "description": description,
                     "base_price": base_price,
@@ -348,7 +355,8 @@ async def owner_properties_update(
                     "is_available": is_available,
                     "max_occupancy": max_occupancy,
                     "main_image_url": main_image_url,
-                }.items() if v is not None
+                }.items()
+                if v is not None
             }
 
             try:
@@ -362,8 +370,7 @@ async def owner_properties_update(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             return MCPResponse.success(result).model_dump()
@@ -416,8 +423,7 @@ async def owner_properties_toggle_availability(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             return MCPResponse.success(result).model_dump()

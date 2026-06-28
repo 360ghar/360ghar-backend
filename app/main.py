@@ -99,9 +99,7 @@ async def health_check():
                 break
             except Exception as db_e:
                 if _attempt == 0 and is_transient_db_error(db_e):
-                    logger.warning(
-                        "Transient DB error on health check; retrying: %s", db_e
-                    )
+                    logger.warning("Transient DB error on health check; retrying: %s", db_e)
                     continue
                 logger.error("Database health check failed: %s", db_e)
                 db_status = "disconnected"
@@ -158,9 +156,7 @@ async def get_openapi_yaml():
     return Response(
         content=yaml_str,
         media_type="application/x-yaml",
-        headers={
-            "Content-Disposition": "attachment; filename=360ghar-openapi-spec.yaml"
-        },
+        headers={"Content-Disposition": "attachment; filename=360ghar-openapi-spec.yaml"},
     )
 
 

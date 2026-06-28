@@ -399,9 +399,7 @@ async def list_matches(
     next_payload: dict[str, Any] | None = None
     if len(matches) > limit:
         matches = matches[:limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(matches[-1].created_at), matches[-1].id
-        )
+        next_payload = keyset_payload(keyset_sort_value(matches[-1].created_at), matches[-1].id)
 
     if not matches:
         return [], None, count_total

@@ -1,6 +1,7 @@
 """
 Custom Domain schemas for branded tour URLs.
 """
+
 import re
 from datetime import datetime
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 class CustomDomainBase(BaseModel):
     """Base schema for custom domains."""
+
     domain: str
 
     @field_validator("domain")
@@ -28,11 +30,13 @@ class CustomDomainBase(BaseModel):
 
 class CustomDomainCreate(CustomDomainBase):
     """Schema for creating a custom domain."""
+
     pass
 
 
 class CustomDomainResponse(CustomDomainBase):
     """Schema for custom domain responses."""
+
     id: str
     user_id: int
     verification_status: str  # pending, verified, failed
@@ -46,6 +50,7 @@ class CustomDomainResponse(CustomDomainBase):
 
 class CustomDomainVerification(BaseModel):
     """Schema for domain verification status."""
+
     domain: str
     is_verified: bool
     verification_instructions: str | None = None
@@ -55,5 +60,6 @@ class CustomDomainVerification(BaseModel):
 
 class CustomDomainList(BaseModel):
     """Schema for listing custom domains."""
+
     items: list[CustomDomainResponse]
     total: int

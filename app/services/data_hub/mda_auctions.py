@@ -1,4 +1,5 @@
 """MDA (Meerut Development Authority) auction scraper."""
+
 from __future__ import annotations
 
 import asyncio
@@ -132,7 +133,13 @@ class MdaAuctionScraper(BaseScraper):
                         record["full_address"] = val
                     elif "sector" in h or "locality" in h or "area" in h and "sq" not in h:
                         record["locality"] = val
-                    elif ("area" in h and ("sq" in h or "size" in h or "size" in h)) or "sqft" in h or "sqm" in h or "sqyd" in h or "size" in h:
+                    elif (
+                        ("area" in h and ("sq" in h or "size" in h or "size" in h))
+                        or "sqft" in h
+                        or "sqm" in h
+                        or "sqyd" in h
+                        or "size" in h
+                    ):
                         area_val = re.sub(r"[^\d.]", "", val.replace(",", ""))
                         try:
                             record["area_sqft"] = float(area_val)

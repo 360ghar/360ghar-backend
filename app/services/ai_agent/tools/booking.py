@@ -3,6 +3,7 @@ Booking tools — creation, listing, cancellation, and availability checks.
 
 Includes both user-facing booking tools and admin booking management tools.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -23,6 +24,7 @@ logger = get_logger(__name__)
 # USER TOOLS — Bookings
 # ============================================================================
 
+
 async def bookings_check_availability(
     ctx: RunContext[AgentDeps],
     property_id: int,
@@ -34,8 +36,9 @@ async def bookings_check_availability(
     from app.services import booking as booking_svc
 
     db = ctx.deps.db
-    result = await booking_svc.check_availability(db, property_id, check_in_date,
-                                                   check_out_date, guests)
+    result = await booking_svc.check_availability(
+        db, property_id, check_in_date, check_out_date, guests
+    )
     return {
         "available": result.get("available", False),
         "reason": result.get("reason"),
@@ -80,19 +83,25 @@ async def bookings_create(
     if check_out <= check_in:
         return {"error": True, "message": "Check-out must be after check-in."}
 
-    availability = await booking_svc.check_availability(db, property_id, check_in_date,
-                                                         check_out_date, guests)
+    availability = await booking_svc.check_availability(
+        db, property_id, check_in_date, check_out_date, guests
+    )
     if not availability.get("available"):
         return {"error": True, "message": availability.get("reason", "Not available")}
 
     booking = await booking_svc.create_booking(
-        db, user.id,
-        BookingCreate(property_id=property_id, check_in_date=check_in,
-                      check_out_date=check_out, guests=guests,
-                      primary_guest_name="Guest",
-                      primary_guest_phone="N/A",
-                      primary_guest_email="guest@360ghar.com",
-                      special_requests=special_requests),
+        db,
+        user.id,
+        BookingCreate(
+            property_id=property_id,
+            check_in_date=check_in,
+            check_out_date=check_out,
+            guests=guests,
+            primary_guest_name="Guest",
+            primary_guest_phone="N/A",
+            primary_guest_email="guest@360ghar.com",
+            special_requests=special_requests,
+        ),
     )
     await db.commit()
     return {"message": "Booking created successfully", "booking": serialize_booking(booking)}
@@ -109,15 +118,20 @@ async def bookings_list(
 
     db, user = ctx.deps.db, ctx.deps.user
     limit = min(max(1, limit), 100)
-    rows, _next, _total = await booking_svc.get_user_bookings(db, user.id, cursor_payload={}, limit=limit)
+    rows, _next, _total = await booking_svc.get_user_bookings(
+        db, user.id, cursor_payload={}, limit=limit
+    )
     bookings = rows
     if status:
         bookings = [b for b in bookings if b.booking_status == status]
     items = [serialize_booking(b) for b in bookings]
     return {
-        "total": len(bookings), "upcoming": 0,
-        "completed": 0, "cancelled": 0,
-        "bookings": items, "page": page,
+        "total": len(bookings),
+        "upcoming": 0,
+        "completed": 0,
+        "cancelled": 0,
+        "bookings": items,
+        "page": page,
     }
 
 
@@ -136,9 +150,9 @@ async def bookings_get(
     if booking.user_id != user.id:
         return {"error": True, "message": "You can only view your own bookings."}
 
-    prop = (await db.execute(
-        select(Property).where(Property.id == booking.property_id)
-    )).scalar_one_or_none()
+    prop = (
+        await db.execute(select(Property).where(Property.id == booking.property_id))
+    ).scalar_one_or_none()
     return {
         "booking": serialize_booking(booking),
         "property": serialize_property_basic(prop) if prop else None,
@@ -189,6 +203,7 @@ async def user_system_status(
 # ADMIN TOOLS — Booking Management
 # ============================================================================
 
+
 async def agent_bookings_list_all(
     ctx: RunContext[AgentDeps],
     owner_id: int | None = None,
@@ -231,9 +246,9 @@ async def agent_bookings_update_status(
     if status not in valid:
         return {"error": True, "message": f"Invalid status. Valid: {valid}"}
 
-    booking = (await db.execute(
-        select(Booking).where(Booking.id == booking_id)
-    )).scalar_one_or_none()
+    booking = (
+        await db.execute(select(Booking).where(Booking.id == booking_id))
+    ).scalar_one_or_none()
     if not booking:
         return {"error": True, "message": f"Booking {booking_id} not found"}
 

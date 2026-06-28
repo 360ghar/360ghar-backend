@@ -4,6 +4,7 @@ Tenant tools — lease, rent, and maintenance tools for tenants.
 These tools allow tenants to view their lease, check rent dues/payment
 history, and submit/list maintenance requests.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -41,9 +42,9 @@ async def tenant_lease_current(
     if not lease:
         return {"lease": None, "message": "No active lease found."}
 
-    prop = (await db.execute(
-        select(Property).where(Property.id == lease.property_id)
-    )).scalar_one_or_none()
+    prop = (
+        await db.execute(select(Property).where(Property.id == lease.property_id))
+    ).scalar_one_or_none()
 
     lease_data = serialize_lease(lease)
     if prop:
@@ -64,9 +65,8 @@ async def tenant_rent_history(
     db, user = ctx.deps.db, ctx.deps.user
 
     lease_ids = [
-        r[0] for r in (await db.execute(
-            select(Lease.id).where(Lease.tenant_user_id == user.id)
-        )).all()
+        r[0]
+        for r in (await db.execute(select(Lease.id).where(Lease.tenant_user_id == user.id))).all()
     ]
     if not lease_ids:
         return {"payments": [], "total": 0, "total_collected": 0, "page": page}
@@ -118,28 +118,38 @@ async def tenant_maintenance_create(
     db, user = ctx.deps.db, ctx.deps.user
     cat = MaintenanceCategory(category.lower())
     urgency_map = {
-        "low": MaintenanceUrgency.low, "medium": MaintenanceUrgency.medium,
-        "high": MaintenanceUrgency.high, "urgent": MaintenanceUrgency.emergency,
+        "low": MaintenanceUrgency.low,
+        "medium": MaintenanceUrgency.medium,
+        "high": MaintenanceUrgency.high,
+        "urgent": MaintenanceUrgency.emergency,
         "emergency": MaintenanceUrgency.emergency,
     }
     urgency = urgency_map.get(priority.lower().strip())
     if urgency is None:
         return {"error": True, "message": f"Invalid priority: {priority}"}
 
-    lease = (await db.execute(
-        select(Lease).where(
-            Lease.property_id == property_id,
-            Lease.tenant_user_id == user.id,
-            Lease.status == LeaseStatus.active,
+    lease = (
+        await db.execute(
+            select(Lease).where(
+                Lease.property_id == property_id,
+                Lease.tenant_user_id == user.id,
+                Lease.status == LeaseStatus.active,
+            )
         )
-    )).scalar_one_or_none()
+    ).scalar_one_or_none()
     if not lease:
         return {"error": True, "message": "You do not have an active lease for this property."}
 
     request = MaintenanceRequest(
-        property_id=property_id, lease_id=lease.id, owner_id=lease.owner_id,
-        tenant_user_id=user.id, title=title, description=description,
-        category=cat, urgency=urgency, priority=priority.lower().strip(),
+        property_id=property_id,
+        lease_id=lease.id,
+        owner_id=lease.owner_id,
+        tenant_user_id=user.id,
+        title=title,
+        description=description,
+        category=cat,
+        urgency=urgency,
+        priority=priority.lower().strip(),
         request_status=MaintenanceRequestStatus.open,
     )
     db.add(request)
@@ -177,6 +187,8 @@ async def tenant_maintenance_list(
         else:
             return {"error": True, "message": f"Invalid status: {status}"}
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    stmt = (
+        stmt.order_by(MaintenanceRequest.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    )
     items = [serialize_maintenance_request(r) for r in (await db.execute(stmt)).scalars().all()]
     return {"items": items, "total": len(items), "page": page}

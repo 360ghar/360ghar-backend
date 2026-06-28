@@ -10,6 +10,7 @@ from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 class RateLimitMiddleware:
     """Rate limiting middleware using fixed-window counter approach.
 
@@ -21,13 +22,7 @@ class RateLimitMiddleware:
     deprecation in Starlette 1.0+ and to support streaming responses.
     """
 
-    def __init__(
-        self,
-        app: ASGIApp,
-        calls: int = 100,
-        period: int = 60,
-        scope: str = "global"
-    ):
+    def __init__(self, app: ASGIApp, calls: int = 100, period: int = 60, scope: str = "global"):
         self.app = app
         self.calls = calls
         self.period = period
@@ -182,6 +177,7 @@ class RateLimitMiddleware:
 
         return True
 
+
 class EndpointRateLimiter:
     """Decorator for endpoint-specific rate limiting"""
 
@@ -198,7 +194,7 @@ class EndpointRateLimiter:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded. Max {self.calls} calls per {self.period} seconds",
-                    headers={"Retry-After": str(self.period)}
+                    headers={"Retry-After": str(self.period)},
                 )
 
             return await func(request, *args, **kwargs)

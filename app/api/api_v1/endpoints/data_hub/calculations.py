@@ -1,6 +1,5 @@
 """Stamp duty and bank rate calculation endpoints."""
 
-
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,9 +42,14 @@ async def list_bank_rates(
     rows = list(
         (
             await db.execute(
-                select(BankRate).order_by(BankRate.effective_date.desc()).offset(offset).limit(page.limit + 1)
+                select(BankRate)
+                .order_by(BankRate.effective_date.desc())
+                .offset(offset)
+                .limit(page.limit + 1)
             )
-        ).scalars().all()
+        )
+        .scalars()
+        .all()
     )
     has_more = len(rows) > page.limit
     items = rows[: page.limit]
@@ -53,7 +57,11 @@ async def list_bank_rates(
     return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/calculator/stamp-duty", response_model=StampDutyCalculationResponse, summary="Calculate stamp duty")
+@router.post(
+    "/calculator/stamp-duty",
+    response_model=StampDutyCalculationResponse,
+    summary="Calculate stamp duty",
+)
 async def calculator_stamp_duty(
     req: StampDutyCalculationRequest,
     db: AsyncSession = Depends(get_db),

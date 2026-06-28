@@ -33,10 +33,7 @@ async def revoke_all_user_sessions(supabase_user_id: str) -> None:
     Raises :class:`ServiceUnavailableException` if Supabase is unreachable or
     returns an error response so callers surface a 503 to the webhook sender.
     """
-    url = (
-        f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/"
-        f"{supabase_user_id}/logout"
-    )
+    url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/admin/users/{supabase_user_id}/logout"
     headers = {
         "Authorization": f"Bearer {settings.SUPABASE_SECRET_KEY}",
         "apikey": settings.SUPABASE_SECRET_KEY,

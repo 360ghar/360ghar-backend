@@ -104,9 +104,11 @@ def build_metadata(prop: dict[str, Any], amenities: list[str], tags: list[str]) 
         "created_at",
         "updated_at",
     ]
+
     def _coerce(v: Any):
         try:
             import datetime as _dt
+
             if isinstance(v, (_dt.datetime, _dt.date)):
                 return v.isoformat()
         except (TypeError, ValueError):

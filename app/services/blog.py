@@ -34,6 +34,7 @@ logger = get_logger(__name__)
 
 def _slugify(value: str) -> str:
     import re
+
     value = value.strip().lower()
     value = re.sub(r"[^a-z0-9\-\s]", "", value)
     value = re.sub(r"\s+", "-", value)
@@ -167,9 +168,7 @@ def _apply_status_update(post: BlogPost, data: Any) -> None:
             post.published_at = datetime.now(timezone.utc)
     elif requested_active is not None:
         post.active = bool(requested_active)
-        post.status = (
-            BlogPostStatus.published.value if post.active else BlogPostStatus.draft.value
-        )
+        post.status = BlogPostStatus.published.value if post.active else BlogPostStatus.draft.value
         if post.active and not post.published_at:
             post.published_at = datetime.now(timezone.utc)
 
@@ -187,7 +186,10 @@ async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) ->
 
     slugified = [_slugify(x) for x in names_or_slugs]
     stmt = select(BlogCategory).where(
-        or_(BlogCategory.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))), BlogCategory.name.in_(names_or_slugs))
+        or_(
+            BlogCategory.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))),
+            BlogCategory.name.in_(names_or_slugs),
+        )
     )
     result = await db.execute(stmt)
     existing = {c.slug: c for c in result.scalars().all()}
@@ -215,7 +217,10 @@ async def _get_or_create_tags(db: AsyncSession, identifiers: list[str]) -> list[
 
     slugified = [_slugify(x) for x in names_or_slugs]
     stmt = select(BlogTag).where(
-        or_(BlogTag.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))), BlogTag.name.in_(names_or_slugs))
+        or_(
+            BlogTag.slug.in_(list(dict.fromkeys(names_or_slugs + slugified))),
+            BlogTag.name.in_(names_or_slugs),
+        )
     )
     result = await db.execute(stmt)
     existing = {t.slug: t for t in result.scalars().all()}
@@ -264,8 +269,12 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
     meta_description = getattr(data, "meta_description", None) or _auto_meta_description(
         getattr(data, "excerpt", None), data.content
     )
-    og_image_url = getattr(data, "og_image_url", None) or getattr(data, "cover_image_url", None) or None
-    if data.cover_image_url is not None and not ValidationUtils.is_absolute_url(data.cover_image_url):
+    og_image_url = (
+        getattr(data, "og_image_url", None) or getattr(data, "cover_image_url", None) or None
+    )
+    if data.cover_image_url is not None and not ValidationUtils.is_absolute_url(
+        data.cover_image_url
+    ):
         logger.warning("Non-absolute cover_image_url for blog post: %s", data.cover_image_url)
     if og_image_url is not None and not ValidationUtils.is_absolute_url(og_image_url):
         logger.warning("Non-absolute og_image_url for blog post: %s", og_image_url)
@@ -469,7 +478,9 @@ async def list_blog_posts(
             )
             cat_ids = [row[0] for row in cats_res.fetchall()]
             if cat_ids:
-                subq = select(BlogPostCategory.post_id).where(BlogPostCategory.category_id.in_(cat_ids))
+                subq = select(BlogPostCategory.post_id).where(
+                    BlogPostCategory.category_id.in_(cat_ids)
+                )
                 conditions.append(BlogPost.id.in_(subq))
 
     # Tag filter (ANY match)
@@ -479,7 +490,9 @@ async def list_blog_posts(
             tags_res = await execute_with_transient_retry(
                 db,
                 lambda: db.execute(
-                    select(BlogTag.id).where(or_(BlogTag.slug.in_(idents), BlogTag.name.in_(idents)))
+                    select(BlogTag.id).where(
+                        or_(BlogTag.slug.in_(idents), BlogTag.name.in_(idents))
+                    )
                 ),
                 operation_name="blog_posts_tag_lookup",
             )
@@ -526,7 +539,9 @@ async def list_blog_posts(
 
 
 # Category CRUD operations
-async def create_category(db: AsyncSession, name: str, description: str | None = None) -> BlogCategory:
+async def create_category(
+    db: AsyncSession, name: str, description: str | None = None
+) -> BlogCategory:
     """Create a new blog category."""
     slug = _slugify(name)
 
@@ -590,7 +605,9 @@ async def list_categories(
     return rows, next_payload, count_total
 
 
-async def update_category(db: AsyncSession, identifier: str, name: str | None = None, description: str | None = None) -> BlogCategory:
+async def update_category(
+    db: AsyncSession, identifier: str, name: str | None = None, description: str | None = None
+) -> BlogCategory:
     """Update category by ID or slug."""
     category = await get_category(db, identifier)
     if not category:
@@ -601,14 +618,12 @@ async def update_category(db: AsyncSession, identifier: str, name: str | None = 
         existing_stmt = select(BlogCategory).where(
             and_(
                 or_(BlogCategory.slug == _slugify(name), BlogCategory.name == name),
-                BlogCategory.id != category.id
+                BlogCategory.id != category.id,
             )
         )
         existing = (await db.execute(existing_stmt)).scalar_one_or_none()
         if existing:
-            raise ConflictException(
-                detail=f"Category with name '{name}' already exists"
-            )
+            raise ConflictException(detail=f"Category with name '{name}' already exists")
 
         category.name = name
         category.slug = _slugify(name)
@@ -638,14 +653,10 @@ async def create_tag(db: AsyncSession, name: str) -> BlogTag:
     slug = _slugify(name)
 
     # Check if tag already exists
-    existing_stmt = select(BlogTag).where(
-        or_(BlogTag.slug == slug, BlogTag.name == name)
-    )
+    existing_stmt = select(BlogTag).where(or_(BlogTag.slug == slug, BlogTag.name == name))
     existing = (await db.execute(existing_stmt)).scalar_one_or_none()
     if existing:
-        raise ConflictException(
-            detail=f"Tag with name '{name}' or slug '{slug}' already exists"
-        )
+        raise ConflictException(detail=f"Tag with name '{name}' or slug '{slug}' already exists")
 
     tag = BlogTag(name=name, slug=slug)
     db.add(tag)
@@ -705,16 +716,11 @@ async def update_tag(db: AsyncSession, identifier: str, name: str) -> BlogTag:
 
     # Check for conflicts
     existing_stmt = select(BlogTag).where(
-        and_(
-            or_(BlogTag.slug == _slugify(name), BlogTag.name == name),
-            BlogTag.id != tag.id
-        )
+        and_(or_(BlogTag.slug == _slugify(name), BlogTag.name == name), BlogTag.id != tag.id)
     )
     existing = (await db.execute(existing_stmt)).scalar_one_or_none()
     if existing:
-        raise ConflictException(
-            detail=f"Tag with name '{name}' already exists"
-        )
+        raise ConflictException(detail=f"Tag with name '{name}' already exists")
 
     tag.name = name
     tag.slug = _slugify(name)
@@ -768,7 +774,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
             suffix = 1
             base_slug = slug
             while True:
-                exists_stmt = select(func.count(BlogPost.id)).where(and_(BlogPost.slug == slug, BlogPost.id != post.id))
+                exists_stmt = select(func.count(BlogPost.id)).where(
+                    and_(BlogPost.slug == slug, BlogPost.id != post.id)
+                )
                 exists = (await db.execute(exists_stmt)).scalar()
                 if not exists:
                     break
@@ -785,7 +793,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
         post.excerpt = data.excerpt
     if data.cover_image_url is not None:
         if not ValidationUtils.is_absolute_url(data.cover_image_url):
-            logger.warning("Non-absolute cover_image_url for blog post %s: %s", post.id, data.cover_image_url)
+            logger.warning(
+                "Non-absolute cover_image_url for blog post %s: %s", post.id, data.cover_image_url
+            )
         post.cover_image_url = data.cover_image_url
     # Status / active sync (status takes precedence over the legacy active flag).
     _apply_status_update(post, data)
@@ -801,7 +811,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
         post.canonical_url = data.canonical_url
     if getattr(data, "og_image_url", None) is not None:
         if not ValidationUtils.is_absolute_url(data.og_image_url):
-            logger.warning("Non-absolute og_image_url for blog post %s: %s", post.id, data.og_image_url)
+            logger.warning(
+                "Non-absolute og_image_url for blog post %s: %s", post.id, data.og_image_url
+            )
         post.og_image_url = data.og_image_url
     if getattr(data, "sources", None) is not None:
         post.sources = _serialize_sources(data.sources)
@@ -911,13 +923,10 @@ async def publish_scheduled_posts(db: AsyncSession) -> int:
     new ``published`` status.
     """
     now = datetime.now(timezone.utc)
-    stmt = (
-        select(BlogPost)
-        .where(
-            BlogPost.status == BlogPostStatus.scheduled.value,
-            BlogPost.scheduled_at.is_not(None),
-            BlogPost.scheduled_at <= now,
-        )
+    stmt = select(BlogPost).where(
+        BlogPost.status == BlogPostStatus.scheduled.value,
+        BlogPost.scheduled_at.is_not(None),
+        BlogPost.scheduled_at <= now,
     )
     posts = list((await db.execute(stmt)).scalars().all())
     for post in posts:

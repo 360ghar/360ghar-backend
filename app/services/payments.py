@@ -273,9 +273,7 @@ async def update_payment_method(
     return method
 
 
-async def delete_payment_method(
-    db: AsyncSession, user_id: int, method_id: int
-) -> bool:
+async def delete_payment_method(db: AsyncSession, user_id: int, method_id: int) -> bool:
     method = await _get_user_method(db, user_id, method_id)
     if method is None:
         return False
@@ -284,9 +282,7 @@ async def delete_payment_method(
     return True
 
 
-async def _get_user_booking(
-    db: AsyncSession, booking_id: int, user_id: int
-) -> Booking:
+async def _get_user_booking(db: AsyncSession, booking_id: int, user_id: int) -> Booking:
     stmt = select(Booking).where(Booking.id == booking_id)
     booking = (await db.execute(stmt)).scalar_one_or_none()
     if booking is None:
@@ -302,9 +298,7 @@ async def _get_user_booking(
     return booking
 
 
-async def _get_user_method(
-    db: AsyncSession, user_id: int, method_id: int
-) -> PaymentMethod | None:
+async def _get_user_method(db: AsyncSession, user_id: int, method_id: int) -> PaymentMethod | None:
     stmt = select(PaymentMethod).where(
         PaymentMethod.id == method_id, PaymentMethod.user_id == user_id
     )
