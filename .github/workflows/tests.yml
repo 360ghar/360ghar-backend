@@ -224,12 +224,18 @@ jobs:
         with:
           pattern: coverage-data-*
           merge-multiple: true
+          path: .
 
       - name: Combine coverage and enforce threshold
         run: |
-          uv run coverage combine .coverage.*
-          uv run coverage report --rcfile=pyproject.toml --fail-under=60
-          uv run coverage xml -o coverage-combined.xml
+          if ls .coverage.* 1> /dev/null 2>&1; then
+            uv run coverage combine .coverage.*
+            uv run coverage report --rcfile=pyproject.toml --fail-under=60
+            uv run coverage xml -o coverage-combined.xml
+          else
+            echo "Warning: No coverage data files found"
+            exit 1
+          fi
 
       - name: Upload combined coverage to Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
