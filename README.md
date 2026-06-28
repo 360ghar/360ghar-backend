@@ -1,7 +1,7 @@
 # 360 Ghar Backend
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Framework](https://img.shields.io/badge/framework-FastAPI-green.svg)](https://fastapi.tiangolo.com/)
 [![Database](https://img.shields.io/badge/database-PostgreSQL%20+%20PostGIS-blue.svg)](https://www.postgresql.org/)
 
@@ -36,6 +36,12 @@ A high-performance, modern backend powering 360 Ghar's unified real estate platf
 - **Property Management** empowers landlords and property managers with tools for tenant management, lease tracking, rent collection, maintenance handling, and financial reporting.
 
 All three modules share a common backend infrastructure, user authentication, and property database.
+
+## Overview Video
+
+[![360 Ghar Backend Overview](.wiki/video/overview.mp4)](.wiki/video/overview.mp4)
+
+A 2-3 minute silent walkthrough of the platform's six modules and architecture. Read the [full wiki](https://github.com/360ghar/backend/wiki).
 
 ## Key Features
 
@@ -177,7 +183,7 @@ All endpoints are prefixed with `/api/v1`.
 
 ### Prerequisites
 
-- [Python 3.10+](https://www.python.org/)
+- [Python 3.12+](https://www.python.org/)
 - [Docker](https://www.docker.com/get-started) and [Docker Compose](https://docs.docker.com/compose/install/)
 - A [Supabase](https://supabase.com/) project for authentication
 

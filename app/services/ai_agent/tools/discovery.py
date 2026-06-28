@@ -59,20 +59,19 @@ async def guest_property_search(
         filter_data["bedrooms_max"] = bedrooms_max
 
     filters = UnifiedPropertyFilter(**filter_data)
-    result = await get_unified_properties_optimized(
+    rows, _next, total_count = await get_unified_properties_optimized(
         ctx.deps.db,
         filters=filters,
         user_id=None,
-        page=page,
+        cursor_payload={},
         limit=limit,
     )
 
-    properties = [serialize_property_basic(p) for p in result.get("items", [])]
+    properties = [serialize_property_basic(p) for p in rows]
     return {
         "properties": properties,
-        "total": result.get("total", 0),
+        "count": len(properties),
         "page": page,
-        "total_pages": result.get("total_pages", 0),
     }
 
 
@@ -106,15 +105,15 @@ async def guest_property_recommendations(
         filter_data["purpose"] = purpose
 
     filters = UnifiedPropertyFilter(**filter_data)
-    result = await get_unified_properties_optimized(
+    rows, _next, _total = await get_unified_properties_optimized(
         ctx.deps.db,
         filters=filters,
         user_id=None,
-        page=1,
+        cursor_payload={},
         limit=limit,
     )
 
-    properties = [serialize_property_basic(p) for p in result.get("items", [])]
+    properties = [serialize_property_basic(p) for p in rows]
     return {
         "properties": properties,
         "count": len(properties),

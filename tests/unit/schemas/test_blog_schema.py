@@ -1,12 +1,10 @@
 """Tests for blog schema SEO fields and validation."""
 
-import pytest
 from app.schemas.blog import (
     BlogPostCreate,
     BlogPostUpdate,
-    BlogSource,
     BlogSEOMetadata,
-    BlogPost,
+    BlogSource,
 )
 
 
@@ -96,7 +94,7 @@ class TestBlogPostCreateSEOFields:
         assert len(payload.meta_description) == 160
 
     def test_published_at_field(self):
-        from datetime import datetime, UTC
+        from datetime import UTC, datetime
         now = datetime.now(UTC)
         payload = BlogPostCreate(
             title="Test Post",

@@ -7,35 +7,25 @@ These factories can be used directly or through pytest fixtures.
 
 import random
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.users import User, UserSwipe
-from app.models.properties import Property, PropertyImage, Amenity, Visit
-from app.models.bookings import Booking
 from app.models.agents import Agent
+from app.models.bookings import Booking
 from app.models.enums import (
-    PropertyType,
-    PropertyPurpose,
-    PropertyStatus,
-    UserRole,
     BookingStatus,
     PaymentStatus,
+    PropertyPurpose,
+    PropertyStatus,
+    PropertyType,
+    UserRole,
     VisitStatus,
-    LeaseStatus,
-    RentChargeStatus,
-    MaintenanceCategory,
-    MaintenanceUrgency,
-    MaintenanceRequestStatus,
-    DocumentType,
-    InspectionType,
 )
-
+from app.models.properties import Amenity, Property, Visit
+from app.models.users import User, UserSwipe
 
 # =============================================================================
 # Helper Functions
@@ -72,9 +62,9 @@ class UserFactory:
 
     @staticmethod
     def build(
-        supabase_user_id: Optional[str] = None,
-        email: Optional[str] = None,
-        phone: Optional[str] = None,
+        supabase_user_id: str | None = None,
+        email: str | None = None,
+        phone: str | None = None,
         full_name: str = "Test User",
         role: str = UserRole.user.value,
         is_active: bool = True,
@@ -116,15 +106,15 @@ class PropertyFactory:
 
     @staticmethod
     def build(
-        owner_id: Optional[int] = None,
+        owner_id: int | None = None,
         title: str = "Test Property",
         description: str = "A beautiful test property",
         property_type: PropertyType = PropertyType.apartment,
         purpose: PropertyPurpose = PropertyPurpose.rent,
         status: PropertyStatus = PropertyStatus.available,
-        base_price: Optional[Decimal] = None,
-        monthly_rent: Optional[Decimal] = None,
-        daily_rate: Optional[Decimal] = None,
+        base_price: Decimal | None = None,
+        monthly_rent: Decimal | None = None,
+        daily_rate: Decimal | None = None,
         city: str = "Mumbai",
         locality: str = "Andheri",
         **kwargs,
@@ -167,8 +157,8 @@ class PropertyFactory:
     @staticmethod
     async def create(
         db: AsyncSession,
-        owner: Optional[User] = None,
-        owner_id: Optional[int] = None,
+        owner: User | None = None,
+        owner_id: int | None = None,
         **kwargs,
     ) -> Property:
         """Create and persist a Property instance."""
@@ -186,10 +176,10 @@ class BookingFactory:
 
     @staticmethod
     def build(
-        user_id: Optional[int] = None,
-        property_id: Optional[int] = None,
-        check_in_date: Optional[datetime] = None,
-        check_out_date: Optional[datetime] = None,
+        user_id: int | None = None,
+        property_id: int | None = None,
+        check_in_date: datetime | None = None,
+        check_out_date: datetime | None = None,
         guests: int = 2,
         booking_status: BookingStatus = BookingStatus.pending,
         payment_status: PaymentStatus = PaymentStatus.pending,
@@ -242,8 +232,8 @@ class BookingFactory:
     @staticmethod
     async def create(
         db: AsyncSession,
-        user: Optional[User] = None,
-        property_obj: Optional[Property] = None,
+        user: User | None = None,
+        property_obj: Property | None = None,
         **kwargs,
     ) -> Booking:
         """Create and persist a Booking instance."""
@@ -268,10 +258,10 @@ class VisitFactory:
 
     @staticmethod
     def build(
-        user_id: Optional[int] = None,
-        property_id: Optional[int] = None,
-        agent_id: Optional[int] = None,
-        scheduled_date: Optional[datetime] = None,
+        user_id: int | None = None,
+        property_id: int | None = None,
+        agent_id: int | None = None,
+        scheduled_date: datetime | None = None,
         status: VisitStatus = VisitStatus.scheduled,
         **kwargs,
     ) -> Visit:
@@ -295,8 +285,8 @@ class VisitFactory:
     @staticmethod
     async def create(
         db: AsyncSession,
-        user: Optional[User] = None,
-        property_obj: Optional[Property] = None,
+        user: User | None = None,
+        property_obj: Property | None = None,
         **kwargs,
     ) -> Visit:
         """Create and persist a Visit instance."""
@@ -322,7 +312,7 @@ class AgentFactory:
     @staticmethod
     def build(
         name: str = "Test Agent",
-        contact_number: Optional[str] = None,
+        contact_number: str | None = None,
         description: str = "Experienced real estate agent",
         agent_type: str = "general",
         experience_level: str = "intermediate",
@@ -367,8 +357,8 @@ class SwipeFactory:
 
     @staticmethod
     def build(
-        user_id: Optional[int] = None,
-        property_id: Optional[int] = None,
+        user_id: int | None = None,
+        property_id: int | None = None,
         is_liked: bool = True,
     ) -> UserSwipe:
         """Build a UserSwipe instance without persisting."""
@@ -381,8 +371,8 @@ class SwipeFactory:
     @staticmethod
     async def create(
         db: AsyncSession,
-        user: Optional[User] = None,
-        property_obj: Optional[Property] = None,
+        user: User | None = None,
+        property_obj: Property | None = None,
         is_liked: bool = True,
     ) -> UserSwipe:
         """Create and persist a UserSwipe instance."""
@@ -410,7 +400,7 @@ class AmenityFactory:
 
     @staticmethod
     def build(
-        title: Optional[str] = None,
+        title: str | None = None,
         icon: str = "star",
         category: str = "recreation",
     ) -> Amenity:

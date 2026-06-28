@@ -129,6 +129,10 @@ async def get_current_user(
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         request.state.user_id = getattr(db_user, "id", None)
+        # Store raw Supabase user data so endpoints that need identity
+        # metadata (e.g. GET /users/me/identities) can access it without
+        # a second round-trip.
+        request.state.supabase_user_data = supabase_user_data
         sentry_sdk.set_user({
             "id": str(getattr(db_user, "id", None)),
             "email": getattr(db_user, "email", None),

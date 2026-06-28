@@ -2,6 +2,8 @@
 Integration tests for full-text search using PostgreSQL.
 """
 
+from __future__ import annotations
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,20 +19,20 @@ class TestFullTextSearch:
         test_properties,
     ):
         """Test searching properties by title."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(search_query="apartment")
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_text_search_by_locality(
@@ -39,20 +41,20 @@ class TestFullTextSearch:
         test_properties,
     ):
         """Test searching properties by locality."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(search_query="Andheri")
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_text_search_relevance_sorting(
@@ -61,23 +63,23 @@ class TestFullTextSearch:
         test_properties,
     ):
         """Test properties sorted by search relevance."""
+        from app.schemas.property import SortBy, UnifiedPropertyFilter
         from app.services.property import get_unified_properties_optimized
-        from app.schemas.property import UnifiedPropertyFilter, SortBy
 
         filters = UnifiedPropertyFilter(
             search_query="luxury apartment",
             sort_by=SortBy.relevance,
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_text_search_empty_query(
@@ -86,20 +88,20 @@ class TestFullTextSearch:
         test_properties,
     ):
         """Test search with empty query returns all properties."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(search_query="")
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_text_search_no_results(
@@ -108,23 +110,23 @@ class TestFullTextSearch:
         test_properties,
     ):
         """Test search with no matching results."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             search_query="nonexistent_property_xyz_12345"
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
-        assert result["total"] == 0 or len(result["items"]) == 0
+        assert isinstance(rows, list)
+        assert _total == 0 or len(rows) == 0
 
 
 @pytest.mark.integration
@@ -180,24 +182,24 @@ class TestSearchFilters:
         test_properties,
     ):
         """Test search combined with city filter."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             search_query="apartment",
             city="Mumbai",
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        for prop in rows:
             assert "Mumbai" in prop.city or prop.city.lower() == "mumbai"
 
     @pytest.mark.asyncio
@@ -207,8 +209,8 @@ class TestSearchFilters:
         test_properties,
     ):
         """Test search combined with price filter."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             search_query="apartment",
@@ -216,15 +218,15 @@ class TestSearchFilters:
             price_max=100000,
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_search_with_property_type_filter(
@@ -233,23 +235,23 @@ class TestSearchFilters:
         test_properties,
     ):
         """Test search combined with property type filter."""
-        from app.services.property import get_unified_properties_optimized
-        from app.schemas.property import UnifiedPropertyFilter
         from app.models.enums import PropertyType
+        from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             search_query="spacious",
             property_type=[PropertyType.apartment],
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        for prop in rows:
             assert prop.property_type == PropertyType.apartment

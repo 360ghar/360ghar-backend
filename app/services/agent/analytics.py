@@ -1,9 +1,10 @@
+from __future__ import annotations
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging import get_logger
 from app.models.agents import Agent
-from app.models.properties import Visit
 from app.models.users import User
 from app.schemas.agent import (
     Agent as AgentSchema,
@@ -14,7 +15,10 @@ from app.schemas.agent import (
     AgentWithStats,
     AgentWorkload,
 )
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.agent.interactions import get_daily_interactions, get_weekly_interactions
+
+logger = get_logger(__name__)
 
 
 async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStats | None:
@@ -31,11 +35,6 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
     count_result = await db.execute(count_stmt)
     current_users = int(count_result.scalar() or 0)
 
-    # Get visit stats for efficiency calculation
-    count_stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
-    count_result = await db.execute(count_stmt)
-    count_result.scalar() or 0
-
     # Get real interaction counts
     daily_interactions = await get_daily_interactions(db, agent_id)
     weekly_interactions = await get_weekly_interactions(db, agent_id)
@@ -49,7 +48,10 @@ async def get_agent_with_stats(db: AsyncSession, agent_id: int) -> AgentWithStat
         efficiency_score=_calculate_efficiency_score(agent, current_users)
     )
 
-    agent_schema = AgentSchema.model_validate(agent.__dict__)
+    # Validate from the ORM object directly (from_attributes=True handles it)
+    # instead of agent.__dict__ which includes _sa_instance_state and
+    # unloaded relationship proxies that can crash Pydantic validation.
+    agent_schema = AgentSchema.model_validate(agent)
     return AgentWithStats(
         **agent_schema.model_dump(),
         stats=stats
@@ -85,6 +87,59 @@ async def get_workload_distribution(db: AsyncSession) -> list[AgentWorkload]:
         ))
 
     return workload
+
+
+async def get_workload_distribution_paginated(
+    db: AsyncSession,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[AgentWorkload], dict | None, int | None]:
+    """Cursor-paginated workload distribution across all active agents."""
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(select(func.count(Agent.id)).where(Agent.is_active))
+        ).scalar_one()
+
+    stmt = (
+        select(
+            Agent,
+            func.count(User.id).label("current_users"),
+        )
+        .outerjoin(User, Agent.id == User.agent_id)
+        .where(Agent.is_active)
+        .group_by(Agent.id)
+        .offset(offset)
+        .limit(limit + 1)
+    )
+    result = await db.execute(stmt)
+    agent_workloads = result.all()
+
+    has_more = len(agent_workloads) > limit
+    agent_workloads = agent_workloads[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
+    workload: list[AgentWorkload] = []
+    for agent, current_users in agent_workloads:
+        max_users = 50  # Default max users
+        utilization = (current_users / max_users * 100) if max_users > 0 else 0
+        workload.append(
+            AgentWorkload(
+                agent_id=agent.id,
+                agent_name=agent.name,
+                current_users=current_users,
+                utilization_percentage=round(utilization, 2),
+                is_available=agent.is_available,
+                queue_length=max(0, current_users - max_users) if current_users > max_users else 0,
+            )
+        )
+    return workload, next_payload, total
 
 
 async def get_system_stats(db: AsyncSession) -> AgentSystemStats:
@@ -156,4 +211,5 @@ def _calculate_efficiency_score(agent: Agent, current_users: int) -> float:
         efficiency = (response_score * 0.3 + satisfaction_score * 0.4 + utilization_score * 0.3)
         return round(efficiency, 2)
     except Exception:
+        logger.warning("Failed to calculate efficiency score for agent %s", agent.id, exc_info=True)
         return 50.0  # Default middle score

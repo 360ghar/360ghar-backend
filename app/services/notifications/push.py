@@ -34,32 +34,24 @@ async def register_device_token(
     """Upsert a device token in Supabase device_tokens."""
     now_iso = utc_now_iso()
 
+    # Atomic upsert: resolves the (token) unique constraint inside Postgres
+    # via INSERT ... ON CONFLICT (token) DO UPDATE. The previous SELECT-then-
+    # INSERT/UPDATE pattern raced under concurrent registrations of the same
+    # FCM token (cold-start / refresh / retry), surfacing as 23505 500s.
     def _sync_register():
         supa = _supa()
-        existing = supa.table("device_tokens").select("id").eq("token", token).execute()
-        if existing.data:
-            supa.table("device_tokens").update(
-                {
-                    "user_id": user_id,
-                    "platform": platform,
-                    "app_version": app_version,
-                    "locale": locale,
-                    "is_active": True,
-                    "last_seen": now_iso,
-                }
-            ).eq("token", token).execute()
-        else:
-            supa.table("device_tokens").insert(
-                {
-                    "token": token,
-                    "user_id": user_id,
-                    "platform": platform,
-                    "app_version": app_version,
-                    "locale": locale,
-                    "is_active": True,
-                    "last_seen": now_iso,
-                }
-            ).execute()
+        supa.table("device_tokens").upsert(
+            {
+                "token": token,
+                "user_id": user_id,
+                "platform": platform,
+                "app_version": app_version,
+                "locale": locale,
+                "is_active": True,
+                "last_seen": now_iso,
+            },
+            on_conflict="token",
+        ).execute()
 
     await _run_sync(_sync_register)
     logger.info("Registered device token", extra={"token_hash": hash(token), "user_id": user_id})
@@ -282,23 +274,39 @@ async def send_to_topic(
             ttl_seconds=ttl,
         )
         resp = await fcm.send_message(msg)
+
+        def _sync_record_delivery():
+            supa = _supa()
+            supa.table("notification_deliveries").insert(
+                {
+                    "notification_id": notif["id"],
+                    "status": "sent",
+                    "fcm_message_id": resp.get("name"),
+                    "sent_at": utc_now_iso(),
+                }
+            ).execute()
+
+        await _run_sync(_sync_record_delivery)
+        return {"ok": True, "fcm": resp}
     except RuntimeError as e:
         logger.error("FCM send skipped — credentials not available: %s", e)
         return {"ok": False, "error": "FCM not configured"}
+    except httpx.HTTPStatusError as e:
+        err_text = e.response.text
+        logger.error("FCM topic send failed", extra={"status": e.response.status_code, "error": err_text}, exc_info=True)
 
-    def _sync_record_delivery():
-        supa = _supa()
-        supa.table("notification_deliveries").insert(
-            {
-                "notification_id": notif["id"],
-                "status": "sent",
-                "fcm_message_id": resp.get("name"),
-                "sent_at": utc_now_iso(),
-            }
-        ).execute()
+        def _sync_record_failure():
+            supa = _supa()
+            supa.table("notification_deliveries").insert(
+                {
+                    "notification_id": notif["id"],
+                    "status": "failed",
+                    "error_code": err_text,
+                }
+            ).execute()
 
-    await _run_sync(_sync_record_delivery)
-    return {"ok": True, "fcm": resp}
+        await _run_sync(_sync_record_failure)
+        raise
 
 
 async def send_bulk(

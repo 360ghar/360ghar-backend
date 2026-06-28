@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,16 +13,19 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestException
 from app.core.logging import get_logger
+from app.models.conversations import Conversation, ConversationParticipant, Message
 from app.models.enums import (
+    ConversationApp,
     FlatmatesProfileStatus,
     PropertyPurpose,
     PropertyType,
     SwipeTargetType,
 )
 from app.models.properties import Property, PropertyAmenity
-from app.models.social import AppCatalog, UserConversation, UserMessage
+from app.models.social import AppCatalog
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import FlatmatesProfileUpdate
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_profile_payload,
@@ -108,9 +112,10 @@ async def list_discoverable_profiles(
     lng: float | None = None,
     radius: float | None = None,
     non_negotiables_override: list[str] | None = None,
+    cursor_payload: dict[str, Any] | None = None,
     limit: int = 20,
-    offset: int = 0,
-) -> tuple[list[dict[str, Any]], int]:
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int | None]:
     from app.models.social import UserBlock  # noqa: WPS433 – avoid top-level circular risk
     from app.utils.distance import get_bounding_box
 
@@ -249,17 +254,26 @@ async def list_discoverable_profiles(
             User.current_longitude.between(min_lon, max_lon),
         ])
 
-    count_stmt = select(func.count(User.id)).where(*filters)
-    total = int((await db.execute(count_stmt)).scalar() or 0)
+    _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
+    _offset = read_offset(_payload)
+
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count(User.id)).where(*filters)
+        count_total = int((await db.execute(count_stmt)).scalar() or 0)
 
     stmt = (
         select(User)
         .where(*filters)
         .order_by(User.flatmates_last_active_at.desc().nulls_last())
-        .limit(limit)
-        .offset(offset)
+        .offset(_offset)
+        .limit(limit + 1)
     )
     users = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(users) > limit:
+        users = users[:limit]
+        next_payload = offset_payload(_offset + limit)
 
     # --- Batch load active flatmate/PG listings for all matched users (single query, no N+1) ---
     prop_map: dict[int, Property] = {}
@@ -292,7 +306,7 @@ async def list_discoverable_profiles(
         )
         for u in users
     ]
-    return profiles, total
+    return profiles, next_payload, count_total
 
 
 async def update_flatmates_profile(
@@ -374,12 +388,24 @@ async def list_catalogs(db: AsyncSession) -> list[AppCatalog]:
     return list(result.scalars().all())
 
 
-async def list_flatmates_notifications(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_flatmates_notifications(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     user = await db.get(User, user_id)
     if user is None:
         raise BadRequestException(detail="User not found")
-    rows = await list_notifications_for_user(user.supabase_user_id, limit=50, offset=0)
-    return [_serialize_flatmate_notification(row) for row in rows]
+    rows, next_payload, total = await list_notifications_for_user(
+        user.supabase_user_id,
+        cursor_payload=cursor_payload or {},
+        limit=limit,
+        with_total=with_total,
+    )
+    return [_serialize_flatmate_notification(row) for row in rows], next_payload, total
 
 
 async def mark_flatmates_notification_read(
@@ -390,6 +416,10 @@ async def mark_flatmates_notification_read(
     user = await db.get(User, user_id)
     if user is None:
         raise BadRequestException(detail="User not found")
+    try:
+        UUID(notification_id)
+    except (ValueError, AttributeError):
+        raise BadRequestException(detail="Notification not found") from None
     supa = _supa()
 
     def _sync_mark_read():
@@ -461,24 +491,27 @@ async def get_bootstrap(db: AsyncSession, user_id: int) -> dict[str, Any]:
     )
     listing_count = int((await db.execute(listing_count_stmt)).scalar() or 0)
 
-    conversation_count_stmt = select(func.count(UserConversation.id)).where(
-        or_(
-            UserConversation.user_one_id == user_id,
-            UserConversation.user_two_id == user_id,
+    # Count flatmates conversations the user participates in
+    conv_id_subq = (
+        select(ConversationParticipant.conversation_id)
+        .join(Conversation, Conversation.id == ConversationParticipant.conversation_id)
+        .where(
+            ConversationParticipant.user_id == user_id,
+            Conversation.app == ConversationApp.flatmates,
         )
+    )
+    conversation_count_stmt = select(func.count()).select_from(Conversation).where(
+        Conversation.id.in_(conv_id_subq)
     )
     conversation_count = int((await db.execute(conversation_count_stmt)).scalar() or 0)
 
     unread_count_stmt = (
-        select(func.count(UserMessage.id))
-        .join(UserConversation, UserConversation.id == UserMessage.conversation_id)
+        select(func.count(Message.id))
+        .join(Conversation, Conversation.id == Message.conversation_id)
         .where(
-            or_(
-                UserConversation.user_one_id == user_id,
-                UserConversation.user_two_id == user_id,
-            ),
-            UserMessage.sender_id != user_id,
-            UserMessage.read_at.is_(None),
+            Conversation.id.in_(conv_id_subq),
+            Message.sender_id != user_id,
+            Message.read_at.is_(None),
         )
     )
     unread_count = int((await db.execute(unread_count_stmt)).scalar() or 0)

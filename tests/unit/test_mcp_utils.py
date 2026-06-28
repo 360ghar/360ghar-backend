@@ -6,8 +6,8 @@ import pytest
 
 from app.mcp.utils import (
     can_manage_property,
-    get_user_role,
     get_user_from_mcp_context,
+    get_user_role,
     is_admin,
     is_agent,
     is_owner_or_above,

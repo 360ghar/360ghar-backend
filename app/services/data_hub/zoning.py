@@ -143,7 +143,7 @@ class ZoningScraper(BaseScraper):
                               if hasattr(ZoningData, k) and k not in ("id", "created_at", "updated_at")}
                     stmt = pg_insert(ZoningData).values(**values)
                     stmt = stmt.on_conflict_do_update(
-                        constraint="uq_zoning_data_key",
+                        index_elements=["sector", "land_use"],
                         set_={
                             "far_limit": stmt.excluded.far_limit,
                             "max_height_m": stmt.excluded.max_height_m,

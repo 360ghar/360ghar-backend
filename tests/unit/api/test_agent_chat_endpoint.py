@@ -13,6 +13,7 @@ from app.api.api_v1.endpoints.agent_chat import (
     list_conversations,
 )
 from app.schemas.ai_agent import AgentChatRequest
+from app.schemas.pagination import CursorParams, offset_payload
 
 
 class _FakeService:
@@ -215,21 +216,33 @@ async def test_agent_chat_stream_error_emits_error_event():
 async def test_list_conversations_delegates_to_store_and_respects_pagination():
     db = AsyncMock()
     current_user = SimpleNamespace(id=9)
-    expected = [{"id": 1, "title": "T1"}]
+    expected_items = [{"id": 1, "title": "T1"}]
+    next_payload = offset_payload(35)
+
+    page = CursorParams(cursor=None, limit=25, include_total=True)
 
     with patch(
         "app.api.api_v1.endpoints.agent_chat.conversation_store.list_conversations",
-        new=AsyncMock(return_value=expected),
+        new=AsyncMock(return_value=(expected_items, next_payload, 1)),
     ) as mock_list:
         result = await list_conversations(
+            page=page,
             current_user=current_user,
             db=db,
-            limit=25,
-            offset=10,
         )
 
-    assert result == expected
-    mock_list.assert_awaited_once_with(db, user_id=9, limit=25, offset=10)
+    assert result["items"] == expected_items
+    assert result["has_more"] is True
+    assert result["next_cursor"] is not None
+    assert result["limit"] == 25
+    assert result["total"] == 1
+    mock_list.assert_awaited_once_with(
+        db,
+        user_id=9,
+        cursor_payload={},
+        limit=25,
+        with_total=True,
+    )
 
 
 @pytest.mark.asyncio

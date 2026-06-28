@@ -13,8 +13,8 @@ from httpx import AsyncClient
 
 from app.core.utils import utc_now_iso
 from app.services.ai.vastu import (
-    VastuAnalyzeResponse,
     VastuAnalysisResult,
+    VastuAnalyzeResponse,
 )
 from app.services.ai.vastu.schemas import FloorPlanAnalysis
 

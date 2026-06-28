@@ -84,3 +84,8 @@ class LeaseRenew(BaseModel):
     security_deposit: float | None = None
     make_active: bool = False
 
+
+class LeaseTerminate(BaseModel):
+    termination_date: date | None = None
+    reason: str | None = None
+

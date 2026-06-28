@@ -100,7 +100,7 @@ class CourtAuctionScraper(BaseScraper):
                 }
                 stmt = pg_insert(CourtAuction).values(**values)
                 stmt = stmt.on_conflict_do_update(
-                    constraint="uq_court_auctions_key",
+                    index_elements=["case_number", "auction_date"],
                     set_={
                         "reserve_price": stmt.excluded.reserve_price,
                         "raw_data": stmt.excluded.raw_data,

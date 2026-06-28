@@ -163,6 +163,63 @@ class TestGetOrCreateUserFromSupabase:
         assert result is not None
         assert result.phone == "+919444555666"
 
+    @pytest.mark.asyncio
+    async def test_concurrent_create_serializes_via_advisory_lock(self):
+        """The create path acquires a per-supabase_user_id advisory lock before
+        its first lookup.
+
+        Why this matters: right after login the frontend fires several
+        authenticated requests in parallel (profile + auth-state); two of them
+        can both reach the create branch and INSERT the same new row. The
+        loser's flush raises IntegrityError, and reconciliation can't see the
+        winner's still-uncommitted row (READ COMMITTED; commit happens only at
+        request end via get_db) → it re-raises → a spurious 401 → the frontend
+        login loop. The advisory lock serializes them so the loser sees the
+        committed row.
+
+        We can't reproduce a live two-session race in this harness: the loser
+        would block on the lock until the winner's transaction commits, which
+        never happens inside ``get_or_create`` (flush only, no commit), so the
+        test would hang. Instead we assert the lock is acquired, with the
+        correct key, before any user lookup — proving the serialization is in
+        place. The reconciliation safety net is covered by
+        ``test_integrity_error_reconciles_by_supabase_id``.
+        """
+        from app.services.user import get_or_create_user_from_supabase
+
+        supabase_id = str(uuid.uuid4())
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch(
+            "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
+        ) as mock_by_sb, patch(
+            "app.services.user.get_user_by_email", new_callable=AsyncMock
+        ) as mock_by_email, patch(
+            "app.services.user.get_user_by_phone", new_callable=AsyncMock
+        ) as mock_by_phone:
+            mock_by_sb.return_value = None
+            mock_by_email.return_value = None
+            mock_by_phone.return_value = None
+
+            supabase_data = {
+                "id": supabase_id,
+                "phone": "+919111222333",
+                "email": None,
+                "phone_verified": True,
+                "email_confirmed_at": None,
+                "user_metadata": {},
+            }
+            await get_or_create_user_from_supabase(db, supabase_data)
+
+        # The very first DB statement is the transaction-scoped advisory lock,
+        # keyed on the supabase id, run BEFORE the canonical lookup.
+        first = db.execute.call_args_list[0]
+        assert "pg_advisory_xact_lock" in str(first.args[0])
+        assert "hashtext" in str(first.args[0])
+        assert first.args[1] == {"sid": supabase_id}
+
 
 class TestEmailLinkedIdentity:
     """Tests for the email-linked, multi-method identity model."""
@@ -666,6 +723,121 @@ class TestUserRoles:
 
 class TestUpdateUser:
     """Tests for update_user function."""
+
+    def _make_existing_user(self, *, user_id: int = 1, role: str = UserRole.user.value) -> User:
+        return User(
+            id=user_id,
+            supabase_user_id=str(uuid.uuid4()),
+            phone="+919876543210",
+            email="target@example.com",
+            full_name="Target User",
+            role=role,
+            is_active=True,
+        )
+
+    def _make_actor(self, *, user_id: int = 2, role: str = UserRole.user.value, agent_id=None) -> User:
+        return User(
+            id=user_id,
+            supabase_user_id=str(uuid.uuid4()),
+            phone="+919999999999",
+            email="actor@example.com",
+            full_name="Actor",
+            role=role,
+            is_active=True,
+            agent_id=agent_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_regular_user_cannot_update_other_user(self):
+        """A non-admin actor must not be able to update another user's row.
+
+        Regression for the missing role check on PUT /users/{user_id}: a plain
+        ``user`` role caller passing any user_id used to fall through and mutate
+        the target. It must now raise ForbiddenException.
+        """
+        from app.core.exceptions import ForbiddenException
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=10, role=UserRole.user.value)
+        actor = self._make_actor(user_id=20, role=UserRole.user.value)
+
+        db = AsyncMock(spec=AsyncSession)
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+
+            with pytest.raises(ForbiddenException) as exc_info:
+                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+
+        assert exc_info.value.status_code == 403
+        # No flush / commit should have happened for the unauthorized update
+        db.flush.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_user_can_update_their_own_profile(self):
+        """Self-update must continue to work for the same user_id."""
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=42, role=UserRole.user.value)
+        actor = self._make_actor(user_id=42, role=UserRole.user.value)
+        # In self-update, actor IS the target user_id.
+
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            updated = await update_user(
+                db, target.id, UserUpdate(full_name="Renamed"), actor=actor
+            )
+
+        assert updated is target
+        assert target.full_name == "Renamed"
+
+    @pytest.mark.asyncio
+    async def test_admin_can_update_any_user(self):
+        """Admins retain the ability to update any user's row."""
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=77, role=UserRole.user.value)
+        actor = self._make_actor(user_id=1, role=UserRole.admin.value)
+
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            updated = await update_user(
+                db, target.id, UserUpdate(full_name="Admin Set"), actor=actor
+            )
+
+        assert updated is target
+        assert target.full_name == "Admin Set"
+
+    @pytest.mark.asyncio
+    async def test_agent_update_other_user_without_assignment_is_forbidden(self):
+        """An agent without assignment to the target user is rejected."""
+        from app.core.exceptions import ForbiddenException
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=10, role=UserRole.user.value)
+        target.agent_id = 5  # assigned to a different agent
+        actor = self._make_actor(user_id=2, role=UserRole.agent.value, agent_id=99)
+
+        db = AsyncMock(spec=AsyncSession)
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            with pytest.raises(ForbiddenException):
+                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+
+        db.flush.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_update_user_unexpected_error_is_wrapped(self):

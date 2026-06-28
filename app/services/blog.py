@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re as _re
+import secrets
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -12,6 +13,7 @@ from app.config import settings
 from app.core.cache import cached
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.exceptions import (
+    BadRequestException,
     BlogNotFoundException,
     CategoryNotFoundException,
     ConflictException,
@@ -20,7 +22,8 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
-from app.models.enums import UserRole
+from app.models.enums import BlogPostStatus, UserRole
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.utils.validators import ValidationUtils
 
 if TYPE_CHECKING:
@@ -97,7 +100,82 @@ def _serialize_seo_metadata(seo_metadata: dict[str, Any] | None = None) -> dict[
         return seo_metadata
     if hasattr(seo_metadata, "model_dump"):
         return dict(seo_metadata.model_dump(exclude_none=True))
-    return dict(seo_metadata) if isinstance(seo_metadata, dict) else {}
+    logger.warning("Unsupported seo_metadata type %s; storing empty metadata", type(seo_metadata).__name__)
+    return {}
+
+
+def _coerce_status(value: Any) -> BlogPostStatus:
+    if isinstance(value, BlogPostStatus):
+        return value
+    if value is None or value == "":
+        return BlogPostStatus.draft
+    return BlogPostStatus(str(value))
+
+
+def _resolve_status_for_create(data: Any) -> tuple[str, bool, datetime | None]:
+    """Resolve (status, active, published_at) for a new blog post.
+
+    ``status`` takes precedence over the legacy ``active`` flag. ``active`` is
+    always kept in sync with ``status == published``.
+    """
+    requested_status = getattr(data, "status", None)
+    scheduled_at = getattr(data, "scheduled_at", None)
+    published_at = getattr(data, "published_at", None)
+
+    if requested_status is not None:
+        status = _coerce_status(requested_status)
+    else:
+        is_active = bool(getattr(data, "active", False) or False)
+        status = BlogPostStatus.published if is_active else BlogPostStatus.draft
+
+    if status == BlogPostStatus.scheduled and not scheduled_at:
+        raise BadRequestException(
+            detail="scheduled_at is required when status is scheduled",
+            error_code="BLOG_SCHEDULED_AT_REQUIRED",
+        )
+
+    is_active = status == BlogPostStatus.published
+    if is_active and not published_at:
+        published_at = datetime.now(timezone.utc)
+
+    return status.value, is_active, published_at
+
+
+def _apply_status_update(post: BlogPost, data: Any) -> None:
+    """Apply status/active sync logic during an update.
+
+    If ``status`` is provided it takes precedence; otherwise a provided
+    ``active`` flag derives the new status. ``active`` is always kept in sync
+    with ``status == published``.
+    """
+    requested_status = getattr(data, "status", None)
+    requested_scheduled_at = getattr(data, "scheduled_at", None)
+    requested_active = getattr(data, "active", None)
+
+    if requested_status is not None:
+        status = _coerce_status(requested_status)
+        effective_scheduled_at = (
+            requested_scheduled_at if requested_scheduled_at is not None else post.scheduled_at
+        )
+        if status == BlogPostStatus.scheduled and not effective_scheduled_at:
+            raise BadRequestException(
+                detail="scheduled_at is required when status is scheduled",
+                error_code="BLOG_SCHEDULED_AT_REQUIRED",
+            )
+        post.status = status.value
+        post.active = status == BlogPostStatus.published
+        if status == BlogPostStatus.published and not post.published_at:
+            post.published_at = datetime.now(timezone.utc)
+    elif requested_active is not None:
+        post.active = bool(requested_active)
+        post.status = (
+            BlogPostStatus.published.value if post.active else BlogPostStatus.draft.value
+        )
+        if post.active and not post.published_at:
+            post.published_at = datetime.now(timezone.utc)
+
+    if requested_scheduled_at is not None:
+        post.scheduled_at = requested_scheduled_at
 
 
 async def _get_or_create_categories(db: AsyncSession, identifiers: list[str]) -> list[BlogCategory]:
@@ -197,11 +275,8 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
     sources = _serialize_sources(getattr(data, "sources", None) or [])
     seo_metadata = _serialize_seo_metadata(getattr(data, "seo_metadata", None))
 
-    # Determine published_at
-    is_active = getattr(data, "active", False) or False
-    published_at = getattr(data, "published_at", None)
-    if is_active and not published_at:
-        published_at = datetime.now(timezone.utc)
+    # Determine status (and keep `active` in sync: active == (status == published)).
+    status_value, is_active, published_at = _resolve_status_for_create(data)
 
     post = BlogPost(
         title=data.title,
@@ -219,6 +294,8 @@ async def create_blog_post(db: AsyncSession, data, actor) -> BlogPostSchema:
         reading_time_minutes=reading_time,
         word_count=word_count,
         published_at=published_at,
+        status=status_value,
+        scheduled_at=getattr(data, "scheduled_at", None),
         sources=sources,
         seo_metadata=seo_metadata,
     )
@@ -259,7 +336,14 @@ async def get_blog_post(
         .where(cond)
     )
     if not include_inactive:
-        stmt = stmt.where(BlogPost.active.is_(True))
+        # Public visibility: published status (back-compat: also accept active=true
+        # for rows created before the status column existed).
+        stmt = stmt.where(
+            or_(
+                BlogPost.status == BlogPostStatus.published.value,
+                BlogPost.active.is_(True),
+            )
+        )
 
     result = await db.execute(stmt)
     post = result.scalar_one_or_none()
@@ -277,15 +361,75 @@ async def get_blog_post_cached(
     return await get_blog_post(db, identifier, include_inactive=False)
 
 
+@cached("blog:posts", ttl=settings.CACHE_TTL_BLOG_POSTS)
+async def list_posts_cached(
+    db: AsyncSession,
+    *,
+    q: str | None,
+    categories: list[str] | None,
+    tags: list[str] | None,
+    cursor_payload: dict,
+    limit: int,
+) -> tuple[list[BlogPostSchema], dict | None, int | None]:
+    """Cached wrapper for public (non-admin) blog post listing.
+
+    Cache key includes all kwargs: q, categories, tags, cursor_payload, limit.
+    with_total is always False for cached results (include_total=True bypasses cache
+    via the uncached service call in the endpoint). Only active posts are cached.
+    """
+    return await list_blog_posts(
+        db,
+        q=q,
+        categories=categories,
+        tags=tags,
+        cursor_payload=cursor_payload,
+        limit=limit,
+        with_total=False,
+        include_inactive=False,
+    )
+
+
+@cached("blog:categories", ttl=settings.CACHE_TTL_BLOG_CATEGORIES)
+async def list_categories_cached(
+    db: AsyncSession,
+    *,
+    cursor_payload: dict,
+    limit: int,
+) -> tuple[list[BlogCategory], dict | None, int | None]:
+    """Cached wrapper for public blog category listing.
+
+    Cache key includes cursor_payload and limit. with_total is always False
+    for cached results (include_total=True bypasses cache in the endpoint).
+    """
+    return await list_categories(db, cursor_payload=cursor_payload, limit=limit, with_total=False)
+
+
+@cached("blog:tags", ttl=settings.CACHE_TTL_BLOG_TAGS)
+async def list_tags_cached(
+    db: AsyncSession,
+    *,
+    cursor_payload: dict,
+    limit: int,
+) -> tuple[list[BlogTag], dict | None, int | None]:
+    """Cached wrapper for public blog tag listing.
+
+    Cache key includes cursor_payload and limit. with_total is always False
+    for cached results (include_total=True bypasses cache in the endpoint).
+    """
+    return await list_tags(db, cursor_payload=cursor_payload, limit=limit, with_total=False)
+
+
 async def list_blog_posts(
     db: AsyncSession,
     q: str | None,
     categories: list[str] | None,
     tags: list[str] | None,
-    page: int,
-    limit: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
     include_inactive: bool = False,
-) -> tuple[list[BlogPostSchema], int]:
+    status: str | None = None,
+) -> tuple[list[BlogPostSchema], dict | None, int | None]:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
     query = select(BlogPost).options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
@@ -294,7 +438,18 @@ async def list_blog_posts(
     conditions: list[Any] = []
 
     if not include_inactive:
-        conditions.append(BlogPost.active.is_(True))
+        # Public visibility: published status (back-compat: also accept active=true
+        # for rows created before the status column existed).
+        conditions.append(
+            or_(
+                BlogPost.status == BlogPostStatus.published.value,
+                BlogPost.active.is_(True),
+            )
+        )
+
+    # Admin status filter (only meaningful when include_inactive=True).
+    if status:
+        conditions.append(BlogPost.status == status)
 
     if q:
         like = f"%{q}%"
@@ -338,24 +493,37 @@ async def list_blog_posts(
         query = query.where(and_(*conditions))
         count_query = count_query.where(and_(*conditions))
 
-    query = query.order_by(BlogPost.created_at.desc()).offset((page - 1) * limit).limit(limit)
+    # Count BEFORE applying keyset predicate (count the full filtered set)
+    count_total: int | None = None
+    if with_total:
+        count_total = (
+            await execute_with_transient_retry(
+                db,
+                lambda: db.execute(count_query),
+                operation_name="blog_posts_count",
+            )
+        ).scalar_one() or 0
+
+    # Apply keyset predicate for cursor-based pagination
+    predicate = keyset_filter(BlogPost.created_at, BlogPost.id, cursor_payload, descending=True)
+    if predicate is not None:
+        query = query.where(predicate)
+
+    query = query.order_by(BlogPost.created_at.desc(), BlogPost.id.desc()).limit(limit + 1)
 
     result = await execute_with_transient_retry(
         db,
         lambda: db.execute(query),
         operation_name="blog_posts_query",
     )
-    items = result.scalars().all()
+    rows = list(result.scalars().all())
 
-    total = (
-        await execute_with_transient_retry(
-            db,
-            lambda: db.execute(count_query),
-            operation_name="blog_posts_count",
-        )
-    ).scalar() or 0
+    next_payload: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
 
-    return [BlogPostSchema.model_validate(i) for i in items], int(total)
+    return [BlogPostSchema.model_validate(i) for i in rows], next_payload, count_total
 
 
 # Category CRUD operations
@@ -394,16 +562,33 @@ async def get_category(db: AsyncSession, identifier: str) -> BlogCategory | None
     return result.scalar_one_or_none()
 
 
-async def list_categories(db: AsyncSession, page: int = 1, limit: int = 100) -> tuple[list[BlogCategory], int]:
-    """List all categories with pagination."""
-    count_stmt = select(func.count(BlogCategory.id))
-    total = (await db.execute(count_stmt)).scalar() or 0
+async def list_categories(
+    db: AsyncSession,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[BlogCategory], dict | None, int | None]:
+    """List all categories with keyset cursor pagination (ASC name order)."""
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count(BlogCategory.id))
+        count_total = (await db.execute(count_stmt)).scalar_one() or 0
 
-    stmt = select(BlogCategory).order_by(BlogCategory.name).offset((page - 1) * limit).limit(limit)
+    stmt = select(BlogCategory)
+    predicate = keyset_filter(BlogCategory.name, BlogCategory.id, cursor_payload, descending=False)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(BlogCategory.name.asc(), BlogCategory.id.asc()).limit(limit + 1)
+
     result = await db.execute(stmt)
-    categories = result.scalars().all()
+    rows = list(result.scalars().all())
 
-    return list(categories), int(total)
+    next_payload: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].name), rows[-1].id)
+
+    return rows, next_payload, count_total
 
 
 async def update_category(db: AsyncSession, identifier: str, name: str | None = None, description: str | None = None) -> BlogCategory:
@@ -484,16 +669,33 @@ async def get_tag(db: AsyncSession, identifier: str) -> BlogTag | None:
     return result.scalar_one_or_none()
 
 
-async def list_tags(db: AsyncSession, page: int = 1, limit: int = 100) -> tuple[list[BlogTag], int]:
-    """List all tags with pagination."""
-    count_stmt = select(func.count(BlogTag.id))
-    total = (await db.execute(count_stmt)).scalar() or 0
+async def list_tags(
+    db: AsyncSession,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[BlogTag], dict | None, int | None]:
+    """List all tags with keyset cursor pagination (ASC name order)."""
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count(BlogTag.id))
+        count_total = (await db.execute(count_stmt)).scalar_one() or 0
 
-    stmt = select(BlogTag).order_by(BlogTag.name).offset((page - 1) * limit).limit(limit)
+    stmt = select(BlogTag)
+    predicate = keyset_filter(BlogTag.name, BlogTag.id, cursor_payload, descending=False)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(BlogTag.name.asc(), BlogTag.id.asc()).limit(limit + 1)
+
     result = await db.execute(stmt)
-    tags = result.scalars().all()
+    rows = list(result.scalars().all())
 
-    return list(tags), int(total)
+    next_payload: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].name), rows[-1].id)
+
+    return rows, next_payload, count_total
 
 
 async def update_tag(db: AsyncSession, identifier: str, name: str) -> BlogTag:
@@ -586,11 +788,8 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
         if not ValidationUtils.is_absolute_url(data.cover_image_url):
             logger.warning("Non-absolute cover_image_url for blog post %s: %s", post.id, data.cover_image_url)
         post.cover_image_url = data.cover_image_url
-    if getattr(data, "active", None) is not None:
-        post.active = bool(data.active)
-        # Set published_at when first activating
-        if post.active and not post.published_at:
-            post.published_at = datetime.now(timezone.utc)
+    # Status / active sync (status takes precedence over the legacy active flag).
+    _apply_status_update(post, data)
 
     # Update SEO fields if provided
     if getattr(data, "meta_title", None) is not None:
@@ -638,6 +837,9 @@ async def update_blog_post(db: AsyncSession, identifier: str, data, actor) -> Bl
             db.add(BlogPostTag(post_id=post.id, tag_id=t.id))
 
     await db.commit()
+    # Full column refresh so server-side `onupdate` fields (e.g. updated_at) are
+    # loaded and do not trigger lazy-load IO during serialization.
+    await db.refresh(post)
     await db.refresh(post, ["categories", "tags"])
 
     return BlogPostSchema.model_validate(post)
@@ -666,3 +868,64 @@ async def delete_blog_post(db: AsyncSession, identifier: str, actor) -> bool:
     await db.delete(post)
     await db.commit()
     return True
+
+
+# --------------------------------------------------------------------------- #
+# Draft / preview / scheduling helpers
+# --------------------------------------------------------------------------- #
+
+
+async def generate_preview_token(db: AsyncSession, post_id: int) -> BlogPost:
+    """Generate (or rotate) a preview token for a blog post.
+
+    The token allows public access to a post of any status via the
+    ``GET /posts/preview/{token}`` endpoint, enabling draft sharing for review.
+    """
+    stmt = select(BlogPost).where(BlogPost.id == post_id)
+    post = (await db.execute(stmt)).scalar_one_or_none()
+    if not post:
+        raise BlogNotFoundException()
+
+    post.preview_token = secrets.token_urlsafe(16)
+    await db.flush()
+    await db.refresh(post)
+    return post
+
+
+async def get_post_by_preview_token(db: AsyncSession, token: str) -> BlogPost | None:
+    """Fetch a blog post by its preview token (works for any status)."""
+    if not token:
+        return None
+    stmt = (
+        select(BlogPost)
+        .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
+        .where(BlogPost.preview_token == token)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def publish_scheduled_posts(db: AsyncSession) -> int:
+    """Publish all scheduled posts whose ``scheduled_at`` has passed.
+
+    Returns the number of posts published. ``active`` is kept in sync with the
+    new ``published`` status.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = (
+        select(BlogPost)
+        .where(
+            BlogPost.status == BlogPostStatus.scheduled.value,
+            BlogPost.scheduled_at.is_not(None),
+            BlogPost.scheduled_at <= now,
+        )
+    )
+    posts = list((await db.execute(stmt)).scalars().all())
+    for post in posts:
+        post.status = BlogPostStatus.published.value
+        post.active = True
+        if not post.published_at:
+            post.published_at = now
+    if posts:
+        await db.flush()
+    return len(posts)

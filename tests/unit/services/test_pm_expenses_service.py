@@ -9,7 +9,6 @@ import pytest
 
 from app.core.exceptions import BadRequestException
 from app.models.enums import ExpenseCategory, UserRole
-from app.models.pm_finance import Expense
 from app.models.users import User
 from app.services.pm_expenses import create_expense
 
@@ -84,7 +83,7 @@ class TestCreateExpense:
 
         with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
             with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock, return_value=mock_prop):
-                expense = await create_expense(
+                await create_expense(
                     db,
                     actor=actor,
                     owner_id=1,
@@ -116,7 +115,7 @@ class TestCreateExpense:
 
         with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
             with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock, return_value=mock_prop):
-                expense = await create_expense(
+                await create_expense(
                     db,
                     actor=actor,
                     owner_id=1,

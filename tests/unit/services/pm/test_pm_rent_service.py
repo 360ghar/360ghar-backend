@@ -2,9 +2,9 @@
 Tests for PM rent service module.
 """
 
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from __future__ import annotations
+
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,9 +78,10 @@ class TestListRentCharges:
         """Test listing rent charges for owner."""
         from app.services.pm_rent import list_rent_charges
 
-        result = await list_rent_charges(
+        result, next_payload, count_total = await list_rent_charges(
             db_session,
             actor=test_user,
+            cursor_payload={},
         )
 
         assert isinstance(result, list)
@@ -115,9 +116,10 @@ class TestListRentPayments:
             paid_at=datetime.now(timezone.utc),
         )
 
-        result = await list_rent_payments(
+        result, next_payload, count_total = await list_rent_payments(
             db_session,
             actor=test_user,
+            cursor_payload={},
         )
 
         assert isinstance(result, list)

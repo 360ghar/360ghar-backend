@@ -27,10 +27,10 @@ interface Property {
 
 interface SearchOutput {
   properties: Property[];
-  total: number;
-  page: number;
+  total?: number;
+  next_cursor: string | null;
+  has_more: boolean;
   limit: number;
-  total_pages: number;
   filters_applied?: Record<string, unknown>;
   error?: boolean;
   message?: string;
@@ -43,6 +43,20 @@ function PropertySearchWidget() {
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
   const [loading, setLoading] = React.useState(false);
+  const [allProperties, setAllProperties] = React.useState<Property[]>([]);
+
+  // Accumulate properties across pages via upsert merge
+  React.useEffect(() => {
+    const incoming = data?.properties;
+    if (!incoming) return;
+    setAllProperties(prev => {
+      const byId = new Map(prev.map((p) => [p.id, p]));
+      for (const item of incoming) {
+        byId.set(item.id, item);
+      }
+      return Array.from(byId.values());
+    });
+  }, [data]);
 
   if (!data) {
     return (
@@ -60,15 +74,16 @@ function PropertySearchWidget() {
     );
   }
 
-  const { properties, total, page, total_pages, filters_applied } = data;
+  const { total, next_cursor, has_more, filters_applied } = data;
+  const properties = allProperties;
 
   const handleLoadMore = async () => {
-    if (loading || page >= total_pages) return;
+    if (loading || !has_more || !next_cursor) return;
     setLoading(true);
     try {
       await callTool('discovery.search', {
         ...filters_applied,
-        page: page + 1,
+        cursor: next_cursor,
       });
     } finally {
       setLoading(false);
@@ -89,7 +104,7 @@ function PropertySearchWidget() {
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>
-          {total} Properties Found
+          {total ?? properties.length} Properties Found
         </h2>
         {filters_applied && Object.keys(filters_applied).length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
@@ -150,7 +165,7 @@ function PropertySearchWidget() {
           </div>
 
           {/* Pagination */}
-          {page < total_pages && (
+          {has_more && (
             <div style={{ marginTop: 20, textAlign: 'center' }}>
               <button
                 onClick={handleLoadMore}
@@ -167,7 +182,7 @@ function PropertySearchWidget() {
                   opacity: loading ? 0.6 : 1,
                 }}
               >
-                {loading ? 'Loading...' : `Load More (Page ${page + 1} of ${total_pages})`}
+                {loading ? 'Loading...' : 'Load More'}
               </button>
             </div>
           )}

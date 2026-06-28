@@ -2,8 +2,9 @@
 Integration tests for geospatial queries using PostGIS.
 """
 
+from __future__ import annotations
+
 import pytest
-from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -19,8 +20,8 @@ class TestPostGISRadiusSearch:
         test_properties_with_locations,
     ):
         """Test finding properties within a radius."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         # Search for properties near Mumbai (Andheri)
         filters = UnifiedPropertyFilter(
@@ -29,17 +30,17 @@ class TestPostGISRadiusSearch:
             radius_km=10,  # 10km radius
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
         # All returned properties should be within radius
-        for prop in result["items"]:
+        for prop in rows:
             assert hasattr(prop, "distance_km") or True  # Distance may not be on model
 
     @pytest.mark.asyncio
@@ -49,8 +50,8 @@ class TestPostGISRadiusSearch:
         test_properties_with_locations,
     ):
         """Test properties are sorted by distance from point."""
+        from app.schemas.property import SortBy, UnifiedPropertyFilter
         from app.services.property import get_unified_properties_optimized
-        from app.schemas.property import UnifiedPropertyFilter, SortBy
 
         filters = UnifiedPropertyFilter(
             latitude=19.1136,
@@ -59,15 +60,15 @@ class TestPostGISRadiusSearch:
             sort_by=SortBy.distance,
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_no_properties_outside_radius(
@@ -76,8 +77,8 @@ class TestPostGISRadiusSearch:
         test_properties_with_locations,
     ):
         """Test that properties outside radius are not returned."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         # Very small radius
         filters = UnifiedPropertyFilter(
@@ -86,16 +87,16 @@ class TestPostGISRadiusSearch:
             radius_km=1,  # 1km - very small radius
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
         # May return empty or only exact matches
-        assert "items" in result
+        assert isinstance(rows, list)
 
 
 @pytest.mark.integration
@@ -110,8 +111,8 @@ class TestPostGISBoundingBox:
         test_properties_with_locations,
     ):
         """Test finding properties within bounding box."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         # Mumbai bounding box (approximate)
         filters = UnifiedPropertyFilter(
@@ -121,15 +122,15 @@ class TestPostGISBoundingBox:
             max_lng=73.0,
         )
 
-        result = await get_unified_properties_optimized(
+        rows, _next, _total = await get_unified_properties_optimized(
             db_session,
             filters,
             user_id=None,
-            page=1,
+            cursor_payload={},
             limit=20,
         )
 
-        assert "items" in result
+        assert isinstance(rows, list)
 
 
 @pytest.mark.integration
@@ -144,7 +145,8 @@ class TestPostGISDistanceCalculation:
         test_property_with_location,
     ):
         """Test ST_Distance calculation."""
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
+
         from app.models.properties import Property
 
         # Calculate distance from property to a known point
@@ -172,7 +174,8 @@ class TestPostGISDistanceCalculation:
         test_properties_with_locations,
     ):
         """Test ST_DWithin filter for radius queries."""
-        from sqlalchemy import select, func
+        from sqlalchemy import func, select
+
         from app.models.properties import Property
 
         user_location = func.ST_SetSRID(

@@ -21,7 +21,7 @@ class TestOwnerPropertyTools:
         with patch("app.mcp.user.owner._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.owner.list_managed_properties", new_callable=AsyncMock) as mock_list:
+            with patch("app.mcp.user.owner.list_properties_enriched", new_callable=AsyncMock) as mock_list:
                 mock_list.return_value = {"items": [], "total": 0}
 
                 with patch("app.mcp.user.owner.get_db") as mock_db:
@@ -34,8 +34,8 @@ class TestOwnerPropertyTools:
     @pytest.mark.asyncio
     async def test_owner_properties_list_unauthenticated(self):
         """Test listing properties without auth."""
-        from app.mcp.user.owner import owner_properties_list
         from app.mcp.apps_sdk import AuthRequiredError
+        from app.mcp.user.owner import owner_properties_list
 
         # Get the underlying function from the FunctionTool
         fn = owner_properties_list.fn if hasattr(owner_properties_list, 'fn') else owner_properties_list
@@ -72,6 +72,7 @@ class TestOwnerPropertyTools:
     async def test_tools_list_includes_security_schemes_and_template(self, mock_mcp_context):
         """Apps SDK expects tool security schemes + output template metadata."""
         import mcp.types as mcp_types
+
         from app.mcp.user.server import user_mcp
 
         request = mcp_types.ListToolsRequest(method="tools/list", params={})
@@ -100,7 +101,7 @@ class TestOwnerPropertyCreate:
         with patch("app.mcp.user.owner._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.owner.create_managed_property", new_callable=AsyncMock) as mock_create:
+            with patch("app.mcp.user.owner.create_property", new_callable=AsyncMock) as mock_create:
                 mock_property = MagicMock()
                 mock_property.id = 1
                 mock_property.title = "New Property"
@@ -179,7 +180,7 @@ class TestBookingTools:
         with patch("app.mcp.user.booking._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")
 
-            with patch("app.mcp.user.booking.booking_svc.get_user_bookings", new_callable=AsyncMock) as mock_list:
+            with patch("app.mcp.user.booking.list_user_bookings", new_callable=AsyncMock) as mock_list:
                 mock_list.return_value = {"bookings": [], "total": 0}
 
                 with patch("app.mcp.user.booking.get_db") as mock_db:
@@ -197,7 +198,7 @@ class TestBookingTools:
         # Get the underlying function from the FunctionTool
         fn = bookings_check_availability.fn if hasattr(bookings_check_availability, 'fn') else bookings_check_availability
 
-        with patch("app.mcp.user.booking.booking_svc.check_availability", new_callable=AsyncMock) as mock_check:
+        with patch("app.mcp.user.booking.check_availability", new_callable=AsyncMock) as mock_check:
             mock_check.return_value = {"available": True, "conflicts": []}
 
             with patch("app.mcp.user.booking.get_db") as mock_db:
@@ -217,7 +218,7 @@ class TestMCPErrorResponses:
 
     def test_unauthorized_response(self):
         """Test unauthorized error response format using MCPResponse.failure."""
-        from app.mcp.errors import MCPResponse, MCPErrorCode
+        from app.mcp.errors import MCPErrorCode, MCPResponse
 
         result = MCPResponse.failure(
             code=MCPErrorCode.UNAUTHORIZED,

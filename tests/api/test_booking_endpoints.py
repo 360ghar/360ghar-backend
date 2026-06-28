@@ -6,14 +6,13 @@ They mock the service layer to isolate endpoint testing.
 """
 
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
 from app.models.enums import BookingStatus, PaymentStatus
-from app.schemas.booking import Booking, BookingList
+from app.schemas.booking import Booking
 
 
 def create_mock_booking(
@@ -62,19 +61,6 @@ def create_mock_booking(
         host_review=None,
         created_at=datetime.now(timezone.utc),
         updated_at=None,
-    )
-
-
-def create_mock_booking_list(bookings: list = None) -> BookingList:
-    """Create a mock booking list response."""
-    if bookings is None:
-        bookings = []
-    return BookingList(
-        bookings=bookings,
-        total=len(bookings),
-        upcoming=0,
-        completed=0,
-        cancelled=0,
     )
 
 
@@ -179,13 +165,13 @@ class TestGetUserBookingsEndpoint:
             "app.api.api_v1.endpoints.bookings.get_user_bookings",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = create_mock_booking_list()
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/bookings/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "bookings" in data
+            assert "items" in data
 
 
 class TestCancelBookingEndpoint:

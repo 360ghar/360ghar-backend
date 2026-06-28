@@ -99,7 +99,7 @@ class TestFAQEndpoints:
             "app.api.api_v1.endpoints.core.get_faqs_public_cached",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = []
+            mock_get.return_value = ([], None, None)
 
             response = await client.get("/api/v1/faqs/public")
 

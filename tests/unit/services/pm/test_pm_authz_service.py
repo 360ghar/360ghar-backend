@@ -12,6 +12,7 @@ from app.services.pm_authz import (
     assert_can_access_lease,
     assert_can_access_property,
     assert_can_manage_owner_portfolio,
+    can_access_visit,
     get_accessible_owner_ids,
 )
 
@@ -208,3 +209,46 @@ async def test_get_accessible_owner_ids_regular_user_returns_self():
     result = await get_accessible_owner_ids(db, actor=actor)
 
     assert result == [44]
+
+
+@pytest.mark.asyncio
+async def test_can_access_visit_allows_assigned_agent():
+    """The agent assigned to a visit can access it, without DB lookups."""
+    db = AsyncMock()
+    actor = SimpleNamespace(id=2, role="agent", agent_id=50)
+
+    result = await can_access_visit(
+        db,
+        actor=actor,
+        visit_user_id=10,
+        visit_property_id=20,
+        visit_agent_id=50,
+    )
+
+    assert result is True
+    db.get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_can_access_visit_rejects_unassigned_agent():
+    """An agent not linked to the user, owner, or visit assignment is denied."""
+    db = AsyncMock()
+    # visit user (managed by agent 99), property, owner (managed by agent 77)
+    db.get = AsyncMock(
+        side_effect=[
+            SimpleNamespace(id=10, agent_id=99),
+            SimpleNamespace(id=20, owner_id=30),
+            SimpleNamespace(id=30, agent_id=77),
+        ]
+    )
+    actor = SimpleNamespace(id=2, role="agent", agent_id=55)
+
+    result = await can_access_visit(
+        db,
+        actor=actor,
+        visit_user_id=10,
+        visit_property_id=20,
+        visit_agent_id=50,  # assigned to a different agent
+    )
+
+    assert result is False

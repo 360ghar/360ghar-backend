@@ -18,7 +18,7 @@ async def _paginate_agents(
     page_stmt = base_stmt.offset(offset).limit(limit)
     result = await db.execute(page_stmt)
     rows = result.scalars().all()
-    items = [AgentSchema.model_validate(r.__dict__) for r in rows]
+    items = [AgentSchema.model_validate(r) for r in rows]
 
     # Total count
     count_stmt = base_stmt.with_only_columns(func.count(Agent.id)).order_by(None)

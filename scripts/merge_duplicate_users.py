@@ -26,6 +26,25 @@ load_dotenv(".env.dev")
 DUP_USER_ID = 18
 REAL_USER_ID = 23
 
+# Allowlist of (table, column) pairs that may be interpolated into SQL.
+# SQL identifiers (table/column names) cannot be bound as parameters, so we
+# explicitly validate against this fixed allowlist before interpolation.
+ALLOWED_TABLES: dict[str, frozenset[str]] = {
+    "user_swipes": frozenset({"user_id"}),
+    "user_search_history": frozenset({"user_id"}),
+    "user_blocks": frozenset({"blocker_user_id", "blocked_user_id"}),
+}
+
+
+def _assert_identifier(table: str, col: str) -> None:
+    """Validate table/column names against the allowlist before SQL interpolation."""
+    allowed_cols = ALLOWED_TABLES.get(table)
+    if allowed_cols is None or col not in allowed_cols:
+        raise ValueError(
+            f"Refusing to interpolate untrusted identifier: {table}.{col}. "
+            f"Not in ALLOWED_TABLES allowlist."
+        )
+
 
 def _engine():
     from sqlalchemy import create_engine
@@ -70,6 +89,9 @@ def main() -> None:
         ]
 
         for table, col in tables_to_migrate:
+            # Validate identifiers against allowlist before SQL interpolation.
+            _assert_identifier(table, col)
+
             # Check if table exists
             exists = conn.execute(text(
                 "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = :t)"

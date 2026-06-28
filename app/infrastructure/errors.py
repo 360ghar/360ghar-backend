@@ -150,13 +150,16 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def general_exception_handler(request, exc: Exception):
-        """Handle unexpected exceptions and hide details in production."""
+        """Handle unexpected exceptions and hide details unless DEBUG is on."""
         logger.error(
             "Unexpected error: %s - %s %s", exc, request.method, request.url.path, exc_info=True
         )
         sentry_sdk.capture_exception(exc)
 
-        message = "An unexpected error occurred" if settings.ENVIRONMENT == "production" else str(exc)
+        # Only leak the exception string in DEBUG mode (development). In every
+        # other environment clients get a generic message; full details remain
+        # in the server logs above.
+        message = str(exc) if settings.DEBUG else "An unexpected error occurred"
 
         return JSONResponse(
             status_code=500,
@@ -170,8 +173,9 @@ def register_exception_handlers(app: FastAPI) -> None:
 
 
 def _is_mcp_tool_route(path: str) -> bool:
-    return (path.startswith("/mcp") and not path.startswith("/mcp/oauth")) or path.startswith(
-        "/mcp-admin"
+    return (
+        (path.startswith("/mcp") and not path.startswith("/mcp/oauth"))
+        or (path.startswith("/mcp-admin") and not path.startswith("/mcp-admin/oauth"))
     )
 
 

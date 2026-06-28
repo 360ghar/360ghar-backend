@@ -6,7 +6,7 @@ These schemas define the request/response structure for the Vastu checker API.
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.constants import DEFAULT_VISION_PROVIDER
 from app.core.utils import utc_now_iso
@@ -98,10 +98,23 @@ class EntranceInfo(BaseModel):
     type: str | None = None
 
 
+def _coerce_count_value(v: object) -> int:
+    """Coerce a count value to int, handling string-encoded floats like '2.5'."""
+    try:
+        return int(float(v))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
 class ToiletInfo(BaseModel):
     """Information about toilets/bathrooms."""
     count: int
     directions: list[str]
+
+    @field_validator("count", mode="before")
+    @classmethod
+    def _coerce_count(cls, v: object) -> int:
+        return _coerce_count_value(v)
 
 
 class StaircaseInfo(BaseModel):
@@ -114,6 +127,11 @@ class BalconyInfo(BaseModel):
     """Information about balconies."""
     count: int
     directions: list[str]
+
+    @field_validator("count", mode="before")
+    @classmethod
+    def _coerce_count(cls, v: object) -> int:
+        return _coerce_count_value(v)
 
 
 class FloorPlanAnalysis(BaseModel):

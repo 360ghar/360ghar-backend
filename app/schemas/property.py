@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
+from app.core.exceptions import ValidationException
 from app.models.enums import (
     PG_FLATMATE_TYPES,
     ImageCategory,
@@ -62,20 +63,48 @@ class PropertyImage(PropertyImageBase):
 
 
 class PropertyBase(BaseModel):
-    title: str
-    description: str | None = None
-    property_type: PropertyType
-    purpose: PropertyPurpose
-    base_price: float
+    title: str = Field(
+        ...,
+        description="Listing title shown in search results and detail pages",
+        examples=["2BHK Apartment in Koramangala"],
+    )
+    description: str | None = Field(
+        default=None,
+        description="Detailed description of the property (HTML/markdown allowed)",
+        examples=["Spacious 2BHK with balcony, near metro station"],
+    )
+    property_type: PropertyType = Field(
+        ...,
+        description="Listing category (apartment, villa, pg, flatmate, etc.)",
+        examples=["apartment"],
+    )
+    purpose: PropertyPurpose = Field(
+        ...,
+        description="Listing intent: sale, rent, or short stay",
+        examples=["rent"],
+    )
+    base_price: float = Field(
+        ...,
+        description="Base price (sale price or monthly rent anchor, in INR)",
+        examples=[50000],
+    )
 
     # Location fields
     latitude: float | None = None
     longitude: float | None = None
-    city: str | None = None
+    city: str | None = Field(
+        default=None,
+        description="City where the property is located",
+        examples=["Bengaluru"],
+    )
     state: str | None = None
     country: str = "India"
     pincode: str | None = None
-    locality: str | None = None
+    locality: str | None = Field(
+        default=None,
+        description="Neighbourhood or locality within the city",
+        examples=["Koramangala"],
+    )
     sub_locality: str | None = None
     landmark: str | None = None
     full_address: str | None = None
@@ -136,6 +165,13 @@ class PropertyCreate(PropertyBase):
     def validate_base_price(cls, v: float) -> float:
         return ValidationUtils.validate_price(v, min_price=0, max_price=1e8)
 
+    @field_validator("monthly_rent", "daily_rate", "security_deposit", "maintenance_charges", "price_per_sqft")
+    @classmethod
+    def validate_positive_price(cls, v: float | None) -> float | None:
+        if v is not None and v < 0:
+            raise ValidationException("Price values must be non-negative")
+        return v
+
     @field_validator("pincode")
     @classmethod
     def validate_pincode(cls, v: str | None) -> str | None:
@@ -190,12 +226,24 @@ class PropertyCreate(PropertyBase):
 
 
 class PropertyUpdate(BaseModel):
-    title: str | None = None
+    title: str | None = Field(
+        default=None,
+        description="Listing title shown in search results and detail pages",
+        examples=["2BHK Apartment in Koramangala"],
+    )
     description: str | None = None
     property_type: PropertyType | None = None
     purpose: PropertyPurpose | None = None
-    base_price: float | None = None
-    status: PropertyStatus | None = None
+    base_price: float | None = Field(
+        default=None,
+        description="Base price (sale price or monthly rent anchor, in INR)",
+        examples=[55000],
+    )
+    status: PropertyStatus | None = Field(
+        default=None,
+        description="Listing lifecycle status (active, inactive, sold, rented)",
+        examples=["active"],
+    )
     is_available: bool | None = None
     amenity_ids: list[int] | None = None
     features: list[str] | None = None
@@ -208,6 +256,20 @@ class PropertyUpdate(BaseModel):
     video_tour_url: str | None = None
     video_urls: list[str] | None = None
     google_street_view_url: str | None = None
+
+    @field_validator("title")
+    @classmethod
+    def validate_title(cls, v: str | None) -> str | None:
+        if v is not None:
+            return ValidationUtils.sanitize_string(v, max_length=200)
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v: str | None) -> str | None:
+        if v:
+            return ValidationUtils.sanitize_html(v)
+        return v
 
     @field_validator("video_urls", "image_urls")
     @classmethod
@@ -410,7 +472,7 @@ class SortBy(str, Enum):
 class UnifiedPropertyFilter(BaseModel):
     latitude: float | None = None
     longitude: float | None = None
-    radius_km: int = 5
+    radius_km: int = Field(default=5, ge=1, le=100)
 
     # Text search field
     search_query: str | None = None
@@ -418,18 +480,18 @@ class UnifiedPropertyFilter(BaseModel):
     property_ids: list[int] | None = None
     property_type: list[PropertyType] | None = None
     purpose: PropertyPurpose | None = None
-    price_min: float | None = None
-    price_max: float | None = None
-    bedrooms_min: int | None = None
-    bedrooms_max: int | None = None
-    bathrooms_min: int | None = None
-    bathrooms_max: int | None = None
-    area_min: float | None = None
-    area_max: float | None = None
-    parking_spaces_min: int | None = None
-    floor_number_min: int | None = None
-    floor_number_max: int | None = None
-    age_max: int | None = None
+    price_min: float | None = Field(default=None, ge=0)
+    price_max: float | None = Field(default=None, ge=0)
+    bedrooms_min: int | None = Field(default=None, ge=0)
+    bedrooms_max: int | None = Field(default=None, ge=0)
+    bathrooms_min: int | None = Field(default=None, ge=0)
+    bathrooms_max: int | None = Field(default=None, ge=0)
+    area_min: float | None = Field(default=None, ge=0)
+    area_max: float | None = Field(default=None, ge=0)
+    parking_spaces_min: int | None = Field(default=None, ge=0)
+    floor_number_min: int | None = Field(default=None, ge=0)
+    floor_number_max: int | None = Field(default=None, ge=0)
+    age_max: int | None = Field(default=None, ge=0)
 
     city: str | None = None
     locality: str | None = None
@@ -443,7 +505,7 @@ class UnifiedPropertyFilter(BaseModel):
     move_in: str | None = None
     check_in_date: str | None = None
     check_out_date: str | None = None
-    guests: int | None = None
+    guests: int | None = Field(default=None, ge=1, le=20)
 
     sort_by: SortBy | None = SortBy.distance
     include_unavailable: bool = False
@@ -451,6 +513,25 @@ class UnifiedPropertyFilter(BaseModel):
     # When true and user is authenticated, excludes properties the user has already swiped
     exclude_swiped: bool = False
     semantic_search: bool = False
+
+    @model_validator(mode="after")
+    def validate_range_consistency(self):
+        """Ensure min values do not exceed max values for paired range fields."""
+        _RANGE_PAIRS = [
+            ("price_min", "price_max"),
+            ("bedrooms_min", "bedrooms_max"),
+            ("bathrooms_min", "bathrooms_max"),
+            ("area_min", "area_max"),
+            ("floor_number_min", "floor_number_max"),
+        ]
+        for min_field, max_field in _RANGE_PAIRS:
+            min_val = getattr(self, min_field)
+            max_val = getattr(self, max_field)
+            if min_val is not None and max_val is not None and min_val > max_val:
+                raise ValueError(
+                    f"{min_field} ({min_val}) must not exceed {max_field} ({max_val})"
+                )
+        return self
 
 
 class UnifiedPropertyResponse(BaseModel):
@@ -463,11 +544,3 @@ class UnifiedPropertyResponse(BaseModel):
     search_center: dict[str, float] | None = None
 
 
-class SwipeHistoryResponse(BaseModel):
-    properties: list[Property]
-    total: int
-    page: int
-    limit: int
-    total_pages: int
-    filters_applied: dict[str, Any]
-    search_center: dict[str, float] | None = None

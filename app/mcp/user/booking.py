@@ -39,6 +39,7 @@ from app.mcp.tool_ops import (
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
 
@@ -120,14 +121,14 @@ async def bookings_create(
     },
 )
 async def bookings_list(
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
     status: str | None = None,
 ) -> dict[str, Any]:
     """List the current user's bookings.
 
     Args:
-        page: Page number
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page
         status: Filter by status (pending, confirmed, checked_in, checked_out, cancelled, completed)
     """
@@ -143,10 +144,11 @@ async def bookings_list(
                     scope="mcp:read",
                 )
 
+            cursor_payload = decode_cursor(cursor) if cursor else None
             result = await list_user_bookings(
                 db,
                 user_id=user.id,
-                page=page,
+                cursor_payload=cursor_payload,
                 limit=limit,
                 status=status,
             )

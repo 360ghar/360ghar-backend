@@ -2,16 +2,14 @@
 Tests for PM maintenance service module.
 """
 
-from datetime import date, datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import (
     MaintenanceCategory,
-    MaintenanceUrgency,
     MaintenanceRequestStatus,
+    MaintenanceUrgency,
 )
 
 
@@ -58,13 +56,14 @@ class TestListMaintenanceRequests:
         """Test listing maintenance requests for owner."""
         from app.services.pm_maintenance import list_maintenance_requests
 
-        result = await list_maintenance_requests(
+        rows, _next, _total = await list_maintenance_requests(
             db_session,
             actor=test_user,
+            cursor_payload={},
         )
 
-        assert isinstance(result, list)
-        assert len(result) >= 1
+        assert isinstance(rows, list)
+        assert len(rows) >= 1
 
 
 class TestUpdateMaintenanceRequest:

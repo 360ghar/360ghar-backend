@@ -18,6 +18,7 @@ from app.mcp.chatgpt.response_formatter import (
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
 from app.models.enums import LeaseStatus
+from app.schemas.pagination import decode_cursor, encode_cursor
 
 logger = get_logger(__name__)
 
@@ -43,7 +44,7 @@ LEASE_MANAGEMENT_META = build_widget_tool_meta(
 async def owner_leases_list(
     property_id: int | None = None,
     status: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List leases for the authenticated owner's properties."""
@@ -51,7 +52,7 @@ async def owner_leases_list(
         from app.services.pm_leases import list_leases
 
         limit = min(max(1, limit), 50)
-        page = max(1, page)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -65,18 +66,18 @@ async def owner_leases_list(
             # Convert status string to LeaseStatus enum for the service layer
             lease_status = LeaseStatus(status) if status else None
 
-            # Get leases for owner's properties
-            leases = await list_leases(
+            # Get leases for owner's properties (cursor-based pagination)
+            rows, next_payload, _total = await list_leases(
                 db,
                 actor=user,
                 owner_id=user.id,
                 property_id=property_id,
                 status=lease_status,
+                cursor_payload=cursor_payload,
                 limit=limit,
-                offset=(page - 1) * limit,
             )
 
-            serialized = [_serialize_lease(lease) for lease in leases]
+            serialized = [_serialize_lease(lease) for lease in rows]
 
             # Calculate stats
             active_count = sum(1 for lease_data in serialized if lease_data["status"] == "active")
@@ -89,8 +90,9 @@ async def owner_leases_list(
             return format_chatgpt_response(
                 data={
                     "leases": serialized,
-                    "total": len(serialized),
-                    "page": page,
+                    "count": len(serialized),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
                     "stats": {
                         "active_leases": active_count,

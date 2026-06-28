@@ -7,8 +7,8 @@ per Apps SDK compliance.
 
 import pytest
 
-from app.mcp.user.server import user_mcp
 from app.mcp.admin import admin_mcp
+from app.mcp.user.server import user_mcp
 
 
 class TestDiscoveryToolRegistration:

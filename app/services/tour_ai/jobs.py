@@ -4,7 +4,10 @@ AI Job management for tour AI operations.
 Provides CRUD operations for AI processing jobs, including creation,
 status updates with WebSocket broadcasting, retrieval, and cancellation.
 """
+from __future__ import annotations
+
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +17,7 @@ from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.core.websocket import manager as ws_manager
 from app.models.tours import AIJob
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 
 logger = get_logger(__name__)
 
@@ -26,8 +30,6 @@ async def create_ai_job(
     scene_id: str | None = None
 ) -> AIJob:
     """Create a new AI processing job."""
-    from uuid import uuid4
-
     job = AIJob(
         id=str(uuid4()),
         user_id=user_id,
@@ -128,26 +130,39 @@ async def get_user_ai_jobs(
     db: AsyncSession,
     user_id: int,
     status_filter: str | None = None,
+    *,
+    cursor_payload: dict | None = None,
     limit: int = 20,
-    offset: int = 0
-) -> dict:
-    """Get AI jobs for a user."""
-    query = select(AIJob).where(AIJob.user_id == user_id)
+    with_total: bool = False,
+) -> tuple[list[AIJob], dict | None, int | None]:
+    """Get AI jobs for a user (keyset pagination on created_at)."""
+    if cursor_payload is None:
+        cursor_payload = {}
+
+    stmt = select(AIJob).where(AIJob.user_id == user_id)
 
     if status_filter:
-        query = query.where(AIJob.status == status_filter)
+        stmt = stmt.where(AIJob.status == status_filter)
 
-    # Count total
-    count_query = select(func.count()).select_from(query.subquery())
-    count_result = await db.execute(count_query)
-    total = count_result.scalar() or 0
+    count_total: int | None = None
+    if with_total:
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
 
-    # Fetch jobs
-    query = query.order_by(AIJob.created_at.desc()).offset(offset).limit(limit)
-    result = await db.execute(query)
-    jobs = list(result.scalars().all())
+    predicate = keyset_filter(AIJob.created_at, AIJob.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
 
-    return {"jobs": jobs, "total": total}
+    stmt = stmt.order_by(AIJob.created_at.desc(), AIJob.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_pg: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_pg = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
+
+    return rows, next_pg, count_total
 
 
 async def cancel_ai_job(

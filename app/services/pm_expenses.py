@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
 from app.models.enums import ExpenseCategory, UserRole
 from app.models.pm_finance import Expense
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
 
 
@@ -64,9 +65,10 @@ async def list_expenses(
     category: ExpenseCategory | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Expense]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[Expense], dict | None, int | None]:
     if actor.role == UserRole.user.value:
         owner_id = actor.id
     elif actor.role == UserRole.agent.value:
@@ -87,9 +89,24 @@ async def list_expenses(
     if end_date is not None:
         stmt = stmt.where(Expense.expense_date <= end_date)
 
-    stmt = stmt.order_by(Expense.expense_date.desc()).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(Expense.expense_date, Expense.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(Expense.expense_date.desc(), Expense.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.expense_date), last.id)
+    return rows, next_payload, count_total
 
 
 async def update_expense(

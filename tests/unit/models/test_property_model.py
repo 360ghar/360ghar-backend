@@ -2,15 +2,11 @@
 Tests for app.models.properties module — Property, PropertyImage, Amenity, Visit models.
 """
 
-from decimal import Decimal
 
-import pytest
 
 from app.models.enums import (
     ImageCategory,
-    PropertyPurpose,
     PropertyStatus,
-    PropertyType,
     VisitStatus,
 )
 from app.models.properties import Amenity, Property, PropertyImage, Visit

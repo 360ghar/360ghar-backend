@@ -1,5 +1,6 @@
+from __future__ import annotations
 
-from sqlalchemy import and_, desc, select, update
+from sqlalchemy import and_, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,6 +24,13 @@ from app.schemas.core import (
     PagePublicResponse,
     PageResponse,
     PageUpdate,
+)
+from app.schemas.pagination import (
+    keyset_filter,
+    keyset_payload,
+    keyset_sort_value,
+    offset_payload,
+    read_offset,
 )
 
 
@@ -49,30 +57,47 @@ class CoreService:
         user_id: int | None = None,
         status: BugStatus | None = None,
         bug_type: BugType | None = None,
+        cursor_payload: dict | None = None,
         limit: int = 20,
-        offset: int = 0
-    ) -> list[BugReportResponse]:
-        """Get bug reports with optional filtering"""
-        query = select(BugReport).options(
+        with_total: bool = False,
+    ) -> tuple[list[BugReport], dict | None, int | None]:
+        """Get bug reports with optional filtering (keyset pagination)."""
+        if cursor_payload is None:
+            cursor_payload = {}
+
+        stmt = select(BugReport).options(
             selectinload(BugReport.user),
-            selectinload(BugReport.assignee)
+            selectinload(BugReport.assignee),
         )
 
         if user_id:
-            query = query.where(BugReport.user_id == user_id)
+            stmt = stmt.where(BugReport.user_id == user_id)
 
         if status:
-            query = query.where(BugReport.status == status)
+            stmt = stmt.where(BugReport.status == status)
 
         if bug_type:
-            query = query.where(BugReport.bug_type == bug_type)
+            stmt = stmt.where(BugReport.bug_type == bug_type)
 
-        query = query.order_by(desc(BugReport.created_at)).limit(limit).offset(offset)
+        count_total: int | None = None
+        if with_total:
+            count_total = (
+                await self.db.execute(select(func.count()).select_from(stmt.subquery()))
+            ).scalar_one()
 
-        result = await self.db.execute(query)
-        bug_reports = result.scalars().all()
+        predicate = keyset_filter(BugReport.created_at, BugReport.id, cursor_payload, descending=True)
+        if predicate is not None:
+            stmt = stmt.where(predicate)
 
-        return [BugReportResponse.model_validate(bug) for bug in bug_reports]
+        stmt = stmt.order_by(BugReport.created_at.desc(), BugReport.id.desc()).limit(limit + 1)
+        rows = list((await self.db.execute(stmt)).scalars().all())
+
+        next_payload: dict | None = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            next_payload = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
+
+        return rows, next_payload, count_total
 
     async def get_bug_report_by_id(self, bug_id: int) -> BugReportResponse:
         """Get a specific bug report by ID"""
@@ -186,27 +211,41 @@ class CoreService:
         self,
         is_active: bool | None = None,
         is_draft: bool | None = None,
+        cursor_payload: dict | None = None,
         limit: int = 20,
-        offset: int = 0
-    ) -> list[PageResponse]:
-        """Get pages with optional filtering"""
-        query = select(Page).options(
+        with_total: bool = False,
+    ) -> tuple[list[Page], dict | None, int | None]:
+        """Get pages with optional filtering (offset-fallback pagination)."""
+        if cursor_payload is None:
+            cursor_payload = {}
+
+        stmt = select(Page).options(
             selectinload(Page.creator),
-            selectinload(Page.updater)
+            selectinload(Page.updater),
         )
 
         if is_active is not None:
-            query = query.where(Page.is_active == is_active)
+            stmt = stmt.where(Page.is_active.is_(is_active))
 
         if is_draft is not None:
-            query = query.where(Page.is_draft == is_draft)
+            stmt = stmt.where(Page.is_draft.is_(is_draft))
 
-        query = query.order_by(desc(Page.updated_at)).limit(limit).offset(offset)
+        count_total: int | None = None
+        if with_total:
+            count_total = (
+                await self.db.execute(select(func.count()).select_from(stmt.subquery()))
+            ).scalar_one()
 
-        result = await self.db.execute(query)
-        pages = result.scalars().all()
+        offset = read_offset(cursor_payload)
+        stmt = stmt.order_by(desc(Page.updated_at)).offset(offset).limit(limit + 1)
+        rows = list((await self.db.execute(stmt)).scalars().all())
 
-        return [PageResponse.model_validate(page) for page in pages]
+        next_pg: dict | None = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            next_pg = offset_payload(offset + limit)
+
+        return rows, next_pg, count_total
 
     async def update_page(
         self,
@@ -317,10 +356,15 @@ class CoreService:
         app: str | None = None,
         platform: str | None = None,
         is_active: bool | None = None,
+        cursor_payload: dict | None = None,
         limit: int = 10,
-        offset: int = 0,
-    ) -> list[AppVersionResponse]:
+        with_total: bool = False,
+    ) -> tuple[list[AppVersionResponse], dict | None, int | None]:
         """Get app versions with optional filtering"""
+        if cursor_payload is None:
+            cursor_payload = {}
+        offset = read_offset(cursor_payload)
+
         query = select(AppVersion)
 
         if app:
@@ -330,14 +374,26 @@ class CoreService:
             query = query.where(AppVersion.platform == platform)
 
         if is_active is not None:
-            query = query.where(AppVersion.is_active == is_active)
+            query = query.where(AppVersion.is_active.is_(is_active))
 
-        query = query.order_by(desc(AppVersion.created_at)).limit(limit).offset(offset)
+        total: int | None = None
+        if with_total:
+            total = (
+                await self.db.execute(select(func.count()).select_from(query.subquery()))
+            ).scalar_one()
 
-        result = await self.db.execute(query)
-        versions = result.scalars().all()
+        rows = (
+            await self.db.execute(
+                query.order_by(desc(AppVersion.created_at)).offset(offset).limit(limit + 1)
+            )
+        ).scalars().all()
 
-        return [AppVersionResponse.model_validate(version) for version in versions]
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_payload = offset_payload(offset + limit) if has_more else None
+
+        versions = [AppVersionResponse.model_validate(version) for version in rows]
+        return versions, next_payload, total
 
     async def update_app_version(
         self,
@@ -382,24 +438,38 @@ class CoreService:
         self,
         category: str | None = None,
         is_active: bool | None = True,
+        cursor_payload: dict | None = None,
         limit: int = 50,
-        offset: int = 0
-    ) -> list[FAQResponse]:
-        """Get FAQs with optional filtering by category and active status"""
-        query = select(FAQ)
+        with_total: bool = False,
+    ) -> tuple[list[FAQ], dict | None, int | None]:
+        """Get FAQs with optional filtering (offset-fallback pagination)."""
+        if cursor_payload is None:
+            cursor_payload = {}
+
+        stmt = select(FAQ)
 
         if category:
-            query = query.where(FAQ.category == category)
+            stmt = stmt.where(FAQ.category == category)
 
         if is_active is not None:
-            query = query.where(FAQ.is_active == is_active)
+            stmt = stmt.where(FAQ.is_active.is_(is_active))
 
-        # Order by display_order ascending, then most recent
-        query = query.order_by(FAQ.display_order.asc(), desc(FAQ.created_at)).limit(limit).offset(offset)
+        count_total: int | None = None
+        if with_total:
+            count_total = (
+                await self.db.execute(select(func.count()).select_from(stmt.subquery()))
+            ).scalar_one()
 
-        result = await self.db.execute(query)
-        faqs = result.scalars().all()
-        return [FAQResponse.model_validate(faq) for faq in faqs]
+        offset = read_offset(cursor_payload)
+        stmt = stmt.order_by(FAQ.display_order.asc(), desc(FAQ.created_at)).offset(offset).limit(limit + 1)
+        rows = list((await self.db.execute(stmt)).scalars().all())
+
+        next_pg: dict | None = None
+        if len(rows) > limit:
+            rows = rows[:limit]
+            next_pg = offset_payload(offset + limit)
+
+        return rows, next_pg, count_total
 
     async def get_faq_by_id(self, faq_id: int) -> FAQResponse:
         query = select(FAQ).where(FAQ.id == faq_id)

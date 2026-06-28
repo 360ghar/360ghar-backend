@@ -1,22 +1,31 @@
+from __future__ import annotations
 
-from sqlalchemy import and_, case, desc, func, select, update
+from sqlalchemy import and_, case, desc, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.utils import utc_now
 from app.models.properties import Amenity, Property, PropertyAmenity
 from app.models.users import UserSwipe
+from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import PropertySwipe, SortBy, UnifiedPropertyFilter
+from app.utils.geo import normalize_city
 
 
 async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe):
     """Record or update swipe"""
-    # First check if the property exists
+    # First check if the property exists and user is not swiping their own property
     property_check = await db.execute(
-        select(Property.id).where(Property.id == swipe_data.property_id)
+        select(Property.id, Property.owner_id).where(Property.id == swipe_data.property_id)
     )
-    if not property_check.scalar_one_or_none():
+    property_row = property_check.one_or_none()
+    if not property_row:
         # Property doesn't exist, silently return success to avoid client errors
         # This handles cases where properties are deleted after being shown to users
+        return False
+
+    if property_row[1] == user_id:
+        # User is trying to swipe their own property — silently ignore
         return False
 
     # Check if swipe exists
@@ -30,9 +39,30 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
     existing_swipe = result.scalar_one_or_none()
 
     if existing_swipe:
-        # Update existing swipe
-        existing_swipe.is_liked = swipe_data.is_liked
-        existing_swipe.updated_at = func.now()
+        # Update existing swipe. Adjust like_count only if the status actually
+        # flipped. The in-memory `old_liked` could be stale under interleaved
+        # like→dislike→like toggles from the same user, so we re-read the DB
+        # inside the same savepoint and gate the diff on the fresh value.
+        async with db.begin_nested():
+            await db.refresh(existing_swipe)
+            old_liked_db = existing_swipe.is_liked
+            existing_swipe.is_liked = swipe_data.is_liked
+            existing_swipe.updated_at = utc_now()
+
+            if old_liked_db and not swipe_data.is_liked:
+                # Changed from like to dislike — decrement
+                await db.execute(
+                    update(Property).where(Property.id == swipe_data.property_id).values(
+                        like_count=Property.like_count - 1
+                    )
+                )
+            elif not old_liked_db and swipe_data.is_liked:
+                # Changed from dislike to like — increment
+                await db.execute(
+                    update(Property).where(Property.id == swipe_data.property_id).values(
+                        like_count=Property.like_count + 1
+                    )
+                )
     else:
         # Create new swipe
         swipe = UserSwipe(
@@ -52,9 +82,17 @@ async def record_swipe(db: AsyncSession, user_id: int, swipe_data: PropertySwipe
     await db.flush()
     return True
 
-async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedPropertyFilter, page: int, limit: int, is_liked: bool | None):
+async def get_swipe_history(
+    db: AsyncSession,
+    user_id: int,
+    filters: UnifiedPropertyFilter,
+    cursor_payload: dict,
+    limit: int,
+    is_liked: bool | None,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
     """Get user's swipe history with comprehensive property filtering"""
-    skip = (page - 1) * limit
+    offset = read_offset(cursor_payload)
 
     # Base query with optimized eager loading
     # Use outerjoin to include swipes even if property was deleted, then filter nulls
@@ -65,8 +103,23 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
 
     count_query = select(func.count(UserSwipe.id)).join(UserSwipe.property)  # Inner join for count too
 
+    from app.models.enums import PG_FLATMATE_TYPES
+
     # Always filter by user_id
     conditions = [UserSwipe.user_id == user_id]
+
+    # Only show swipes on available, live properties (mirrors main search filter)
+    conditions.append(Property.is_available)
+    conditions.append(
+        or_(
+            Property.property_type.notin_(PG_FLATMATE_TYPES),
+            func.coalesce(
+                Property.listing_preferences["moderation_status"].as_string(),
+                "live",
+            )
+            == "live",
+        )
+    )
 
     # Swipe-specific filter
     if is_liked is not None:
@@ -75,7 +128,7 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
     # Location-based search
     user_location = None
     distance = None
-    if filters.latitude and filters.longitude and filters.radius_km:
+    if filters.latitude is not None and filters.longitude is not None and filters.radius_km:
         # Create a point from the user's location, ensuring SRID is set
         user_location = func.ST_SetSRID(func.ST_MakePoint(filters.longitude, filters.latitude), 4326)
 
@@ -135,9 +188,10 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
     if filters.area_max is not None:
         conditions.append(Property.area_sqft <= filters.area_max)
 
-    # Location filters
+    # Location filters — normalize city via alias map, then filtered LIKE
     if filters.city:
-        conditions.append(Property.city.ilike(f"%{filters.city}%"))
+        normalized_city = normalize_city(filters.city)
+        conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
     if filters.locality:
         conditions.append(Property.locality.ilike(f"%{filters.locality}%"))
     if filters.pincode:
@@ -218,12 +272,17 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
         # Default sorting by swipe creation date
         query = query.order_by(desc(UserSwipe.created_at))
 
-    # Add pagination
-    query = query.offset(skip).limit(limit)
+    # Compute total count before applying offset/limit if requested
+    count_total: int | None = None
+    if with_total:
+        count_result = await db.execute(count_query)
+        count_total = int(count_result.scalar() or 0)
 
-    # Execute queries
+    # Add cursor-based offset pagination
+    query = query.offset(offset).limit(limit + 1)
+
+    # Execute main query
     result = await db.execute(query)
-    count_result = await db.execute(count_query)
 
     # Handle results - check if we have additional columns (distance)
     if distance is not None:
@@ -232,20 +291,16 @@ async def get_swipe_history(db: AsyncSession, user_id: int, filters: UnifiedProp
     else:
         swipes = list(result.scalars().all())
 
-    total_count = count_result.scalar()
+    # Determine if there's a next page
+    next_payload: dict | None = offset_payload(offset + limit) if len(swipes) > limit else None
+    swipes = swipes[:limit]
 
     # Add liked attribute to properties
     for swipe in swipes:
         if swipe.property:
             swipe.property.liked = swipe.is_liked
 
-    return {
-        "items": swipes,
-        "total": total_count,
-        "page": page,
-        "limit": limit,
-        "total_pages": (total_count + limit - 1) // limit if total_count else 0
-    }
+    return swipes, next_payload, count_total
 
 async def undo_last_swipe(db: AsyncSession, user_id: int):
     """Undo last swipe"""
@@ -275,11 +330,12 @@ async def toggle_swipe(db: AsyncSession, swipe_id: int, user_id: int):
     swipe = await db.get(UserSwipe, swipe_id)
 
     if swipe and swipe.user_id == user_id:
-        old_status = swipe.is_liked
-        swipe.is_liked = not old_status
-
-        # Use savepoint to ensure toggle + like count update are atomic
+        # Use savepoint to ensure toggle + like count update are atomic.
+        # The attribute mutation MUST happen inside the savepoint so that a
+        # failed UPDATE rolls back the in-memory change too — otherwise the
+        # returned new_status and like_count would drift from the DB.
         async with db.begin_nested():
+            swipe.is_liked = not swipe.is_liked
             if swipe.is_liked:
                 update_stmt = update(Property).where(Property.id == swipe.property_id).values(
                     like_count=Property.like_count + 1
@@ -329,3 +385,50 @@ async def get_user_like_for_property(db: AsyncSession, user_id: int, property_id
     result = await db.execute(stmt)
     row = result.one_or_none()
     return row[0] if row is not None else None
+
+
+async def batch_unswipe(db: AsyncSession, user_id: int, property_ids: list[int]) -> int:
+    """Remove many liked swipes for a user in a single transaction.
+
+    Decrements property like_count for each removed like. Returns the number
+    of swipes actually deleted.
+    """
+    if not property_ids:
+        return 0
+
+    # Normalize ids to a deduplicated list of ints.
+    unique_ids: list[int] = []
+    seen: set[int] = set()
+    for pid in property_ids:
+        try:
+            pid_int = int(pid)
+        except (TypeError, ValueError):
+            continue
+        if pid_int in seen:
+            continue
+        seen.add(pid_int)
+        unique_ids.append(pid_int)
+    if not unique_ids:
+        return 0
+
+    stmt = select(UserSwipe).where(
+        and_(
+            UserSwipe.user_id == user_id,
+            UserSwipe.property_id.in_(unique_ids),
+        )
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
+        return 0
+
+    async with db.begin_nested():
+        for swipe in rows:
+            if swipe.is_liked:
+                await db.execute(
+                    update(Property)
+                    .where(Property.id == swipe.property_id)
+                    .values(like_count=Property.like_count - 1)
+                )
+            await db.delete(swipe)
+    await db.flush()
+    return len(rows)

@@ -1,23 +1,36 @@
-from datetime import datetime, timezone
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, selectinload
 
-from app.core.exceptions import BadRequestException
-from app.core.utils import make_tz_aware
-from app.models.enums import ConversationStatus, UserMatchStatus, VisitContext, VisitStatus
-from app.models.properties import Property, Visit
-from app.models.social import UserConversation, UserMatch
+from app.config import settings
+from app.core.exceptions import BadRequestException, ConflictException
+from app.core.logging import get_logger
+from app.models.conversations import Conversation, ConversationParticipant
+from app.models.enums import (
+    ConversationApp,
+    ConversationStatus,
+    UserMatchStatus,
+    VisitContext,
+    VisitStatus,
+)
+from app.models.properties import Property, PropertyAmenity, Visit
+from app.models.social import UserMatch
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.visit import Visit as VisitSchema
 from app.schemas.visit import VisitCreate, VisitUpdate
+
+logger = get_logger(__name__)
 
 
 def _visit_load_options():
     return (
         selectinload(Visit.property).selectinload(Property.images),
-        selectinload(Visit.property).selectinload(Property.property_amenities),
+        selectinload(Visit.property).selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
         selectinload(Visit.counterparty_user),
         selectinload(Visit.agent),
     )
@@ -43,17 +56,23 @@ async def _validate_flatmate_visit_context(
 
     conversation_id = visit_data.get("conversation_id")
     if conversation_id is not None:
-        conversation = (
-            await db.execute(
-                select(UserConversation).where(
-                    UserConversation.id == conversation_id,
-                    UserConversation.user_one_id == user_one_id,
-                    UserConversation.user_two_id == user_two_id,
-                    UserConversation.status == ConversationStatus.active.value,
+        # Verify the conversation exists, is active, and has both users as participants
+        conv = await db.get(Conversation, conversation_id)
+        if conv is None or conv.status != ConversationStatus.active.value:
+            raise BadRequestException(detail="Invalid flatmate conversation")
+        if conv.app != ConversationApp.flatmates:
+            raise BadRequestException(detail="Conversation is not a flatmates conversation")
+        participant_ids = {
+            row.user_id
+            for row in (
+                await db.execute(
+                    select(ConversationParticipant.user_id).where(
+                        ConversationParticipant.conversation_id == conversation_id
+                    )
                 )
-            )
-        ).scalar_one_or_none()
-        if conversation is None:
+            ).all()
+        }
+        if {user_one_id, user_two_id} - participant_ids:
             raise BadRequestException(detail="Invalid flatmate conversation")
         authorized = True
 
@@ -76,16 +95,13 @@ async def _validate_flatmate_visit_context(
     if authorized:
         return
 
-    conversation = (
-        await db.execute(
-            select(UserConversation).where(
-                UserConversation.user_one_id == user_one_id,
-                UserConversation.user_two_id == user_two_id,
-                UserConversation.status == ConversationStatus.active.value,
-            )
-        )
-    ).scalar_one_or_none()
-    if conversation is not None:
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, counterparty_user_id)
+    if (
+        conversation is not None
+        and conversation.status == ConversationStatus.active.value
+    ):
         visit_data["conversation_id"] = conversation.id
         return
 
@@ -103,6 +119,56 @@ async def _validate_flatmate_visit_context(
         return
 
     raise BadRequestException(detail="Flatmate meeting requires an active conversation or match")
+
+
+async def _ensure_no_visit_conflict(
+    db: AsyncSession,
+    user_id: int,
+    property_id: int,
+    scheduled_date: datetime,
+) -> None:
+    """Raise ConflictException if the user already has an active visit overlapping
+    the requested window **for the same property**.
+
+    The Visit model has no explicit duration column, so each visit is treated as
+    occupying a fixed-duration window (VISIT_DEFAULT_DURATION_MINUTES) starting at
+    its scheduled_date. A configurable buffer (VISIT_CONFLICT_BUFFER_MINUTES) is
+    applied to both sides of the overlap check. Cancelled and completed visits
+    never conflict.
+
+    Overlap is scoped to (user_id, property_id): a user may have concurrent
+    visits for *different* properties, and an agent may show the same property
+    to multiple users at the same time.
+    """
+    duration = timedelta(minutes=settings.VISIT_DEFAULT_DURATION_MINUTES)
+    buffer = timedelta(minutes=settings.VISIT_CONFLICT_BUFFER_MINUTES)
+
+    new_start = scheduled_date
+    new_end = new_start + duration
+    # Coarse window to limit the candidate set; the precise check runs in Python.
+    window_start = new_start - duration - buffer
+    window_end = new_end + buffer
+
+    stmt = select(Visit).where(
+        Visit.user_id == user_id,
+        Visit.property_id == property_id,
+        Visit.status.notin_([VisitStatus.cancelled, VisitStatus.completed]),
+        Visit.scheduled_date >= window_start,
+        Visit.scheduled_date <= window_end,
+    )
+    result = await db.execute(stmt)
+    existing_visits = result.scalars().all()
+
+    for existing in existing_visits:
+        existing_start = existing.scheduled_date
+        existing_end = existing_start + duration
+        # Two intervals [a, b) and [c, d) overlap iff a < d and c < b.
+        # Apply the buffer to both sides so back-to-back visits still conflict.
+        if (existing_start - buffer) < new_end and (existing_end + buffer) > new_start:
+            raise ConflictException(
+                detail="You already have a visit scheduled that overlaps this time",
+                error_code="VISIT_CONFLICT",
+            )
 
 
 async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
@@ -126,9 +192,12 @@ async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
     elif visit_data.get("counterparty_user_id") is not None:
         raise BadRequestException(detail="counterparty_user_id is only supported for flatmate meetings")
 
+    # --- Overlap detection: prevent double-booking the user ---
+    property_id = visit_data["property_id"]
+    await _ensure_no_visit_conflict(db, user_id, property_id, scheduled_date)
+
     db_visit = Visit(**visit_data)
     db.add(db_visit)
-    # Flush to assign PK, then re-select with eager-loaded relationships
     await db.flush()
     stmt = (
         select(Visit)
@@ -160,37 +229,41 @@ async def get_visit(db: AsyncSession, visit_id: int):
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-async def get_user_visits(db: AsyncSession, user_id: int):
-    """Get all visits for a user"""
+async def get_user_visits(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get all visits for a user (keyset-paginated)."""
     stmt = (
         select(Visit)
         .options(*_visit_load_options())
         .where(or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id))
-        .order_by(Visit.scheduled_date.desc())
     )
-    result = await db.execute(stmt)
-    visits = result.scalars().all()
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Visit.scheduled_date, Visit.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Visit.scheduled_date.desc(), Visit.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
+    return rows, next_payload, count_total
 
-    # Count visits by status (handle tz-naive dates from DB)
-    now = datetime.now(timezone.utc)
-    upcoming = sum(
-        1
-        for v in visits
-        if v.status in [VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled] and v.scheduled_date is not None and (sd := make_tz_aware(v.scheduled_date)) is not None and sd > now
-    )
-    completed = sum(1 for v in visits if v.status == VisitStatus.completed)
-    cancelled = sum(1 for v in visits if v.status == VisitStatus.cancelled)
-
-    return {
-        "visits": visits,
-        "total": len(visits),
-        "upcoming": upcoming,
-        "completed": completed,
-        "cancelled": cancelled
-    }
-
-async def get_user_upcoming_visits(db: AsyncSession, user_id: int):
-    """Get upcoming visits for a user"""
+async def get_user_upcoming_visits(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get upcoming visits for a user (keyset-paginated)."""
     now = datetime.now(timezone.utc)
     stmt = (
         select(Visit)
@@ -200,14 +273,29 @@ async def get_user_upcoming_visits(db: AsyncSession, user_id: int):
             Visit.scheduled_date > now,
             Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled])
         )
-        .order_by(Visit.scheduled_date)
     )
-    result = await db.execute(stmt)
-    visits = result.scalars().all()
-    return {"visits": visits, "total": len(visits)}
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Visit.scheduled_date, Visit.id, cursor_payload, descending=False)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Visit.scheduled_date.asc(), Visit.id.asc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
+    return rows, next_payload, count_total
 
-async def get_user_past_visits(db: AsyncSession, user_id: int):
-    """Get past visits for a user"""
+async def get_user_past_visits(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get past visits for a user (keyset-paginated)."""
     now = datetime.now(timezone.utc)
     stmt = (
         select(Visit)
@@ -216,62 +304,99 @@ async def get_user_past_visits(db: AsyncSession, user_id: int):
             or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id),
             Visit.scheduled_date < now
         )
-        .order_by(Visit.scheduled_date.desc())
     )
-    result = await db.execute(stmt)
-    visits = result.scalars().all()
-    return {"visits": visits, "total": len(visits)}
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Visit.scheduled_date, Visit.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Visit.scheduled_date.desc(), Visit.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
+    return rows, next_payload, count_total
+
+# Valid status transitions: only these changes are allowed via the generic update.
+_VALID_STATUS_TRANSITIONS: dict[VisitStatus, set[VisitStatus]] = {
+    VisitStatus.scheduled: {VisitStatus.confirmed, VisitStatus.cancelled},
+    VisitStatus.confirmed: {VisitStatus.cancelled},
+    VisitStatus.rescheduled: {VisitStatus.confirmed, VisitStatus.cancelled},
+    # terminal states -- no further transitions allowed via update
+    VisitStatus.completed: set(),
+    VisitStatus.cancelled: set(),
+}
+
 
 async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdate):
-    """Update a visit"""
+    """Update a visit.
+
+    Status transitions are validated: cancelled/completed visits are terminal
+    and cannot be changed, and only pre-defined transitions are allowed from
+    active states.
+    """
     stmt = select(Visit).where(Visit.id == visit_id)
     result = await db.execute(stmt)
     visit = result.scalar_one_or_none()
 
-    if visit:
-        old_status = visit.status
-        update_data = visit_update.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(visit, field, value)
+    if not visit:
+        return None
 
-        await db.flush()
-        # Re-select with eager-loaded relationships to avoid async lazy-loads during serialization
-        stmt = (
-            select(Visit)
-            .options(*_visit_load_options())
-            .where(Visit.id == visit_id)
-        )
-        result = await db.execute(stmt)
-        updated_visit = result.scalar_one_or_none()
+    update_data = visit_update.model_dump(exclude_unset=True)
 
-        # --- Push notification on visit confirmation ---
-        new_status = update_data.get("status")
-        if new_status == VisitStatus.confirmed and old_status != VisitStatus.confirmed and updated_visit:
-            try:
-                from app.services.push_notification import notify_visit_confirmed
-                scheduled_str = updated_visit.scheduled_date.isoformat() if updated_visit.scheduled_date else "TBD"
-                prop_title = updated_visit.property.title if updated_visit.property and updated_visit.property.title else "the property"
-                # Notify the visiting user
+    # --- Validate status transition ---
+    new_status = update_data.get("status")
+    if new_status is not None:
+        # Allow idempotent updates (same status) — clients may re-confirm, etc.
+        if new_status != visit.status:
+            allowed = _VALID_STATUS_TRANSITIONS.get(visit.status, set())
+            if new_status not in allowed:
+                new_label = getattr(new_status, "value", new_status)
+                raise BadRequestException(
+                    detail=f"Cannot transition from '{visit.status.value}' to '{new_label}'"
+                )
+
+    old_status = visit.status
+    for field, value in update_data.items():
+        setattr(visit, field, value)
+
+    await db.flush()
+    # Re-select with eager-loaded relationships to avoid async lazy-loads during serialization
+    stmt = (
+        select(Visit)
+        .options(*_visit_load_options())
+        .where(Visit.id == visit_id)
+    )
+    result = await db.execute(stmt)
+    updated_visit = result.scalar_one_or_none()
+
+    # --- Push notification on visit confirmation ---
+    if new_status == VisitStatus.confirmed and old_status != VisitStatus.confirmed and updated_visit:
+        try:
+            from app.services.push_notification import notify_visit_confirmed
+            scheduled_str = updated_visit.scheduled_date.isoformat() if updated_visit.scheduled_date else "TBD"
+            prop_title = updated_visit.property.title if updated_visit.property and updated_visit.property.title else "the property"
+            # Notify the visiting user
+            await notify_visit_confirmed(
+                db,
+                recipient_db_id=updated_visit.user_id,
+                property_title=prop_title,
+                scheduled_date=scheduled_str,
+            )
+            # Notify the counterparty if present
+            if updated_visit.counterparty_user_id:
                 await notify_visit_confirmed(
                     db,
-                    recipient_db_id=updated_visit.user_id,
+                    recipient_db_id=updated_visit.counterparty_user_id,
                     property_title=prop_title,
                     scheduled_date=scheduled_str,
                 )
-                # Notify the counterparty if present
-                if updated_visit.counterparty_user_id:
-                    await notify_visit_confirmed(
-                        db,
-                        recipient_db_id=updated_visit.counterparty_user_id,
-                        property_title=prop_title,
-                        scheduled_date=scheduled_str,
-                    )
-            except Exception:
-                pass  # best-effort; never block visit update
+        except Exception:
+            pass  # best-effort; never block visit update
 
-        return updated_visit
-
-    return None
+    return updated_visit
 
 async def cancel_visit(db: AsyncSession, visit_id: int, reason: str):
     """Cancel a visit and return the updated visit with relationships.
@@ -344,60 +469,70 @@ async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, 
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-async def get_agent_visits(db: AsyncSession, agent_id: int, page: int = 1, limit: int = 20):
-    """Get visits handled by a specific agent (paginated)."""
-    offset = (page - 1) * limit
-
-    # Page data
+async def get_agent_visits(
+    db: AsyncSession,
+    agent_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[VisitSchema], dict | None, int | None]:
+    """Get visits handled by a specific agent (keyset-paginated)."""
     stmt = (
         select(Visit)
         .options(*_visit_load_options())
         .where(Visit.agent_id == agent_id)
-        .order_by(Visit.scheduled_date.desc())
-        .offset(offset)
-        .limit(limit)
     )
+
+    count_total = None
+    if with_total:
+        count_stmt = select(func.count()).where(Visit.agent_id == agent_id)
+        count_result = await db.execute(count_stmt)
+        count_total = count_result.scalar_one()
+
+    predicate = keyset_filter(Visit.scheduled_date, Visit.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Visit.scheduled_date.desc(), Visit.id.desc()).limit(limit + 1)
     result = await db.execute(stmt)
-    rows = result.scalars().all()
-    # Convert to Pydantic models to ensure JSON serialization with generic PaginatedResponse
+    rows = list(result.scalars().all())
+
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
+
     items = [VisitSchema.model_validate(r, from_attributes=True) for r in rows]
-
-    # Total count
-    total_stmt = select(func.count(Visit.id)).where(Visit.agent_id == agent_id)
-    total_result = await db.execute(total_stmt)
-    total = int(total_result.scalar() or 0)
-
-    total_pages = (total + limit - 1) // limit if limit else 1
-    has_next = page < total_pages
-    has_prev = page > 1 and total > 0
-
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "total_pages": total_pages,
-        "has_next": has_next,
-        "has_prev": has_prev,
-    }
+    return items, next_payload, count_total
 
 async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str | None = None, feedback: str | None = None):
-    """Mark a visit as completed"""
+    """Mark a visit as completed.
+
+    Only visits in *scheduled*, *confirmed*, or *rescheduled* state may be
+    marked as completed.  Already-completed or cancelled visits are rejected.
+
+    Returns:
+        True on success, False if the visit was not found or is in an
+        invalid state.
+    """
     stmt = select(Visit).where(Visit.id == visit_id)
     result = await db.execute(stmt)
     visit = result.scalar_one_or_none()
 
-    if visit:
-        visit.status = VisitStatus.completed
-        visit.actual_date = datetime.now(timezone.utc)
-        if notes:
-            visit.visit_notes = notes
-        if feedback:
-            visit.visitor_feedback = feedback
-        await db.flush()
-        return True
+    if not visit:
+        return False
 
-    return False
+    completable_statuses = {VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled}
+    if visit.status not in completable_statuses:
+        return False
+
+    visit.status = VisitStatus.completed
+    visit.actual_date = datetime.now(timezone.utc)
+    if notes:
+        visit.visit_notes = notes
+    if feedback:
+        visit.visitor_feedback = feedback
+    await db.flush()
+    return True
 
 async def get_user_property_visit_stats(db: AsyncSession, user_id: int, property_id: int):
     """Return upcoming scheduled visit stats for a user on a given property.
@@ -427,23 +562,18 @@ async def get_user_property_visit_stats(db: AsyncSession, user_id: int, property
 async def get_all_visits(
     db: AsyncSession,
     *,
-    page: int = 1,
+    cursor_payload: dict,
     limit: int = 20,
+    with_total: bool = False,
     status: str | None = None,
     filter_agent_id: int | None = None,
     property_id: int | None = None,
     user_id: int | None = None,
-):
-    """Global visit listing with optional filters and pagination.
-
-    When filter_agent_id is provided, returns visits for users/properties assigned to that agent.
-    """
-    offset = (page - 1) * limit
+) -> tuple[list, dict | None, int | None]:
+    """Global visit listing with optional filters and keyset pagination."""
     Owner = aliased(User)
 
-    base = select(Visit).options(
-        *_visit_load_options(),
-    )
+    stmt = select(Visit).options(*_visit_load_options())
     filters = []
     if status:
         filters.append(Visit.status == status)
@@ -453,47 +583,23 @@ async def get_all_visits(
         filters.append(Visit.user_id == user_id)
 
     if filter_agent_id is not None:
-        # Visits where the visiting user is assigned to agent OR the property's owner is assigned to agent
-        base = base.outerjoin(User, Visit.user_id == User.id).outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
+        stmt = stmt.outerjoin(User, Visit.user_id == User.id).outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
+        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id, Visit.agent_id == filter_agent_id))
 
-    query = base
     if filters:
-        query = query.where(and_(*filters))
-    query = query.order_by(Visit.scheduled_date.desc()).offset(offset).limit(limit)
-    result = await db.execute(query)
-    rows = result.scalars().all()
-    items = [VisitSchema.model_validate(r, from_attributes=True) for r in rows]
+        stmt = stmt.where(and_(*filters))
 
-    # Count total with same filters
-    count_query = select(func.count(Visit.id))
-    if filter_agent_id is not None:
-        count_query = (
-            count_query.outerjoin(User, Visit.user_id == User.id)
-            .outerjoin(Property, Visit.property_id == Property.id)
-            .outerjoin(Owner, Property.owner_id == Owner.id)
-            .where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
-        )
-    if status:
-        count_query = count_query.where(Visit.status == status)
-    if property_id:
-        count_query = count_query.where(Visit.property_id == property_id)
-    if user_id:
-        count_query = count_query.where(Visit.user_id == user_id)
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
 
-    count_result = await db.execute(count_query)
-    total = int(count_result.scalar() or 0)
-
-    total_pages = (total + limit - 1) // limit if limit else 1
-    has_next = page < total_pages
-    has_prev = page > 1 and total > 0
-
-    return {
-        "items": items,
-        "total": total,
-        "page": page,
-        "limit": limit,
-        "total_pages": total_pages,
-        "has_next": has_next,
-        "has_prev": has_prev,
-    }
+    predicate = keyset_filter(Visit.scheduled_date, Visit.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Visit.scheduled_date.desc(), Visit.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
+    return rows, next_payload, count_total

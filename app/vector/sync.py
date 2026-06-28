@@ -4,13 +4,13 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
-from app.models.properties import Amenity, PropertyAmenity
+from app.models.properties import Amenity, Property, PropertyAmenity
 
 from .compose import build_embedding_text, build_metadata
 from .embedding_client import embed
@@ -34,28 +34,35 @@ async def _fetch_changed_properties(db: AsyncSession, since: datetime | None, li
     # through the Supabase pooler for nothing. The change-detection hash is
     # computed solely from the embedding text, so dropping unused columns does
     # not affect embedding or watermark behaviour.
-    cols = [
-        "id", "title", "description", "property_type", "purpose", "status", "is_available",
-        "latitude", "longitude", "city", "state", "country", "pincode", "locality", "landmark",
-        "base_price", "monthly_rent", "area_sqft",
-        "bedrooms", "bathrooms", "parking_spaces",
-        "tags", "search_keywords", "main_image_url",
-        "created_at", "updated_at",
-    ]
-
-    where = "WHERE TRUE"
-    params: dict[str, int | datetime] = {}
-    if since is not None:
-        where += " AND ((p.updated_at IS NOT NULL AND p.updated_at > :since) OR (p.updated_at IS NULL AND p.created_at > :since))"
-        params["since"] = since
-
-    q = text(
-        f"SELECT {', '.join(['p.' + c for c in cols])} "
-        "FROM public.properties p "
-        f"{where} ORDER BY p.updated_at ASC NULLS LAST LIMIT :limit"
+    embedding_columns: tuple[Any, ...] = (
+        Property.id, Property.title, Property.description, Property.property_type,
+        Property.purpose, Property.status, Property.is_available,
+        Property.latitude, Property.longitude, Property.city, Property.state,
+        Property.country, Property.pincode, Property.locality, Property.landmark,
+        Property.base_price, Property.monthly_rent, Property.area_sqft,
+        Property.bedrooms, Property.bathrooms, Property.parking_spaces,
+        Property.tags, Property.search_keywords, Property.main_image_url,
+        Property.created_at, Property.updated_at,
     )
-    params["limit"] = limit
-    res = await db.execute(q, params)
+
+    stmt = select(*embedding_columns).select_from(Property)
+
+    if since is not None:
+        stmt = stmt.where(
+            or_(
+                and_(
+                    Property.updated_at.is_not(None),
+                    Property.updated_at > since,
+                ),
+                and_(
+                    Property.updated_at.is_(None),
+                    Property.created_at > since,
+                ),
+            )
+        )
+
+    stmt = stmt.order_by(Property.updated_at.asc().nullslast()).limit(limit)
+    res = await db.execute(stmt)
     rows = res.mappings().all()
     return [dict(r) for r in rows]
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import uuid
 from datetime import datetime, timezone
 
@@ -12,11 +14,12 @@ from app.core.exceptions import (
     PropertyNotFoundException,
 )
 from app.core.logging import get_logger
-from app.core.utils import make_tz_aware
 from app.models.bookings import Booking
 from app.models.enums import BookingStatus, PaymentStatus
 from app.models.properties import Property
+from app.models.users import User
 from app.schemas.booking import BookingCreate, BookingPayment, BookingReview, BookingUpdate
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 
 logger = get_logger(__name__)
 
@@ -99,50 +102,83 @@ async def get_booking(db: AsyncSession, booking_id: int):
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
-async def get_user_bookings(db: AsyncSession, user_id: int):
-    """Get all bookings for a user"""
-    stmt = select(Booking).where(Booking.user_id == user_id).order_by(Booking.check_in_date.desc())
-    result = await db.execute(stmt)
-    bookings = result.scalars().all()
-    total = len(bookings)
+async def get_user_bookings(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get all bookings for a user (keyset-paginated)."""
+    stmt = select(Booking).where(Booking.user_id == user_id)
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Booking.created_at, Booking.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Booking.created_at.desc(), Booking.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
+    return rows, next_payload, count_total
 
-    now = datetime.now(timezone.utc)
-
-    # Calculate counts for different statuses (handle tz-naive dates from DB)
-    upcoming = sum(1 for b in bookings if b.check_in_date is not None and (ci := make_tz_aware(b.check_in_date)) is not None and ci > now and b.booking_status in [BookingStatus.confirmed, BookingStatus.pending])
-    completed = sum(1 for b in bookings if b.check_out_date is not None and (co := make_tz_aware(b.check_out_date)) is not None and co < now and b.booking_status in [BookingStatus.confirmed, BookingStatus.completed])
-    cancelled = sum(1 for b in bookings if b.booking_status == BookingStatus.cancelled)
-
-    return {
-        "bookings": bookings,
-        "total": total,
-        "upcoming": upcoming,
-        "completed": completed,
-        "cancelled": cancelled,
-    }
-
-async def get_user_upcoming_bookings(db: AsyncSession, user_id: int):
-    """Get upcoming bookings for a user"""
+async def get_user_upcoming_bookings(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get upcoming bookings for a user (keyset-paginated)."""
     now = datetime.now(timezone.utc)
     stmt = select(Booking).where(
         Booking.user_id == user_id,
         Booking.check_in_date > now,
-            Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.pending])
-    ).order_by(Booking.check_in_date)
-    result = await db.execute(stmt)
-    bookings = result.scalars().all()
-    return {"bookings": bookings, "total": len(bookings)}
+        Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.pending])
+    )
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Booking.check_in_date, Booking.id, cursor_payload, descending=False)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Booking.check_in_date.asc(), Booking.id.asc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].check_in_date), rows[-1].id)
+    return rows, next_payload, count_total
 
-async def get_user_past_bookings(db: AsyncSession, user_id: int):
-    """Get past bookings for a user"""
+async def get_user_past_bookings(
+    db: AsyncSession,
+    user_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list, dict | None, int | None]:
+    """Get past bookings for a user (keyset-paginated)."""
     now = datetime.now(timezone.utc)
     stmt = select(Booking).where(
         Booking.user_id == user_id,
         Booking.check_out_date < now
-    ).order_by(Booking.check_out_date.desc())
-    result = await db.execute(stmt)
-    bookings = result.scalars().all()
-    return {"bookings": bookings, "total": len(bookings)}
+    )
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    predicate = keyset_filter(Booking.check_out_date, Booking.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Booking.check_out_date.desc(), Booking.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].check_out_date), rows[-1].id)
+    return rows, next_payload, count_total
 
 async def update_booking(db: AsyncSession, booking_id: int, booking_update: BookingUpdate):
     """Update a booking"""
@@ -318,23 +354,18 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
 async def get_all_bookings(
     db: AsyncSession,
     *,
-    page: int = 1,
+    cursor_payload: dict,
     limit: int = 20,
+    with_total: bool = False,
     status: str | None = None,
     filter_agent_id: int | None = None,
     property_id: int | None = None,
     user_id: int | None = None,
-):
-    """Global bookings listing with optional filters and pagination.
-
-    When filter_agent_id is provided, returns bookings for users/properties assigned to that agent.
-    """
-    offset = (page - 1) * limit
-    from app.models.users import User
+) -> tuple[list, dict | None, int | None]:
+    """Global bookings listing with optional filters and keyset pagination."""
     Owner = aliased(User)
-    now = datetime.now(timezone.utc)
 
-    base = select(Booking)
+    stmt = select(Booking)
     filters = []
     if status:
         filters.append(Booking.booking_status == status)
@@ -344,91 +375,23 @@ async def get_all_bookings(
         filters.append(Booking.user_id == user_id)
 
     if filter_agent_id is not None:
-        # Bookings where the booking user is assigned to agent OR the property's owner is assigned to agent
-        from app.models.properties import Property
-        from app.models.users import User
-        base = base.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
+        stmt = stmt.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
 
-    query = base
     if filters:
-        query = query.where(and_(*filters))
-    query = query.order_by(Booking.check_in_date.desc()).offset(offset).limit(limit)
-    result = await db.execute(query)
-    bookings = result.scalars().all()
+        stmt = stmt.where(and_(*filters))
 
-    # Count total with same filters
-    count_query = select(func.count(Booking.id.distinct()))
-    if filter_agent_id is not None:
-        from app.models.properties import Property
-        from app.models.users import User
-        count_query = count_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        count_query = count_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
-    if status:
-        count_query = count_query.where(Booking.booking_status == status)
-    if property_id:
-        count_query = count_query.where(Booking.property_id == property_id)
-    if user_id:
-        count_query = count_query.where(Booking.user_id == user_id)
-    total = (await db.execute(count_query)).scalar() or 0
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
 
-    # Calculate counts for different statuses
-    # Upcoming: check_in_date > now and status is confirmed/pending
-    upcoming_query = select(func.count(Booking.id.distinct()))
-    if filter_agent_id is not None:
-        from app.models.properties import Property
-        from app.models.users import User
-        upcoming_query = upcoming_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        upcoming_query = upcoming_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
-    if property_id:
-        upcoming_query = upcoming_query.where(Booking.property_id == property_id)
-    if user_id:
-        upcoming_query = upcoming_query.where(Booking.user_id == user_id)
-    upcoming_query = upcoming_query.where(
-        and_(
-            Booking.check_in_date > now,
-        Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.pending])
-        )
-    )
-    upcoming = (await db.execute(upcoming_query)).scalar() or 0
-
-    # Completed: check_out_date < now and status is confirmed/completed
-    completed_query = select(func.count(Booking.id.distinct()))
-    if filter_agent_id is not None:
-        from app.models.properties import Property
-        from app.models.users import User
-        completed_query = completed_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        completed_query = completed_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
-    if property_id:
-        completed_query = completed_query.where(Booking.property_id == property_id)
-    if user_id:
-        completed_query = completed_query.where(Booking.user_id == user_id)
-    completed_query = completed_query.where(
-        and_(
-            Booking.check_out_date < now,
-            Booking.booking_status.in_([BookingStatus.confirmed, BookingStatus.completed])
-        )
-    )
-    completed = (await db.execute(completed_query)).scalar() or 0
-
-    # Cancelled: status is cancelled
-    cancelled_query = select(func.count(Booking.id.distinct()))
-    if filter_agent_id is not None:
-        from app.models.properties import Property
-        from app.models.users import User
-        cancelled_query = cancelled_query.outerjoin(User, Booking.user_id == User.id).outerjoin(Property, Booking.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        cancelled_query = cancelled_query.where(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
-    if property_id:
-        cancelled_query = cancelled_query.where(Booking.property_id == property_id)
-    if user_id:
-        cancelled_query = cancelled_query.where(Booking.user_id == user_id)
-    cancelled_query = cancelled_query.where(Booking.booking_status == BookingStatus.cancelled)
-    cancelled = (await db.execute(cancelled_query)).scalar() or 0
-
-    return {
-        "bookings": bookings,
-        "total": total,
-        "upcoming": upcoming,
-        "completed": completed,
-        "cancelled": cancelled,
-    }
+    predicate = keyset_filter(Booking.created_at, Booking.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Booking.created_at.desc(), Booking.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_payload = keyset_payload(keyset_sort_value(rows[-1].created_at), rows[-1].id)
+    return rows, next_payload, count_total

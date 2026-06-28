@@ -4,12 +4,8 @@ API endpoint test specific fixtures.
 Provides authenticated client variants and common request helpers.
 """
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-
-from app.core.database import get_db
-
 
 # =============================================================================
 # Authenticated Client Variants
@@ -31,8 +27,8 @@ async def guest_client(test_app):
 async def user_client(test_app, test_user):
     """Authenticated client with user role."""
     from app.api.api_v1.dependencies.auth import (
-        get_current_user,
         get_current_active_user,
+        get_current_user,
         get_current_user_optional,
     )
     from app.schemas.user import User as UserSchema
@@ -65,10 +61,10 @@ async def user_client(test_app, test_user):
 async def agent_client(test_app, test_agent_user):
     """Authenticated client with agent role."""
     from app.api.api_v1.dependencies.auth import (
-        get_current_user,
         get_current_active_user,
-        get_current_user_optional,
         get_current_agent,
+        get_current_user,
+        get_current_user_optional,
     )
     from app.schemas.user import User as UserSchema
 
@@ -104,10 +100,10 @@ async def agent_client(test_app, test_agent_user):
 async def admin_client(test_app, test_admin_user):
     """Authenticated client with admin role."""
     from app.api.api_v1.dependencies.auth import (
-        get_current_user,
         get_current_active_user,
-        get_current_user_optional,
         get_current_admin,
+        get_current_user,
+        get_current_user_optional,
     )
     from app.schemas.user import User as UserSchema
 

@@ -16,7 +16,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.core.exceptions import ServiceUnavailableException
-
+from app.models.enums import FlatmatesProfileStatus
 
 # =============================================================================
 # DELETE /api/v1/users/me
@@ -60,13 +60,22 @@ class TestDeleteAccountViaUsersMe:
         assert response.headers.get("retry-after") == "30"
 
     @pytest.mark.asyncio
-    async def test_supabase_error_returns_500(self, user_client: AsyncClient):
+    async def test_supabase_error_returns_500(self, user_client: AsyncClient, test_app):
+        from httpx import ASGITransport, AsyncClient as _AsyncClient
+
+        # Starlette's ServerErrorMiddleware re-raises unhandled exceptions after
+        # sending the 500 response, so the test transport must not re-raise in
+        # order to observe the generic-exception-handler's 500 response.
+        transport = ASGITransport(app=test_app, raise_app_exceptions=False)
         with patch(
             "app.api.api_v1.endpoints.users.delete_user_account",
             new_callable=AsyncMock,
             side_effect=Exception("Unexpected error"),
         ):
-            response = await user_client.delete("/api/v1/users/me")
+            async with _AsyncClient(
+                transport=transport, base_url="http://test", timeout=60.0
+            ) as client:
+                response = await client.delete("/api/v1/users/me")
 
         assert response.status_code == 500
 
@@ -187,7 +196,7 @@ class TestDeleteUserService:
 
         # Verification & status
         assert test_user.is_verified is False
-        assert test_user.flatmates_profile_status is None
+        assert test_user.flatmates_profile_status == FlatmatesProfileStatus.draft
         assert test_user.flatmates_onboarding_completed is False
         assert test_user.flatmates_last_active_at is None
         # Auth metadata
@@ -224,8 +233,8 @@ class TestDeleteUserService:
     async def test_supabase_error_does_not_touch_local_row(
         self, db_session, test_user
     ):
-        from app.services.user import delete_user_account
         from app.core.exceptions import BaseAPIException
+        from app.services.user import delete_user_account
 
         original_email = test_user.email
 

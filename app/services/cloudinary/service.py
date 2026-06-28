@@ -186,7 +186,7 @@ class CloudinaryService:
         try:
             result = self._api.delete_resources([public_id], resource_type="auto")
             deleted = result.get("deleted", {})
-            return deleted.get(public_id) == "deleted"
+            return bool(deleted.get(public_id) == "deleted")
         except Exception as e:
             logger.error("Cloudinary delete error: %s", e)
             return False
@@ -219,7 +219,7 @@ class CloudinaryService:
             transformation=transformations,
             secure=True,
         )
-        return url
+        return str(url)
 
     def extract_public_id_from_url(self, url: str) -> str | None:
         try:
@@ -246,6 +246,49 @@ class CloudinaryService:
         except Exception as e:
             logger.error("Cloudinary file info error: %s", e)
             return None
+
+    def generate_signed_upload_params(
+        self,
+        *,
+        public_id: str,
+        folder: str | None = None,
+        resource_type: str = "auto",
+    ) -> dict[str, Any]:
+        """Generate signed upload parameters for client-side direct uploads.
+
+        Returns a dict with ``upload_url``, ``api_key``, ``signature``,
+        ``timestamp``, and other params the client needs to POST directly
+        to Cloudinary's upload endpoint.
+        """
+        import hashlib
+        import time
+
+        from app.config import settings
+
+        full_public_id = self._public_id(self.root, folder or "", public_id)
+        timestamp = int(time.time())
+
+        # Build the parameters to sign (sorted alphabetically per Cloudinary docs).
+        params_to_sign = {
+            "public_id": full_public_id,
+            "timestamp": timestamp,
+        }
+        # Cloudinary signs: param=value&param=value (sorted) + api_secret
+        sorted_params = "&".join(
+            f"{k}={v}" for k, v in sorted(params_to_sign.items())
+        )
+        to_sign = f"{sorted_params}{settings.CLOUDINARY_API_SECRET}"
+        signature = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
+
+        upload_url = f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/{resource_type}/upload"
+
+        return {
+            "upload_url": upload_url,
+            "api_key": settings.CLOUDINARY_API_KEY,
+            "signature": signature,
+            "timestamp": timestamp,
+            "public_id": full_public_id,
+        }
 
     @staticmethod
     def _resource_type(content_type: str) -> str:

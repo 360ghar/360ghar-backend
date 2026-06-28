@@ -18,7 +18,7 @@ from typing import Any
 
 import jwt
 from jwt import InvalidTokenError
-from jwt.algorithms import RSAAlgorithm
+from jwt.algorithms import ECAlgorithm, RSAAlgorithm
 
 from app.config import settings
 from app.core.http import get_supabase_auth_http_client
@@ -36,15 +36,25 @@ def _jwks_url() -> str:
 
 
 class _JWKSCache:
-    """In-memory JWKS cache with TTL + on-demand refresh."""
+    """In-memory JWKS cache with TTL + on-demand refresh.
+
+    Caches both successful key fetches and "empty" responses (e.g. Supabase
+    projects without JWKS enabled) so we don't re-fetch every request.
+    """
 
     def __init__(self) -> None:
         self._keys: dict[str, Any] = {}  # kid → public key
         self._fetched_at: float = 0.0
-        self._fetching: bool = False
+        self._empty_fetched_at: float = 0.0  # timestamp of last empty-keyset response
 
     def _is_fresh(self) -> bool:
-        return (time.time() - self._fetched_at) < JWKS_TTL_SECONDS and bool(self._keys)
+        if (time.time() - self._fetched_at) < JWKS_TTL_SECONDS and bool(self._keys):
+            return True
+        # Treat a recent empty-keyset response as "fresh" to avoid re-fetching
+        # every request when the JWKS endpoint returns no keys.
+        if (time.time() - self._empty_fetched_at) < JWKS_TTL_SECONDS:
+            return True
+        return False
 
     async def refresh(self) -> None:
         """Fetch the JWKS from Supabase and populate the cache."""
@@ -66,13 +76,24 @@ class _JWKSCache:
             if not kid:
                 continue
             try:
-                new_map[kid] = RSAAlgorithm.from_jwk(key)
+                kty = key.get("kty", "")
+                if kty == "EC":
+                    new_map[kid] = ECAlgorithm.from_jwk(key)
+                elif kty == "RSA":
+                    new_map[kid] = RSAAlgorithm.from_jwk(key)
+                else:
+                    logger.debug("Skipping JWKS key %s with unsupported kty=%s", kid, kty)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Skipping unparseable JWKS key %s: %s", kid, exc)
         if new_map:
             self._keys = new_map
             self._fetched_at = time.time()
+            self._empty_fetched_at = 0.0
             logger.info("JWKS cache refreshed (%d keys)", len(new_map))
+        else:
+            # Empty keyset — record the fetch time so we don't re-fetch every request.
+            self._empty_fetched_at = time.time()
+            logger.debug("JWKS endpoint returned no keys; will retry in %ds", JWKS_TTL_SECONDS)
 
     def get_key(self, kid: str | None) -> Any | None:
         return self._keys.get(kid) if kid else None
@@ -172,7 +193,7 @@ async def verify_jwt_locally(token: str) -> dict[str, Any] | None:
         claims = jwt.decode(
             token,
             public_key,
-            algorithms=["RS256"],
+            algorithms=["RS256", "ES256"],
             audience=_expected_audiences(),
             issuer=f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1",
             options={"require": ["exp", "iat", "iss", "sub"]},

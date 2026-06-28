@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
@@ -11,6 +11,13 @@ from app.models.enums import TenantStatus, UserRole
 from app.models.pm_tenants import RentalApplication, RentalApplicationForm
 from app.models.properties import Property
 from app.models.users import User
+from app.schemas.pagination import (
+    keyset_filter,
+    keyset_payload,
+    keyset_sort_value,
+    offset_payload,
+    read_offset,
+)
 from app.services.pm_authz import assert_can_manage_owner_portfolio
 
 
@@ -153,9 +160,10 @@ async def list_application_forms(
     owner_id: int | None = None,
     property_id: int | None = None,
     q: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[RentalApplicationForm]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[RentalApplicationForm], dict | None, int | None]:
     if actor.role == UserRole.user.value:
         owner_id = actor.id
     elif actor.role == UserRole.agent.value:
@@ -173,9 +181,32 @@ async def list_application_forms(
         like = f"%{q.strip()}%"
         stmt = stmt.where(RentalApplicationForm.title.ilike(like))
 
-    stmt = stmt.order_by(desc(RentalApplicationForm.created_at)).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(
+        RentalApplicationForm.created_at,
+        RentalApplicationForm.id,
+        cursor_payload,
+        descending=True,
+    )
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(
+        desc(RentalApplicationForm.created_at),
+        desc(RentalApplicationForm.id),
+    ).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_payload: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.created_at), last.id)
+    return rows, next_payload, count_total
 
 
 async def list_applications(
@@ -187,9 +218,10 @@ async def list_applications(
     status: TenantStatus | None = None,
     submitted_from: datetime | None = None,
     submitted_to: datetime | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[RentalApplication]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[RentalApplication], dict | None, int | None]:
     if actor.role == UserRole.user.value:
         owner_id = actor.id
     elif actor.role == UserRole.agent.value:
@@ -210,9 +242,21 @@ async def list_applications(
     if submitted_to is not None:
         stmt = stmt.where(RentalApplication.submitted_at <= submitted_to)
 
-    stmt = stmt.order_by(desc(RentalApplication.submitted_at), desc(RentalApplication.created_at)).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    offset = read_offset(cursor_payload)
+    stmt = (
+        stmt.order_by(desc(RentalApplication.submitted_at), desc(RentalApplication.created_at))
+        .offset(offset)
+        .limit(limit + 1)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    next_p = offset_payload(offset + limit) if len(rows) > limit else None
+    rows = rows[:limit]
+    return rows, next_p, count_total
 
 
 async def get_application(

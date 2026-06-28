@@ -2,9 +2,7 @@
 Tests for app.core.constants module.
 """
 
-from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 class TestVisionConstants:

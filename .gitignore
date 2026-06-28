@@ -142,6 +142,8 @@ dmypy.json
 # Node.js
 node_modules/
 package-lock.json
+# Keep the wiki video lock file for reproducible renders
+!.wiki/video/package-lock.json
 
 # OS
 .DS_Store
@@ -162,9 +164,18 @@ mcp.json
 # Generated seed data (Category 3 — recreated at runtime)
 seed_data/generated/
 
+# Media files (large binaries — uploaded to Cloudinary at load time)
+seed_data/media/
+seed_data/seed/media/
+
+# Seed data (deterministic generated — recreated with --regenerate)
+seed_data/seed/
+
+# Hardcoded seed data (team-curated, local-only — not version-controlled)
+seed_data/hardcoded/
+
 # Supabase database backups (large, regenerated on demand)
 supabase-backup/
-seed_data/
 
 # Playwright MCP local config
 .playwright-mcp/
@@ -183,3 +194,4 @@ cache/
 # never be committed. Regenerated on demand by the audit script.
 .audit-tokens.json
 audit_results_*.json
+/tmp/360ghar-audit-*

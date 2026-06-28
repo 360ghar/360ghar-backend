@@ -5,8 +5,6 @@ Tests for app.core.config module.
 import os
 from unittest.mock import patch
 
-import pytest
-
 
 class TestSettings:
     """Tests for the Settings class."""
@@ -21,6 +19,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -37,6 +36,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -53,6 +53,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -69,6 +70,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -78,7 +80,7 @@ class TestSettings:
             assert settings.CACHE_DEFAULT_TTL == 300
             assert settings.CACHE_MEMORY_MAX_SIZE == 1000
             assert settings.CACHE_MEMORY_MAX_ENTRY_BYTES == 1_000_000
-            assert settings.CACHE_DISK_DIR == "/tmp/ghar360_cache"
+            assert settings.CACHE_DISK_DIR == "./cache"
             assert settings.CACHE_DISK_MAX_SIZE == 1000
             assert settings.CACHE_DISK_MAX_ENTRY_BYTES == 1_000_000
             assert settings.CACHE_REDIS_MAX_CONNECTIONS == 15
@@ -94,6 +96,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -114,6 +117,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -134,6 +138,7 @@ class TestSettings:
             "VECTOR_SYNC_ENABLED": "true",  # Explicitly set to ensure default is tested
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -153,6 +158,7 @@ class TestSettings:
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
             from importlib import reload
+
             from app.core import config
             reload(config)
 
@@ -174,6 +180,7 @@ class TestSettings:
             clear=False,
         ):
             from importlib import reload
+
             from app.core import config
 
             reload(config)
@@ -195,6 +202,7 @@ class TestSettings:
             clear=False,
         ):
             from importlib import reload
+
             from app.core import config
 
             reload(config)
@@ -223,6 +231,7 @@ class TestSettings:
             clear=False,
         ):
             from importlib import reload
+
             from app.core import config
 
             reload(config)

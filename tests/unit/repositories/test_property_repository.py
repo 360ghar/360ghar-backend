@@ -2,7 +2,7 @@
 Tests for property repository.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -211,7 +211,7 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.price_low, "asc")
+        repository._apply_sorting(mock_stmt, SortBy.price_low, "asc")
 
         mock_stmt.order_by.assert_called_once()
 
@@ -220,7 +220,7 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.price_high, "desc")
+        repository._apply_sorting(mock_stmt, SortBy.price_high, "desc")
 
         mock_stmt.order_by.assert_called_once()
 
@@ -229,7 +229,7 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.newest, "desc")
+        repository._apply_sorting(mock_stmt, SortBy.newest, "desc")
 
         mock_stmt.order_by.assert_called_once()
 
@@ -238,7 +238,7 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.popular, "desc")
+        repository._apply_sorting(mock_stmt, SortBy.popular, "desc")
 
         mock_stmt.order_by.assert_called_once()
 
@@ -256,7 +256,7 @@ class TestPropertyRepository:
         mock_distance_expr = MagicMock()
         mock_distance_expr.asc.return_value = mock_distance_expr
 
-        result = repository._apply_sorting(
+        repository._apply_sorting(
             mock_stmt, SortBy.distance, "asc", distance_expr=mock_distance_expr
         )
 
@@ -267,7 +267,7 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.relevance, "desc")
+        repository._apply_sorting(mock_stmt, SortBy.relevance, "desc")
 
         mock_stmt.order_by.assert_called_once()
 
@@ -283,6 +283,6 @@ class TestPropertyRepository:
         mock_stmt = MagicMock()
         mock_stmt.order_by.return_value = mock_stmt
 
-        result = repository._apply_sorting(mock_stmt, SortBy.price_low, "invalid")
+        repository._apply_sorting(mock_stmt, SortBy.price_low, "invalid")
 
         mock_stmt.order_by.assert_called_once()

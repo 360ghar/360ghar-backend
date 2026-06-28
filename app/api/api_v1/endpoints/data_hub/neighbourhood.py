@@ -13,7 +13,7 @@ from app.schemas.data_hub import NeighbourhoodScoreResponse
 router = APIRouter()
 
 
-@router.get("/neighbourhood/{listing_id}", response_model=NeighbourhoodScoreResponse)
+@router.get("/neighbourhood/{listing_id}", response_model=NeighbourhoodScoreResponse, summary="Get neighbourhood score")
 async def get_neighbourhood_score(listing_id: int, db: AsyncSession = Depends(get_db)):
     """Get neighbourhood score for a property listing."""
     result = await db.execute(
@@ -41,7 +41,7 @@ async def get_neighbourhood_score(listing_id: int, db: AsyncSession = Depends(ge
     )
 
 
-@router.post("/neighbourhood/{listing_id}/refresh")
+@router.post("/neighbourhood/{listing_id}/refresh", summary="Refresh neighbourhood score")
 async def refresh_neighbourhood_score(
     listing_id: int,
     db: AsyncSession = Depends(get_db),

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, time, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.exceptions import BadRequestException, PropertyNotFoundException
 from app.models.enums import (
     PG_FLATMATE_TYPES,
@@ -20,15 +21,16 @@ from app.models.enums import (
     UserReportStatus,
 )
 from app.models.properties import Property
-from app.models.social import UserBlock, UserConversation, UserMatch, UserReport
+from app.models.social import UserBlock, UserMatch, UserReport
 from app.models.users import User
 from app.schemas.flatmates import ReportCreate
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import _canonical_pair
 
 MIN_REVIEW_PHOTO_COUNT = 2
 SUSPICIOUS_RENT_CEILING = 1_000_000
 REPORT_AUTO_PAUSE_THRESHOLD = 3
-EXPIRED_MOVE_IN_PAUSE_REASON = "expired_move_in_date"
+STALE_LISTING_PAUSE_REASON = "stale_listing"
 
 _SPAM_PATTERNS: tuple[tuple[str, str, str], ...] = (
     ("adult_content", "high", r"\b(escort|call\s*girl|xxx|porn|nude|sexual\s+service)\b"),
@@ -269,17 +271,44 @@ async def prescreen_flatmate_listing(
     }
 
 
-async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_blocks(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     from app.services.flatmates.helpers import _build_peer_payload
+
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(
+                select(func.count())
+                .select_from(UserBlock)
+                .where(UserBlock.blocker_user_id == user_id)
+            )
+        ).scalar_one()
 
     stmt = (
         select(UserBlock, User)
         .join(User, User.id == UserBlock.blocked_user_id)
         .where(UserBlock.blocker_user_id == user_id)
         .order_by(UserBlock.created_at.desc())
+        .offset(offset)
+        .limit(limit + 1)
     )
     rows = (await db.execute(stmt)).all()
-    return [
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
+    items = [
         {
             "id": block.id,
             "blocked_user": _build_peer_payload(blocked_user),
@@ -287,6 +316,7 @@ async def list_blocks(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
         }
         for block, blocked_user in rows
     ]
+    return items, next_payload, total
 
 
 async def delete_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> dict[str, Any]:
@@ -318,15 +348,13 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
     block = UserBlock(blocker_user_id=user_id, blocked_user_id=blocked_user_id)
     db.add(block)
 
-    user_one_id, user_two_id = _canonical_pair(user_id, blocked_user_id)
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, blocked_user_id)
     if conversation:
         conversation.status = ConversationStatus.blocked
 
+    user_one_id, user_two_id = _canonical_pair(user_id, blocked_user_id)
     match_stmt = select(UserMatch).where(
         UserMatch.user_one_id == user_one_id,
         UserMatch.user_two_id == user_two_id,
@@ -340,20 +368,16 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
 
 
 async def _active_reporter_count(db: AsyncSession, reported_user_id: int) -> int:
-    rows = (
-        await db.execute(
-            select(UserReport.reporter_user_id).where(
-                UserReport.reported_user_id == reported_user_id,
-                UserReport.status.in_(
-                    [
-                        UserReportStatus.open.value,
-                        UserReportStatus.reviewed.value,
-                    ]
-                ),
-            )
-        )
-    ).scalars()
-    return len({int(reporter_id) for reporter_id in rows.all()})
+    stmt = select(func.count(func.distinct(UserReport.reporter_user_id))).where(
+        UserReport.reported_user_id == reported_user_id,
+        UserReport.status.in_(
+            [
+                UserReportStatus.open.value,
+                UserReportStatus.reviewed.value,
+            ]
+        ),
+    )
+    return int((await db.execute(stmt)).scalar() or 0)
 
 
 def apply_report_auto_pause(
@@ -389,41 +413,30 @@ def apply_report_auto_pause(
     return True
 
 
-def _as_aware_datetime(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        parsed = value
-    elif isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
-            return None
-    else:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed
-
-
-def apply_expired_move_in_pause(
+def apply_stale_listing_pause(
     listing: Property,
     *,
     now: datetime | None = None,
 ) -> bool:
+    """Auto-pause a flatmate/PG listing that hasn't been updated in STALE_LISTING_PAUSE_DAYS."""
     if getattr(listing, "property_type", None) not in PG_FLATMATE_TYPES:
         return False
     if getattr(listing, "purpose", None) != PropertyPurpose.rent:
         return False
 
-    move_in_at = _as_aware_datetime(getattr(listing, "available_from", None))
-    if move_in_at is None:
-        return False
-
     effective_now = now or datetime.now(timezone.utc)
     if effective_now.tzinfo is None:
         effective_now = effective_now.replace(tzinfo=timezone.utc)
-    if move_in_at.date() >= effective_now.date():
+
+    # Use updated_at if available, fall back to created_at
+    last_touched = getattr(listing, "updated_at", None) or getattr(listing, "created_at", None)
+    if last_touched is None:
+        return False
+    if last_touched.tzinfo is None:
+        last_touched = last_touched.replace(tzinfo=timezone.utc)
+
+    stale_cutoff = effective_now - timedelta(days=settings.STALE_LISTING_PAUSE_DAYS)
+    if last_touched >= stale_cutoff:
         return False
 
     preferences = _listing_preferences(listing)
@@ -431,7 +444,7 @@ def apply_expired_move_in_pause(
     if current_status not in {None, "live"} and not getattr(listing, "is_available", False):
         return False
     if (
-        preferences.get("auto_paused_reason") == EXPIRED_MOVE_IN_PAUSE_REASON
+        preferences.get("auto_paused_reason") == STALE_LISTING_PAUSE_REASON
         and preferences.get("moderation_status") == "paused"
         and not getattr(listing, "is_available", False)
     ):
@@ -440,9 +453,8 @@ def apply_expired_move_in_pause(
     preferences.update(
         {
             "moderation_status": "paused",
-            "auto_paused_reason": EXPIRED_MOVE_IN_PAUSE_REASON,
+            "auto_paused_reason": STALE_LISTING_PAUSE_REASON,
             "auto_paused_at": effective_now.isoformat(),
-            "expired_move_in_date": move_in_at.isoformat(),
             "room_poster_review_required": True,
         }
     )
@@ -454,15 +466,16 @@ def apply_expired_move_in_pause(
     return True
 
 
-async def pause_expired_flatmate_listings(
+async def pause_stale_flatmate_listings(
     db: AsyncSession,
     *,
     now: datetime | None = None,
 ) -> int:
+    """Batch-pause flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS."""
     effective_now = now or datetime.now(timezone.utc)
     if effective_now.tzinfo is None:
         effective_now = effective_now.replace(tzinfo=timezone.utc)
-    cutoff = datetime.combine(effective_now.date(), time.min, tzinfo=effective_now.tzinfo)
+    stale_cutoff = effective_now - timedelta(days=settings.STALE_LISTING_PAUSE_DAYS)
 
     batch_size = 500
     paused_count = 0
@@ -472,8 +485,6 @@ async def pause_expired_flatmate_listings(
             .where(
                 Property.property_type.in_(PG_FLATMATE_TYPES),
                 Property.purpose == PropertyPurpose.rent,
-                Property.available_from.is_not(None),
-                Property.available_from < cutoff,
                 or_(
                     Property.is_available.is_(True),
                     func.coalesce(
@@ -482,6 +493,7 @@ async def pause_expired_flatmate_listings(
                     )
                     == "live",
                 ),
+                func.coalesce(Property.updated_at, Property.created_at) < stale_cutoff,
             )
             .order_by(Property.id)
             .limit(batch_size)
@@ -492,7 +504,7 @@ async def pause_expired_flatmate_listings(
 
         batch_paused = 0
         for listing in listings:
-            if apply_expired_move_in_pause(listing, now=effective_now):
+            if apply_stale_listing_pause(listing, now=effective_now):
                 paused_count += 1
                 batch_paused += 1
 

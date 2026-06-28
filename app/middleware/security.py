@@ -144,7 +144,7 @@ class SecurityHeadersMiddleware:
                 headers = list(message.get("headers", []))
                 headers.append((b"X-Content-Type-Options", b"nosniff"))
                 headers.append((b"X-Frame-Options", b"DENY"))
-                headers.append((b"X-XSS-Protection", b"1; mode=block"))
+                headers.append((b"X-XSS-Protection", b"0"))
                 headers.append((b"Referrer-Policy", b"strict-origin-when-cross-origin"))
 
                 if settings.ENVIRONMENT == "production":

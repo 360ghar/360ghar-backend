@@ -4,6 +4,7 @@ from app.services.agent.analytics import (
     get_agent_with_stats,
     get_system_stats,
     get_workload_distribution,
+    get_workload_distribution_paginated,
 )
 from app.services.agent.crud import (
     assign_agent_to_user,
@@ -21,9 +22,6 @@ from app.services.agent.crud import (
     get_user_agent,
     update_agent,
     update_agent_availability,
-)
-from app.services.agent.helpers import (
-    _paginate_agents,
 )
 from app.services.agent.interactions import (
     get_daily_interactions,
@@ -53,7 +51,6 @@ __all__ = [
     # Analytics
     "get_agent_with_stats",
     "get_workload_distribution",
+    "get_workload_distribution_paginated",
     "get_system_stats",
-    # Helpers
-    "_paginate_agents",
 ]

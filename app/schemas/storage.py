@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime
 from enum import Enum
 from typing import Any
@@ -50,14 +52,6 @@ class MediaFileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class MediaListResponse(BaseModel):
-    items: list[MediaFileResponse]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
-
-
 class MediaUpdateRequest(BaseModel):
     thumbnail_url: str | None = Field(default=None, max_length=512)
     cdn_url: str | None = Field(default=None, max_length=512)
@@ -72,15 +66,15 @@ class PresignedUploadItem(BaseModel):
 
     Specify folder_type to determine the storage path structure.
     """
-    filename: str
-    content_type: str | None = None
-    file_size: int | None = None
-    folder_type: StorageFolderType = StorageFolderType.GENERIC
+    filename: str = Field(..., description="Original filename including extension", examples=["living-room.jpg"])
+    content_type: str | None = Field(default=None, description="MIME type of the file", examples=["image/jpeg"])
+    file_size: int | None = Field(default=None, description="File size in bytes", examples=[102400])
+    folder_type: StorageFolderType = Field(default=StorageFolderType.GENERIC, description="Storage folder determining the path structure", examples=["property_image"])
     # Context IDs needed for specific folder types
-    property_id: int | None = None  # Required for property_* folder types
-    tour_id: str | None = None  # Required for tour/scene folder types
-    scene_id: str | None = None  # Required for scene folder type
-    visibility: str | None = "private"
+    property_id: int | None = Field(default=None, description="Required for property_* folder types", examples=[1])  # Required for property_* folder types
+    tour_id: str | None = Field(default=None, description="Required for tour/scene folder types", examples=["tour_abc123"])  # Required for tour/scene folder types
+    scene_id: str | None = Field(default=None, description="Required for scene folder type", examples=["scene_xyz789"])  # Required for scene folder type
+    visibility: str | None = Field(default="private", description="Object visibility (public or private)", examples=["private"])
 
     # Deprecated: Use folder_type instead
     folder: str | None = None
@@ -94,10 +88,16 @@ class PresignedUploadResponseItem(BaseModel):
     """Response item with signed URL for direct client upload.
 
     The upload_id can be used to confirm the upload after completion.
+    The client should POST a multipart form to ``signed_url`` with the
+    file plus ``api_key``, ``signature``, ``timestamp``, and ``public_id``
+    fields.
     """
     upload_id: str  # MediaFile ID for confirmation
     signed_url: str
-    token: str
+    token: str  # Cloudinary upload signature
+    api_key: str | None = None
+    timestamp: int | None = None
+    public_id: str | None = None
     path: str
     public_url: str
 
@@ -115,3 +115,26 @@ class UploadConfirmResponse(BaseModel):
     """Response after confirming an upload."""
     media: MediaFileResponse
     message: str = "Upload confirmed successfully"
+
+
+class BatchDeleteRequest(BaseModel):
+    """Request payload for bulk media deletion."""
+    media_ids: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+        description="Media file IDs to delete (max 50)",
+    )
+
+
+class BatchDeleteResponse(BaseModel):
+    """Response payload for bulk media deletion."""
+    deleted: list[str] = Field(default_factory=list, description="IDs successfully deleted")
+    failed: list[str] = Field(
+        default_factory=list,
+        description="IDs that could not be deleted (not found or not owned by the caller)",
+    )
+    storage_warnings: list[str] = Field(
+        default_factory=list,
+        description="IDs whose DB record was deleted but the underlying storage object could not be removed",
+    )

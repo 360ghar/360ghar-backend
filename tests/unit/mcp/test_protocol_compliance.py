@@ -7,13 +7,13 @@ and MCP protocol requirements without requiring a running server.
 import pytest
 
 from app.mcp.apps_sdk import (
-    RESOURCE_MIME_TYPE,
     MCP_SECURITY_SCHEMES_MIXED,
     MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
+    RESOURCE_MIME_TYPE,
     build_widget_tool_meta,
-    success_response,
-    error_response,
     build_www_authenticate,
+    error_response,
+    success_response,
 )
 from app.mcp.chatgpt import WIDGETS, get_widget_for_tool
 from app.mcp.chatgpt.response_formatter import format_auth_required_response

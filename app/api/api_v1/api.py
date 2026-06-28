@@ -24,6 +24,7 @@ from app.api.api_v1.endpoints import (
     hotspots,
     notifications,
     oauth,
+    payments,
     pm_applications,
     pm_assignments,
     pm_dashboard,
@@ -46,6 +47,7 @@ from app.api.api_v1.endpoints import (
     users,
     vastu,
     visits,
+    webhooks,
 )
 from app.api.deeplinks import api_router as deeplinks_api_router
 
@@ -64,13 +66,12 @@ api_router.include_router(properties.router, prefix="/properties", tags=["proper
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(swipes.router, prefix="/swipes", tags=["swipes"])
+api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(amenities.router, prefix="/amenities", tags=["amenities"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
 api_router.include_router(core.router, prefix="", tags=["core"])
 api_router.include_router(blog.router, prefix="/blog", tags=["blog"])
-# Alias prefix for blogs to support /api/v1/blogs/* paths
-api_router.include_router(blog.router, prefix="/blogs", tags=["blog"])
 api_router.include_router(flatmates.router, prefix="/flatmates", tags=["flatmates"])
 api_router.include_router(flatmates_admin.router, prefix="/flatmates", tags=["flatmates-admin"])
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
@@ -122,3 +123,7 @@ api_router.include_router(agent_chat.router, prefix="/agent", tags=["ai-agent"])
 
 # Data Hub
 api_router.include_router(data_hub.router, prefix="/data-hub", tags=["data-hub"])
+
+# Webhooks (inbound integrations). The router already carries the
+# /webhooks/auth prefix, so the full path is /api/v1/webhooks/auth/...
+api_router.include_router(webhooks.router)

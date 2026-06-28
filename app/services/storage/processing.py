@@ -129,9 +129,11 @@ async def upload_scene_image(
         raise
     except StorageException:
         raise
-    except Exception as e:
-        logger.error("Scene image upload error: %s", e)
-        raise StorageException(detail=f"Scene image upload failed: {str(e)}") from None
+    except Exception:
+        logger.exception("Scene image upload error")
+        raise StorageException(
+            detail="Scene image upload failed", error_code="UPLOAD_FAILED"
+        ) from None
 
 
 def _thumbnail_from_image(img: PILImage, max_size: int = 512) -> bytes:

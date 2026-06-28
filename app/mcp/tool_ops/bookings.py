@@ -11,6 +11,7 @@ from app.core.logging import get_logger
 from app.mcp.utils import serialize_booking, serialize_property_basic
 from app.models.properties import Property
 from app.schemas.booking import BookingCreate
+from app.schemas.pagination import encode_cursor
 from app.services import booking as booking_svc
 
 logger = get_logger(__name__)
@@ -164,25 +165,26 @@ async def list_user_bookings(
     db: AsyncSession,
     *,
     user_id: int,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
     status: str | None = None,
 ) -> dict:
     """List bookings for a user."""
     limit = min(max(1, limit), 100)
+    if cursor_payload is None:
+        cursor_payload = {}
 
-    data = await booking_svc.get_user_bookings(db, user_id)
+    rows, next_payload, _total = await booking_svc.get_user_bookings(
+        db, user_id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+    )
 
-    bookings = data.get("bookings", [])
+    bookings = rows
 
     if status:
         status_norm = status.lower()
         bookings = [b for b in bookings if getattr(b, "booking_status", "") == status_norm]
 
-    offset = (page - 1) * limit
-    paginated = bookings[offset : offset + limit]
-
-    items = [serialize_booking(b) for b in paginated]
+    items = [serialize_booking(b) for b in bookings]
 
     total = len(bookings)
     upcoming = sum(1 for b in bookings if getattr(b, "booking_status", "") == "confirmed")
@@ -194,6 +196,7 @@ async def list_user_bookings(
         "upcoming": upcoming,
         "completed": completed,
         "cancelled": cancelled,
-        "page": page,
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "bookings": items,
     }

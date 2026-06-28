@@ -29,7 +29,7 @@ logger = get_logger(__name__)
 auth_router = APIRouter()
 
 
-@auth_router.get("/mcp/oauth/authorize")
+@auth_router.get("/mcp/oauth/authorize", summary="OAuth authorize")
 async def authorize(
     request: Request,
     response_type: str,
@@ -143,7 +143,7 @@ async def authorize(
     return RedirectResponse(url=login_url)
 
 
-@auth_router.get("/mcp/oauth/consent", response_class=HTMLResponse)
+@auth_router.get("/mcp/oauth/consent", response_class=HTMLResponse, summary="OAuth consent page")
 async def consent_page(
     request: Request,
     session: str,
@@ -166,7 +166,7 @@ async def consent_page(
     )
 
 
-@auth_router.post("/mcp/oauth/consent")
+@auth_router.post("/mcp/oauth/consent", summary="Process OAuth consent")
 async def process_consent(
     request: Request,
     phone: str = Form(...),
@@ -273,18 +273,18 @@ async def process_consent(
         return RedirectResponse(url=redirect_url, status_code=303)
 
     except Exception as exc:
-        logger.error("OAuth consent error: %s", exc)
+        logger.warning("OAuth consent error: %s", exc, exc_info=True)
         return HTMLResponse(
             render_consent_html(
                 session_id=session,
                 oauth_session=oauth_session,
-                error_message=f"Authentication failed: {str(exc)}",
+                error_message="Authentication failed",
             ),
             status_code=500,
         )
 
 
-@auth_router.get("/mcp/oauth/callback")
+@auth_router.get("/mcp/oauth/callback", summary="OAuth callback")
 async def oauth_callback(
     request: Request,
     code: str,

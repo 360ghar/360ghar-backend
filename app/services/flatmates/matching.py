@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -19,9 +19,10 @@ from app.models.enums import (
     UserMatchStatus,
 )
 from app.models.properties import Property
-from app.models.social import UserBlock, UserConversation, UserMatch
+from app.models.social import UserBlock, UserMatch
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import SwipeRequest
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.flatmates.conversations import _ensure_conversation
 from app.services.flatmates.helpers import (
     _build_peer_payload,
@@ -245,9 +246,10 @@ async def list_incoming_likes(
     db: AsyncSession,
     user_id: int,
     *,
+    cursor_payload: dict[str, Any] | None = None,
     limit: int = 20,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int | None]:
     """Return positive profile swipes the current user has not answered yet."""
     current_user = await db.get(User, user_id)
     answered_target_ids = select(UserSwipe.target_user_id).where(
@@ -260,7 +262,8 @@ async def list_incoming_likes(
     blocker_subq = select(UserBlock.blocker_user_id).where(
         UserBlock.blocked_user_id == user_id,
     )
-    stmt = (
+    _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
+    base_stmt = (
         select(UserSwipe)
         .options(selectinload(UserSwipe.user), selectinload(UserSwipe.context_property))
         .where(
@@ -271,11 +274,23 @@ async def list_incoming_likes(
             ~UserSwipe.user_id.in_(blocked_subq),
             ~UserSwipe.user_id.in_(blocker_subq),
         )
-        .order_by(UserSwipe.created_at.desc())
-        .limit(limit)
-        .offset(offset)
     )
+    count_total: int | None = None
+    if with_total:
+        count_total = (
+            await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+        ).scalar_one()
+    predicate = keyset_filter(UserSwipe.created_at, UserSwipe.id, _payload, descending=True)
+    if predicate is not None:
+        base_stmt = base_stmt.where(predicate)
+    stmt = base_stmt.order_by(UserSwipe.created_at.desc(), UserSwipe.id.desc()).limit(limit + 1)
     incoming_swipes = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(incoming_swipes) > limit:
+        incoming_swipes = incoming_swipes[:limit]
+        next_payload = keyset_payload(
+            keyset_sort_value(incoming_swipes[-1].created_at), incoming_swipes[-1].id
+        )
 
     items: list[dict[str, Any]] = []
     for swipe in incoming_swipes:
@@ -289,16 +304,17 @@ async def list_incoming_likes(
                 "created_at": swipe.created_at,
             }
         )
-    return items
+    return items, next_payload, count_total
 
 
 async def list_outgoing_likes(
     db: AsyncSession,
     user_id: int,
     *,
+    cursor_payload: dict[str, Any] | None = None,
     limit: int = 20,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int | None]:
     """Return profiles the current user has liked (outgoing likes)."""
     current_user = await db.get(User, user_id)
     blocked_subq = select(UserBlock.blocked_user_id).where(
@@ -307,7 +323,8 @@ async def list_outgoing_likes(
     blocker_subq = select(UserBlock.blocker_user_id).where(
         UserBlock.blocked_user_id == user_id,
     )
-    stmt = (
+    _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
+    base_stmt = (
         select(UserSwipe)
         .options(selectinload(UserSwipe.target_user), selectinload(UserSwipe.context_property))
         .where(
@@ -318,11 +335,23 @@ async def list_outgoing_likes(
             ~UserSwipe.target_user_id.in_(blocked_subq),
             ~UserSwipe.target_user_id.in_(blocker_subq),
         )
-        .order_by(UserSwipe.created_at.desc())
-        .limit(limit)
-        .offset(offset)
     )
+    count_total: int | None = None
+    if with_total:
+        count_total = (
+            await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+        ).scalar_one()
+    predicate = keyset_filter(UserSwipe.created_at, UserSwipe.id, _payload, descending=True)
+    if predicate is not None:
+        base_stmt = base_stmt.where(predicate)
+    stmt = base_stmt.order_by(UserSwipe.created_at.desc(), UserSwipe.id.desc()).limit(limit + 1)
     outgoing_swipes = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(outgoing_swipes) > limit:
+        outgoing_swipes = outgoing_swipes[:limit]
+        next_payload = keyset_payload(
+            keyset_sort_value(outgoing_swipes[-1].created_at), outgoing_swipes[-1].id
+        )
 
     items: list[dict[str, Any]] = []
     for swipe in outgoing_swipes:
@@ -336,23 +365,46 @@ async def list_outgoing_likes(
                 "created_at": swipe.created_at,
             }
         )
-    return items
+    return items, next_payload, count_total
 
 
-async def list_matches(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
+async def list_matches(
+    db: AsyncSession,
+    user_id: int,
+    *,
+    cursor_payload: dict[str, Any] | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, int | None]:
     current_user = await db.get(User, user_id)
-    stmt = (
+    _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
+    base_stmt = (
         select(UserMatch)
         .options(selectinload(UserMatch.context_property))
         .where(
             or_(UserMatch.user_one_id == user_id, UserMatch.user_two_id == user_id),
             UserMatch.status == UserMatchStatus.active,
         )
-        .order_by(UserMatch.created_at.desc())
     )
+    count_total: int | None = None
+    if with_total:
+        count_total = (
+            await db.execute(select(func.count()).select_from(base_stmt.subquery()))
+        ).scalar_one()
+    predicate = keyset_filter(UserMatch.created_at, UserMatch.id, _payload, descending=True)
+    if predicate is not None:
+        base_stmt = base_stmt.where(predicate)
+    stmt = base_stmt.order_by(UserMatch.created_at.desc(), UserMatch.id.desc()).limit(limit + 1)
     matches = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(matches) > limit:
+        matches = matches[:limit]
+        next_payload = keyset_payload(
+            keyset_sort_value(matches[-1].created_at), matches[-1].id
+        )
+
     if not matches:
-        return []
+        return [], None, count_total
 
     peer_ids = {
         match.user_two_id if match.user_one_id == user_id else match.user_one_id
@@ -376,7 +428,7 @@ async def list_matches(db: AsyncSession, user_id: int) -> list[dict[str, Any]]:
                 "created_at": match.created_at,
             }
         )
-    return items
+    return items, next_payload, count_total
 
 
 async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) -> dict[str, Any]:
@@ -399,11 +451,9 @@ async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) 
         return {"id": match.id, "status": match.status, "unmatched": True}
 
     match.status = UserMatchStatus.unmatched
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, user_id, other_user_id)
     if conversation:
         conversation.status = ConversationStatus.closed
     await db.flush()
@@ -423,12 +473,9 @@ async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[s
     match.status = UserMatchStatus.unmatched
 
     # Close the associated conversation
-    user_one_id, user_two_id = match.user_one_id, match.user_two_id
-    conversation_stmt = select(UserConversation).where(
-        UserConversation.user_one_id == user_one_id,
-        UserConversation.user_two_id == user_two_id,
-    )
-    conversation = (await db.execute(conversation_stmt)).scalar_one_or_none()
+    from app.services.flatmates.conversations import find_1to1_conversation
+
+    conversation = await find_1to1_conversation(db, match.user_one_id, match.user_two_id)
     if conversation:
         conversation.status = ConversationStatus.closed
 

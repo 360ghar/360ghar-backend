@@ -3,8 +3,12 @@ Integration tests for MCP servers.
 
 Tests the full flow from HTTP request to tool execution.
 """
-import pytest
+
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -12,8 +16,8 @@ from fastapi.testclient import TestClient
 def _setup_in_memory_cache():
     """Provide a connected in-memory cache for OAuth token store tests."""
     from app.core.cache import set_cache_manager
-    from app.core.cache.manager import CacheManager
     from app.core.cache.backends.memory import InMemoryCacheBackend
+    from app.core.cache.manager import CacheManager
 
     backend = InMemoryCacheBackend(max_size=500)
     manager = CacheManager(backend=backend)
@@ -75,8 +79,8 @@ class TestMCPToolsIntegration:
     @pytest.mark.asyncio
     async def test_discovery_search_guest_access(self):
         """Test discovery_search works without authentication."""
-        from app.mcp.chatgpt.discovery_tools import discovery_search
         from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_search
 
         fn = get_tool_fn(discovery_search)
 
@@ -84,11 +88,7 @@ class TestMCPToolsIntegration:
             mock_user.return_value = None  # Guest user
 
             with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
-                mock_search.return_value = {
-                    "items": [],
-                    "total": 0,
-                    "total_pages": 0
-                }
+                mock_search.return_value = ([], None, 0)
 
                 result = await fn(query="test")
 
@@ -99,8 +99,8 @@ class TestMCPToolsIntegration:
     @pytest.mark.asyncio
     async def test_discovery_search_with_user(self):
         """Test discovery_search with authenticated user."""
-        from app.mcp.chatgpt.discovery_tools import discovery_search
         from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_search
 
         fn = get_tool_fn(discovery_search)
 
@@ -110,11 +110,7 @@ class TestMCPToolsIntegration:
             mock_user.return_value = mock_user_obj
 
             with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
-                mock_search.return_value = {
-                    "items": [],
-                    "total": 0,
-                    "total_pages": 0
-                }
+                mock_search.return_value = ([], None, 0)
 
                 result = await fn(query="apartment in Mumbai")
 
@@ -123,8 +119,8 @@ class TestMCPToolsIntegration:
     @pytest.mark.asyncio
     async def test_discovery_search_with_coordinates(self):
         """Test discovery_search with location coordinates."""
-        from app.mcp.chatgpt.discovery_tools import discovery_search
         from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_search
 
         fn = get_tool_fn(discovery_search)
 
@@ -134,14 +130,14 @@ class TestMCPToolsIntegration:
             mock_user.return_value = mock_user_obj
 
             with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
-                mock_search.return_value = {
-                    "items": [
+                mock_search.return_value = (
+                    [
                         {"id": 1, "title": "Property 1", "base_price": 1000000},
-                        {"id": 2, "title": "Property 2", "base_price": 2000000}
+                        {"id": 2, "title": "Property 2", "base_price": 2000000},
                     ],
-                    "total": 2,
-                    "total_pages": 1
-                }
+                    None,
+                    2,
+                )
 
                 result = await fn(
                     query="apartment",
@@ -156,8 +152,8 @@ class TestMCPToolsIntegration:
     @pytest.mark.asyncio
     async def test_auth_required_response_format(self):
         """Test that auth-required responses include proper metadata."""
-        from app.mcp.chatgpt.discovery_tools import discovery_swipe
         from app.mcp.apps_sdk import AuthRequiredError
+        from app.mcp.chatgpt.discovery_tools import discovery_swipe
 
         fn = get_tool_fn(discovery_swipe)
 
@@ -174,8 +170,8 @@ class TestMCPToolsIntegration:
     @pytest.mark.asyncio
     async def test_discovery_amenities(self):
         """Test discovery.amenities tool."""
-        from app.mcp.chatgpt.discovery_tools import discovery_amenities
         from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_amenities
 
         fn = get_tool_fn(discovery_amenities)
 
@@ -473,9 +469,9 @@ class TestMCPEndToEnd:
     @pytest.mark.asyncio
     async def test_complete_property_workflow(self):
         """Test complete property discovery and booking workflow."""
+        from app.mcp.apps_sdk import AppsSDKToolResult
         from app.mcp.chatgpt.discovery_tools import discovery_search
         from app.mcp.user.booking import bookings_check_availability
-        from app.mcp.apps_sdk import AppsSDKToolResult
 
         search_fn = get_tool_fn(discovery_search)
         avail_fn = get_tool_fn(bookings_check_availability)
@@ -485,11 +481,11 @@ class TestMCPEndToEnd:
             mock_user.return_value = MagicMock(id=1)
 
             with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
-                mock_search.return_value = {
-                    "items": [{"id": 1, "title": "Test Property", "base_price": 1000000}],
-                    "total": 1,
-                    "total_pages": 1
-                }
+                mock_search.return_value = (
+                    [{"id": 1, "title": "Test Property", "base_price": 1000000}],
+                    None,
+                    1,
+                )
 
                 search_result = await search_fn(query="apartment")
                 assert isinstance(search_result, AppsSDKToolResult)
@@ -550,14 +546,14 @@ class TestMCPEndToEnd:
 
         mock_user_obj = MockUser()
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = mock_user_obj
 
             # list_managed_properties is in app.services.pm_properties
             with patch("app.services.pm_properties.list_managed_properties", new_callable=AsyncMock) as mock_list:
-                mock_list.return_value = []
+                mock_list.return_value = ([], None, None)
 
-                with patch("app.mcp.admin.agent.get_db") as mock_db:
+                with patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db:
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                     # List properties - admin server returns dict via MCPResponse
@@ -569,7 +565,7 @@ class TestMCPEndToEnd:
     @pytest.mark.asyncio
     async def test_owner_property_workflow(self):
         """Test owner managing their properties."""
-        from app.mcp.user.owner import owner_properties_list, owner_properties_get
+        from app.mcp.user.owner import owner_properties_get, owner_properties_list
 
         list_fn = get_tool_fn(owner_properties_list)
         get_fn = get_tool_fn(owner_properties_get)
@@ -614,7 +610,7 @@ class TestMCPEndToEnd:
                 mock_db_gen.return_value = AsyncIteratorMock([mock_db])
 
                 with patch("app.services.pm_properties.list_managed_properties", new_callable=AsyncMock) as mock_props:
-                    mock_props.return_value = []
+                    mock_props.return_value = ([], None, None)
 
                     result = await list_fn()
                     # owner tools return dict via MCPResponse

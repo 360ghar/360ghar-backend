@@ -321,16 +321,18 @@ def _parse_gps_info(gps_info: dict) -> dict[str, Any]:
         # Parse latitude
         if "GPSLatitude" in gps_tags and "GPSLatitudeRef" in gps_tags:
             lat = _convert_to_degrees(gps_tags["GPSLatitude"])
-            if gps_tags["GPSLatitudeRef"] == "S":
-                lat = -lat
-            gps_data["latitude"] = lat
+            if lat is not None:
+                if gps_tags["GPSLatitudeRef"] == "S":
+                    lat = -lat
+                gps_data["latitude"] = lat
 
         # Parse longitude
         if "GPSLongitude" in gps_tags and "GPSLongitudeRef" in gps_tags:
             lon = _convert_to_degrees(gps_tags["GPSLongitude"])
-            if gps_tags["GPSLongitudeRef"] == "W":
-                lon = -lon
-            gps_data["longitude"] = lon
+            if lon is not None:
+                if gps_tags["GPSLongitudeRef"] == "W":
+                    lon = -lon
+                gps_data["longitude"] = lon
 
         # Parse altitude
         if "GPSAltitude" in gps_tags:
@@ -345,13 +347,13 @@ def _parse_gps_info(gps_info: dict) -> dict[str, Any]:
     return gps_data
 
 
-def _convert_to_degrees(value) -> float:
+def _convert_to_degrees(value) -> float | None:
     """Convert GPS coordinates to degrees."""
     try:
         d, m, s = value
         return float(d) + float(m) / 60 + float(s) / 3600
     except (TypeError, ValueError):
-        return 0.0
+        return None
 
 
 def get_image_dimensions(image_bytes: bytes) -> tuple[int, int]:

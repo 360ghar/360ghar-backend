@@ -2,7 +2,8 @@
 Tests for property service module.
 """
 
-import uuid
+from __future__ import annotations
+
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,12 +11,10 @@ import pytest
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.properties import Property
 from app.models.enums import (
     ListingGenderPreference,
     ListingSharingType,
     PropertyPurpose,
-    PropertyStatus,
     PropertyType,
 )
 
@@ -30,8 +29,8 @@ class TestCreateProperty:
         test_user,
     ):
         """Test successful property creation."""
-        from app.services.property import create_property
         from app.schemas.property import PropertyCreate
+        from app.services.property import create_property
 
         property_data = PropertyCreate(
             title="New Test Property",
@@ -64,6 +63,7 @@ class TestCreateProperty:
             mock_repo = MagicMock()
             mock_property = MagicMock()
             mock_repo.create = AsyncMock(return_value=mock_property)
+            mock_repo.get_property_with_owner = AsyncMock(return_value=mock_property)
             mock_repo_class.return_value = mock_repo
 
             with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_caches", new_callable=AsyncMock):
@@ -142,6 +142,90 @@ class TestCreateProperty:
         )
         assert data.monthly_rent is None
 
+    @pytest.mark.asyncio
+    async def test_create_property_drops_phantom_cloudinary_url(self):
+        """Regression: a phantom hc_properties URL (HTTP 404) is dropped on
+        the sync verification path, never persisted to property_images."""
+        from app.schemas.property import PropertyCreate
+        from app.services.property import create_property
+        from app.services.property import crud as crud_mod
+
+        phantom = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/360ghar/"
+            "hc_properties/00171-ompee-drona-floors-palam-vihar-3bhk-builder-floor/"
+            "listing_images/master_bedroom.webp"
+        )
+        working = (
+            "https://res.cloudinary.com/ddbhzlzy1/image/upload/v1781553648/"
+            "360ghar/properties/1531/entrance.webp"
+        )
+
+        property_data = PropertyCreate(
+            title="Phantom Drop Test",
+            property_type=PropertyType.apartment,
+            purpose=PropertyPurpose.buy,
+            base_price=Decimal("5000000"),
+            city="Gurugram",
+            latitude=28.51,
+            longitude=77.03,
+            image_urls=[phantom, working],
+        )
+
+        actor = MagicMock()
+        actor.id = 1
+        actor.role = "admin"
+        actor.agent_id = None
+        owner = MagicMock()
+        owner.id = 1
+        owner.full_name = "Owner"
+
+        captured_image_urls: list[list[str]] = []
+
+        async def _capture_replace(db, *, property_id, image_urls):
+            captured_image_urls.append(image_urls)
+
+        # _verify_and_clean_image_urls drops the phantom, keeps the working URL.
+        async def _fake_verify(urls):
+            return [u for u in urls if "hc_properties" not in u]
+
+        db_session = AsyncMock(spec=AsyncSession)
+        db_session.flush = AsyncMock()
+
+        with (
+            patch.object(crud_mod, "PropertyRepository") as mock_repo_class,
+            patch.object(crud_mod, "geocode_listing", new=AsyncMock()),
+            patch.object(
+                crud_mod.PropertyCacheManager,
+                "invalidate_property_caches",
+                new=AsyncMock(),
+            ),
+            patch.object(
+                crud_mod, "_replace_property_images", side_effect=_capture_replace
+            ),
+            patch.object(
+                crud_mod, "_verify_and_clean_image_urls", side_effect=_fake_verify
+            ),
+            patch.object(crud_mod, "_schedule_async_image_verification"),
+            patch.object(crud_mod, "UserModel", MagicMock(return_value=owner)),
+            patch.object(crud_mod.PropertySchema, "model_validate", return_value=MagicMock()),
+        ):
+            mock_repo = MagicMock()
+            mock_property = MagicMock()
+            mock_property.id = 999
+            mock_property.property_type = PropertyType.apartment
+            mock_property.purpose = PropertyPurpose.buy
+            mock_property.listing_preferences = {}
+            mock_repo.create = AsyncMock(return_value=mock_property)
+            mock_repo.get_property_with_owner = AsyncMock(return_value=mock_property)
+            mock_repo_class.return_value = mock_repo
+
+            await create_property(db_session, property_data, owner.id, actor)
+
+        # The phantom URL must NOT have been passed to _replace_property_images.
+        assert captured_image_urls, "_replace_property_images was never called"
+        assert phantom not in captured_image_urls[0]
+        assert working in captured_image_urls[0]
+
 
 class TestGetProperty:
     """Tests for get_property function."""
@@ -164,8 +248,8 @@ class TestGetProperty:
     @pytest.mark.asyncio
     async def test_get_property_not_found(self, db_session: AsyncSession):
         """Test getting non-existent property."""
-        from app.services.property import get_property
         from app.core.exceptions import PropertyNotFoundException
+        from app.services.property import get_property
 
         with pytest.raises(PropertyNotFoundException):
             await get_property(db_session, 99999)
@@ -182,8 +266,8 @@ class TestUpdateProperty:
         test_user,
     ):
         """Test successful property update."""
-        from app.services.property import update_property
         from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(title="Updated Title")
 
@@ -204,13 +288,14 @@ class TestUpdateProperty:
             with patch.object(db_session, "flush", new_callable=AsyncMock):
                 with patch.object(db_session, "refresh", new_callable=AsyncMock):
                     with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_caches", new_callable=AsyncMock):
-                        with patch("app.services.property.crud.PropertySchema.model_validate", return_value=mock_result):
-                            result = await update_property(
-                                db_session, test_property.id, update_data, test_user
-                            )
+                        with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_detail_cache", new_callable=AsyncMock):
+                            with patch("app.services.property.crud.PropertySchema.model_validate", return_value=mock_result):
+                                result = await update_property(
+                                    db_session, test_property.id, update_data, test_user
+                                )
 
-                            assert result is not None
-                            assert result.title == "Updated Title"
+                                assert result is not None
+                                assert result.title == "Updated Title"
 
     @pytest.mark.asyncio
     async def test_update_property_rejects_pg_with_non_rent_purpose(
@@ -221,8 +306,8 @@ class TestUpdateProperty:
     ):
         """Test updates cannot move PG listings outside the rent purpose."""
         from app.core.exceptions import BadRequestException
-        from app.services.property import update_property
         from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(
             property_type=PropertyType.pg,
@@ -239,9 +324,10 @@ class TestUpdateProperty:
         test_user,
     ):
         """Test updating non-existent property."""
-        from app.services.property import update_property
-        from app.schemas.property import PropertyUpdate
         from fastapi import HTTPException
+
+        from app.schemas.property import PropertyUpdate
+        from app.services.property import update_property
 
         update_data = PropertyUpdate(title="Updated Title")
 
@@ -262,14 +348,15 @@ class TestDeleteProperty:
         test_user,
     ):
         """Test successful property deletion."""
-        from app.services.property import delete_property, get_property
         from app.core.exceptions import PropertyNotFoundException
+        from app.services.property import delete_property, get_property
 
         property_id = test_property.id
 
         # Mock the cache invalidation to avoid MagicMock await issues
         with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_caches", new_callable=AsyncMock):
-            result = await delete_property(db_session, property_id, test_user)
+            with patch("app.services.property.crud.PropertyCacheManager.invalidate_property_detail_cache", new_callable=AsyncMock):
+                result = await delete_property(db_session, property_id, test_user)
 
         assert result is True
 
@@ -291,9 +378,11 @@ class TestListUserProperties:
         """Test listing properties for a user."""
         from app.services.property import list_user_properties
 
-        result = await list_user_properties(db_session, test_user.id)
+        rows, _next, _total = await list_user_properties(
+            db_session, test_user.id, cursor_payload={}, limit=20
+        )
 
-        assert len(result) == len(test_properties)
+        assert len(rows) == len(test_properties)
 
 
 class TestPropertyFiltering:
@@ -307,17 +396,17 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by city."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(city="Mumbai")
 
-        result = await get_unified_properties_optimized(
-            db_session, filters, user_id=test_user.id, page=1, limit=10
+        rows, _next, _total = await get_unified_properties_optimized(
+            db_session, filters, user_id=test_user.id, cursor_payload={}, limit=10
         )
 
-        assert "items" in result
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        for prop in rows:
             assert prop.city == "Mumbai"
 
     @pytest.mark.asyncio
@@ -328,17 +417,17 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by purpose."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(purpose=PropertyPurpose.rent)
 
-        result = await get_unified_properties_optimized(
-            db_session, filters, user_id=test_user.id, page=1, limit=10
+        rows, _next, _total = await get_unified_properties_optimized(
+            db_session, filters, user_id=test_user.id, cursor_payload={}, limit=10
         )
 
-        assert "items" in result
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        for prop in rows:
             assert prop.purpose == PropertyPurpose.rent
 
     @pytest.mark.asyncio
@@ -349,17 +438,17 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering properties by type."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(property_type=[PropertyType.apartment])
 
-        result = await get_unified_properties_optimized(
-            db_session, filters, user_id=test_user.id, page=1, limit=10
+        rows, _next, _total = await get_unified_properties_optimized(
+            db_session, filters, user_id=test_user.id, cursor_payload={}, limit=10
         )
 
-        assert "items" in result
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        for prop in rows:
             assert prop.property_type == PropertyType.apartment
 
     @pytest.mark.asyncio
@@ -370,20 +459,20 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering specialized listings by gender preference."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             gender_preference=ListingGenderPreference.female,
         )
 
-        result = await get_unified_properties_optimized(
-            db_session, filters, user_id=test_user.id, page=1, limit=10
+        rows, _next, _total = await get_unified_properties_optimized(
+            db_session, filters, user_id=test_user.id, cursor_payload={}, limit=10
         )
 
-        assert "items" in result
-        assert any(prop.property_type == PropertyType.pg for prop in result["items"])
-        for prop in result["items"]:
+        assert isinstance(rows, list)
+        assert any(prop.property_type == PropertyType.pg for prop in rows)
+        for prop in rows:
             assert prop.listing_preferences is not None
             assert prop.listing_preferences.gender_preference == ListingGenderPreference.female
 
@@ -395,24 +484,24 @@ class TestPropertyFiltering:
         test_user,
     ):
         """Test filtering specialized listings by sharing type."""
-        from app.services.property import get_unified_properties_optimized
         from app.schemas.property import UnifiedPropertyFilter
+        from app.services.property import get_unified_properties_optimized
 
         filters = UnifiedPropertyFilter(
             property_type=[PropertyType.flatmate],
             sharing_type=ListingSharingType.private_room,
         )
 
-        result = await get_unified_properties_optimized(
-            db_session, filters, user_id=test_user.id, page=1, limit=10
+        rows, _next, _total = await get_unified_properties_optimized(
+            db_session, filters, user_id=test_user.id, cursor_payload={}, limit=10
         )
 
-        assert "items" in result
-        assert len(result["items"]) == 1
-        assert result["items"][0].property_type == PropertyType.flatmate
-        assert result["items"][0].listing_preferences is not None
+        assert isinstance(rows, list)
+        assert len(rows) == 1
+        assert rows[0].property_type == PropertyType.flatmate
+        assert rows[0].listing_preferences is not None
         assert (
-            result["items"][0].listing_preferences.sharing_type
+            rows[0].listing_preferences.sharing_type
             == ListingSharingType.private_room
         )
 
@@ -450,9 +539,10 @@ class TestPropertyRecommendations:
         """Test getting property recommendations."""
         from app.services.property import get_property_recommendations
 
-        result = await get_property_recommendations(
+        result, _next, _total = await get_property_recommendations(
             db_session,
             user_id=test_user.id,
+            cursor_payload={},
             limit=5,
         )
 

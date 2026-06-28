@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import math
 import time
 from collections.abc import Callable
 
@@ -168,10 +171,14 @@ class RateLimitMiddleware:
         current_count = await cache.get(current_key) or 0
         previous_count = await cache.get(previous_key) or 0
 
-        # Calculate weighted count (previous window contribution decays over time)
+        # Calculate weighted count (previous window contribution decays over time).
+        # Use math.ceil so the previous window is never under-counted due to
+        # integer truncation — without this, a single request in the previous
+        # window is silently dropped when weight < 1.0, allowing the limit to
+        # be exceeded by 1.
         elapsed_in_window = now % self.period
         weight = 1.0 - (elapsed_in_window / self.period)
-        estimated_count = int(previous_count * weight) + current_count
+        estimated_count = math.ceil(previous_count * weight) + current_count
 
         if estimated_count >= self.calls:
             logger.warning("Rate limit exceeded for %s on %s", client_id, path)
@@ -207,8 +214,8 @@ class EndpointRateLimiter:
 
     def get_client_id(self, request: Request) -> str:
         """Get client identifier from request"""
-        if hasattr(request.state, "user"):
-            return f"user:{request.state.user.id}"
+        if hasattr(request.state, "user_id") and request.state.user_id:
+            return f"user:{request.state.user_id}"
 
         forwarded = request.headers.get("X-Forwarded-For")
         if forwarded:

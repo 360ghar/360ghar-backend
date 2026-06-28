@@ -190,8 +190,14 @@ class GLMProvider(AIProvider):
             content = message.get("content", "")
 
             if not content:
+                finish_reason = choices[0].get("finish_reason")
+                logger.warning(
+                    "GLM returned empty content (finish_reason=%s)",
+                    finish_reason,
+                    extra={"provider": self.name, "finish_reason": finish_reason},
+                )
                 raise AIProviderError(
-                    message="No content in response message",
+                    message=f"No content in response message (finish_reason={finish_reason})",
                     provider=self.name,
                 )
 

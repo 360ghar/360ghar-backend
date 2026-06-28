@@ -46,9 +46,9 @@ async def owner_properties_list(
     db, user = ctx.deps.db, ctx.deps.user
     actor = _user_schema(user)
 
-    properties = await list_managed_properties(
+    properties, _next, _total = await list_managed_properties(
         db, actor=actor, owner_id=user.id, occupancy=occupancy, q=q,
-        limit=limit, offset=(page - 1) * limit,
+        cursor_payload={}, limit=limit,
     )
 
     property_ids = [p.id for p in properties]
@@ -249,9 +249,9 @@ async def agent_properties_list(
     db, user = ctx.deps.db, ctx.deps.user
     limit = min(max(1, limit), 100)
     actor = _user_schema(user)
-    properties = await list_managed_properties(
+    properties, _next, _total = await list_managed_properties(
         db, actor=actor, owner_id=owner_id, occupancy=occupancy, q=q,
-        limit=limit, offset=(page - 1) * limit,
+        cursor_payload={}, limit=limit,
     )
     items = [serialize_property_basic(p) for p in properties]
     return {"items": items, "total": len(items), "page": page}
@@ -326,11 +326,13 @@ async def agent_properties_verify(
     db, user = ctx.deps.db, ctx.deps.user
     prop = await assert_can_access_property(db, actor=_user_schema(user),
                                             property_id=property_id)
-    features = prop.features or {}
-    features["verified"] = is_verified
-    features["verification_notes"] = verification_notes
-    features["verified_by"] = user.id
-    prop.features = features
+    preferences = dict(prop.listing_preferences or {})
+    preferences["verification"] = {
+        "is_verified": is_verified,
+        "notes": verification_notes,
+        "verified_by": user.id,
+    }
+    prop.listing_preferences = preferences
     await db.flush()
     await db.commit()
     return {"message": "Property verification updated", "property_id": property_id,

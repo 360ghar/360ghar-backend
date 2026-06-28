@@ -64,6 +64,7 @@ class Booking(Base):
     payment_method: Mapped[str | None] = mapped_column(String, nullable=True)
     transaction_id: Mapped[str | None] = mapped_column(String, nullable=True)
     payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    razorpay_order_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     guest_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
     guest_review: Mapped[str | None] = mapped_column(Text, nullable=True)
     host_rating: Mapped[int | None] = mapped_column(Integer, nullable=True)

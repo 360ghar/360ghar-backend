@@ -182,7 +182,7 @@ class JamabandiScraper(BaseScraper):
         }
         stmt = pg_insert(JamabandiCache).values(**values)
         stmt = stmt.on_conflict_do_update(
-            constraint="uq_jamabandi_key",
+            index_elements=["tehsil", "village", "khasra_number"],
             set_={
                 "owner_names": stmt.excluded.owner_names,
                 "area_kanal": stmt.excluded.area_kanal,

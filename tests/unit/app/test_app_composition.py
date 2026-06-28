@@ -58,3 +58,22 @@ def test_canonical_domain_modules_expose_existing_property_service():
     from app.services.property import get_unified_properties_optimized
 
     assert callable(get_unified_properties_optimized)
+
+
+def test_blog_router_is_not_mounted_under_duplicate_prefix():
+    """Regression for duplicate blog router mounts.
+
+    The blog router was previously mounted at both ``/blog`` and ``/blogs``.
+    Only the canonical ``/blog`` (singular) prefix is allowed; the duplicate
+    ``/blogs`` polluted the OpenAPI schema and shadowed routes.
+    """
+    app = create_app(testing=True)
+    paths = {route.path for route in app.routes}
+
+    blog_singular = {p for p in paths if p.startswith("/api/v1/blog/")}
+    blog_plural = {p for p in paths if p.startswith("/api/v1/blogs/")}
+
+    assert blog_singular, "Canonical /api/v1/blog/* routes must be registered"
+    assert not blog_plural, (
+        f"Blog router must NOT be mounted at /api/v1/blogs/*. Found: {sorted(blog_plural)}"
+    )

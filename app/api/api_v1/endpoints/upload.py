@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -7,9 +9,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.tours import MediaFile
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    keyset_filter,
+    keyset_payload,
+    keyset_sort_value,
+)
 from app.schemas.storage import (
+    BatchDeleteRequest,
+    BatchDeleteResponse,
     MediaFileResponse,
-    MediaListResponse,
     MediaUpdateRequest,
     PresignedUploadRequest,
     PresignedUploadResponse,
@@ -40,7 +51,7 @@ def _resolve_folder_type(folder_type: StorageFolderType) -> StorageFolder:
     return mapping.get(folder_type, StorageFolder.GENERIC_UPLOAD)
 
 
-@router.post("", response_model=dict[str, Any])
+@router.post("", response_model=dict[str, Any], summary="Upload file")
 async def upload_file(
     file: UploadFile = File(...),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -67,9 +78,9 @@ async def upload_file(
     return result
 
 
-@router.post("/batch", response_model=dict[str, Any])
+@router.post("/batch", response_model=dict[str, Any], summary="Upload files in batch")
 async def upload_batch(
-    files: list[UploadFile] = File(...),
+    files: list[UploadFile] = File(..., max_length=20),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     folder: str = Form("uploads"),
@@ -95,7 +106,47 @@ async def upload_batch(
     return {"items": items}
 
 
-@router.post("/presigned", response_model=PresignedUploadResponse)
+@router.post(
+    "/presigned",
+    response_model=PresignedUploadResponse,
+    summary="Create presigned uploads",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "property_image": {
+                            "value": {
+                                "files": [
+                                    {
+                                        "filename": "living-room.jpg",
+                                        "content_type": "image/jpeg",
+                                        "file_size": 102400,
+                                        "folder_type": "property_image",
+                                        "property_id": 1,
+                                        "visibility": "public",
+                                    }
+                                ]
+                            }
+                        },
+                        "avatar": {
+                            "value": {
+                                "files": [
+                                    {
+                                        "filename": "avatar.png",
+                                        "content_type": "image/png",
+                                        "folder_type": "avatar",
+                                        "visibility": "public",
+                                    }
+                                ]
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_presigned_uploads(
     payload: PresignedUploadRequest,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -136,13 +187,16 @@ async def create_presigned_uploads(
             "upload_id": result["upload_id"],
             "signed_url": result["signed_url"],
             "token": result["token"],
+            "api_key": result.get("api_key"),
+            "timestamp": result.get("timestamp"),
+            "public_id": result.get("public_id"),
             "path": result["path"],
             "public_url": result["public_url"],
         })
     return {"items": items}
 
 
-@router.post("/confirm/{upload_id}", response_model=UploadConfirmResponse)
+@router.post("/confirm/{upload_id}", response_model=UploadConfirmResponse, summary="Confirm upload")
 async def confirm_upload(
     upload_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -165,10 +219,9 @@ async def confirm_upload(
     }
 
 
-@router.get("/media", response_model=MediaListResponse)
+@router.get("/media", response_model=CursorPage[MediaFileResponse], summary="List media files")
 async def list_media(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     tour_id: str | None = Query(None),
     folder: str | None = Query(None),
     mime_type: str | None = Query(None),
@@ -179,39 +232,65 @@ async def list_media(
     db: AsyncSession = Depends(get_db),
 ):
     """List uploaded media files for the current user."""
-    query = select(MediaFile).where(MediaFile.user_id == current_user.id)
+    cursor_payload = page.decoded()
+
+    stmt = select(MediaFile).where(MediaFile.user_id == current_user.id)
     if tour_id:
-        query = query.where(MediaFile.tour_id == tour_id)
+        stmt = stmt.where(MediaFile.tour_id == tour_id)
     if folder:
-        query = query.where(MediaFile.folder == folder)
+        stmt = stmt.where(MediaFile.folder == folder)
     if mime_type:
-        query = query.where(MediaFile.mime_type == mime_type)
+        stmt = stmt.where(MediaFile.mime_type == mime_type)
     if visibility:
-        query = query.where(MediaFile.visibility == visibility)
+        stmt = stmt.where(MediaFile.visibility == visibility)
     if is_processed is not None:
-        query = query.where(MediaFile.is_processed == is_processed)
+        stmt = stmt.where(MediaFile.is_processed == is_processed)
     if upload_status:
-        query = query.where(MediaFile.upload_status == upload_status)
+        stmt = stmt.where(MediaFile.upload_status == upload_status)
 
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-    total_pages = (total + page_size - 1) // page_size
+    count_total = None
+    if page.include_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
 
-    query = query.order_by(MediaFile.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    result = await db.execute(query)
-    items = list(result.scalars().all())
+    predicate = keyset_filter(MediaFile.created_at, MediaFile.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
 
-    return {
-        "items": [MediaFileResponse.model_validate(item) for item in items],
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
-    }
+    stmt = stmt.order_by(MediaFile.created_at.desc(), MediaFile.id.desc()).limit(page.limit + 1)
+    items = list((await db.execute(stmt)).scalars().all())
+
+    next_payload = None
+    if len(items) > page.limit:
+        items = items[:page.limit]
+        next_payload = keyset_payload(keyset_sort_value(items[-1].created_at), items[-1].id)
+
+    return build_cursor_page(
+        [MediaFileResponse.model_validate(item) for item in items],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=count_total,
+    )
 
 
-@router.get("/media/{media_id}", response_model=MediaFileResponse)
+@router.post(
+    "/media/batch-delete",
+    response_model=BatchDeleteResponse,
+    summary="Bulk delete media files",
+)
+async def batch_delete_media(
+    payload: BatchDeleteRequest,
+    current_user: UserSchema = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete up to 50 media files in a single request.
+
+    Only media owned by the current user are deleted. IDs that are not found or
+    are owned by another user are returned in the ``failed`` list.
+    """
+    return await storage_service.delete_batch(db, payload.media_ids, current_user)
+
+
+@router.get("/media/{media_id}", response_model=MediaFileResponse, summary="Get media file")
 async def get_media(
     media_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -229,7 +308,7 @@ async def get_media(
     return MediaFileResponse.model_validate(media)
 
 
-@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/media/{media_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete media file")
 async def delete_media(
     media_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -259,7 +338,7 @@ async def delete_media(
     return None
 
 
-@router.patch("/media/{media_id}", response_model=MediaFileResponse)
+@router.patch("/media/{media_id}", response_model=MediaFileResponse, summary="Update media file")
 async def update_media(
     media_id: str,
     payload: MediaUpdateRequest,

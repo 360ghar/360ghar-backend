@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeGuard
 
 import httpcore
 import httpx
@@ -88,7 +88,7 @@ class AuthFailureReason(StrEnum):
 _FAILURE_SENTINEL = "__auth_failure__"
 
 
-def _is_failure(result: Any) -> bool:
+def _is_failure(result: Any) -> TypeGuard[dict[str, Any]]:
     return isinstance(result, dict) and result.get(_FAILURE_SENTINEL) is True
 
 
@@ -253,15 +253,15 @@ class SupabaseClientManager:
 
         Tries local JWKS-based verification first (signature + iss/aud/exp).
         Falls back to Supabase Auth ``GET /auth/v1/user`` introspection when
-        the JWKS is unavailable.  Returns the user dict on success, ``None``
-        on an invalid/expired token, or a tagged failure dict
-        (:func:`_make_failure`) when the Supabase host is unreachable.
+        the JWKS is unavailable. Returns the user dict on success, ``None``
+        on an invalid/expired token, or a tagged failure dict on a transient
+        provider error.
         """
         # ── Fast path: local JWT verification ───────────────────────────────
         try:
             claims = await verify_jwt_locally(token)
         except JWKSUnavailable as exc:
-            logger.info("JWKS unavailable (%s); falling back to introspection", exc)
+            logger.debug("JWKS unavailable (%s); falling back to introspection", exc)
             claims = None  # fall through to introspection
         except Exception as exc:  # noqa: BLE001 — never crash auth on JWT util
             logger.warning("Local JWT verification error: %s", exc)
@@ -299,8 +299,17 @@ class SupabaseClientManager:
         email_confirmed_at = claims.get("email_confirmed_at")
         phone_confirmed_at = claims.get("phone_confirmed_at")
 
-        email_verified = bool(email_confirmed_at or phone_confirmed_at)
+        # email_verified tracks email confirmation ONLY; phone_verified tracks
+        # phone confirmation.  The aggregate "is the user verified at all?" is
+        # computed downstream (user.is_verified) from either channel.
+        email_verified = bool(email_confirmed_at)
         phone_verified = bool(phone_confirmed_at)
+
+        # The identities array is only present in the introspection response,
+        # not in the JWT claims.  Derive a minimal identities list from
+        # app_metadata.providers (always present in a Supabase access token)
+        # so GET /users/me/identities works on the fast JWT path too.
+        identities = self._identities_from_app_metadata(app_metadata)
 
         return {
             "id": user_id,
@@ -312,7 +321,31 @@ class SupabaseClientManager:
             "phone_verified": phone_verified,
             "email_confirmed_at": email_confirmed_at,
             "phone_confirmed_at": phone_confirmed_at,
+            "identities": identities,
         }
+
+    @staticmethod
+    def _identities_from_app_metadata(app_metadata: dict[str, Any]) -> list[dict[str, Any]]:
+        """Build a minimal identities list from JWT app_metadata.
+
+        Supabase access tokens carry ``app_metadata.provider`` (the primary
+        provider used to sign in) and ``app_metadata.providers`` (the list of
+        all providers linked to the user).  We don't have the per-identity
+        ``id`` here (that only comes from the introspection response), so we
+        emit ``identity_id=None`` — callers that need the stable identity id
+        must hit the introspection path.
+        """
+        identities: list[dict[str, Any]] = []
+        providers = app_metadata.get("providers")
+        if not isinstance(providers, list):
+            primary = app_metadata.get("provider")
+            providers = [primary] if isinstance(primary, str) and primary else []
+        seen: set[str] = set()
+        for provider in providers:
+            if isinstance(provider, str) and provider and provider not in seen:
+                seen.add(provider)
+                identities.append({"provider": provider, "identity_id": None})
+        return identities
 
     async def _verify_via_introspection(self, token: str) -> dict[str, Any] | None:
         """Verify a token by calling Supabase Auth ``GET /auth/v1/user``.
@@ -371,12 +404,23 @@ class SupabaseClientManager:
         email_confirmed_at = user_data.get("email_confirmed_at")
         phone_confirmed_at = user_data.get("phone_confirmed_at")
 
-        # `email_verified` is kept for backward compatibility: it is True when
-        # EITHER channel is confirmed (matches the prior behaviour). Callers
-        # that need per-channel verification should read the new explicit
-        # keys (`*_confirmed_at`, `phone_verified`).
-        email_verified = bool(email_confirmed_at or phone_confirmed_at)
+        # email_verified tracks email confirmation ONLY; phone_verified tracks
+        # phone confirmation.  The aggregate "is the user verified at all?" is
+        # computed downstream (user.is_verified) from either channel.
+        email_verified = bool(email_confirmed_at)
         phone_verified = bool(phone_confirmed_at)
+
+        # Preserve the raw identities array from the introspection response so
+        # GET /users/me/identities can return {provider, identity_id} pairs.
+        raw_identities = user_data.get("identities")
+        identities: list[dict[str, Any]] = []
+        if isinstance(raw_identities, list):
+            for identity in raw_identities:
+                if isinstance(identity, dict):
+                    identities.append({
+                        "provider": identity.get("provider"),
+                        "identity_id": identity.get("id"),
+                    })
 
         return {
             "id": user_id,
@@ -388,6 +432,7 @@ class SupabaseClientManager:
             "phone_verified": phone_verified,
             "email_confirmed_at": email_confirmed_at,
             "phone_confirmed_at": phone_confirmed_at,
+            "identities": identities,
         }
 
     @_retry_on_transient_network()
@@ -452,7 +497,7 @@ class SupabaseClientManager:
         )
         return None
 
-    async def admin_link_identity(self, user_id: str, provider: str, id_token: str) -> bool:
+    async def admin_link_identity(self, user_id: str, provider: str, id_token: str) -> bool | dict[str, Any]:
         """Link an OAuth identity to an existing Supabase user via GoTrue Admin API.
 
         Returns ``True`` on success, ``False`` on a non-retryable

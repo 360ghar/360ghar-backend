@@ -12,7 +12,7 @@ state-machine:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,6 +77,18 @@ class AuthConfigResponse(BaseModel):
     "/identifier-status",
     response_model=IdentifierStatusResponse,
     summary="Probe the auth status of an email/phone (drives client login flow)",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "email": {"value": {"identifier": "user@example.com"}},
+                        "phone": {"value": {"identifier": "+919876543210"}},
+                    }
+                }
+            }
+        }
+    },
 )
 async def identifier_status(
     request: Request,
@@ -103,22 +115,34 @@ async def identifier_status(
 
 @router.post(
     "/last-method",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=204,
     summary="Record the last authentication method used by the current user",
 )
 async def last_method(
     body: LastMethodRequest,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
-    """AUTH required. Persist ``method`` on the current user."""
+) -> Response:
+    """AUTH required. Persist ``method`` on the current user. Returns 204 No Content."""
     await set_last_auth_method(db, current_user, body.method)
+    return Response(status_code=204)
 
 
 @router.post(
     "/link-identity",
     response_model=LinkIdentityResponse,
     summary="Link an OAuth identity to the current Supabase user",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "google": {"value": {"provider": "google", "id_token": "eyJhbGciOiJSUzI1NiIs..."}},
+                    }
+                }
+            }
+        }
+    },
 )
 async def link_identity(
     body: LinkIdentityRequest,
@@ -159,17 +183,20 @@ async def auth_config() -> AuthConfigResponse:
 
 @router.post(
     "/delete-account",
-    status_code=status.HTTP_204_NO_CONTENT,
+    status_code=204,
     summary="Permanently delete the current user's account",
 )
 async def delete_account(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
-) -> None:
+) -> Response:
     """AUTH required. Permanently delete the caller's own account.
 
     Hard-deletes the Supabase Auth user (revoking all sessions) and
     anonymizes + soft-deletes the local record. App Store Guideline
     5.1.1(v) compliance: the account becomes permanently unusable.
+    Returns 204 No Content (alternate mobile-friendly route; the canonical
+    ``DELETE /users/me`` returns 200 + MessageResponse).
     """
     await delete_user_account(db, current_user)
+    return Response(status_code=204)

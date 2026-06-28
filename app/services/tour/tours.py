@@ -3,6 +3,7 @@ Tour CRUD service functions.
 
 Create, read, update, delete, publish, unpublish, and duplicate tours.
 """
+from __future__ import annotations
 
 from uuid import uuid4
 
@@ -19,6 +20,7 @@ from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.models.enums import TourStatus, TourVisibility
 from app.models.tours import Scene, Tour
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.tour import TourCreate, TourUpdate
 from app.services.tour.helpers import _ensure_tour_ownership
 
@@ -28,29 +30,29 @@ logger = get_logger(__name__)
 async def get_tours(
     db: AsyncSession,
     user_id: int,
-    page: int = 1,
-    page_size: int = 20,
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
     status_filter: str | None = None,
     search: str | None = None,
-) -> dict:
-    """Get paginated list of tours for a user."""
-    query = select(Tour).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
+) -> tuple[list, dict | None, int | None]:
+    """Get cursor-paginated list of tours for a user."""
+    stmt = select(Tour).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
 
     if status_filter:
-        query = query.where(Tour.status == status_filter)
+        stmt = stmt.where(Tour.status == status_filter)
 
     if search:
         search_term = f"%{search}%"
-        query = query.where(or_(Tour.title.ilike(search_term), Tour.description.ilike(search_term)))
+        stmt = stmt.where(or_(Tour.title.ilike(search_term), Tour.description.ilike(search_term)))
 
-    # Count total
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
+    count_total = None
+    if with_total:
+        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
 
-    # Calculate pagination
-    total_pages = (total + page_size - 1) // page_size
-    offset = (page - 1) * page_size
+    predicate = keyset_filter(Tour.created_at, Tour.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
 
     scene_counts = (
         select(
@@ -61,52 +63,47 @@ async def get_tours(
         .subquery()
     )
 
-    query = (
-        query.outerjoin(scene_counts, scene_counts.c.tour_id == Tour.id)
-        .add_columns(
-            func.coalesce(scene_counts.c.scene_count, 0).label("scene_count"),
-        )
-        .order_by(Tour.created_at.desc())
-        .offset(offset)
-        .limit(page_size)
+    stmt = (
+        stmt.outerjoin(scene_counts, scene_counts.c.tour_id == Tour.id)
+        .add_columns(func.coalesce(scene_counts.c.scene_count, 0).label("scene_count"))
+        .order_by(Tour.created_at.desc(), Tour.id.desc())
+        .limit(limit + 1)
     )
 
-    result = await db.execute(query)
-    rows = result.all()
+    rows = (await db.execute(stmt)).all()
 
-    tours: list[dict] = []
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_tour, _ = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last_tour.created_at), last_tour.id)
+
+    tours = []
     for tour, scene_count in rows:
-        tours.append(
-            {
-                "id": tour.id,
-                "user_id": tour.user_id,
-                "title": tour.title,
-                "description": tour.description,
-                "status": tour.status,
-                "is_public": tour.is_public,
-                "settings": tour.settings,
-                "is_featured": tour.is_featured,
-                "view_count": tour.view_count,
-                "like_count": tour.like_count,
-                "share_count": tour.share_count,
-                "thumbnail_url": tour.thumbnail_url,
-                "published_at": tour.published_at,
-                "archived_at": tour.archived_at,
-                "created_at": tour.created_at,
-                "updated_at": tour.updated_at,
-                "deleted_at": tour.deleted_at,
-                "scene_count": int(scene_count or 0),
-                "scenes": None,
-            }
-        )
+        tours.append({
+            "id": tour.id,
+            "user_id": tour.user_id,
+            "title": tour.title,
+            "description": tour.description,
+            "status": tour.status,
+            "is_public": tour.is_public,
+            "settings": tour.settings,
+            "is_featured": tour.is_featured,
+            "view_count": tour.view_count,
+            "like_count": tour.like_count,
+            "share_count": tour.share_count,
+            "thumbnail_url": tour.thumbnail_url,
+            "published_at": tour.published_at,
+            "archived_at": tour.archived_at,
+            "created_at": tour.created_at,
+            "updated_at": tour.updated_at,
+            "deleted_at": tour.deleted_at,
+            "scene_count": int(scene_count or 0),
+            "scenes": None,
+            "visibility": tour.visibility,
+        })
 
-    return {
-        "items": tours,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
-    }
+    return tours, next_payload, count_total
 
 
 async def get_tour(
@@ -125,7 +122,10 @@ async def get_tour(
         raise TourNotFoundException()
 
     is_owner = user_id is not None and tour.user_id == user_id
-    is_publicly_accessible = tour.status == TourStatus.published and bool(tour.is_public)
+    is_publicly_accessible = (
+        tour.status == TourStatus.published
+        and tour.visibility != TourVisibility.private
+    )
 
     if not is_owner and not is_publicly_accessible:
         if user_id is not None:
@@ -218,6 +218,7 @@ async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
 
     tour.status = TourStatus.published
     tour.published_at = utc_now()
+    tour.visibility = TourVisibility.public
     tour.is_public = True
 
     await db.commit()
@@ -232,6 +233,7 @@ async def unpublish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     _ensure_tour_ownership(tour, user_id, "unpublish")
 
     tour.status = TourStatus.draft
+    tour.visibility = TourVisibility.private
     tour.is_public = False
 
     await db.commit()

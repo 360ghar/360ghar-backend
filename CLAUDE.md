@@ -58,9 +58,22 @@ uv run python seed_data/02_clear_data.py --confirm               # Wipe all seed
 ### Database
 ```bash
 supabase db reset   # Reset local database
-supabase db push    # Apply migrations
+supabase db push    # Apply migrations (local dev)
 supabase db diff    # Check pending changes
 ```
+
+#### Migrations (remote Supabase)
+
+Use `scripts/run_supabase_migrations.py` to apply migrations against the remote Supabase database. It connects directly via `DATABASE_URL`, tracks applied versions in a `schema_migrations` table, and is idempotent — safe to run repeatedly.
+
+```bash
+uv run python scripts/run_supabase_migrations.py              # apply all pending
+uv run python scripts/run_supabase_migrations.py --dry-run    # preview only
+uv run python scripts/run_supabase_migrations.py --file 20260621000008_flatmates_social.sql  # single file
+uv run python scripts/run_supabase_migrations.py --env .env.prod  # use a different env file
+```
+
+> Always use this script when running migrations on the hosted Supabase database. The `supabase db push` / `supabase db reset` commands are for local development only.
 
 ### Docker
 ```bash
@@ -81,9 +94,8 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 
 ### CI/CD Pipeline
 GitHub Actions (`.github/workflows/tests.yml`) runs on push/PR to `main`/`develop`:
-1. **docs-contracts** — Validates `docs/repo-contract.json` inventory against actual files (`scripts/validate_docs_contracts.py`)
-2. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
-3. **lint** — `ruff check app/` and `mypy app/`
+1. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
+2. **lint** — `ruff check app/` and `mypy app/`
 
 ### Deployment
 - **Railway**: `railway.toml` with healthcheck on `/health`, `ON_FAILURE` restart policy
@@ -244,7 +256,6 @@ async def get_properties(
 | WebSocket endpoints | `app/api/api_v1/endpoints/websocket.py` |
 | Social models | `app/models/social.py` |
 | Data hub model | `app/models/data_hub.py` |
-| Docs contract validator | `scripts/validate_docs_contracts.py` |
 | Domain modules (reserved) | `app/modules/` |
 | Shared contracts (reserved) | `app/shared/` |
 
@@ -268,7 +279,7 @@ async def get_properties(
 
 ## Coding Conventions
 
-- **Python 3.10+**, FastAPI, SQLAlchemy 2.x async, Pydantic v2
+- **Python 3.12+**, FastAPI, SQLAlchemy 2.x async, Pydantic v2
 - **snake_case** for modules/functions/variables; **PascalCase** for classes
 - Full type hints everywhere
 - Custom exceptions from `app/core/exceptions.py` (e.g., `UserNotFoundException`)
@@ -329,7 +340,7 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - **Research before integrating**: Before implementing any 3rd party integration (APIs, SDKs, libraries, AI models, protocols), look up the current official documentation and latest version. Do not rely on training data alone — docs, APIs, model names, and SDKs change frequently. Always verify from official sources.
 - **Use Context7 MCP or web search**: Use the `context7` MCP tools (`resolve-library-id` + `query-docs`) or `WebSearch`/`WebFetch`/`google_search` to retrieve up-to-date documentation, latest version numbers, API references, and code examples for any library, service, model, or SDK being used.
 - **Verify everything latest**: When referencing package versions, AI/LLM model names, API endpoints or signatures, SDK methods, protocol versions (e.g., MCP protocol version), or any external service reference, always confirm the latest from official sources (docs sites, GitHub releases, PyPI, npm, official changelogs). Never assume a version or API shape from memory.
-- **Verify compatibility**: Confirm that new dependencies are compatible with the project's Python 3.10+ requirement and existing stack (FastAPI, SQLAlchemy 2.x async, Pydantic v2).
+- **Verify compatibility**: Confirm that new dependencies are compatible with the project's Python 3.12+ requirement and existing stack (FastAPI, SQLAlchemy 2.x async, Pydantic v2).
 - **Check changelogs for breaking changes**: When upgrading a dependency, review its changelog/migration guide to avoid breaking changes.
 - **Stay current with ecosystem**: Periodically check for newer versions of key dependencies (FastAPI, SQLAlchemy, Pydantic, Supabase, FastMCP, etc.) and update when safe. Prefer latest docs and examples over outdated tutorials or blog posts.
 
@@ -747,3 +758,26 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 > **Note on `tool_ops/`**: These modules contain the shared business logic (service calls, DB queries, authorization, serialization) used by both MCP servers and the AI agent tool bridge. When adding new MCP tools, implement the logic in `app/mcp/tool_ops/` first, then wire it through both `user_server.py`/`admin/` and `tool_bridge.py`.
 
 > **Note on PM tools split**: The former `app/mcp/chatgpt/pm_tools.py` has been decomposed into domain-specific modules (`pm_shared.py`, `pm_dashboard_tools.py`, `pm_lease_tools.py`, `pm_maintenance_tools.py`, `pm_owner_tools.py`, `pm_rent_tools.py`, `pm_tenant_tools.py`). Shared serialization helpers are in `pm_shared.py`.
+
+## Documentation Maintenance Policy
+
+The `.wiki/` directory is the canonical project wiki and must stay in sync with the codebase. After any change that affects the following, update the corresponding wiki page(s) in the same commit or PR:
+
+| Change type | Wiki page to update |
+|-------------|---------------------|
+| New/modified REST endpoint or router | `.wiki/api/index.md`, relevant `.wiki/features/*.md` |
+| New/modified service module | `.wiki/systems/services-layer.md`, relevant `.wiki/features/*.md` |
+| New MCP tool or widget | `.wiki/features/mcp-servers.md` |
+| New/modified SQLAlchemy model or enum | `.wiki/systems/models.md`, `.wiki/reference/data-models.md` |
+| New scheduler or background job | `.wiki/systems/infrastructure.md` |
+| New shared httpx client domain | `.wiki/systems/core-cross-cutting.md` |
+| New notification type | `.wiki/features/notifications.md` |
+| New SSE event type | `.wiki/systems/core-cross-cutting.md` |
+| New environment variable | `.wiki/reference/configuration.md` |
+| New dependency | `.wiki/reference/dependencies.md` |
+| Architectural decision | `.wiki/background/design-decisions.md` |
+| Seed data changes | relevant `.wiki/features/*.md` |
+
+When updating the video, edit `.wiki/video/src/scenes/`, run `./.wiki/video/render.sh`, and commit the new `overview.mp4` (Git LFS handles storage).
+
+The GitHub Actions workflow at `.github/workflows/wiki.yml` auto-publishes `.wiki/` to the GitHub wiki tab on every push to `main`. No manual wiki editing is needed.

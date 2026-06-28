@@ -3,7 +3,6 @@ Tests for visit service module.
 """
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +22,8 @@ class TestCreateVisit:
         test_property,
     ):
         """Test successful visit creation."""
-        from app.services.visit import create_visit
         from app.schemas.visit import VisitCreate
+        from app.services.visit import create_visit
 
         scheduled = datetime.now(timezone.utc) + timedelta(days=7)
         visit_data = VisitCreate(
@@ -38,7 +37,7 @@ class TestCreateVisit:
         assert result is not None
         assert result.user_id == test_user.id
         assert result.property_id == test_property.id
-        assert result.status == "scheduled"
+        assert result.status == VisitStatus.scheduled
 
     @pytest.mark.asyncio
     async def test_create_visit_past_date_fails(
@@ -48,8 +47,8 @@ class TestCreateVisit:
         test_property,
     ):
         """Test visit creation fails with past date."""
-        from app.services.visit import create_visit
         from app.schemas.visit import VisitCreate
+        from app.services.visit import create_visit
 
         past_date = datetime.now(timezone.utc) - timedelta(days=1)
         visit_data = VisitCreate(
@@ -104,14 +103,10 @@ class TestGetUserVisits:
         """Test getting all visits for a user."""
         from app.services.visit import get_user_visits
 
-        result = await get_user_visits(db_session, test_user.id)
+        rows, next_payload, count_total = await get_user_visits(db_session, test_user.id, cursor_payload={}, limit=100)
 
-        assert "visits" in result
-        assert "total" in result
-        assert "upcoming" in result
-        assert "completed" in result
-        assert "cancelled" in result
-        assert result["total"] == len(test_visits)
+        assert isinstance(rows, list)
+        assert len(rows) == len(test_visits)
 
 
 class TestGetUserUpcomingVisits:
@@ -127,10 +122,8 @@ class TestGetUserUpcomingVisits:
         """Test getting upcoming visits."""
         from app.services.visit import get_user_upcoming_visits
 
-        result = await get_user_upcoming_visits(db_session, test_user.id)
-
-        assert "visits" in result
-        assert "total" in result
+        rows, _next, _total = await get_user_upcoming_visits(db_session, test_user.id, cursor_payload={}, limit=100)
+        assert isinstance(rows, list)
 
 
 class TestGetUserPastVisits:
@@ -146,9 +139,8 @@ class TestGetUserPastVisits:
         """Test getting past visits."""
         from app.services.visit import get_user_past_visits
 
-        result = await get_user_past_visits(db_session, test_user.id)
-
-        assert "visits" in result
+        rows, _next, _total = await get_user_past_visits(db_session, test_user.id, cursor_payload={}, limit=100)
+        assert isinstance(rows, list)
 
 
 class TestCancelVisit:
@@ -208,7 +200,7 @@ class TestRescheduleVisit:
         result = await reschedule_visit(db_session, test_visit.id, new_date, "New schedule")
 
         assert result is not None
-        assert result.status == "rescheduled"
+        assert result.status == VisitStatus.rescheduled
 
     @pytest.mark.asyncio
     async def test_reschedule_visit_past_date_fails(
@@ -268,14 +260,13 @@ class TestGetAgentVisits:
         """Test getting paginated agent visits."""
         from app.services.visit import get_agent_visits
 
-        result = await get_agent_visits(db_session, test_agent.id, page=1, limit=10)
+        result_items, result_next, result_total = await get_agent_visits(
+            db_session, test_agent.id, cursor_payload={}, limit=10
+        )
 
-        assert "items" in result
-        assert "total" in result
-        assert "page" in result
-        assert "total_pages" in result
-        assert "has_next" in result
-        assert "has_prev" in result
+        assert isinstance(result_items, list)
+        assert result_next is None or isinstance(result_next, dict)
+        assert result_total is None
 
 
 class TestGetAllVisits:
@@ -286,10 +277,9 @@ class TestGetAllVisits:
         """Test getting all visits without filters."""
         from app.services.visit import get_all_visits
 
-        result = await get_all_visits(db_session, page=1, limit=20)
+        rows, _next, _total = await get_all_visits(db_session, cursor_payload={}, limit=20)
 
-        assert "items" in result
-        assert "total" in result
+        assert isinstance(rows, list)
 
     @pytest.mark.asyncio
     async def test_get_all_visits_with_status_filter(
@@ -300,6 +290,6 @@ class TestGetAllVisits:
         """Test getting visits filtered by status."""
         from app.services.visit import get_all_visits
 
-        result = await get_all_visits(db_session, page=1, limit=20, status="scheduled")
+        rows, _next, _total = await get_all_visits(db_session, cursor_payload={}, limit=20, status="scheduled")
 
-        assert "items" in result
+        assert isinstance(rows, list)

@@ -3,7 +3,7 @@ Tests for app.core.websocket module — ConnectionManager.
 """
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

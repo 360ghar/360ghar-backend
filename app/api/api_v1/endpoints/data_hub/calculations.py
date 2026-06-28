@@ -1,50 +1,59 @@
 """Stamp duty and bank rate calculation endpoints."""
 
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.data_hub import BankRate, CircleRate
 from app.schemas.data_hub import (
-    BankRateListResponse,
+    BankRateResponse,
     StampDutyCalculationRequest,
     StampDutyCalculationResponse,
+)
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    offset_payload,
+    read_offset,
 )
 from app.services.data_hub.utils import (
     calculate_registration_fee,
     calculate_stamp_duty,
 )
 
-from .helpers import _STAMP_DUTY_RATES, _meta_from_table, _paginate
+from .helpers import _STAMP_DUTY_RATES
 
 router = APIRouter()
 
 
-@router.get("/bank-rates", response_model=BankRateListResponse)
+@router.get("/bank-rates", response_model=CursorPage[BankRateResponse], summary="List bank rates")
 async def list_bank_rates(
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List latest bank interest rates."""
-    total = (await db.execute(select(func.count()).select_from(BankRate))).scalar_one()
-    offset = (page - 1) * limit
-    rows = (
-        await db.execute(
-            select(BankRate).order_by(BankRate.effective_date.desc()).offset(offset).limit(limit)
-        )
-    ).scalars().all()
-    meta = await _meta_from_table(db, BankRate)
-    return {
-        "items": rows,
-        "meta": meta,
-        **_paginate(total, page, limit),
-    }
+    total: int | None = None
+    if page.include_total:
+        total = (await db.execute(select(func.count()).select_from(BankRate))).scalar_one()
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+    rows = list(
+        (
+            await db.execute(
+                select(BankRate).order_by(BankRate.effective_date.desc()).offset(offset).limit(page.limit + 1)
+            )
+        ).scalars().all()
+    )
+    has_more = len(rows) > page.limit
+    items = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/calculator/stamp-duty", response_model=StampDutyCalculationResponse)
+@router.post("/calculator/stamp-duty", response_model=StampDutyCalculationResponse, summary="Calculate stamp duty")
 async def calculator_stamp_duty(
     req: StampDutyCalculationRequest,
     db: AsyncSession = Depends(get_db),

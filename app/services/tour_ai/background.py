@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_bg_session_factory
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.core.logging import get_logger
-from app.models.enums import TourStatus
+from app.models.enums import HotspotType, TourStatus
 from app.models.tours import AIJob, Hotspot, Scene, Tour
 from app.schemas.tour import TourGenerationRequest, TourGenerationSceneInput
 from app.services.ai import AIMessage, AIProviderError, AIRole, VisionInput
@@ -29,6 +29,7 @@ from .helpers import (
     _track_background_task,
 )
 from .jobs import create_ai_job, get_ai_job, update_job_status
+from .spatial import analyze_and_build_scenes
 
 logger = get_logger(__name__)
 
@@ -222,6 +223,7 @@ async def generate_tour(
                 "suggest_hotspots": data.suggest_hotspots,
                 "apply_to_scenes": data.apply_to_scenes,
                 "language": data.language,
+                "spatial": data.spatial,
             },
         ))
     )
@@ -256,11 +258,15 @@ async def _run_tour_generation(
             generate_descriptions = bool(options.get("generate_descriptions", True))
             language = options.get("language") or "English"
 
+            # Cache downloaded panoramas so spatial mode can reuse them.
+            downloaded_panoramas: dict[str, tuple[str, str]] = {}
+
             for index, scene in enumerate(scenes):
                 progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
 
                 if generate_titles or generate_descriptions:
                     image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                    downloaded_panoramas[scene.id] = (image_base64, mime_type)
                     vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
                     del image_base64
 
@@ -280,6 +286,9 @@ Respond in JSON with:
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
                     del vision_input
+                    # Normalize room_type to match ROOM_TYPES (underscores, not spaces).
+                    if "room_type" in result:
+                        result["room_type"] = str(result["room_type"]).strip().lower().replace(" ", "_")
                     generated.append({"scene_id": scene.id, **result})
 
                     if apply_to_scenes:
@@ -291,7 +300,15 @@ Respond in JSON with:
                 await update_job_status(db, job_id, "processing", progress)
 
             created_hotspots: list[str] = []
-            if options.get("suggest_hotspots"):
+            if options.get("spatial"):
+                # Matterport-style: place navigation hotspots on the actual doorways
+                # leading to the correct adjacent rooms (vision + graph).
+                created_hotspots = await _apply_spatial_navigation(
+                    db, tour, provider,
+                    apply_to_scenes=apply_to_scenes,
+                    downloaded_panoramas=downloaded_panoramas,
+                )
+            elif options.get("suggest_hotspots"):
                 created = await _ensure_navigation_hotspots(db, tour)
                 created_hotspots = [hotspot.id for hotspot in created]
 
@@ -318,6 +335,116 @@ Respond in JSON with:
             logger.error("Error during tour generation: %s", e, exc_info=True)
             await update_job_status(db, job_id, "failed", error_message=str(e))
             await db.commit()
+
+
+async def _apply_spatial_navigation(
+    db: AsyncSession,
+    tour: Tour,
+    provider: Any,
+    apply_to_scenes: bool = True,
+    downloaded_panoramas: dict[str, tuple[str, str]] | None = None,
+) -> list[str]:
+    """Build Matterport-style spatial navigation hotspots for a tour.
+
+    Downloads each scene's panorama (or reuses pre-downloaded ones), runs the
+    spatial pipeline (``analyze_and_build_scenes``), maps the plan's room-typed
+    scene ids back to this tour's real Scene rows, and creates navigation Hotspot
+    rows positioned on the detected doorways. Also fills missing scene
+    titles/initial views.
+
+    Does NOT commit — the caller is responsible for committing the session.
+
+    Returns the ids of created hotspots.
+    """
+    from uuid import uuid4
+
+    scenes = sorted(tour.scenes or [], key=lambda s: s.order_index)
+    if len(scenes) < 2:
+        return []
+
+    panoramas: list[dict[str, Any]] = []
+    for scene in scenes:
+        cached = (downloaded_panoramas or {}).get(scene.id)
+        if cached:
+            image_base64, mime_type = cached
+        else:
+            try:
+                image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+            except Exception as exc:  # noqa: BLE001 - skip unreadable image, keep the rest
+                logger.warning("spatial: could not download %s: %s", scene.image_url, exc)
+                continue
+        panoramas.append(
+            {
+                "key": scene.id,
+                "image_base64": image_base64,
+                "mime_type": mime_type,
+                "image_url": scene.image_url,
+                "filename_hint": scene.title or None,
+            }
+        )
+
+    if len(panoramas) < 2:
+        logger.warning("spatial: fewer than 2 readable panoramas; skipping spatial linking")
+        return []
+
+    graph_scenes = await analyze_and_build_scenes(panoramas, provider)
+
+    # Map plan scene id -> real DB scene id via the preserved key.
+    plan_to_db = {gs["id"]: gs["key"] for gs in graph_scenes}
+    db_scene_by_id = {s.id: s for s in scenes}
+
+    created_ids: list[str] = []
+    for gs in graph_scenes:
+        db_scene = db_scene_by_id.get(gs["key"])
+        if db_scene is None:
+            continue
+
+        # Fill missing title and initial view from the analysis.
+        if apply_to_scenes and gs.get("title") and not db_scene.title:
+            db_scene.title = gs["title"]
+        if not db_scene.scene_metadata:
+            db_scene.scene_metadata = {
+                "initial_view": {"yaw": gs.get("facing_yaw", 0.0), "pitch": 0, "zoom": 50}
+            }
+
+        existing_targets = {
+            h.target_scene_id
+            for h in (db_scene.hotspots or [])
+            if h.type == HotspotType.navigation
+        }
+
+        for hs in gs.get("hotspots", []):
+            target_db_id = plan_to_db.get(hs["target_scene_id"])
+            if not target_db_id or target_db_id in existing_targets:
+                continue
+            existing_targets.add(target_db_id)
+            hotspot_id = str(uuid4())
+            hotspot = Hotspot(
+                id=hotspot_id,
+                scene_id=db_scene.id,
+                type=HotspotType.navigation,
+                position={
+                    "yaw": hs["position"]["yaw"],
+                    "pitch": hs["position"]["pitch"],
+                    "radius": None,
+                },
+                target_scene_id=target_db_id,
+                title=hs.get("title") or "Go here",
+                description=None,
+                icon=None,
+                icon_name=None,
+                icon_color=None,
+                icon_size=40,
+                content=None,
+                custom_data={"auto_generated": True, "spatial": True},
+                order_index=hs.get("order_index", 0),
+                is_active=True,
+            )
+            db.add(hotspot)
+            created_ids.append(hotspot_id)
+
+    logger.info("spatial: created %d navigation hotspots for tour %s", len(created_ids), tour.id)
+    return created_ids
 
 
 # ====================
@@ -376,11 +503,13 @@ async def _run_tour_optimization(
             update_titles = bool(options.get("update_titles"))
             update_descriptions = bool(options.get("update_descriptions"))
             language = options.get("language") or "English"
+            downloaded_panoramas: dict[str, tuple[str, str]] = {}
 
             for index, scene in enumerate(scenes):
                 progress = int(5 + (70 * (index + 1) / max(total_scenes, 1)))
 
                 image_base64, mime_type = await _download_image_as_base64(scene.image_url)
+                downloaded_panoramas[scene.id] = (image_base64, mime_type)
                 vision_input = VisionInput(image_base64=image_base64, mime_type=mime_type)
                 del image_base64
 
@@ -412,7 +541,13 @@ Analyze this panorama and suggest improvements. Respond in JSON:
                 await update_job_status(db, job_id, "processing", progress)
 
             created_hotspots: list[str] = []
-            if options.get("suggest_hotspots"):
+            if options.get("spatial"):
+                created_hotspots = await _apply_spatial_navigation(
+                    db, tour, provider,
+                    apply_to_scenes=True,
+                    downloaded_panoramas=downloaded_panoramas,
+                )
+            elif options.get("suggest_hotspots"):
                 created = await _ensure_navigation_hotspots(db, tour)
                 created_hotspots = [hotspot.id for hotspot in created]
 

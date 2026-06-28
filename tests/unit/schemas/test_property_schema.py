@@ -2,22 +2,18 @@
 Tests for app.schemas.property module — PropertyCreate, PropertyUpdate, UnifiedPropertyFilter.
 """
 
-from decimal import Decimal
 
 import pytest
 from pydantic import ValidationError
 
 from app.core.exceptions import ValidationException
-from app.core.exceptions import ValidationException
-from app.models.enums import ListingGenderPreference, ListingSharingType, PropertyPurpose, PropertyType
+from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.property import PropertyCreate, PropertyUpdate
-
 
 # Custom validators raise ValidationException (HTTPException subclass), not pydantic ValidationError.
 # Pydantic model_validator raises ValidationError for cross-field checks (like PG+buy).
 # Both are valid rejection paths — we catch either.
 
-import pytest as _pytest
 
 
 def _assert_validation_error(exc_info):

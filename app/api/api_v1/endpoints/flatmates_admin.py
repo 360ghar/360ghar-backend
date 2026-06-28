@@ -1,6 +1,9 @@
 """Admin moderation endpoints for the flatmates module."""
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -26,7 +29,14 @@ from app.schemas.flatmates_admin import (
     serialize_flatmate_listing as _serialize_flatmate_listing,
 )
 from app.schemas.flatmates_admin import serialize_report as _serialize_report
-from app.services.flatmates import pause_expired_flatmate_listings, prescreen_flatmate_listing
+from app.schemas.pagination import (
+    CursorParams,
+    build_cursor_page,
+    keyset_filter,
+    keyset_payload,
+    keyset_sort_value,
+)
+from app.services.flatmates import pause_stale_flatmate_listings, prescreen_flatmate_listing
 
 logger = get_logger(__name__)
 
@@ -77,11 +87,10 @@ async def _dispatch_moderation_notification(
     )
 
 
-@router.get("/moderation/listings")
+@router.get("/moderation/listings", summary="List pending listings")
 async def get_pending_listings(
     status: str = Query(default="pending_review", description="Filter by status"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -89,32 +98,41 @@ async def get_pending_listings(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    await pause_expired_flatmate_listings(db)
+    await pause_stale_flatmate_listings(db)
 
-    result = await db.execute(
+    cursor_payload: dict[str, Any] = page.decoded()
+    base_stmt = (
         select(Property)
         .options(selectinload(Property.images), selectinload(Property.owner))
         .where(*_flatmate_listing_filters(status))
-        .order_by(Property.created_at.asc())
-        .offset(offset)
-        .limit(limit)
     )
-    listings = result.scalars().all()
+    count_total: int | None = None
+    if page.include_total:
+        count_result = await db.execute(
+            select(func.count()).select_from(Property).where(*_flatmate_listing_filters(status))
+        )
+        count_total = count_result.scalar_one()
+    predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=False)
+    if predicate is not None:
+        base_stmt = base_stmt.where(predicate)
+    stmt = base_stmt.order_by(Property.created_at.asc(), Property.id.asc()).limit(page.limit + 1)
+    listings = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(listings) > page.limit:
+        listings = listings[:page.limit]
+        next_payload = keyset_payload(
+            keyset_sort_value(listings[-1].created_at), listings[-1].id
+        )
 
-    count_result = await db.execute(
-        select(func.count()).select_from(Property).where(*_flatmate_listing_filters(status))
+    return build_cursor_page(
+        [_serialize_flatmate_listing(listing) for listing in listings],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=count_total,
     )
-    total = count_result.scalar()
-
-    return {
-        "listings": [_serialize_flatmate_listing(listing) for listing in listings],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
 
 
-@router.put("/moderation/listings/{listing_id}")
+@router.put("/moderation/listings/{listing_id}", summary="Moderate listing")
 async def moderate_listing(
     listing_id: int,
     payload: ListingModerationAction,
@@ -214,11 +232,10 @@ async def moderate_listing(
     }
 
 
-@router.get("/moderation/reports")
+@router.get("/moderation/reports", summary="List pending reports")
 async def get_pending_reports(
     status: str = Query(default="open", description="Filter by status"),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -226,38 +243,45 @@ async def get_pending_reports(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    result = await db.execute(
-        select(UserReport)
-        .where(UserReport.status == status)
-        .order_by(UserReport.created_at.asc())
-        .offset(offset)
-        .limit(limit)
-    )
-    reports = result.scalars().all()
+    cursor_payload: dict[str, Any] = page.decoded()
+    base_stmt = select(UserReport).where(UserReport.status == status)
+    count_total: int | None = None
+    if page.include_total:
+        count_result = await db.execute(
+            select(func.count()).select_from(UserReport).where(UserReport.status == status)
+        )
+        count_total = count_result.scalar_one()
+    predicate = keyset_filter(UserReport.created_at, UserReport.id, cursor_payload, descending=False)
+    if predicate is not None:
+        base_stmt = base_stmt.where(predicate)
+    stmt = base_stmt.order_by(UserReport.created_at.asc(), UserReport.id.asc()).limit(page.limit + 1)
+    reports = list((await db.execute(stmt)).scalars().all())
+    next_payload: dict[str, Any] | None = None
+    if len(reports) > page.limit:
+        reports = reports[:page.limit]
+        next_payload = keyset_payload(
+            keyset_sort_value(reports[-1].created_at), reports[-1].id
+        )
+
     user_ids = {
-        user_id
+        uid
         for report in reports
-        for user_id in (report.reporter_user_id, report.reported_user_id)
+        for uid in (report.reporter_user_id, report.reported_user_id)
     }
     user_map: dict[int, User] = {}
     if user_ids:
         users = (await db.execute(select(User).where(User.id.in_(user_ids)))).scalars().all()
         user_map = {user.id: user for user in users}
 
-    count_result = await db.execute(
-        select(func.count()).select_from(UserReport).where(UserReport.status == status)
+    return build_cursor_page(
+        [_serialize_report(report, user_map) for report in reports],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=count_total,
     )
-    total = count_result.scalar()
-
-    return {
-        "reports": [_serialize_report(report, user_map) for report in reports],
-        "total": total,
-        "limit": limit,
-        "offset": offset,
-    }
 
 
-@router.put("/moderation/reports/{report_id}")
+@router.put("/moderation/reports/{report_id}", summary="Moderate report")
 async def moderate_report(
     report_id: int,
     payload: ReportModerationAction,
@@ -356,7 +380,7 @@ async def moderate_report(
     }
 
 
-@router.post("/moderation/prescreen/{listing_id}")
+@router.post("/moderation/prescreen/{listing_id}", summary="Prescreen listing")
 async def prescreen_listing(
     listing_id: int,
     current_user: User = Depends(get_current_active_user),

@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.core.logging import get_logger
+from app.mcp.chatgpt.response_formatter import format_price
 from app.mcp.utils import get_user_from_mcp_context
 
 logger = get_logger(__name__)
@@ -105,7 +106,7 @@ def _format_lease_summary(lease_data: dict[str, Any]) -> str:
     start_date = lease_data.get("start_date", "")
     end_date = lease_data.get("end_date", "")
 
-    rent_str = f"₹{monthly_rent:,.0f}/month" if monthly_rent else "rent not set"
+    rent_str = f"₹{format_price(monthly_rent, is_monthly_rent=True)}/month" if monthly_rent else "rent not set"
     return f"Lease for {property_title} with {tenant_name}. Status: {status}. {rent_str}. Period: {start_date} to {end_date}."
 
 
@@ -118,7 +119,7 @@ def _format_rent_summary(charges: list[dict], totals: dict) -> str:
     if total_due == 0:
         return "All rent is current. No outstanding balances."
 
-    summary = f"Rent status: ₹{total_paid:,.0f} collected, ₹{total_due:,.0f} outstanding."
+    summary = f"Rent status: ₹{format_price(total_paid, is_monthly_rent=True)} collected, ₹{format_price(total_due, is_monthly_rent=True)} outstanding."
     if overdue > 0:
         summary += f" {overdue} overdue charges require attention."
     return summary

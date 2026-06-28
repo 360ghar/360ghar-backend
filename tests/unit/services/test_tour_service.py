@@ -7,11 +7,11 @@ for FastAPI response serialization (avoid async lazy-loading at response time).
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from fastapi import HTTPException, status
 import pytest
+from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import TourStatus
+from app.models.enums import TourStatus, TourVisibility
 from app.models.tours import Tour
 from app.schemas.tour import TourCreate, TourUpdate
 
@@ -128,6 +128,9 @@ class TestTourServiceAccessControl:
             description=None,
             status=tour_status,
             is_public=is_public,
+            # Access is enforced via `visibility`, which must stay in sync with
+            # is_public (publish/unpublish keep them aligned).
+            visibility=TourVisibility.public if is_public else TourVisibility.private,
         )
 
         result = MagicMock()

@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from app.core.exceptions import (
+    BadRequestException,
     InsufficientPermissionsError,
 )
 from app.mcp.admin.agent_tools.common import (
@@ -27,6 +28,7 @@ from app.mcp.admin.agent_tools.common import (
     utc_now_iso,
 )
 from app.models.enums import UserRole
+from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload, read_offset
 
 
 @admin_mcp.tool(
@@ -43,7 +45,7 @@ async def agent_maintenance_list(
     owner_id: int | None = None,
     property_id: int | None = None,
     status: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List maintenance requests for managed properties.
@@ -52,7 +54,7 @@ async def agent_maintenance_list(
         owner_id: Filter by owner
         property_id: Filter by property
         status: Filter by status (open, in_progress, scheduled, completed, cancelled)
-        page: Page number
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page
     """
     try:
@@ -63,6 +65,8 @@ async def agent_maintenance_list(
         from app.models.properties import Property
 
         limit = min(max(1, limit), 100)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
+        offset = read_offset(cursor_payload)
 
         async for db in get_db():
             user = await _get_user(db)
@@ -112,22 +116,29 @@ async def agent_maintenance_list(
                 else:
                     return invalid_input_response(f"Invalid status: {status}")
 
-            offset = (page - 1) * limit
-            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
+            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
 
             result = await db.execute(stmt)
-            requests = result.scalars().all()
+            requests = list(result.scalars().all())
+
+            has_more = len(requests) > limit
+            if has_more:
+                requests = requests[:limit]
 
             items = [serialize_maintenance_request(r) for r in requests]
+            next_payload = offset_payload(offset + len(items)) if has_more else None
 
             return MCPResponse.success({
                 "total": len(items),
-                "page": page,
+                "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                "has_more": next_payload is not None,
                 "limit": limit,
                 "requests": items,
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.maintenance.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
@@ -262,6 +273,8 @@ async def agent_maintenance_update_status(
             }).model_dump()
     except AuthRequiredError:
         raise
+    except BadRequestException as e:
+        return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.maintenance.update_status: %s", e, exc_info=True)
         return internal_error_response(f"Failed to update maintenance request: {str(e)}")

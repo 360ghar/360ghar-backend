@@ -11,3 +11,4 @@ restartPolicyMaxRetries = 3
 ENVIRONMENT = "production"
 DEBUG = "false"
 SERVERLESS_ENABLED = "true"
+PUBLIC_BASE_URL = "https://api.360ghar.com"

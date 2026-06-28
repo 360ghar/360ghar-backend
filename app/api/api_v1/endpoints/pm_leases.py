@@ -6,8 +6,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import LeaseStatus, UserRole
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.pm_lease import Lease as LeaseSchema
-from app.schemas.pm_lease import LeaseCreate, LeaseRenew, LeaseUploadSigned
+from app.schemas.pm_lease import LeaseCreate, LeaseRenew, LeaseTerminate, LeaseUploadSigned
 from app.schemas.user import User as UserSchema
 from app.services.pm_leases import (
     create_lease,
@@ -21,12 +22,41 @@ from app.services.pm_leases import (
 router = APIRouter()
 
 
-@router.post("", response_model=LeaseSchema)
+@router.post(
+    "",
+    response_model=LeaseSchema,
+    summary="Create lease",
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "examples": {
+                        "create": {
+                            "value": {
+                                "property_id": 1,
+                                "tenant_name": "Rahul Sharma",
+                                "tenant_phone": "+919876543210",
+                                "tenant_email": "rahul@example.com",
+                                "status": "active",
+                                "start_date": "2026-07-01",
+                                "end_date": "2027-06-30",
+                                "monthly_rent": 25000,
+                                "security_deposit": 50000,
+                                "payment_due_day": 5,
+                            }
+                        },
+                    }
+                }
+            }
+        }
+    },
+)
 async def create_pm_lease(
     payload: LeaseCreate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Create lease."""
     target_owner_id = current_user.id
     if payload.owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -61,47 +91,55 @@ async def create_pm_lease(
     return LeaseSchema.model_validate(lease)
 
 
-@router.get("", response_model=list[LeaseSchema])
+@router.get("", response_model=CursorPage[LeaseSchema], summary="List leases")
 async def list_pm_leases(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
     tenant_user_id: int | None = Query(None),
     status: LeaseStatus | None = Query(None),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    leases = await list_leases(
+    """List leases."""
+    rows, next_payload, total = await list_leases(
         db,
         actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
         property_id=property_id,
         tenant_user_id=tenant_user_id,
         status=status,
-        limit=limit,
-        offset=offset,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
-    return [LeaseSchema.model_validate(lease) for lease in leases]
+    return build_cursor_page(
+        [LeaseSchema.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.get("/{lease_id}", response_model=LeaseSchema)
+@router.get("/{lease_id}", response_model=LeaseSchema, summary="Get lease")
 async def get_pm_lease(
     lease_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Get lease."""
     lease = await get_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/upload-signed", response_model=LeaseSchema)
+@router.post("/{lease_id}/upload-signed", response_model=LeaseSchema, summary="Upload signed lease")
 async def upload_signed(
     lease_id: int,
     payload: LeaseUploadSigned,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Upload signed lease."""
     lease = await upload_signed_lease(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -113,13 +151,14 @@ async def upload_signed(
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/renew", response_model=LeaseSchema)
+@router.post("/{lease_id}/renew", response_model=LeaseSchema, summary="Renew lease")
 async def renew(
     lease_id: int,
     payload: LeaseRenew,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Renew lease."""
     lease = await renew_lease(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -133,12 +172,20 @@ async def renew(
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/terminate", response_model=LeaseSchema)
+@router.post("/{lease_id}/terminate", response_model=LeaseSchema, summary="Terminate lease")
 async def terminate(
     lease_id: int,
+    payload: LeaseTerminate | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    lease = await terminate_lease(db, actor=current_user, lease_id=lease_id)  # type: ignore[arg-type]
+    """Terminate lease."""
+    lease = await terminate_lease(
+        db,
+        actor=current_user,  # type: ignore[arg-type]
+        lease_id=lease_id,
+        termination_date=payload.termination_date if payload else None,
+        reason=payload.reason if payload else None,
+    )
     return LeaseSchema.model_validate(lease)
 

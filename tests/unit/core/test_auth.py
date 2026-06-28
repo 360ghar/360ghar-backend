@@ -120,7 +120,9 @@ class TestVerifySupabaseToken:
         assert result["id"] == user_id
         assert result["email"] == "test@example.com"
         assert result["phone"] == "+919876543210"
-        assert result["email_verified"] is True
+        # email_verified tracks EMAIL confirmation only; here only the phone is
+        # confirmed, so email_verified is False and phone_verified is True.
+        assert result["email_verified"] is False
         assert result["phone_verified"] is True
         assert result["app_metadata"] == {"provider": "phone", "providers": ["phone"]}
         assert result["email_confirmed_at"] is None

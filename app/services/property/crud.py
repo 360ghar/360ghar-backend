@@ -3,7 +3,7 @@
 from datetime import datetime, timezone
 
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -29,13 +29,14 @@ from app.models.properties import Amenity, Property, PropertyAmenity, PropertyIm
 from app.models.users import User as UserModel
 from app.repositories.property_repository import PropertyRepository
 from app.schemas.amenity import Amenity as AmenitySchema
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
-    apply_expired_move_in_pause,
     apply_listing_prescreen_metadata,
+    apply_stale_listing_pause,
 )
 from app.services.pm_authz import _get_actor_role
 from app.services.property.helpers import _validate_listing_contract, build_location_wkt
@@ -57,6 +58,86 @@ def _clean_image_urls(image_urls: list[str] | None) -> list[str]:
         seen_urls.add(url)
         cleaned_urls.append(url)
     return cleaned_urls
+
+
+async def _verify_and_clean_image_urls(image_urls: list[str]) -> list[str]:
+    """Sync (caller is already async) reachability check.
+
+    Drops Cloudinary (first-party) URLs that return 4xx/5xx. Third-party
+    soft-failures are kept. This is the gate that rejects phantom URLs such
+    as the historical ``hc_properties`` ones. Returns the kept subset.
+    """
+    if not image_urls:
+        return image_urls
+    kept, dropped = await ValidationUtils.verify_image_urls_async(image_urls)
+    for bad in dropped:
+        logger.warning("Dropping unreachable image URL on sync path: %s", bad)
+    return kept
+
+
+def _schedule_async_image_verification(property_id: int, image_urls: list[str]) -> None:
+    """Fire-and-forget background verification of stored image URLs.
+
+    Runs after the property row is committed on the user-facing path so
+    broken images are NULLed out within seconds without adding latency to
+    the create/update response. Failures here are logged only and never
+    surface to the caller (the property was already created successfully).
+    """
+    import asyncio
+
+    if not image_urls:
+        return
+
+    async def _verify_and_nullify() -> None:
+        try:
+            kept, dropped = await ValidationUtils.verify_image_urls_async(image_urls)
+            if not dropped:
+                return
+            # Open a fresh session: the request's session is closed by now.
+            from app.core.database import AsyncSessionLocal
+
+            async with AsyncSessionLocal() as session:
+                for bad_url in dropped:
+                    await session.execute(
+                        update(PropertyImage)
+                        .where(
+                            PropertyImage.property_id == property_id,
+                            PropertyImage.image_url == bad_url,
+                        )
+                        .values(image_url=None)
+                    )
+                    # If the broken URL was the main image, clear it too.
+                    await session.execute(
+                        update(Property)
+                        .where(
+                            Property.id == property_id,
+                            Property.main_image_url == bad_url,
+                        )
+                        .values(main_image_url=None)
+                    )
+                await session.commit()
+            await PropertyCacheManager.invalidate_property_caches(property_id)
+            logger.warning(
+                "Async verification NULLed %d unreachable image URL(s) for property %s",
+                len(dropped),
+                property_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Async image verification failed for property %s: %s",
+                property_id,
+                exc,
+            )
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_verify_and_nullify())
+    except RuntimeError:
+        # No running loop (e.g. synchronous test context) — skip silently.
+        logger.debug(
+            "No running loop; skipping async image verification for property %s",
+            property_id,
+        )
 
 
 def _owner_moderation_status_toggle(update_data: dict) -> str | None:
@@ -145,6 +226,13 @@ async def create_property(
 
         property_dict = property_data.model_dump(exclude_unset=True, mode="json")
         image_urls = _clean_image_urls(property_dict.pop("image_urls", None))
+        # Sync URL verification: any path that comes through create_property
+        # (user-facing or admin) gets its Cloudinary URLs HEAD-checked here.
+        # This is the gate that rejects phantom URLs like the historical
+        # hc_properties ones. Third-party URLs are soft (kept on failure).
+        if image_urls:
+            image_urls = await _verify_and_clean_image_urls(image_urls)
+        amenity_ids = property_dict.pop("amenity_ids", None)
         if image_urls and not property_dict.get("main_image_url"):
             property_dict["main_image_url"] = image_urls[0]
         property_dict["owner_id"] = owner_id
@@ -165,6 +253,10 @@ async def create_property(
             property_dict["location"] = wkt
 
         db_property = await repo.create(Property(**property_dict))
+
+        if amenity_ids:
+            for amenity_id in set(amenity_ids):
+                db.add(PropertyAmenity(property_id=db_property.id, amenity_id=amenity_id))
         if image_urls:
             await _replace_property_images(
                 db,
@@ -183,6 +275,11 @@ async def create_property(
         property_with_relations = await repo.get_property_with_owner(db_property.id)
         if property_with_relations is None:
             raise PropertyNotFoundException(property_id=db_property.id)
+
+        # Belt-and-suspenders: async re-verification after commit in case the
+        # sync check was skipped or a URL goes bad between insert and serve.
+        if image_urls:
+            _schedule_async_image_verification(db_property.id, image_urls)
 
         logger.info("Property created successfully with ID %s", db_property.id)
         return PropertySchema.model_validate(property_with_relations)
@@ -213,7 +310,7 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
         if not property_obj:
             logger.warning("Property %s not found", property_id)
             raise PropertyNotFoundException(property_id=property_id)
-        if apply_expired_move_in_pause(property_obj):
+        if apply_stale_listing_pause(property_obj):
             await db.flush()
 
         logger.debug(
@@ -240,8 +337,27 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
         raise
 
 
-async def list_user_properties(db: AsyncSession, owner_id: int) -> list[PropertySchema]:
+async def list_user_properties(
+    db: AsyncSession,
+    owner_id: int,
+    cursor_payload: dict,
+    limit: int = 20,
+    *,
+    with_total: bool = False,
+) -> tuple[list[PropertySchema], dict | None, int | None]:
     """List properties owned by a specific user (auth enforced by caller)."""
+    count_total: int | None = None
+    base_stmt = (
+        select(Property)
+        .where(Property.owner_id == owner_id)
+    )
+    if with_total:
+        count_result = await db.execute(
+            select(func.count()).select_from(base_stmt.subquery())
+        )
+        count_total = count_result.scalar_one()
+
+    predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=True)
     stmt = (
         select(Property)
         .options(
@@ -249,17 +365,28 @@ async def list_user_properties(db: AsyncSession, owner_id: int) -> list[Property
             selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
         )
         .where(Property.owner_id == owner_id)
-        .order_by(Property.created_at.desc())
     )
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(Property.created_at.desc(), Property.id.desc()).limit(limit + 1)
+
     res = await db.execute(stmt)
-    properties = res.scalars().all()
+    properties = list(res.scalars().all())
     paused_count = 0
     for property_obj in properties:
-        if apply_expired_move_in_pause(property_obj):
+        if apply_stale_listing_pause(property_obj):
             paused_count += 1
     if paused_count:
         await db.flush()
-    return [PropertySchema.model_validate(p) for p in properties]
+
+    next_payload: dict | None = None
+    if len(properties) > limit:
+        properties = properties[:limit]
+        last = properties[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.created_at), last.id)
+
+    schemas = [PropertySchema.model_validate(p) for p in properties]
+    return schemas, next_payload, count_total
 
 
 async def update_property(
@@ -304,6 +431,12 @@ async def update_property(
         update_data = property_update.model_dump(exclude_unset=True, mode="json")
         image_urls_present = "image_urls" in update_data
         image_urls = _clean_image_urls(update_data.pop("image_urls", None))
+        # Sync URL verification: drops phantom Cloudinary URLs on every
+        # update path. Third-party URLs are soft (kept on failure).
+        if image_urls:
+            image_urls = await _verify_and_clean_image_urls(image_urls)
+        amenity_ids_present = "amenity_ids" in update_data
+        amenity_ids = update_data.pop("amenity_ids", None)
         if image_urls_present and "main_image_url" not in update_data:
             update_data["main_image_url"] = image_urls[0] if image_urls else None
         final_property_type = update_data.get("property_type", property_obj.property_type)
@@ -361,6 +494,14 @@ async def update_property(
                 image_urls=image_urls,
             )
 
+        if amenity_ids_present:
+            await db.execute(
+                sa_delete(PropertyAmenity).where(PropertyAmenity.property_id == property_id)
+            )
+            if amenity_ids:
+                for amenity_id in set(amenity_ids):
+                    db.add(PropertyAmenity(property_id=property_id, amenity_id=amenity_id))
+
         if (
             final_property_type in PG_FLATMATE_TYPES
             and actor_role != UserRole.admin
@@ -371,7 +512,7 @@ async def update_property(
                 image_urls=image_urls if image_urls_present else None,
             )
         if final_property_type in PG_FLATMATE_TYPES:
-            apply_expired_move_in_pause(property_obj)
+            apply_stale_listing_pause(property_obj)
 
         await db.flush()
         if final_property_type in PG_FLATMATE_TYPES:
@@ -381,6 +522,10 @@ async def update_property(
         property_obj = await repo.get_property_with_owner(property_id)
         await PropertyCacheManager.invalidate_property_caches(property_id)
         await PropertyCacheManager.invalidate_property_detail_cache(property_id)
+
+        # Async re-verification safety net for any newly-set image URLs.
+        if image_urls_present and image_urls:
+            _schedule_async_image_verification(property_id, image_urls)
 
         logger.info("Property %s updated successfully", property_id)
         return PropertySchema.model_validate(property_obj)
@@ -425,7 +570,9 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
 
         # Pre-check: block deletion if active bookings, visits, or leases reference this property
         from app.models.bookings import Booking
-        from app.models.visits import Visit
+        from app.models.enums import LeaseStatus
+        from app.models.pm_leases import Lease
+        from app.models.properties import Visit
 
         active_booking = (
             await db.execute(
@@ -453,10 +600,27 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
         if active_visit:
             raise BadRequestException(detail="Cannot delete property with upcoming visits")
 
+        active_lease = (
+            await db.execute(
+                select(Lease.id)
+                .where(
+                    Lease.property_id == property_id,
+                    Lease.status.in_([
+                        LeaseStatus.draft,
+                        LeaseStatus.pending_signature,
+                        LeaseStatus.active,
+                        LeaseStatus.expiring_soon,
+                    ]),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if active_lease:
+            raise BadRequestException(detail="Cannot delete property with active leases")
+
         # Clean up swipes referencing this property
         from app.models.users import UserSwipe
 
-        await db.execute(select(UserSwipe).where(UserSwipe.property_id == property_id))
         await db.execute(sa_delete(UserSwipe).where(UserSwipe.property_id == property_id))
 
         await db.delete(property_obj)

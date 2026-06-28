@@ -2,8 +2,8 @@
 
 from importlib import import_module
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_admin
@@ -11,6 +11,13 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.data_hub import ScraperRun
 from app.schemas.data_hub import ScraperRunResponse
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    offset_payload,
+    read_offset,
+)
 from app.schemas.user import User as UserSchema
 
 router = APIRouter()
@@ -41,7 +48,7 @@ _SCRAPER_MAP: dict[str, str] = {
 }
 
 
-@router.post("/admin/scraper/{scraper_name}/trigger")
+@router.post("/admin/scraper/{scraper_name}/trigger", summary="Trigger scraper")
 async def trigger_scraper(
     scraper_name: str,
     current_user: UserSchema = Depends(get_current_admin),
@@ -64,20 +71,37 @@ async def trigger_scraper(
         raise HTTPException(status_code=500, detail="Scraper trigger failed — see server logs") from None
 
 
-@router.get("/admin/scraper/runs", response_model=list[ScraperRunResponse])
+@router.get("/admin/scraper/runs", response_model=CursorPage[ScraperRunResponse], summary="List scraper runs")
 async def list_scraper_runs(
-    limit: int = Query(50, ge=1, le=200),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_admin),
 ):
     """List recent scraper runs (admin only)."""
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if page.include_total:
+        total = (
+            await db.execute(select(func.count()).select_from(ScraperRun))
+        ).scalar_one()
+
     result = await db.execute(
-        select(ScraperRun).order_by(ScraperRun.started_at.desc()).limit(limit)
+        select(ScraperRun)
+        .order_by(ScraperRun.started_at.desc())
+        .offset(offset)
+        .limit(page.limit + 1)
     )
-    return result.scalars().all()
+    rows = list(result.scalars().all())
+
+    has_more = len(rows) > page.limit
+    rows = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/admin/import/{table_name}")
+@router.post("/admin/import/{table_name}", summary="Bulk import data")
 async def bulk_import(
     table_name: str,
     current_user: UserSchema = Depends(get_current_admin),

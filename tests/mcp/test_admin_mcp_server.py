@@ -2,6 +2,7 @@
 Tests for Admin MCP server.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -39,10 +40,10 @@ class TestAgentPropertyTools:
 
         fn = get_tool_fn(agent_properties_list)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -56,10 +57,10 @@ class TestAgentPropertyTools:
 
         fn = get_tool_fn(agent_properties_list)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="user")  # Not an agent
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -78,10 +79,10 @@ class TestAgentLeaseTools:
 
         fn = get_tool_fn(agent_leases_list)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.leases._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.leases.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -95,10 +96,10 @@ class TestAgentLeaseTools:
 
         fn = get_tool_fn(agent_leases_create)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.leases._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.leases.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
@@ -123,10 +124,10 @@ class TestAgentRentTools:
 
         fn = get_tool_fn(agent_rent_list_due)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.rent._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.rent.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -140,10 +141,10 @@ class TestAgentRentTools:
 
         fn = get_tool_fn(agent_rent_record_payment)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.rent._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.rent.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
@@ -166,10 +167,10 @@ class TestAgentMaintenanceTools:
 
         fn = get_tool_fn(agent_maintenance_list)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.maintenance._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.maintenance.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -183,10 +184,10 @@ class TestAgentMaintenanceTools:
 
         fn = get_tool_fn(agent_maintenance_update_status)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.maintenance._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.maintenance.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn(
@@ -207,10 +208,10 @@ class TestAgentDashboardTools:
 
         fn = get_tool_fn(agent_dashboard_overview)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.dashboard._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.dashboard.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -270,10 +271,10 @@ class TestAgentBookingTools:
 
         fn = get_tool_fn(agent_bookings_list_all)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        with patch("app.mcp.admin.agent_tools.bookings._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
+            with patch("app.mcp.admin.agent_tools.bookings.get_db") as mock_db:
                 mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                 result = await fn()
@@ -284,18 +285,25 @@ class TestAgentBookingTools:
     async def test_agent_bookings_update_status(self, mock_mcp_context):
         """Test updating booking status as agent."""
         from app.mcp.admin.agent import agent_bookings_update_status
+        from app.models.enums import BookingStatus
 
         fn = get_tool_fn(agent_bookings_update_status)
 
-        with patch("app.mcp.admin.agent._get_user", new_callable=AsyncMock) as mock_user:
+        booking = SimpleNamespace(id=1, booking_status=BookingStatus.pending, internal_notes=None)
+
+        with patch("app.mcp.admin.agent_tools.bookings._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
-            with patch("app.mcp.admin.agent.get_db") as mock_db:
-                mock_db.return_value = AsyncIteratorMock([MagicMock()])
+            with patch("app.mcp.admin.agent_tools.bookings.get_db") as mock_db:
+                mock_db.return_value = AsyncIteratorMock([AsyncMock()])
 
-                result = await fn(
-                    booking_id=1,
-                    status="confirmed",
-                )
+                with patch("app.services.booking.get_booking", new_callable=AsyncMock) as mock_get:
+                    mock_get.return_value = booking
+                    with patch("app.mcp.admin.agent_tools.bookings.serialize_booking", return_value={"id": 1, "booking_status": "confirmed"}):
+                        result = await fn(
+                            booking_id=1,
+                            status="confirmed",
+                        )
 
-                assert isinstance(result, dict)
+                assert booking.booking_status == BookingStatus.confirmed
+                assert result["ok"] is True

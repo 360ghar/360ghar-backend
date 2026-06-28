@@ -4,7 +4,9 @@ Public 360 Virtual Tour API Endpoints.
 This module provides unauthenticated endpoints for viewing published tours.
 These endpoints are used by the public viewer and embed page.
 """
+import threading
 import time
+import uuid as _uuid
 from collections import defaultdict
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
@@ -12,6 +14,7 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.enums import TourStatus, TourVisibility
@@ -22,34 +25,85 @@ from app.services import tour as tour_service
 router = APIRouter()
 logger = get_logger(__name__)
 
-# ── Per-IP rate limiter for like/unlike endpoints ──────────────────────────────
+# ── Generic per-IP sliding-window rate limiter ─────────────────────────────────
+# One helper serves both like and event endpoints; previously they had
+# copy-pasted state dicts and shared a single reaper constant, which coupled
+# their reap cadences and let each per-worker dict grow unbounded.
+_REAP_INTERVAL_S = 300  # reap stale keys every 5 minutes
+_reaper_lock = threading.Lock()
+
+
+def _is_ip_rate_limited(
+    client_ip: str,
+    *,
+    store: dict[str, list[float]],
+    limit: int,
+    window_s: int,
+    last_reap_attr: str,
+) -> bool:
+    """Return True if ``client_ip`` has exceeded the per-IP rate limit.
+
+    Mutates ``store[client_ip]`` in place (prune to window, append now) and
+    periodically reaps keys whose entire window has expired. The reaper is
+    guarded by a module-level lock so concurrent workers don't race on the
+    same dict.
+    """
+    now = time.monotonic()
+    window_start = now - window_s
+    timestamps = store[client_ip]
+    # Prune entries older than the window
+    store[client_ip] = [t for t in timestamps if t > window_start]
+    if len(store[client_ip]) >= limit:
+        return True
+    store[client_ip].append(now)
+
+    # Periodic reap of fully-stale keys to bound memory under sustained
+    # traffic from many distinct IPs. We do this on every call (cheap) and
+    # gate on a per-helper last-reap timestamp stored on the store itself.
+    last_reap = store.get(last_reap_attr, 0.0)
+    if now - last_reap > _REAP_INTERVAL_S:
+        with _reaper_lock:
+            # Re-check under lock so two workers don't both decide to reap
+            if now - store.get(last_reap_attr, 0.0) <= _REAP_INTERVAL_S:
+                return False
+            store[last_reap_attr] = now
+            stale = [k for k, v in store.items() if k == last_reap_attr or not v]
+            for k in stale:
+                if k != last_reap_attr:
+                    del store[k]
+    return False
+
+
+# Per-IP limiter state for like/unlike endpoints.
+_like_store: dict[str, list[float]] = defaultdict(list)
 _LIKE_RATE_LIMIT = 10  # max requests
 _LIKE_RATE_WINDOW_S = 60  # per window
-_LIKE_REAP_INTERVAL_S = 300  # reap stale keys every 5 minutes
-_ip_like_timestamps: dict[str, list[float]] = defaultdict(list)
-_last_like_reap: float = 0.0
+
+
+# Per-IP limiter state for analytics event endpoints.
+_event_store: dict[str, list[float]] = defaultdict(list)
+_EVENT_RATE_LIMIT = 120  # max requests per window (generous for heatmap pings)
+_EVENT_RATE_WINDOW_S = 60
+
+
+def _is_event_rate_limited(client_ip: str) -> bool:
+    return _is_ip_rate_limited(
+        client_ip,
+        store=_event_store,
+        limit=_EVENT_RATE_LIMIT,
+        window_s=_EVENT_RATE_WINDOW_S,
+        last_reap_attr="_last_event_reap",
+    )
 
 
 def _is_like_rate_limited(client_ip: str) -> bool:
-    """Return True if the IP has exceeded the like/unlike rate limit."""
-    global _last_like_reap
-    now = time.monotonic()
-    window_start = now - _LIKE_RATE_WINDOW_S
-    timestamps = _ip_like_timestamps[client_ip]
-    # Prune old entries
-    _ip_like_timestamps[client_ip] = [t for t in timestamps if t > window_start]
-    if len(_ip_like_timestamps[client_ip]) >= _LIKE_RATE_LIMIT:
-        return True
-    _ip_like_timestamps[client_ip].append(now)
-
-    # Periodically reap keys with empty timestamp lists to prevent unbounded dict growth
-    if now - _last_like_reap > _LIKE_REAP_INTERVAL_S:
-        _last_like_reap = now
-        stale = [k for k, v in _ip_like_timestamps.items() if not v]
-        for k in stale:
-            del _ip_like_timestamps[k]
-
-    return False
+    return _is_ip_rate_limited(
+        client_ip,
+        store=_like_store,
+        limit=_LIKE_RATE_LIMIT,
+        window_s=_LIKE_RATE_WINDOW_S,
+        last_reap_attr="_last_like_reap",
+    )
 
 
 def get_device_type(user_agent: str) -> str:
@@ -67,11 +121,23 @@ def get_device_type(user_agent: str) -> str:
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP address from request, considering proxies."""
-    # Check for forwarded headers (reverse proxy)
+    """Extract the real client IP, trusting only ``settings.TRUSTED_PROXY_HOPS``
+    proxies in front of us.
+
+    X-Forwarded-For is a comma-separated chain APPENDED-TO by each proxy:
+    ``client, proxy1, proxy2``. The right-most entry that we DON'T trust is
+    the real client. With ``TRUSTED_PROXY_HOPS=1`` (Railway default) we trust
+    one hop, so the rightmost untrusted hop = the second-from-right entry
+    (the real client, with the trusted proxy's IP tacked on at the right).
+    """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        # Index from the right: 0 = closest trusted proxy, 1 = the real client
+        # when we trust 1 hop. Clamp to the leftmost entry if the client chain
+        # is shorter than the configured hop count (e.g. direct connection).
+        idx = max(0, len(hops) - 1 - settings.TRUSTED_PROXY_HOPS)
+        return hops[idx]
 
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
@@ -107,7 +173,7 @@ def normalize_event_type(event_type: str, event_data: dict) -> str:
     return normalized
 
 
-@router.get("/tours/{tour_id}", response_model=TourWithScenes)
+@router.get("/tours/{tour_id}", response_model=TourWithScenes, summary="Get public tour")
 async def get_public_tour(
     tour_id: str,
     request: Request,
@@ -128,6 +194,17 @@ async def get_public_tour(
     Returns the complete tour structure including scenes and hotspots,
     ordered by scene order_index.
     """
+    # Validate UUID format before hitting the DB.
+    # PostgreSQL will throw DataError (→ 500) if an invalid string is passed
+    # to a UUID column. Return 404 early to keep this side-effect-free.
+    try:
+        _uuid.UUID(tour_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tour not found",
+        ) from None
+
     # Query tour with scenes and hotspots
     query = select(Tour).where(
         and_(
@@ -210,7 +287,7 @@ async def get_public_tour(
     return payload
 
 
-@router.get("/tours/{tour_id}/scenes")
+@router.get("/tours/{tour_id}/scenes", summary="Get public tour scenes")
 async def get_public_tour_scenes(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -252,7 +329,7 @@ async def get_public_tour_scenes(
     return scenes
 
 
-@router.post("/tours/{tour_id}/events")
+@router.post("/tours/{tour_id}/events", summary="Track tour event")
 async def track_tour_event(
     tour_id: str,
     request: Request,
@@ -275,6 +352,14 @@ async def track_tour_event(
 
     This endpoint does not require authentication.
     """
+    # Rate-limit per IP to prevent analytics table flooding
+    client_ip = get_client_ip(request)
+    if _is_event_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Event rate limit exceeded. Try again later.",
+        )
+
     # Validate event type
     if payload:
         event_type = payload.event_type
@@ -306,8 +391,6 @@ async def track_tour_event(
         "session_start",
         "session_end",
         "session_duration",
-        "like",
-        "unlike",
     }
     if event_type not in allowed_events:
         raise HTTPException(
@@ -366,7 +449,7 @@ async def track_tour_event(
         ) from e
 
 
-@router.post("/tours/{tour_id}/like")
+@router.post("/tours/{tour_id}/like", summary="Like tour")
 async def like_tour(
     tour_id: str,
     request: Request,
@@ -432,7 +515,7 @@ async def like_tour(
     return {"like_count": new_like_count}
 
 
-@router.delete("/tours/{tour_id}/like")
+@router.delete("/tours/{tour_id}/like", summary="Unlike tour")
 async def unlike_tour(
     tour_id: str,
     request: Request,

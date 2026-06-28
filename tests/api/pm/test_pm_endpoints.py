@@ -5,7 +5,8 @@ These tests verify PM-related API endpoints work correctly.
 They mock the service layer to isolate endpoint testing.
 """
 
-from datetime import date
+from __future__ import annotations
+
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,13 +50,16 @@ class TestPMDashboardEndpoints:
             "app.services.pm_dashboard.get_recent_activity",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = []
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/dashboard/activity"
             )
 
             assert response.status_code == 200
+            body = response.json()
+            assert "items" in body
+            assert "has_more" in body
 
 
 class TestPMLeaseEndpoints:
@@ -63,18 +67,22 @@ class TestPMLeaseEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_leases(self, authenticated_client: AsyncClient):
-        """Test listing leases."""
+        """Test listing leases returns cursor-paginated envelope."""
         with patch(
             "app.services.pm_leases.list_leases",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = []
+            # list_leases now returns (rows, next_payload, count_total)
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/leases/"
             )
 
             assert response.status_code == 200
+            body = response.json()
+            assert "items" in body
+            assert "has_more" in body
 
     @pytest.mark.asyncio
     async def test_list_leases_unauthorized(self, client: AsyncClient):
@@ -93,7 +101,7 @@ class TestPMRentEndpoints:
             "app.services.pm_rent.list_rent_charges",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = []
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/rent/charges"
@@ -118,7 +126,7 @@ class TestPMMaintenanceEndpoints:
             "app.services.pm_maintenance.list_maintenance_requests",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = []
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/maintenance/requests"
@@ -138,18 +146,21 @@ class TestPMTenantEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_tenants(self, authenticated_client: AsyncClient):
-        """Test listing tenants."""
+        """Test listing tenants returns cursor-paginated envelope."""
         with patch(
             "app.services.pm_tenants.list_tenants",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = []
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/tenants/"
             )
 
             assert response.status_code == 200
+            body = response.json()
+            assert "items" in body
+            assert "has_more" in body
 
     @pytest.mark.asyncio
     async def test_list_tenants_unauthorized(self, client: AsyncClient):
@@ -168,7 +179,7 @@ class TestPMExpenseEndpoints:
             "app.services.pm_expenses.list_expenses",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = []
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/pm/expenses/"

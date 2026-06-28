@@ -348,7 +348,7 @@ async def _ensure_match(
     if match:
         if context_property_id is not None:
             match.context_property_id = context_property_id
-        if match.status != UserMatchStatus.active.value:
+        if match.status != UserMatchStatus.active:
             match.status = UserMatchStatus.active
         return match
 

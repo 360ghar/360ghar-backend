@@ -2,11 +2,15 @@
 End-to-end tests for property listing flow.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
+
+from app.schemas.property import Property
 
 
 def create_mock_property_dict(
@@ -59,7 +63,7 @@ class TestPropertyListingFlow:
         self, authenticated_client: AsyncClient
     ):
         """Test creating a property and seeing it in listings."""
-        from unittest.mock import MagicMock, NonCallableMock
+        from unittest.mock import NonCallableMock
 
         # Step 1: Create property - need to return object with .id attribute
         # Use NonCallableMock with spec to avoid auto-generated attributes
@@ -158,12 +162,11 @@ class TestPropertyListingFlow:
             "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = {
-                "items": [create_mock_property_dict(property_id=1)],
-                "total": 1,
-                "page": 1,
-                "limit": 20,
-            }
+            mock_list.return_value = (
+                [create_mock_property_dict(property_id=1)],
+                None,
+                1,
+            )
 
             response = await authenticated_client.get("/api/v1/properties/")
 
@@ -180,12 +183,7 @@ class TestPropertySearchFlow:
             "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
             new_callable=AsyncMock,
         ) as mock_search:
-            mock_search.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-            }
+            mock_search.return_value = ([], None, 0)
 
             response = await client.get(
                 "/api/v1/properties/",
@@ -205,12 +203,7 @@ class TestPropertySearchFlow:
             "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
             new_callable=AsyncMock,
         ) as mock_search:
-            mock_search.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-            }
+            mock_search.return_value = ([], None, 0)
 
             response = await client.get(
                 "/api/v1/properties/",
@@ -236,9 +229,11 @@ class TestPropertyViewFlow:
         with patch(
             "app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock
         ) as mock_get:
-            mock_get.return_value = create_mock_property_dict(
-                property_id=test_property.id,
-                title=test_property.title,
+            mock_get.return_value = Property.model_validate(
+                create_mock_property_dict(
+                    property_id=test_property.id,
+                    title=test_property.title,
+                )
             )
 
             with patch(
@@ -255,9 +250,11 @@ class TestPropertyViewFlow:
         with patch(
             "app.api.api_v1.endpoints.properties.get_property", new_callable=AsyncMock
         ) as mock_get:
-            mock_get.return_value = create_mock_property_dict(
-                property_id=test_property.id,
-                title=test_property.title,
+            mock_get.return_value = Property.model_validate(
+                create_mock_property_dict(
+                    property_id=test_property.id,
+                    title=test_property.title,
+                )
             )
 
             with patch(
@@ -297,13 +294,7 @@ class TestPropertySwipeFlow:
         with patch(
             "app.api.api_v1.endpoints.swipes.get_swipe_history", new_callable=AsyncMock
         ) as mock_history:
-            mock_history.return_value = {
-                "items": [],
-                "total": 1,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 1,
-            }
+            mock_history.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/swipes/",

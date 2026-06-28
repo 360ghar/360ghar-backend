@@ -5,13 +5,12 @@ These tests require a real database with PostGIS extension.
 Marked with @pytest.mark.postgis.
 """
 
-from unittest.mock import MagicMock
 
 import pytest
 
 from app.models.enums import PropertyPurpose, PropertyType
-from app.schemas.property import UnifiedPropertyFilter
 from app.repositories.property_query_builder import PropertyQueryBuilder
+from app.schemas.property import UnifiedPropertyFilter
 
 
 class TestPropertyQueryBuilderInit:

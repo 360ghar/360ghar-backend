@@ -17,6 +17,7 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
+from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload, read_offset
 
 logger = get_logger(__name__)
 
@@ -43,7 +44,7 @@ async def owner_maintenance_list(
     property_id: int | None = None,
     status: str | None = None,
     priority: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List maintenance requests for the authenticated owner's properties."""
@@ -56,7 +57,8 @@ async def owner_maintenance_list(
         from app.models.properties import Property
 
         limit = min(max(1, limit), 50)
-        page = max(1, page)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
+        offset = read_offset(cursor_payload)
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -120,7 +122,7 @@ async def owner_maintenance_list(
                     stmt = stmt.where(MaintenanceRequest.urgency == urgency)
 
             stmt = stmt.order_by(MaintenanceRequest.created_at.desc())
-            stmt = stmt.offset((page - 1) * limit).limit(limit)
+            stmt = stmt.offset(offset).limit(limit)
 
             result = await db.execute(stmt)
             requests = result.scalars().all()
@@ -131,13 +133,16 @@ async def owner_maintenance_list(
             open_count = sum(1 for r in serialized if r["status"] in ("open", "in_progress"))
             urgent_count = sum(1 for r in serialized if r["priority"] == "urgent")
 
+            # Compute next cursor (offset-based) if this page was full
+            next_payload = offset_payload(offset + len(serialized)) if len(serialized) >= limit else None
+
             return format_chatgpt_response(
                 data={
                     "items": serialized,
                     "total": len(serialized),
-                    "page": page,
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
-                    "total_pages": (len(serialized) + limit - 1) // limit if serialized else 0,
                     "stats": {
                         "open": open_count,
                         "urgent": urgent_count,

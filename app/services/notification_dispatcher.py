@@ -276,7 +276,7 @@ def _build_segment_statements(
     if agent_id is not None:
         conditions.append(UserModel.agent_id == agent_id)
     if is_active is not None:
-        conditions.append(UserModel.is_active == is_active)
+        conditions.append(UserModel.is_active.is_(is_active))
     if conditions:
         stmt = stmt.where(*conditions)
         count_stmt = count_stmt.where(*conditions)

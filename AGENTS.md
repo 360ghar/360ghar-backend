@@ -14,10 +14,22 @@ This repository uses repo-local docs as the source of truth for contributors and
 docker-compose up -d db redis
 uv run python run.py
 uv run pytest tests/ -v
-uv run python scripts/validate_docs_contracts.py
 ```
 
 > **Note:** Dev dependencies (pytest, ruff, mypy) are in the `dev` optional group. Install with `uv sync --extra dev`.
+
+## Database Migrations
+
+Use `scripts/run_supabase_migrations.py` to apply SQL migrations against the remote Supabase database. Do **not** use `supabase db push` for remote databases — that command is for local development.
+
+```bash
+uv run python scripts/run_supabase_migrations.py              # apply all pending
+uv run python scripts/run_supabase_migrations.py --dry-run    # preview only
+uv run python scripts/run_supabase_migrations.py --file <filename>.sql  # single file
+uv run python scripts/run_supabase_migrations.py --env .env.prod  # use a different env file
+```
+
+The script tracks applied versions in a `schema_migrations` table, making it idempotent.
 
 ## Database Safety Rules
 
@@ -54,7 +66,7 @@ uv run python scripts/validate_docs_contracts.py
 - New service modules must follow existing naming conventions, keep I/O async when touching the database, and be registered in `docs/repo-contract.json`.
 - New MCP tools, widget bindings, or AI-agent tool bridges must update the architecture and terminology docs when they add a new public surface or execution pattern.
 - New background jobs or schedulers must be wired through `app/infrastructure/lifespan.py` startup, register their jobs on the shared scheduler from `app/infrastructure/scheduler.py`, and be documented in the architecture contract. Do not create new `AsyncIOScheduler` instances — use `get_scheduler()` to add jobs.
-- Do not add new dependencies without checking current upstream documentation and compatibility with Python 3.10+, FastAPI, SQLAlchemy 2.x, and Pydantic v2.
+- Do not add new dependencies without checking current upstream documentation and compatibility with Python 3.12+, FastAPI, SQLAlchemy 2.x, and Pydantic v2.
 - New outbound HTTP call sites must use the shared httpx clients from `app/core/http.py` (`get_scraper_client()`, `get_blog_client()`, `get_general_client()`, `get_supabase_auth_http_client()`) instead of creating ephemeral `async with httpx.AsyncClient()` per request. Use per-request `timeout=` overrides when the call needs a different timeout than the client default.
 
 ## Use Latest Versions & References
@@ -128,3 +140,26 @@ All code must pass `uv run ruff check app/` before commit. The CI `lint` job enf
 - New is_seed_data column on a model
 - Changes to media upload workflow (buckets, paths, optimization)
 - If any item changed, update the relevant doc in `docs/` and `docs/repo-contract.json`
+
+## Documentation Maintenance Policy
+
+The `.wiki/` directory is the canonical project wiki and must stay in sync with the codebase. After any change that affects the following, update the corresponding wiki page(s) in the same commit or PR:
+
+| Change type | Wiki page to update |
+|-------------|---------------------|
+| New/modified REST endpoint or router | `.wiki/api/index.md`, relevant `.wiki/features/*.md` |
+| New/modified service module | `.wiki/systems/services-layer.md`, relevant `.wiki/features/*.md` |
+| New MCP tool or widget | `.wiki/features/mcp-servers.md` |
+| New/modified SQLAlchemy model or enum | `.wiki/systems/models.md`, `.wiki/reference/data-models.md` |
+| New scheduler or background job | `.wiki/systems/infrastructure.md` |
+| New shared httpx client domain | `.wiki/systems/core-cross-cutting.md` |
+| New notification type | `.wiki/features/notifications.md` |
+| New SSE event type | `.wiki/systems/core-cross-cutting.md` |
+| New environment variable | `.wiki/reference/configuration.md` |
+| New dependency | `.wiki/reference/dependencies.md` |
+| Architectural decision | `.wiki/background/design-decisions.md` |
+| Seed data changes | relevant `.wiki/features/*.md` |
+
+When updating the video, edit `.wiki/video/src/scenes/`, run `./.wiki/video/render.sh`, and commit the new `overview.mp4` (Git LFS handles storage).
+
+The GitHub Actions workflow at `.github/workflows/wiki.yml` auto-publishes `.wiki/` to the GitHub wiki tab on every push to `main`. No manual wiki editing is needed.

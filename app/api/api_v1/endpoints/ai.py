@@ -7,6 +7,7 @@ This module provides REST API endpoints for AI-powered features:
 - Description generation
 - AI job management
 """
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,8 +15,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
-    AIJobListResponse,
+    AIJobBase,
     AIJobResponse,
     AIJobStatusResponse,
     ApplyHotspotSuggestions,
@@ -38,7 +40,7 @@ logger = get_logger(__name__)
 # Scene Analysis
 # ====================
 
-@router.post("/tours/{tour_id}/analyze", response_model=AIJobResponse)
+@router.post("/tours/{tour_id}/analyze", response_model=AIJobResponse, summary="Analyze tour scenes")
 async def analyze_tour_scenes(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -62,7 +64,7 @@ async def analyze_tour_scenes(
 # Tour Generation & Optimization
 # ====================
 
-@router.post("/tours/generate", response_model=TourGenerationResponse)
+@router.post("/tours/generate", response_model=TourGenerationResponse, summary="Generate tour")
 async def generate_tour(
     images: list[UploadFile] = File(..., description="360 panorama images to create tour from"),
     title: str | None = Form(None, max_length=255, description="Tour title"),
@@ -136,7 +138,7 @@ async def generate_tour(
     return {"job": job, "tour_id": tour.id, "scene_ids": scene_ids}
 
 
-@router.post("/tours/{tour_id}/optimize", response_model=TourOptimizationResponse)
+@router.post("/tours/{tour_id}/optimize", response_model=TourOptimizationResponse, summary="Optimize tour")
 async def optimize_tour(
     tour_id: str,
     payload: TourOptimizationRequest | None = None,
@@ -155,7 +157,7 @@ async def optimize_tour(
     return {"job": job}
 
 
-@router.post("/scenes/{scene_id}/analyze", response_model=AIJobResponse)
+@router.post("/scenes/{scene_id}/analyze", response_model=AIJobResponse, summary="Analyze scene")
 async def analyze_scene(
     scene_id: str,
     db: AsyncSession = Depends(get_db),
@@ -178,7 +180,7 @@ async def analyze_scene(
 # Hotspot Suggestions
 # ====================
 
-@router.post("/scenes/{scene_id}/hotspots", response_model=AIJobResponse)
+@router.post("/scenes/{scene_id}/hotspots", response_model=AIJobResponse, summary="Suggest scene hotspots")
 async def suggest_scene_hotspots(
     scene_id: str,
     db: AsyncSession = Depends(get_db),
@@ -197,7 +199,7 @@ async def suggest_scene_hotspots(
     return {"job": job}
 
 
-@router.post("/tours/{tour_id}/hotspots", response_model=AIJobResponse)
+@router.post("/tours/{tour_id}/hotspots", response_model=AIJobResponse, summary="Suggest tour hotspots")
 async def suggest_tour_hotspots(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -220,7 +222,7 @@ async def suggest_tour_hotspots(
 # Description Generation
 # ====================
 
-@router.post("/scenes/{scene_id}/description", response_model=AIJobResponse)
+@router.post("/scenes/{scene_id}/description", response_model=AIJobResponse, summary="Generate scene description")
 async def generate_scene_description(
     scene_id: str,
     options: DescriptionOptions | None = None,
@@ -241,7 +243,7 @@ async def generate_scene_description(
     return {"job": job}
 
 
-@router.post("/tours/{tour_id}/descriptions", response_model=AIJobResponse)
+@router.post("/tours/{tour_id}/descriptions", response_model=AIJobResponse, summary="Generate tour descriptions")
 async def generate_tour_descriptions(
     tour_id: str,
     options: DescriptionOptions | None = None,
@@ -266,30 +268,35 @@ async def generate_tour_descriptions(
 # AI Job Management
 # ====================
 
-@router.get("/jobs", response_model=AIJobListResponse)
+@router.get("/jobs", response_model=CursorPage[AIJobBase], summary="List AI jobs")
 async def list_ai_jobs(
     status_filter: str | None = Query(None, alias="status", description="Filter by status"),
-    limit: int = Query(20, ge=1, le=100, description="Items to return"),
-    offset: int = Query(0, ge=0, description="Items to skip"),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """
     List AI processing jobs for the current user.
 
-    Returns jobs with optional status filtering and pagination.
+    Returns jobs with optional status filtering and cursor pagination.
     """
-    result = await tour_ai.get_user_ai_jobs(
+    rows, next_payload, total = await tour_ai.get_user_ai_jobs(
         db=db,
         user_id=current_user.id,
         status_filter=status_filter,
-        limit=limit,
-        offset=offset,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
-    return result
+    return build_cursor_page(
+        [AIJobBase.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.get("/jobs/{job_id}", response_model=AIJobStatusResponse)
+@router.get("/jobs/{job_id}", response_model=AIJobStatusResponse, summary="Get AI job")
 async def get_ai_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
@@ -308,7 +315,7 @@ async def get_ai_job(
     return {"job": job, "result": job.result}
 
 
-@router.post("/jobs/{job_id}/cancel")
+@router.post("/jobs/{job_id}/cancel", summary="Cancel AI job")
 async def cancel_ai_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
@@ -331,7 +338,7 @@ async def cancel_ai_job(
 # Apply Suggestions
 # ====================
 
-@router.post("/tours/{tour_id}/apply-analysis")
+@router.post("/tours/{tour_id}/apply-analysis", summary="Apply scene analysis")
 async def apply_scene_analysis(
     tour_id: str,
     data: ApplySceneAnalysis,
@@ -352,7 +359,7 @@ async def apply_scene_analysis(
     return {"updated": updated}
 
 
-@router.post("/scenes/{scene_id}/apply-hotspots", response_model=dict)
+@router.post("/scenes/{scene_id}/apply-hotspots", response_model=dict, summary="Apply hotspot suggestions")
 async def apply_hotspot_suggestions(
     scene_id: str,
     data: ApplyHotspotSuggestions,

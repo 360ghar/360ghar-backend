@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 from collections.abc import AsyncGenerator
 
@@ -86,6 +88,7 @@ bg_engine = create_async_engine(settings.ASYNC_DATABASE_URL, **_bg_engine_kwargs
 # ── Slow-checkout logging ──────────────────────────────────────────────────────
 _SLOW_CHECKOUT_THRESHOLD_S = 5.0
 _SESSION_HOLD_WARN_S = 30.0
+_disposing = False  # set True during engine.dispose() to suppress teardown noise
 
 
 def _on_checkout(dbapi_conn, connection_record, connection_proxy):
@@ -94,6 +97,8 @@ def _on_checkout(dbapi_conn, connection_record, connection_proxy):
 
 def _make_checkin_logger(pool_label: str, pool):
     def _on_checkin(dbapi_conn, connection_record):
+        if _disposing:
+            return
         start = connection_record.info.pop("_checkout_start", None)
         if start is not None:
             elapsed = time.monotonic() - start
@@ -152,8 +157,14 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
         else:
-            # Commit only if no exception occurred during the request
-            await session.commit()
+            # Commit only if the session actually has pending changes.
+            # Read-only requests (GETs, detail views) should not force a
+            # write transaction against the database / PgBouncer. Services
+            # that explicitly call ``await session.commit()`` are unaffected
+            # because by the time we reach this branch those changes have
+            # already been committed and the session is clean.
+            if session.new or session.dirty or session.deleted:
+                await session.commit()
         finally:
             hold_time = time.monotonic() - session_start
             if hold_time > _SESSION_HOLD_WARN_S:
@@ -181,7 +192,15 @@ async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
             raise
         else:
-            await session.commit()
+            # Only commit if the background task actually mutated state.
+            if session.new or session.dirty or session.deleted:
+                await session.commit()
+
+
+def mark_engines_disposing() -> None:
+    """Suppress slow-checkout warnings during engine.dispose() teardown."""
+    global _disposing
+    _disposing = True
 
 
 def get_async_session_factory():

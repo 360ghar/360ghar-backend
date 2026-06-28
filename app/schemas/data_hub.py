@@ -11,7 +11,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.enums import AuctionSource, ComplaintNature, GazetteType, ScraperStatus
-from app.schemas.common import PaginatedResponse
 
 # ---------------------------------------------------------------------------
 # Shared meta schema
@@ -42,13 +41,6 @@ class CircleRateResponse(BaseModel):
     last_scraped_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class CircleRateListResponse(PaginatedResponse):
-    items: list[CircleRateResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -84,13 +76,6 @@ class ReraProjectResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class ReraProjectListResponse(PaginatedResponse):
-    items: list[ReraProjectResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # ---------------------------------------------------------------------------
 # 3. Bank Auctions
 # ---------------------------------------------------------------------------
@@ -120,13 +105,6 @@ class BankAuctionResponse(BaseModel):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
-class AuctionListResponse(PaginatedResponse):
-    items: list[BankAuctionResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -179,13 +157,6 @@ class BankRateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class BankRateListResponse(PaginatedResponse):
-    items: list[BankRateResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # ---------------------------------------------------------------------------
 # 6. Jamabandi (land records) — request + response (no ORM model)
 # ---------------------------------------------------------------------------
@@ -234,13 +205,6 @@ class ZoningDataResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class ZoningDataListResponse(PaginatedResponse):
-    items: list[ZoningDataResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # ---------------------------------------------------------------------------
 # 8. Colony Approvals
 # ---------------------------------------------------------------------------
@@ -263,13 +227,6 @@ class ColonyApprovalResponse(BaseModel):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
-class ColonyApprovalListResponse(PaginatedResponse):
-    items: list[ColonyApprovalResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -297,13 +254,6 @@ class GazetteNotificationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
-class GazetteNotificationListResponse(PaginatedResponse):
-    items: list[GazetteNotificationResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 # ---------------------------------------------------------------------------
 # 10. RERA Complaints
 # ---------------------------------------------------------------------------
@@ -328,13 +278,6 @@ class ReraComplaintResponse(BaseModel):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
-
-
-class ReraComplaintListResponse(PaginatedResponse):
-    items: list[ReraComplaintResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
-
-    model_config = ConfigDict(from_attributes=True)
 
 
 # ---------------------------------------------------------------------------
@@ -454,12 +397,5 @@ class BuilderReputationResponse(BaseModel):
     builder_score: float
     rera_projects: list[ReraProjectResponse]
     recent_complaints: list[ReraComplaintResponse]
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class BuilderListResponse(PaginatedResponse):
-    items: list[BuilderReputationResponse]
-    meta: DataHubMeta = Field(default_factory=DataHubMeta)
 
     model_config = ConfigDict(from_attributes=True)

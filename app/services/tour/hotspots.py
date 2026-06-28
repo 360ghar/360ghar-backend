@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException, HotspotNotFoundException
+from app.core.exceptions import BadRequestException, ForbiddenException, HotspotNotFoundException
 from app.core.logging import get_logger
 from app.models.enums import HotspotType
 from app.models.tours import Hotspot, Scene
@@ -49,6 +49,9 @@ async def get_hotspot(db: AsyncSession, hotspot_id: str, user_id: int | None = N
 
     if not hotspot:
         raise HotspotNotFoundException()
+
+    if user_id is not None and hotspot.scene.tour.user_id != user_id:
+        raise ForbiddenException(detail="You don't have access to this hotspot")
 
     return hotspot
 
@@ -106,10 +109,7 @@ async def update_hotspot(
 ) -> Hotspot:
     """Update a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
-
-    # Get scene for permission check
-    scene = await get_scene(db, hotspot.scene_id, user_id)
-    _ensure_scene_ownership(scene, user_id, "update hotspots in")
+    scene = hotspot.scene  # Already eager-loaded by get_hotspot
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -157,9 +157,6 @@ async def delete_hotspot(db: AsyncSession, hotspot_id: str, user_id: int) -> boo
     """Delete a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
 
-    scene = await get_scene(db, hotspot.scene_id, user_id)
-    _ensure_scene_ownership(scene, user_id, "delete hotspots from")
-
     await db.delete(hotspot)
     await db.commit()
 
@@ -172,9 +169,6 @@ async def update_hotspot_position(
 ) -> Hotspot:
     """Update only the position of a hotspot."""
     hotspot = await get_hotspot(db, hotspot_id, user_id)
-
-    scene = await get_scene(db, hotspot.scene_id, user_id)
-    _ensure_scene_ownership(scene, user_id, "update hotspots in")
 
     # Update position while preserving radius if it exists
     current_position = hotspot.position or {}

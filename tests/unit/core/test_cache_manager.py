@@ -14,6 +14,24 @@ from app.core.cache.manager import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _restore_global_cache_manager():
+    """Restore the global cache manager singleton after each test.
+
+    Several tests in this module mutate ``app.core.cache._cache_manager``
+    directly (or via ``set_cache_manager``). Without restoring it, the leaked
+    ``MagicMock`` becomes the global manager for the rest of the suite, breaking
+    unrelated tests that await its async methods.
+    """
+    import app.core.cache as cache_module
+
+    original = cache_module._cache_manager
+    try:
+        yield
+    finally:
+        cache_module._cache_manager = original
+
+
 class TestNullCacheBackend:
     """Tests for NullCacheBackend."""
 
@@ -321,6 +339,22 @@ class TestCacheManager:
 
 class TestCacheModuleFunctions:
     """Tests for cache module-level functions."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_global_cache_manager(self):
+        """Reset the module-level singleton before and after each test.
+
+        Several tests below swap in a MagicMock as the global ``_cache_manager``.
+        Without this teardown the mock leaks into the rest of the process and
+        breaks unrelated async API tests that hit the real cache (the mock's
+        coroutine-returning methods are not awaitable).
+        """
+        import app.core.cache as cache_module
+
+        original = cache_module._cache_manager
+        cache_module._cache_manager = None
+        yield
+        cache_module._cache_manager = original
 
     def test_get_cache_manager_creates_singleton(self):
         """Test get_cache_manager returns singleton."""

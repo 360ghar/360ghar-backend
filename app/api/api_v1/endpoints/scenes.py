@@ -5,7 +5,7 @@ This module provides REST API endpoints for managing scenes within virtual tours
 including CRUD operations and hotspot management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -24,7 +24,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/{scene_id}", response_model=Scene)
+@router.get("/{scene_id}", response_model=Scene, summary="Get scene")
 async def get_scene(
     scene_id: str,
     db: AsyncSession = Depends(get_db),
@@ -36,8 +36,8 @@ async def get_scene(
     return await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
 
 
-@router.put("/{scene_id}", response_model=Scene)
-@router.patch("/{scene_id}", response_model=Scene)
+@router.put("/{scene_id}", response_model=Scene, summary="Update scene")
+@router.patch("/{scene_id}", response_model=Scene, summary="Update scene")
 async def update_scene(
     scene_id: str,
     scene_data: SceneUpdate,
@@ -63,7 +63,7 @@ async def update_scene(
     return scene
 
 
-@router.delete("/{scene_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{scene_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete scene")
 async def delete_scene(
     scene_id: str,
     db: AsyncSession = Depends(get_db),
@@ -88,11 +88,12 @@ async def delete_scene(
 
 
 # Hotspot endpoints nested under scenes
-@router.get("/{scene_id}/hotspots", response_model=list[Hotspot])
+@router.get("/{scene_id}/hotspots", response_model=list[Hotspot], summary="List scene hotspots")
 async def list_hotspots(
     scene_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
+    limit: int = Query(100, le=100, description="Max hotspots to return (hard cap 100)"),
 ):
     """
     List all hotspots for a scene.
@@ -103,10 +104,10 @@ async def list_hotspots(
     await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
 
     hotspots = await tour_service.get_hotspots(db=db, scene_id=scene_id)
-    return hotspots
+    return hotspots[:limit]
 
 
-@router.post("/{scene_id}/hotspots", response_model=Hotspot, status_code=status.HTTP_201_CREATED)
+@router.post("/{scene_id}/hotspots", response_model=Hotspot, status_code=status.HTTP_201_CREATED, summary="Create scene hotspot")
 async def create_hotspot(
     scene_id: str,
     hotspot_data: HotspotCreate,

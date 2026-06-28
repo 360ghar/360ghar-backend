@@ -1,15 +1,18 @@
+from __future__ import annotations
+
 import hashlib
 import logging
 import re
 import unicodedata
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from datetime import date
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
 if TYPE_CHECKING:
-    pass
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +43,75 @@ def generate_slug(*parts: str) -> str:
     slug = re.sub(r"[\s_]+", "-", slug)
     slug = re.sub(r"-+", "-", slug)
     return slug.strip("-")
+
+
+# Columns excluded from the upsert values dict.
+_BANK_AUCTION_SKIP = {"id", "created_at", "updated_at"}
+
+# Unique constraint columns for BankAuction upserts.
+BANK_AUCTION_INDEX_ELEMENTS = ["bank_name", "normalized_address_hash", "auction_date"]
+
+# Default set_ fields for BankAuction upsert (5 columns).
+BANK_AUCTION_DEFAULT_SET: dict[str, Any] = {
+    "reserve_price": "excluded",
+    "emd_amount": "excluded",
+    "raw_data": "excluded",
+    "is_active": True,
+    "source_url": "excluded",
+}
+
+# Extended set_ fields for BankAuction upsert (8 columns, used by DDA/HSVP).
+BANK_AUCTION_EXTENDED_SET: dict[str, Any] = {
+    **BANK_AUCTION_DEFAULT_SET,
+    "property_type": "excluded",
+    "area_sqft": "excluded",
+    "locality": "excluded",
+}
+
+
+async def upsert_bank_auction(
+    db: AsyncSession,
+    rec: dict[str, Any],
+    set_fields: dict[str, Any] | None = None,
+) -> None:
+    """Upsert a single BankAuction record.
+
+    Args:
+        db: Database session.
+        rec: Record dict with BankAuction column values.
+        set_fields: Fields to update on conflict. Values of "excluded" map to
+            stmt.excluded.<col>; other values are used as literals.
+            Defaults to BANK_AUCTION_DEFAULT_SET.
+
+    Raises:
+        Exception: On database errors (caller should handle rollback).
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.data_hub import BankAuction
+
+    if set_fields is None:
+        set_fields = BANK_AUCTION_DEFAULT_SET
+
+    rec.setdefault("is_active", True)
+    rec.setdefault("auction_date", date(1970, 1, 1))
+
+    stmt = pg_insert(BankAuction).values(
+        **{k: v for k, v in rec.items() if hasattr(BankAuction, k) and k not in _BANK_AUCTION_SKIP}
+    )
+
+    resolved_set: dict[str, Any] = {}
+    for key, val in set_fields.items():
+        if val == "excluded":
+            resolved_set[key] = getattr(stmt.excluded, key)
+        else:
+            resolved_set[key] = val
+
+    stmt = stmt.on_conflict_do_update(
+        index_elements=BANK_AUCTION_INDEX_ELEMENTS,
+        set_=resolved_set,
+    )
+    await db.execute(stmt)
 
 
 def extract_pdf_text(pdf_bytes: bytes) -> str:
@@ -223,6 +295,8 @@ def _parse_notice_list_items(
             continue
 
         href = link["href"]
+        if isinstance(href, list):
+            href = href[0] if href else ""
         full_url = urljoin(base_url, href)
 
         # Try to extract details from the link text

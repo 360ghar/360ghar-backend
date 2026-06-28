@@ -12,28 +12,33 @@ from app.core.cache import cached
 from app.core.database import get_db
 from app.models.data_hub import BankRate, CircleRate
 from app.schemas.data_hub import (
-    CircleRateListResponse,
     CircleRateResponse,
     StampDutyCalculationRequest,
     StampDutyCalculationResponse,
+)
+from app.schemas.pagination import (
+    CursorPage,
+    CursorParams,
+    build_cursor_page,
+    offset_payload,
+    read_offset,
 )
 from app.services.data_hub.utils import (
     calculate_registration_fee,
     calculate_stamp_duty,
 )
 
-from .helpers import _STAMP_DUTY_RATES, _paginate, _safe_list_query
+from .helpers import _STAMP_DUTY_RATES, _safe_list_query
 
 router = APIRouter()
 
 
-@router.get("/circle-rates", response_model=CircleRateListResponse)
+@router.get("/circle-rates", response_model=CursorPage[CircleRateResponse], summary="List circle rates")
 async def list_circle_rates(
     sector: str | None = Query(None),
     year: int | None = Query(None),
     property_type: str | None = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List circle rates with optional filters."""
@@ -51,13 +56,15 @@ async def list_circle_rates(
         count_q = count_q.where(and_(*filters))
         data_q = data_q.where(and_(*filters))
 
-    offset = (page - 1) * limit
-    rows, total, meta = await _safe_list_query(db, CircleRate, count_q, data_q, offset, limit, page)
-    return {
-        "items": rows,
-        "meta": meta,
-        **_paginate(total, page, limit),
-    }
+    cursor_payload = page.decoded()
+    offset = read_offset(cursor_payload)
+    rows, total = await _safe_list_query(
+        db, CircleRate, count_q, data_q, offset, page.limit, with_total=page.include_total
+    )
+    has_more = len(rows) > page.limit
+    items = rows[: page.limit]
+    next_payload = offset_payload(offset + page.limit) if has_more else None
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 @cached("datahub:circle-rate-sectors", ttl=settings.CACHE_TTL_AMENITIES)
@@ -71,13 +78,13 @@ async def list_circle_rate_sectors_cached(db: AsyncSession) -> list[str]:
     return [r for r in result.scalars().all() if r]
 
 
-@router.get("/circle-rates/sectors", response_model=list[str])
+@router.get("/circle-rates/sectors", response_model=list[str], summary="List circle rate sectors")
 async def list_circle_rate_sectors(db: AsyncSession = Depends(get_db)):
     """List distinct sector names from circle rates (cached for 24 hours)."""
     return await list_circle_rate_sectors_cached(db)
 
 
-@router.post("/circle-rates/calculate-duty", response_model=StampDutyCalculationResponse)
+@router.post("/circle-rates/calculate-duty", response_model=StampDutyCalculationResponse, summary="Calculate stamp duty")
 async def calculate_duty_from_circle_rates(
     req: StampDutyCalculationRequest,
     db: AsyncSession = Depends(get_db),
@@ -116,7 +123,7 @@ async def calculate_duty_from_circle_rates(
     )
 
 
-@router.get("/circle-rates/{slug}", response_model=CircleRateResponse)
+@router.get("/circle-rates/{slug}", response_model=CircleRateResponse, summary="Get circle rate")
 async def get_circle_rate(slug: str, db: AsyncSession = Depends(get_db)):
     """Get a single circle rate entry by slug."""
     result = await db.execute(

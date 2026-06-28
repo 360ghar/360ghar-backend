@@ -6,13 +6,12 @@ import logging
 from datetime import date
 
 from bs4 import BeautifulSoup
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
 from app.services.data_hub.utils import (
+    BANK_AUCTION_EXTENDED_SET,
     _extract_city_from_text,
     _infer_property_type,
     _parse_area_sqft,
@@ -20,6 +19,7 @@ from app.services.data_hub.utils import (
     _parse_currency,
     _parse_date,
     address_hash,
+    upsert_bank_auction,
 )
 
 logger = logging.getLogger(__name__)
@@ -282,7 +282,6 @@ class HsvpAuctionScraper(BaseScraper):
                 addr = rec.get("full_address") or rec.get("property_description", "")
                 rec["normalized_address_hash"] = address_hash(addr)
                 rec.setdefault("city", "Gurugram")
-                rec.setdefault("is_active", True)
                 # Ensure auction_date is a date object
                 if isinstance(rec.get("auction_date"), str):
                     from datetime import datetime
@@ -290,29 +289,7 @@ class HsvpAuctionScraper(BaseScraper):
                         rec["auction_date"] = datetime.fromisoformat(rec["auction_date"]).date()
                     except ValueError:
                         rec["auction_date"] = date(1970, 1, 1)
-                else:
-                    rec.setdefault("auction_date", date(1970, 1, 1))
-                stmt = pg_insert(BankAuction).values(
-                    **{
-                        k: v
-                        for k, v in rec.items()
-                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
-                    }
-                )
-                stmt = stmt.on_conflict_do_update(
-                    constraint="uq_bank_auctions_key",
-                    set_={
-                        "reserve_price": stmt.excluded.reserve_price,
-                        "emd_amount": stmt.excluded.emd_amount,
-                        "raw_data": stmt.excluded.raw_data,
-                        "is_active": True,
-                        "source_url": stmt.excluded.source_url,
-                        "property_type": stmt.excluded.property_type,
-                        "area_sqft": stmt.excluded.area_sqft,
-                        "locality": stmt.excluded.locality,
-                    },
-                )
-                await db.execute(stmt)
+                await upsert_bank_auction(db, rec, set_fields=BANK_AUCTION_EXTENDED_SET)
                 upserted += 1
             except Exception as e:
                 logger.warning("Failed to upsert HSVP auction: %s", e)

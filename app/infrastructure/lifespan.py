@@ -9,10 +9,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from sqlalchemy import text
 
 from app.config import settings
 from app.core.cache import initialize_cache, shutdown_cache
-from app.core.database import bg_engine, engine
+from app.core.database import bg_engine, engine, mark_engines_disposing
 from app.core.http import close_all_clients as close_all_http_clients
 from app.core.logging import get_logger
 from app.infrastructure.scheduler import shutdown_scheduler, start_scheduler
@@ -27,11 +28,18 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        # Enter each MCP app's lifespan in *this* server async context. The
+        # lifespan() context manager builds the concrete app and enters its
+        # inner lifespan (starting the StreamableHTTPSessionManager task
+        # group), so both enter and exit happen in the same context — avoiding
+        # the "ValueError: was created in a different Context" that lazy
+        # request-time init would otherwise cause.
         async with user_mcp_app.lifespan(app):
             async with admin_mcp_app.lifespan(app):
                 try:
                     if not testing:
                         await _initialize_cache()
+                        await _verify_database_ready()
                         await _apply_pending_migrations()
                         await _prewarm_supabase_dns()
                         _register_scheduler_jobs(app)
@@ -60,6 +68,7 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                     await close_all_http_clients()
                     _shutdown_notification_executor()
                     await _shutdown_cache()
+                mark_engines_disposing()
                 await engine.dispose()
                 await bg_engine.dispose()
                 logger.info("API shutdown", extra={"event": "shutdown"})
@@ -85,6 +94,40 @@ async def _apply_pending_migrations() -> None:
                 "leases: add termination_reason",
                 "ALTER TABLE public.leases ADD COLUMN IF NOT EXISTS termination_reason text",
             ),
+            (
+                "tours: create visibility type",
+                """
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tour_visibility') THEN
+                        CREATE TYPE tour_visibility AS ENUM ('private', 'unlisted', 'public');
+                    END IF;
+                END$$;
+                """
+            ),
+            (
+                "tours: add visibility column",
+                "ALTER TABLE public.tours ADD COLUMN IF NOT EXISTS visibility public.tour_visibility NOT NULL DEFAULT 'private'"
+            ),
+            (
+                "tours: migrate is_public to visibility",
+                """
+                UPDATE public.tours
+                SET visibility = CASE
+                    WHEN is_public = true THEN 'public'::public.tour_visibility
+                    ELSE 'private'::public.tour_visibility
+                END
+                WHERE visibility = 'private' AND is_public = true
+                """
+            ),
+            (
+                "tours: create visibility index",
+                "CREATE INDEX IF NOT EXISTS idx_tours_visibility ON public.tours(visibility)"
+            ),
+            (
+                "tours: create status_visibility index",
+                "CREATE INDEX IF NOT EXISTS idx_tours_status_visibility ON public.tours(status, visibility) WHERE deleted_at IS NULL"
+            ),
         ):
             try:
                 await conn.execute(text(sql))
@@ -98,6 +141,39 @@ async def _initialize_cache() -> None:
         await initialize_cache()
     except Exception as cache_e:
         logger.warning("Cache connection skipped/failed: %s", cache_e)
+
+
+async def _verify_database_ready() -> None:
+    """Probe the database before accepting requests.
+
+    Ensures the connection pool can check out a connection and execute a
+    simple query. Logs a warning (but does not block startup) if the probe
+    fails after retries, so the app can still start in degraded mode.
+    """
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with asyncio.timeout(5):
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+            logger.info("Database readiness check passed (attempt %d)", attempt)
+            return
+        except Exception as exc:
+            if attempt < max_attempts:
+                logger.warning(
+                    "Database readiness check failed (attempt %d/%d): %s",
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                await asyncio.sleep(1.0 * attempt)
+            else:
+                logger.error(
+                    "Database readiness check failed after %d attempts: %s. "
+                    "App will start but requests may fail.",
+                    max_attempts,
+                    exc,
+                )
 
 
 async def _prewarm_supabase_dns() -> None:

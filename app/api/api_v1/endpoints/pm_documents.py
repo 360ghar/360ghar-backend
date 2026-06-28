@@ -7,6 +7,7 @@ from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.models.enums import DocumentType, UserRole
 from app.models.users import User
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.pm_document import Document as DocumentSchema
 from app.schemas.pm_document import DocumentDownload, DocumentUpdate
 from app.services.pm_documents import create_document, list_documents, update_document
@@ -15,7 +16,7 @@ from app.services.storage import storage_service
 router = APIRouter()
 
 
-@router.post("/upload", response_model=DocumentSchema)
+@router.post("/upload", response_model=DocumentSchema, summary="Upload property document")
 async def upload_document(
     file: UploadFile = File(...),
     document_type: DocumentType = Form(...),
@@ -31,6 +32,7 @@ async def upload_document(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Upload property document."""
     target_owner_id = current_user.id
     if owner_id is not None:
         if current_user.role in (UserRole.admin.value, UserRole.agent.value):
@@ -65,7 +67,7 @@ async def upload_document(
     return DocumentSchema.model_validate(doc)
 
 
-@router.get("", response_model=list[DocumentSchema])
+@router.get("", response_model=CursorPage[DocumentSchema], summary="List property documents")
 async def get_documents(
     owner_id: int | None = None,
     property_id: int | None = None,
@@ -74,12 +76,12 @@ async def get_documents(
     maintenance_request_id: int | None = None,
     rental_application_id: int | None = None,
     document_type: DocumentType | None = None,
-    limit: int = 50,
-    offset: int = 0,
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    docs = await list_documents(
+    """List property documents."""
+    docs, next_payload, total = await list_documents(
         db,
         actor=current_user,
         owner_id=owner_id,
@@ -89,19 +91,26 @@ async def get_documents(
         maintenance_request_id=maintenance_request_id,
         rental_application_id=rental_application_id,
         document_type=document_type,
-        limit=limit,
-        offset=offset,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
-    return [DocumentSchema.model_validate(d) for d in docs]
+    return build_cursor_page(
+        [DocumentSchema.model_validate(d) for d in docs],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.patch("/{document_id}", response_model=DocumentSchema)
+@router.patch("/{document_id}", response_model=DocumentSchema, summary="Update property document metadata")
 async def patch_document(
     document_id: int,
     payload: DocumentUpdate,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Update property document metadata."""
     doc = await update_document(
         db,
         actor=current_user,
@@ -113,12 +122,13 @@ async def patch_document(
     return DocumentSchema.model_validate(doc)
 
 
-@router.get("/{document_id}/download", response_model=DocumentDownload)
+@router.get("/{document_id}/download", response_model=DocumentDownload, summary="Download property document")
 async def download_document(
     document_id: int,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Download property document."""
     from app.services.pm_documents import assert_can_access_document
 
     doc = await assert_can_access_document(db, actor=current_user, document_id=document_id)

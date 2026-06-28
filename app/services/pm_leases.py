@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -12,6 +12,7 @@ from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.pm_authz import (
     assert_can_access_lease,
     assert_can_access_property,
@@ -108,9 +109,10 @@ async def list_leases(
     property_id: int | None = None,
     tenant_user_id: int | None = None,
     status: LeaseStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[Lease]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[Lease], dict | None, int | None]:
     # Resolve scope
     if actor.role == UserRole.user.value:
         # Owner list context
@@ -134,9 +136,24 @@ async def list_leases(
     if status is not None:
         stmt = stmt.where(Lease.status == status)
 
-    stmt = stmt.order_by(Lease.created_at.desc()).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(Lease.created_at, Lease.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(Lease.created_at.desc(), Lease.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.created_at), last.id)
+    return rows, next_payload, count_total
 
 
 async def get_lease(db: AsyncSession, *, actor: User, lease_id: int) -> Lease:
@@ -223,6 +240,18 @@ async def renew_lease(
         raise BadRequestException(detail="end_date must be after start_date")
 
     new_status = LeaseStatus.active if make_active else LeaseStatus.draft
+
+    # Prevent creating a second active lease for the same property when renewing
+    if new_status == LeaseStatus.active:
+        existing_active = await db.execute(
+            select(Lease.id).where(
+                Lease.property_id == old.property_id,
+                Lease.status == LeaseStatus.active,
+                Lease.id != old.id,
+            )
+        )
+        if existing_active.scalar_one_or_none() is not None:
+            raise BadRequestException(detail="Property already has another active lease")
 
     new = Lease(
         property_id=old.property_id,

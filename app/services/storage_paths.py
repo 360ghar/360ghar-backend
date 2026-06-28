@@ -52,7 +52,7 @@ def generate_cloudinary_public_id(
     scene_id: str | None = None,
     agent_id: int | None = None,
 ) -> str:
-    file_uuid = str(uuid4())[:8]
+    file_uuid = str(uuid4())[:12]
     if original_filename:
         safe_name = sanitize_filename(original_filename)
         file_name = f"{file_uuid}-{safe_name}"

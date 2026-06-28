@@ -12,7 +12,14 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.enums import AgentType, ExperienceLevel
-from app.schemas.agent import Agent, AgentAssignment, AgentWithStats, AgentStats, AgentSystemStats, AgentWorkload
+from app.schemas.agent import (
+    Agent,
+    AgentAssignment,
+    AgentStats,
+    AgentSystemStats,
+    AgentWithStats,
+    AgentWorkload,
+)
 
 
 def create_mock_agent(agent_id: int = 1, name: str = "Test Agent") -> Agent:
@@ -95,15 +102,7 @@ class TestGetAvailableAgentsEndpoint:
             "app.api.api_v1.endpoints.agents.get_available_agents_paginated",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-                "has_next": False,
-                "has_prev": False,
-            }
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/agents/available/")
 
@@ -122,15 +121,7 @@ class TestGetAllAgentsEndpoint:
             "app.api.api_v1.endpoints.agents.get_all_agents_paginated",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-                "has_next": False,
-                "has_prev": False,
-            }
+            mock_get.return_value = ([], None, None)
 
             response = await admin_authenticated_client.get("/api/v1/agents/")
 
@@ -301,15 +292,7 @@ class TestGetAgentsByTypeEndpoint:
             "app.api.api_v1.endpoints.agents.get_agents_by_type_paginated",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = {
-                "items": [],
-                "total": 0,
-                "page": 1,
-                "limit": 20,
-                "total_pages": 0,
-                "has_next": False,
-                "has_prev": False,
-            }
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/agents/types/general")
 

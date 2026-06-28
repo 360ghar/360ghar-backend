@@ -2,8 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.schemas.ai_agent import AgentChatRequest
-from app.schemas.ai_agent import ConversationMessageOut
+from app.schemas.ai_agent import AgentChatRequest, ConversationMessageOut
 
 
 class TestConversationMessageOut:

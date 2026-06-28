@@ -104,16 +104,26 @@ class Settings(BaseSettings):
     SUPABASE_URL: str
     SUPABASE_PUBLISHABLE_KEY: str
     SUPABASE_SECRET_KEY: str
+    # HMAC secret used to verify inbound Supabase webhooks (e.g. password-changed
+    # session revocation). Empty by default; must be set in production.
+    SUPABASE_WEBHOOK_SECRET: str = ""
+    # Encoding of the X-Supabase-Signature header: "hex" (default) or "base64".
+    SUPABASE_WEBHOOK_SIGNATURE_ENCODING: str = "hex"
     REDIS_URL: str = "redis://localhost:6379"
 
     # Main pool (HTTP/MCP request traffic)
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 15
     DB_POOL_RECYCLE: int = 180
     # Background pool (schedulers, scrapers, long-running tasks)
-    DB_BG_POOL_SIZE: int = 2
-    DB_BG_MAX_OVERFLOW: int = 2
+    DB_BG_POOL_SIZE: int = 3
+    DB_BG_MAX_OVERFLOW: int = 5
+    # Per-request statement timeout (ms) for interactive read endpoints such as
+    # property search. Bounds a stalled query so it fails fast and frees its
+    # pooler connection instead of holding it until the 2-minute server default.
+    # 0 disables the guardrail (falls back to the server/role default).
+    DB_READ_STATEMENT_TIMEOUT_MS: int = 8000
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:
@@ -228,15 +238,40 @@ class Settings(BaseSettings):
     FIREBASE_PROJECT_ID: str | None = None
     GOOGLE_APPLICATION_CREDENTIALS: str | None = None  # path to service account JSON
 
+    # ── Visits ──────────────────────────────────────────────────────────────────
+    # Each visit is treated as occupying a fixed-duration window starting at
+    # scheduled_date (the Visit model has no explicit duration column).
+    VISIT_DEFAULT_DURATION_MINUTES: int = 60
+    # Buffer (in minutes) applied to both sides of the overlap check so that
+    # back-to-back visits are still considered conflicting.
+    VISIT_CONFLICT_BUFFER_MINUTES: int = 0
+
     # ── Storage ──────────────────────────────────────────────────────────────────
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
     MAX_UPLOAD_SIZE_MB: int = 50
 
+    # ── Reverse-proxy / IP extraction ──────────────────────────────────────────
+    # Number of trusted reverse-proxy hops in front of the app. X-Forwarded-For
+    # is a comma-separated chain appended to by each proxy. To get the real
+    # client IP we take the entry that is ``TRUSTED_PROXY_HOPS`` from the right
+    # (0 = peer address is the client, 1 = one proxy in front, etc.). Default 1
+    # works for Railway's single-layer proxy; bump if you chain CDN + app.
+    # Setting this >0 is REQUIRED for rate limiters to be effective — without
+    # it a client can spoof a different X-Forwarded-For on every request and
+    # bypass the per-IP limit.
+    TRUSTED_PROXY_HOPS: int = 1
+
     # ── Tax & Service Rates ────────────────────────────────────────────────────
     GST_RATE: float = 0.18  # 18% GST for booking tax calculation
     SERVICE_CHARGE_RATE: float = 0.05  # 5% service charge for bookings
+
+    # ── Razorpay (payments) ────────────────────────────────────────────────────
+    RAZORPAY_KEY_ID: str | None = None
+    RAZORPAY_SECRET: str | None = None
+    RAZORPAY_WEBHOOK_SECRET: str | None = None
+    RAZORPAY_CURRENCY: str = "INR"
 
     # ── Data Hub ────────────────────────────────────────────────────────────────
     DATA_HUB_ENABLED: bool = True
@@ -244,6 +279,7 @@ class Settings(BaseSettings):
     GOOGLE_PLACES_MAX_DAILY_CALLS: int = 1000
     NEIGHBOURHOOD_SCORE_RADIUS_M: int = 1500
     NEIGHBOURHOOD_SCORE_STALE_DAYS: int = 30
+    STALE_LISTING_PAUSE_DAYS: int = 60  # auto-pause flatmate listings not updated in this many days
     JAMABANDI_CACHE_TTL_DAYS: int = 7
     # Haryana stamp duty rates (as percentages for display, not computation)
     STAMP_DUTY_RATE_MALE: float = 7.0

@@ -2,7 +2,6 @@
 Tests for app.models.data_hub module — BankAuction, CircleRate, RERA, etc.
 """
 
-import pytest
 
 from app.models.data_hub import (
     AuctionAlert,

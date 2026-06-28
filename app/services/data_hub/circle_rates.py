@@ -112,7 +112,7 @@ class CircleRateScraper(BaseScraper):
                           if hasattr(CircleRate, k) and k not in ("id", "created_at", "updated_at")}
                 stmt = pg_insert(CircleRate).values(**values)
                 stmt = stmt.on_conflict_do_update(
-                    constraint="uq_circle_rates_key",
+                    index_elements=["sector", "colony", "property_type", "revision_year"],
                     set_={
                         "rate_per_sqyd": stmt.excluded.rate_per_sqyd,
                         "rate_per_sqft": stmt.excluded.rate_per_sqft,

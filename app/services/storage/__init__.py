@@ -11,11 +11,13 @@ from .helpers import (  # noqa: F401 – public re-exports
     VALID_DOCUMENT_TYPES,
     VALID_IMAGE_TYPES,
     VALID_VIDEO_TYPES,
+    expected_type_from_content_type,
     get_file_extension,
     get_max_upload_bytes,
     infer_content_type_from_extension,
     is_valid_content_type,
     is_valid_upload,
+    validate_magic_bytes,
 )
 from .paths import (  # noqa: F401 – public re-exports
     StorageFolder,
@@ -39,11 +41,13 @@ __all__ = [
     "VALID_DOCUMENT_TYPES",
     "VALID_IMAGE_TYPES",
     "VALID_VIDEO_TYPES",
+    "expected_type_from_content_type",
     "get_file_extension",
     "get_max_upload_bytes",
     "infer_content_type_from_extension",
     "is_valid_content_type",
     "is_valid_upload",
+    "validate_magic_bytes",
     # Paths
     "StorageFolder",
     "generate_storage_path",

@@ -109,15 +109,14 @@ async def bookings_list(
 
     db, user = ctx.deps.db, ctx.deps.user
     limit = min(max(1, limit), 100)
-    data = await booking_svc.get_user_bookings(db, user.id)
-    bookings = data.get("bookings", [])
+    rows, _next, _total = await booking_svc.get_user_bookings(db, user.id, cursor_payload={}, limit=limit)
+    bookings = rows
     if status:
         bookings = [b for b in bookings if b.booking_status == status]
-    start = (page - 1) * limit
-    items = [serialize_booking(b) for b in bookings[start:start + limit]]
+    items = [serialize_booking(b) for b in bookings]
     return {
-        "total": data.get("total", 0), "upcoming": data.get("upcoming", 0),
-        "completed": data.get("completed", 0), "cancelled": data.get("cancelled", 0),
+        "total": len(bookings), "upcoming": 0,
+        "completed": 0, "cancelled": 0,
         "bookings": items, "page": page,
     }
 

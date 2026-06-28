@@ -8,12 +8,13 @@ from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import InsufficientPermissionsError
-from app.models.enums import LeaseStatus, UserRole
+from app.models.enums import LeaseStatus, PropertyStatus, UserRole
 from app.models.pm_finance import Expense, RentCharge, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
+from app.schemas.pagination import offset_payload, read_offset
 
 
 async def _resolve_owner_scope(
@@ -73,7 +74,7 @@ async def get_dashboard_overview(
     vacant_properties = max(total_properties - occupied_properties, 0)
 
     maintenance_stmt = select(func.count(Property.id)).where(
-        Property.is_managed, Property.status == "maintenance"  # PropertyStatus enum stored as string in DB
+        Property.is_managed, Property.status == PropertyStatus.maintenance
     )
     if owner_ids is not None:
         maintenance_stmt = maintenance_stmt.where(Property.owner_id.in_(owner_ids))
@@ -150,13 +151,20 @@ async def get_recent_activity(
     *,
     actor: User,
     owner_id: int | None = None,
+    cursor_payload: dict,
     limit: int = 20,
-) -> list[dict[str, Any]]:
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
+    offset = read_offset(cursor_payload)
+
+    # Each per-source query must fetch enough rows to cover the cursor offset plus
+    # the full page size (+1 lookahead), since the sources are merged and re-sorted.
+    fetch_limit = offset + limit + 1
 
     activities: list[dict[str, Any]] = []
 
-    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(limit)
+    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
     payments = list((await db.execute(pay_stmt)).scalars().all())
@@ -172,7 +180,7 @@ async def get_recent_activity(
             }
         )
 
-    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(limit)
+    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     requests = list((await db.execute(maint_stmt)).scalars().all())
@@ -188,7 +196,7 @@ async def get_recent_activity(
             }
         )
 
-    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(limit)
+    lease_stmt = select(Lease).order_by(Lease.created_at.desc()).limit(fetch_limit)
     if owner_ids is not None:
         lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     leases = list((await db.execute(lease_stmt)).scalars().all())
@@ -204,4 +212,32 @@ async def get_recent_activity(
         )
 
     activities.sort(key=lambda x: x.get("at") or "", reverse=True)
-    return activities[:limit]
+
+    # Compute total via per-source SQL COUNT queries so the sum is not capped
+    # by fetch_limit.  Each count mirrors the exact WHERE filters used above.
+    if with_total:
+        pay_count_stmt = select(func.count(RentPayment.id))
+        if owner_ids is not None:
+            pay_count_stmt = pay_count_stmt.where(RentPayment.owner_id.in_(owner_ids))
+        pay_count = int((await db.execute(pay_count_stmt)).scalar_one() or 0)
+
+        maint_count_stmt = select(func.count(MaintenanceRequest.id))
+        if owner_ids is not None:
+            maint_count_stmt = maint_count_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
+        maint_count = int((await db.execute(maint_count_stmt)).scalar_one() or 0)
+
+        lease_count_stmt = select(func.count(Lease.id))
+        if owner_ids is not None:
+            lease_count_stmt = lease_count_stmt.where(Lease.owner_id.in_(owner_ids))
+        lease_count = int((await db.execute(lease_count_stmt)).scalar_one() or 0)
+
+        count_total: int | None = pay_count + maint_count + lease_count
+    else:
+        count_total = None
+
+    # Apply cursor-based offset pagination with +1 lookahead
+    sliced = activities[offset : offset + limit + 1]
+    next_payload: dict | None = offset_payload(offset + limit) if len(sliced) > limit else None
+    sliced = sliced[:limit]
+
+    return sliced, next_payload, count_total

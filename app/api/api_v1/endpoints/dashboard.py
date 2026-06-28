@@ -18,7 +18,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/stats", response_model=DashboardStats)
+@router.get("/stats", response_model=DashboardStats, summary="Get dashboard stats")
 async def get_dashboard_stats(
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
@@ -39,7 +39,7 @@ async def get_dashboard_stats(
     return stats
 
 
-@router.get("/realtime", response_model=DashboardRealtimeStats)
+@router.get("/realtime", response_model=DashboardRealtimeStats, summary="Get realtime dashboard stats")
 async def get_dashboard_realtime_stats(
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),

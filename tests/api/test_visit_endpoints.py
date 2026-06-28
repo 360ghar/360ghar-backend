@@ -12,7 +12,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.enums import VisitStatus
-from app.schemas.visit import Visit, VisitList, VisitSlice
+from app.schemas.visit import Visit, VisitSlice
 
 
 def create_mock_visit(
@@ -41,19 +41,6 @@ def create_mock_visit(
         updated_at=None,
         property=None,
         special_requirements=None,
-    )
-
-
-def create_mock_visit_list(visits: list = None) -> VisitList:
-    """Create a mock visit list response."""
-    if visits is None:
-        visits = []
-    return VisitList(
-        visits=visits,
-        total=len(visits),
-        upcoming=0,
-        completed=0,
-        cancelled=0,
     )
 
 
@@ -95,7 +82,9 @@ class TestCreateVisitEndpoint:
 
             assert response.status_code == 200
             data = response.json()
-            assert data["status"] == "scheduled"
+            # VisitStatus.scheduled serializes to its domain value "requested"
+            # (the flatmates visit lifecycle initial state; the web client expects this).
+            assert data["status"] == "requested"
 
     @pytest.mark.asyncio
     async def test_create_visit_unauthorized(self, client: AsyncClient):
@@ -157,13 +146,13 @@ class TestGetUserVisitsEndpoint:
             "app.api.api_v1.endpoints.visits.get_user_visits",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = create_mock_visit_list()
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/visits/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "visits" in data
+            assert "items" in data
 
 
 class TestGetUpcomingVisitsEndpoint:
@@ -172,18 +161,17 @@ class TestGetUpcomingVisitsEndpoint:
     @pytest.mark.asyncio
     async def test_get_upcoming_visits(self, authenticated_client: AsyncClient):
         """Test getting upcoming visits."""
-        # Patch at the service module level since it's imported inside the endpoint
         with patch(
-            "app.services.visit.get_user_upcoming_visits",
+            "app.api.api_v1.endpoints.visits.get_user_upcoming_visits",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = create_mock_visit_slice()
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/visits/upcoming/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "visits" in data
+            assert "items" in data
 
 
 class TestGetPastVisitsEndpoint:
@@ -192,18 +180,17 @@ class TestGetPastVisitsEndpoint:
     @pytest.mark.asyncio
     async def test_get_past_visits(self, authenticated_client: AsyncClient):
         """Test getting past visits."""
-        # Patch at the service module level since it's imported inside the endpoint
         with patch(
-            "app.services.visit.get_user_past_visits",
+            "app.api.api_v1.endpoints.visits.get_user_past_visits",
             new_callable=AsyncMock,
         ) as mock_get:
-            mock_get.return_value = create_mock_visit_slice()
+            mock_get.return_value = ([], None, None)
 
             response = await authenticated_client.get("/api/v1/visits/past/")
 
             assert response.status_code == 200
             data = response.json()
-            assert "visits" in data
+            assert "items" in data
 
 
 class TestCancelVisitEndpoint:

@@ -22,7 +22,7 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/{hotspot_id}", response_model=Hotspot)
+@router.get("/{hotspot_id}", response_model=Hotspot, summary="Get hotspot")
 async def get_hotspot(
     hotspot_id: str,
     db: AsyncSession = Depends(get_db),
@@ -31,33 +31,18 @@ async def get_hotspot(
     """
     Get a hotspot by ID.
     """
-    hotspot = await tour_service.get_hotspot(db=db, hotspot_id=hotspot_id)
+    hotspot = await tour_service.get_hotspot(db=db, hotspot_id=hotspot_id, user_id=current_user.id)
     if not hotspot:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Hotspot not found"
         )
 
-    # Verify ownership through scene -> tour chain
-    scene = await tour_service.get_scene(db=db, scene_id=hotspot.scene_id, user_id=current_user.id)
-    if not scene:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene not found"
-        )
-
-    tour = await tour_service.get_tour(db=db, tour_id=scene.tour_id, user_id=current_user.id)
-    if not tour or tour.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this hotspot"
-        )
-
     return hotspot
 
 
-@router.put("/{hotspot_id}", response_model=Hotspot)
-@router.patch("/{hotspot_id}", response_model=Hotspot)
+@router.put("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
+@router.patch("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
 async def update_hotspot(
     hotspot_id: str,
     hotspot_data: HotspotUpdate,
@@ -87,7 +72,7 @@ async def update_hotspot(
     return hotspot
 
 
-@router.delete("/{hotspot_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{hotspot_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete hotspot")
 async def delete_hotspot(
     hotspot_id: str,
     db: AsyncSession = Depends(get_db),
@@ -109,7 +94,7 @@ async def delete_hotspot(
     return None
 
 
-@router.put("/{hotspot_id}/position", response_model=Hotspot)
+@router.put("/{hotspot_id}/position", response_model=Hotspot, summary="Update hotspot position")
 async def update_hotspot_position(
     hotspot_id: str,
     position_data: HotspotPositionUpdate,

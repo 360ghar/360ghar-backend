@@ -3,14 +3,21 @@ E2E test for the PM (Property Management) lifecycle flow.
 
 Tests the complete flow: property -> lease -> rent charges -> maintenance -> termination.
 """
+from __future__ import annotations
 
 from datetime import date, timedelta
+from decimal import Decimal
 
 import pytest
-from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.enums import LeaseStatus, MaintenanceCategory, MaintenanceUrgency, MaintenanceRequestStatus, RentChargeStatus
+from app.models.enums import (
+    LeaseStatus,
+    MaintenanceCategory,
+    MaintenanceRequestStatus,
+    MaintenanceUrgency,
+    RentChargeStatus,
+)
 from tests.fixtures.factories import PropertyFactory, UserFactory
 
 

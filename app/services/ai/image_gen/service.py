@@ -193,7 +193,8 @@ async def _call_gemini(url: str, payload: dict[str, Any]) -> dict[str, Any]:
             body = resp.text[:1000]
             raise RuntimeError(f"Gemini API error {resp.status_code}: {body}")
 
-        return resp.json()
+        data: dict[str, Any] = resp.json()
+        return data
 
     return await _do_post()
 

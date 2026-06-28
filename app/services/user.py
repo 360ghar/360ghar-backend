@@ -17,8 +17,9 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.core.utils import utc_now
-from app.models.enums import AuthMethod, UserRole
+from app.models.enums import AuthMethod, FlatmatesProfileStatus, UserRole
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.user import UserUpdate
 from app.utils.validators import ValidationUtils
 
@@ -161,6 +162,24 @@ async def get_or_create_user_from_supabase(
 
         inactive_user = None
 
+        # Serialize concurrent first-time creates for the SAME Supabase user.
+        # Right after login the frontend fires several authenticated requests in
+        # parallel (profile + auth-state); without this lock two of them can
+        # both reach the create branch (3) below and INSERT the same new row.
+        # The loser's flush raises IntegrityError, and the reconciliation below
+        # then can't see the winner's still-uncommitted row (READ COMMITTED;
+        # get_db commits only at request end) → it re-raises → the auth
+        # dependency returns a spurious 401 AUTHENTICATION_FAILED → the frontend
+        # loop. A transaction-scoped advisory lock keyed on supabase_user_id
+        # makes the loser block until the winner commits, so its lookup sees the
+        # committed row instead of racing. xact-scoped (not session-scoped) so
+        # it is safe under PgBouncer transaction pooling and released at commit.
+        if supabase_id:
+            await db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:sid))"),
+                {"sid": supabase_id},
+            )
+
         # (1) Canonical lookup by supabase_user_id.
         user = await get_user_by_supabase_id(db, supabase_id)
 
@@ -269,6 +288,9 @@ async def get_or_create_user_from_supabase(
                 user.email_verified = True
             if phone_verified:
                 user.phone_verified = True
+            # is_verified = True when EITHER channel is confirmed.
+            if email_verified or phone_verified:
+                user.is_verified = True
         else:
             # (3) Create a new local user.
             logger.info(
@@ -287,7 +309,8 @@ async def get_or_create_user_from_supabase(
                 full_name=full_name,
                 phone=phone,
                 is_active=True,
-                is_verified=email_verified,
+                # is_verified = True when EITHER channel is confirmed.
+                is_verified=email_verified or phone_verified,
                 email_verified=email_verified,
                 phone_verified=phone_verified,
             )
@@ -331,7 +354,7 @@ async def set_last_auth_method(db: AsyncSession, user: User, method: AuthMethod)
     timestamp. Returns the refreshed user.
     """
     logger.debug("Setting last_auth_method=%s for user %s", method, user.id)
-    user.last_auth_method = method.value
+    user.last_auth_method = method
     user.last_auth_method_at = utc_now()
     await db.flush()
     await db.refresh(user)
@@ -387,6 +410,23 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     # (mirrors the existing ``__migrated__`` convention in user reconciliation).
     user.is_active = False
     user.supabase_user_id = f"__deleted__{user.id}"
+
+    # Delete avatar from storage before nullifying the URL so we don't leave
+    # orphaned files.  Best-effort: a failure here should not abort the
+    # account deletion (the Supabase auth user is already hard-deleted).
+    if user.profile_image_url:
+        try:
+            from app.services.storage import storage_service
+
+            old_path = storage_service.extract_path_from_url(user.profile_image_url)
+            if old_path:
+                storage_service.delete_file(old_path)
+        except Exception:
+            logger.warning(
+                "Failed to delete avatar from storage for user %s during account deletion",
+                user.id,
+            )
+
     # Identity & contact PII
     user.email = None
     user.phone = None
@@ -418,7 +458,7 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     user.flatmates_work_style = None
     # Verification & status fields
     user.is_verified = False
-    user.flatmates_profile_status = None
+    user.flatmates_profile_status = FlatmatesProfileStatus.draft
     user.flatmates_onboarding_completed = False
     user.flatmates_last_active_at = None
     # Auth metadata & cross-app onboarding
@@ -734,14 +774,14 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
 async def get_all_users(
     db: AsyncSession,
     *,
-    page: int = 1,
+    cursor_payload: dict,
     limit: int = 20,
+    with_total: bool = False,
     search_query: str | None = None,
     filter_agent_id: int | None = None,
-) -> tuple[list[User], int]:
-    """Return users with optional agent filter and search, with pagination."""
+) -> tuple[list[User], dict | None, int | None]:
+    """Return users with optional agent filter and search, keyset-paginated."""
     try:
-        offset = (page - 1) * limit
         conditions = []
         if filter_agent_id is not None:
             conditions.append(User.agent_id == filter_agent_id)
@@ -752,17 +792,27 @@ async def get_all_users(
             )
 
         stmt = select(User)
-        count_stmt = select(func.count()).select_from(User)
         if conditions:
             stmt = stmt.where(and_(*conditions))
-            count_stmt = count_stmt.where(and_(*conditions))
-        stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
+
+        count_total = None
+        if with_total:
+            count_result = await db.execute(select(func.count()).select_from(stmt.subquery()))
+            count_total = count_result.scalar_one()
+
+        predicate = keyset_filter(User.created_at, User.id, cursor_payload, descending=True)
+        if predicate is not None:
+            stmt = stmt.where(predicate)
+        stmt = stmt.order_by(User.created_at.desc(), User.id.desc()).limit(limit + 1)
         result = await db.execute(stmt)
         users = list(result.scalars().all())
 
-        count_result = await db.execute(count_stmt)
-        total = count_result.scalar_one()
-        return users, total
+        next_payload = None
+        if len(users) > limit:
+            users = users[:limit]
+            next_payload = keyset_payload(keyset_sort_value(users[-1].created_at), users[-1].id)
+
+        return users, next_payload, count_total
     except Exception as e:
         logger.error("Failed to list users: %s", e)
         raise
@@ -783,23 +833,32 @@ async def update_user(
         update_data = user_update.model_dump(exclude_unset=True)
         logger.debug("Updating user %s with fields: %s", user_id, list(update_data.keys()))
 
-        # RBAC: if an actor is provided and actor is an agent updating other users,
-        # restrict to safe fields only
-        if actor is not None and actor.role == UserRole.agent.value and actor.id != user_id:
-            # Ensure the agent is assigned to this user
-            if actor.agent_id is None or user.agent_id != actor.agent_id:
-                raise ForbiddenException(detail="Agent not authorized to update this user")
-            allowed_fields = {
-                "email",
-                "full_name",
-                "phone",
-                "profile_image_url",
-                "preferences",
-                "notification_settings",
-                "privacy_settings",
-            }
-            update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
-            logger.debug("Agent update filtered fields: %s", list(update_data.keys()))
+        # RBAC: enforce role-based authorization on the target user.
+        #  - admins can update any user
+        #  - agents can update a limited field set for users assigned to them
+        #  - all other roles (regular users) can only update their own profile
+        if actor is not None and actor.role != UserRole.admin.value:
+            if actor.role == UserRole.agent.value and actor.id != user_id:
+                # Ensure the agent is assigned to this user
+                if actor.agent_id is None or user.agent_id != actor.agent_id:
+                    raise ForbiddenException(detail="Agent not authorized to update this user")
+                # Agents can update display and preference fields but NOT
+                # identity/contact fields (email, phone) — changing those
+                # would let an agent take over a user's account.
+                allowed_fields = {
+                    "full_name",
+                    "profile_image_url",
+                    "preferences",
+                    "notification_settings",
+                    "privacy_settings",
+                }
+                update_data = {k: v for k, v in update_data.items() if k in allowed_fields}
+                logger.debug("Agent update filtered fields: %s", list(update_data.keys()))
+            elif actor.id != user_id:
+                # Regular users (and any non-admin, non-agent role) can only
+                # update their own profile. Without this check, any authenticated
+                # user could mutate another user's record by knowing the user_id.
+                raise ForbiddenException(detail="Not authorized to update this user")
         # Admins can update any fields; end-users can update their own profile via API
 
         # Handle email update (no uniqueness validation needed since emails are now non-unique)
@@ -810,6 +869,24 @@ async def update_user(
             if new_email == user.email:
                 logger.debug("Email unchanged for user %s, skipping email update", user_id)
                 del update_data["email"]
+            else:
+                # Email changed — reset email_verified so the new address
+                # must be confirmed before it is trusted.  Without this,
+                # a user could swap to an unverified address and retain
+                # the verified flag from the old one.
+                user.email_verified = False
+                logger.debug("Email changed for user %s, resetting email_verified", user_id)
+
+        # Handle phone update symmetrically: a changed phone must be
+        # re-confirmed via OTP, so reset phone_verified.  Without this a user
+        # could change their phone via PUT /users/me and keep phone_verified=True.
+        if "phone" in update_data and update_data["phone"] != user.phone:
+            user.phone_verified = False
+            logger.debug("Phone changed for user %s, resetting phone_verified", user_id)
+
+        # Recompute the aggregate is_verified flag after any per-channel reset
+        # above so it stays consistent with email_verified / phone_verified.
+        user.is_verified = bool(user.email_verified or user.phone_verified)
 
         # Apply updates
         for field, value in update_data.items():
@@ -818,7 +895,12 @@ async def update_user(
                 and value is not None
                 and not ValidationUtils.is_absolute_url(value)
             ):
-                logger.warning("Non-absolute profile_image_url for user %s: %s", user_id, value)
+                # Reject non-http(s) URLs instead of silently storing them —
+                # a ``javascript:`` / ``data:`` value would be a stored XSS
+                # vector if ever rendered in an <img src> or <a href>.
+                raise BadRequestException(
+                    detail="profile_image_url must be an absolute http(s) URL"
+                )
             setattr(user, field, value)
 
         await db.flush()

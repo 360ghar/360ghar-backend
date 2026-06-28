@@ -43,6 +43,7 @@ from app.mcp.tool_ops import (
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.schemas.pagination import decode_cursor
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
@@ -72,7 +73,7 @@ OWNER_DASHBOARD_META = build_widget_tool_meta(
     meta=OWNER_DASHBOARD_META,
 )
 async def owner_properties_list(
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
     occupancy: str | None = None,
     q: str | None = None,
@@ -80,7 +81,7 @@ async def owner_properties_list(
     """List all properties owned by the current user.
 
     Args:
-        page: Page number (default 1)
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page (default 20, max 100)
         occupancy: Filter by 'occupied' or 'vacant'
         q: Search query for title/address
@@ -100,13 +101,14 @@ async def owner_properties_list(
                 )
 
             clamped_limit = min(max(1, limit), 100)
+            cursor_payload = decode_cursor(cursor) if cursor else None
             result = await list_properties_enriched(
                 db,
                 actor=user,
                 owner_id=user.id,
                 occupancy=occupancy,
                 q=q,
-                page=page,
+                cursor_payload=cursor_payload,
                 limit=clamped_limit,
             )
             return MCPResponse.success(result).model_dump()
@@ -182,6 +184,12 @@ async def owner_properties_create(
                     message="Please log in to create a property listing.",
                     scope="mcp:write",
                 )
+
+            # Coerce amenity_ids from string to list if needed
+            if isinstance(amenity_ids, str):
+                amenity_ids = [int(x.strip()) for x in amenity_ids.split(",") if x.strip().isdigit()]
+            elif amenity_ids is not None and not isinstance(amenity_ids, list):
+                amenity_ids = [int(amenity_ids)] if str(amenity_ids).isdigit() else None
 
             result = await create_property(
                 db,

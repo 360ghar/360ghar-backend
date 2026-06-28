@@ -158,32 +158,36 @@ class TestFlatmatesLikesEndpoint:
             "app.api.api_v1.endpoints.flatmates.list_incoming_likes",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = [
-                {
-                    "id": 31,
-                    "peer": {
-                        "id": 44,
-                        "full_name": "Incoming User",
-                        "profile_image_url": None,
-                        "mode": "seeker",
-                        "match_percentage": 82,
-                    },
-                    "context_property": {
-                        "id": 99,
-                        "title": "Sunny room",
-                        "monthly_rent": 18000,
-                    },
-                    "created_at": datetime.now(timezone.utc),
-                }
-            ]
+            mock_list.return_value = (
+                [
+                    {
+                        "id": 31,
+                        "peer": {
+                            "id": 44,
+                            "full_name": "Incoming User",
+                            "profile_image_url": None,
+                            "mode": "seeker",
+                            "match_percentage": 82,
+                        },
+                        "context_property": {
+                            "id": 99,
+                            "title": "Sunny room",
+                            "monthly_rent": 18000,
+                        },
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                ],
+                None,
+                None,
+            )
 
             response = await authenticated_client.get("/api/v1/flatmates/likes")
 
             assert response.status_code == 200
             data = response.json()
-            assert data[0]["id"] == 31
-            assert data[0]["peer"]["id"] == 44
-            assert data[0]["context_property"]["id"] == 99
+            assert data["items"][0]["id"] == 31
+            assert data["items"][0]["peer"]["id"] == 44
+            assert data["items"][0]["context_property"]["id"] == 99
             mock_list.assert_awaited_once()
 
 
@@ -194,56 +198,60 @@ class TestFlatmatesConversationsEndpoint:
             "app.api.api_v1.endpoints.flatmates.list_conversations",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = [
-                {
-                    "id": 1,
-                    "source": "listing_interest",
-                    "status": "active",
-                    "peer": {
-                        "id": 2,
-                        "full_name": "Owner User",
-                        "profile_image_url": None,
-                        "mode": "room_poster",
-                        "city": "Gurugram",
-                        "locality": "DLF Phase 1",
-                    },
-                    "context_property": {
-                        "id": 99,
-                        "title": "Furnished room in DLF Phase 1",
-                        "locality": "DLF Phase 1",
-                        "city": "Gurugram",
-                        "monthly_rent": 18000,
-                        "main_image_url": None,
-                    },
-                    "last_message_preview": "Hey, is the room still available?",
-                    "last_message_at": datetime.now(timezone.utc).isoformat(),
-                    "unread_count": 1,
-                    "qna": {
-                        "current_user": {
-                            "user_id": 1,
-                            "q1": "A quiet home",
-                            "q2": "Balanced",
-                            "q3": "Clean kitchen",
-                        },
+            mock_list.return_value = (
+                [
+                    {
+                        "id": 1,
+                        "source": "listing_interest",
+                        "status": "active",
                         "peer": {
-                            "user_id": 2,
-                            "q1": "Respectful flatmates",
-                            "q2": "Mostly private",
-                            "q3": "No smoking indoors",
+                            "id": 2,
+                            "full_name": "Owner User",
+                            "profile_image_url": None,
+                            "mode": "room_poster",
+                            "city": "Gurugram",
+                            "locality": "DLF Phase 1",
                         },
-                        "both_answered": True,
-                    },
-                }
-            ]
+                        "context_property": {
+                            "id": 99,
+                            "title": "Furnished room in DLF Phase 1",
+                            "locality": "DLF Phase 1",
+                            "city": "Gurugram",
+                            "monthly_rent": 18000,
+                            "main_image_url": None,
+                        },
+                        "last_message_preview": "Hey, is the room still available?",
+                        "last_message_at": datetime.now(timezone.utc).isoformat(),
+                        "unread_count": 1,
+                        "qna": {
+                            "current_user": {
+                                "user_id": 1,
+                                "q1": "A quiet home",
+                                "q2": "Balanced",
+                                "q3": "Clean kitchen",
+                            },
+                            "peer": {
+                                "user_id": 2,
+                                "q1": "Respectful flatmates",
+                                "q2": "Mostly private",
+                                "q3": "No smoking indoors",
+                            },
+                            "both_answered": True,
+                        },
+                    }
+                ],
+                None,
+                None,
+            )
 
             response = await authenticated_client.get("/api/v1/flatmates/conversations")
 
             assert response.status_code == 200
             data = response.json()
-            assert len(data) == 1
-            assert data[0]["peer"]["full_name"] == "Owner User"
-            assert data[0]["qna"]["both_answered"] is True
-            assert data[0]["qna"]["peer"]["q3"] == "No smoking indoors"
+            assert len(data["items"]) == 1
+            assert data["items"][0]["peer"]["full_name"] == "Owner User"
+            assert data["items"][0]["qna"]["both_answered"] is True
+            assert data["items"][0]["qna"]["peer"]["q3"] == "No smoking indoors"
 
     @pytest.mark.asyncio
     async def test_post_message_success(self, authenticated_client: AsyncClient):

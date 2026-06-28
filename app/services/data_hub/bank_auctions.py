@@ -4,14 +4,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import date
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.data_hub import BankAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
 from app.services.data_hub.utils import (
@@ -19,6 +16,7 @@ from app.services.data_hub.utils import (
     _parse_currency,
     _parse_date,
     address_hash,
+    upsert_bank_auction,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +101,7 @@ class BankAuctionScraper(BaseScraper):
 
         def strategy_sbi_notice_links(soup: BeautifulSoup, cfg: dict) -> list[dict]:
             """Strategy 2: SBI-specific - parse notice page/PDF links for detailed data."""
-            records = []
+            records: list[dict] = []
             if "sbi.co.in" not in cfg["url"]:
                 return records
 
@@ -193,26 +191,7 @@ class BankAuctionScraper(BaseScraper):
                 addr = rec.get("full_address") or rec.get("property_description", "")
                 rec["normalized_address_hash"] = address_hash(addr)
                 rec.setdefault("city", "Delhi NCR")
-                rec.setdefault("is_active", True)
-                rec.setdefault("auction_date", date(1970, 1, 1))
-                stmt = pg_insert(BankAuction).values(
-                    **{
-                        k: v
-                        for k, v in rec.items()
-                        if hasattr(BankAuction, k) and k not in ("id", "created_at", "updated_at")
-                    }
-                )
-                stmt = stmt.on_conflict_do_update(
-                    constraint="uq_bank_auctions_key",
-                    set_={
-                        "reserve_price": stmt.excluded.reserve_price,
-                        "emd_amount": stmt.excluded.emd_amount,
-                        "raw_data": stmt.excluded.raw_data,
-                        "is_active": True,
-                        "source_url": stmt.excluded.source_url,
-                    },
-                )
-                await db.execute(stmt)
+                await upsert_bank_auction(db, rec)
                 upserted += 1
             except Exception as e:
                 logger.warning("Failed to upsert bank auction: %s", e)

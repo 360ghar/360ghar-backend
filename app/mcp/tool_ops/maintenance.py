@@ -20,6 +20,7 @@ from app.models.enums import (
 )
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
+from app.schemas.pagination import encode_cursor, offset_payload, read_offset
 
 logger = get_logger(__name__)
 
@@ -206,11 +207,14 @@ async def list_maintenance_requests(
     owner_id: int | None = None,
     property_id: int | None = None,
     status: str | None = None,
-    page: int = 1,
+    cursor_payload: dict | None = None,
     limit: int = 20,
 ) -> dict:
     """List maintenance requests with optional filters."""
     limit = min(max(1, limit), 100)
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
 
     stmt = select(MaintenanceRequest)
 
@@ -222,23 +226,28 @@ async def list_maintenance_requests(
         stmt = stmt.where(MaintenanceRequest.property_id == property_id)
 
     # Apply status filter
-    stmt, err = build_maintenance_status_filter(stmt, status)
-    if err is not None:
-        return {"error": True, "message": err}
+    stmt, status_result = build_maintenance_status_filter(stmt, status)
+    if stmt is None:
+        # Invalid status — status_result is the error message
+        return {"error": True, "message": status_result}
 
-    offset = (page - 1) * limit
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
+    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
 
     result = await db.execute(stmt)
-    requests = result.scalars().all()
+    requests = list(result.scalars().all())
+
+    has_more = len(requests) > limit
+    if has_more:
+        requests = requests[:limit]
 
     items = [serialize_maintenance_request(r) for r in requests]
 
-    total = len(items)
+    next_payload = offset_payload(offset + len(items)) if has_more else None
+
     return {
         "items": items,
-        "total": total,
-        "page": page,
+        "total": len(items),
+        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "has_more": next_payload is not None,
         "limit": limit,
-        "total_pages": (total + limit - 1) // limit if total else 0,
     }

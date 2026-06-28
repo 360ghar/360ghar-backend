@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
@@ -17,6 +17,7 @@ from app.models.enums import (
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
 
 
@@ -89,9 +90,10 @@ async def list_maintenance_requests(
     lease_id: int | None = None,
     request_status: MaintenanceRequestStatus | None = None,
     work_order_status: WorkOrderStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[MaintenanceRequest]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[MaintenanceRequest], dict | None, int | None]:
     stmt = select(MaintenanceRequest)
 
     if actor.role == UserRole.admin.value:
@@ -119,9 +121,24 @@ async def list_maintenance_requests(
     if work_order_status is not None:
         stmt = stmt.where(MaintenanceRequest.work_order_status == work_order_status)
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(MaintenanceRequest.created_at, MaintenanceRequest.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.created_at), last.id)
+    return rows, next_payload, count_total
 
 
 async def update_maintenance_request(
@@ -156,23 +173,44 @@ async def update_maintenance_request(
     if request_status is not None:
         # Validate status transition
         ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-            "open": {"in_progress", "closed"},
-            "in_progress": {"resolved", "on_hold", "closed"},
-            "on_hold": {"in_progress", "closed"},
+            "open": {"in_review", "work_order_created", "resolved", "closed"},
+            "in_review": {"work_order_created", "resolved", "closed", "open"},
+            "work_order_created": {"resolved", "closed"},
             "resolved": {"closed", "open"},
             "closed": set(),
         }
         current = req.request_status.value if hasattr(req.request_status, "value") else str(req.request_status)
         target = request_status.value if hasattr(request_status, "value") else str(request_status)
-        allowed = ALLOWED_TRANSITIONS.get(current, set())
-        if target not in allowed:
-            raise BadRequestException(
-                detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
-            )
+        # Allow idempotent updates (same status) — clients may re-submit.
+        if target != current:
+            allowed = ALLOWED_TRANSITIONS.get(current, set())
+            if target not in allowed:
+                raise BadRequestException(
+                    detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
+                )
         req.request_status = request_status
     if assigned_agent_id is not None:
         req.assigned_agent_id = assigned_agent_id
     if work_order_status is not None:
+        # Validate work order status transition
+        WO_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+            "created": {"assigned", "cancelled"},
+            "assigned": {"in_progress", "cancelled"},
+            "in_progress": {"completed", "cancelled"},
+            "completed": {"closed"},
+            "closed": set(),
+            "cancelled": set(),
+        }
+        wo_current = req.work_order_status.value if req.work_order_status and hasattr(req.work_order_status, "value") else None
+        if wo_current is not None:
+            wo_target = work_order_status.value if hasattr(work_order_status, "value") else str(work_order_status)
+            # Allow idempotent updates (same status) — clients may re-submit.
+            if wo_target != wo_current:
+                wo_allowed = WO_ALLOWED_TRANSITIONS.get(wo_current, set())
+                if wo_target not in wo_allowed:
+                    raise BadRequestException(
+                        detail=f"Cannot transition work order from '{wo_current}' to '{wo_target}'. Allowed: {wo_allowed or 'none (terminal state)'}"
+                    )
         req.work_order_status = work_order_status
     if priority is not None:
         req.priority = priority

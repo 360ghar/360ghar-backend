@@ -30,11 +30,13 @@ from .helpers import (
     VALID_DOCUMENT_TYPES,
     VALID_IMAGE_TYPES,
     VALID_VIDEO_TYPES,
+    expected_type_from_content_type,
     get_file_extension,
     get_max_upload_bytes,
     infer_content_type_from_extension,
     is_valid_content_type,
     is_valid_upload,
+    validate_magic_bytes,
 )
 from .processing import process_existing_scene_image as _process_existing_scene_image
 from .processing import upload_scene_image as _upload_scene_image
@@ -110,11 +112,21 @@ class StorageService:
 
             file_content = await file.read()
 
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(file.content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
             content_type = file.content_type
-            is_image = content_type and content_type.startswith("image/")
-            if is_image and folder in OPTIMIZE_SETTINGS:
+            is_image = bool(content_type and content_type.startswith("image/"))
+            if is_image:
                 try:
-                    max_dim, quality = OPTIMIZE_SETTINGS[folder]
+                    # Use folder-specific settings if available, otherwise defaults
+                    max_dim, quality = OPTIMIZE_SETTINGS.get(folder, (2048, 80))
                     optimized_bytes, new_content_type = image_processing.optimize_for_web(
                         file_content,
                         max_dimension=max_dim,
@@ -159,9 +171,11 @@ class StorageService:
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("File upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     # ============================================================
     # Legacy Upload Methods
@@ -210,15 +224,47 @@ class StorageService:
                 raise InvalidFileException(detail="Invalid file type")
 
             file_content = await file.read()
-            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
+            content_type = file.content_type or "application/octet-stream"
+
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
+            is_image = content_type.startswith("image/")
+
+            # Optimize images to WebP before uploading
+            if is_image:
+                try:
+                    max_dim, quality = OPTIMIZE_SETTINGS.get(
+                        StorageFolder.AGENT_AVATAR, (512, 85)
+                    )
+                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
+                        file_content,
+                        max_dimension=max_dim,
+                        quality=quality,
+                    )
+                    file_content = optimized_bytes
+                    content_type = new_content_type
+                except Exception as exc:
+                    logger.warning("Image optimization failed for agent avatar, uploading original: %s", exc)
+
+            file_extension = get_file_extension(
+                file.filename or "",
+                content_type=content_type,
+            )
             unique_name = f"{uuid.uuid4()}{file_extension}"
 
             result = self.cloudinary.upload_file(
                 file_bytes=file_content,
                 public_id=unique_name,
                 folder=f"agents/{agent_id}/avatars",
-                content_type=file.content_type or "application/octet-stream",
-                is_image=bool(file.content_type and file.content_type.startswith("image/")),
+                content_type=content_type,
+                is_image=is_image,
             )
 
             return {
@@ -226,15 +272,17 @@ class StorageService:
                 "public_url": result["secure_url"],
                 "file_type": "avatar",
                 "file_size": result["bytes"],
-                "content_type": file.content_type,
+                "content_type": content_type,
                 "original_filename": file.filename,
             }
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("Agent avatar upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("Agent avatar upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     async def upload_generic(
         self,
@@ -348,7 +396,12 @@ class StorageService:
             else:
                 raise InvalidFileException(detail="Invalid file type")
 
-        public_id = generate_cloudinary_public_id(
+        # Use ONE public_id (rooted) end-to-end: sign it, store it on the
+        # media row, and return it to the client. Previously the code signed a
+        # rooted id but stored/returned the unrooted one, so confirm_upload's
+        # get_file_info() looked up a nonexistent id and marked every direct
+        # upload as failed.
+        file_name_part = generate_cloudinary_public_id(
             folder=folder,
             original_filename=filename,
             user_id=user_id,
@@ -356,14 +409,23 @@ class StorageService:
             tour_id=tour_id,
             scene_id=scene_id,
         )
+        # Join folder + filename into the rooted public_id; generate_signed_upload_params
+        # re-prefixes the cloudinary root internally, so we pass the UNROOTED id there.
+        resource_type = self.cloudinary._resource_type(normalized_content_type)
+        signed_params = self.cloudinary.generate_signed_upload_params(
+            public_id=file_name_part.split("/")[-1],
+            folder="/".join(file_name_part.split("/")[:-1]),
+            resource_type=resource_type,
+        )
+        full_public_id = signed_params["public_id"]
 
-        public_url = self.cloudinary.get_url(public_id)
+        public_url = self.cloudinary.get_url(full_public_id)
 
         media = await self._create_media_record(
             db=db,
             user_id=user_id,
             upload_result={
-                "file_path": public_id,
+                "file_path": full_public_id,
                 "public_url": public_url,
                 "file_type": folder.name.lower(),
                 "file_size": file_size or 0,
@@ -377,9 +439,12 @@ class StorageService:
 
         return {
             "upload_id": media.id,
-            "signed_url": None,
-            "token": None,
-            "path": public_id,
+            "signed_url": signed_params["upload_url"],
+            "token": signed_params["signature"],
+            "api_key": signed_params["api_key"],
+            "timestamp": signed_params["timestamp"],
+            "public_id": full_public_id,
+            "path": full_public_id,
             "public_url": public_url,
         }
 
@@ -403,7 +468,15 @@ class StorageService:
         if media.upload_status == "complete":
             return media
 
-        file_info = self.cloudinary.get_file_info(media.storage_path or media.file_url)
+        lookup_id = media.storage_path
+        if not lookup_id and media.file_url:
+            lookup_id = self.cloudinary.extract_public_id_from_url(media.file_url)
+        if not lookup_id:
+            logger.warning("Upload confirmation failed: no storage path or URL for media %s", upload_id)
+            media.upload_status = "failed"
+            await db.flush()
+            raise NotFoundException(detail="File not found in storage")
+        file_info = self.cloudinary.get_file_info(lookup_id)
         if not file_info:
             logger.warning("Upload confirmation failed: file not found at %s", media.storage_path)
             media.upload_status = "failed"
@@ -509,15 +582,43 @@ class StorageService:
                 raise InvalidFileException(detail="Invalid file type")
 
             file_content = await file.read()
-            file_extension = get_file_extension(file.filename or "", content_type=file.content_type)
+            content_type = file.content_type or "application/octet-stream"
+
+            # Magic-byte validation: reject spoofed content_type headers for
+            # non-image types (PIL already validates images downstream).
+            expected_type = expected_type_from_content_type(content_type)
+            if expected_type and not validate_magic_bytes(file_content, expected_type):
+                raise StorageException(
+                    detail="Invalid file type",
+                    error_code="INVALID_FILE_TYPE",
+                )
+
+            is_image = content_type.startswith("image/")
+
+            # Optimize images to WebP before uploading
+            if is_image:
+                try:
+                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
+                        file_content,
+                        max_dimension=2048,
+                        quality=80,
+                    )
+                    file_content = optimized_bytes
+                    content_type = new_content_type
+                except Exception as exc:
+                    logger.warning("Image optimization failed, uploading original: %s", exc)
+
+            file_extension = get_file_extension(
+                file.filename or "",
+                content_type=content_type,
+            )
             unique_name = f"{uuid.uuid4()}{file_extension}"
 
-            is_image = bool(file.content_type and file.content_type.startswith("image/"))
             result = self.cloudinary.upload_file(
                 file_bytes=file_content,
                 public_id=unique_name,
                 folder=folder or None,
-                content_type=file.content_type or "application/octet-stream",
+                content_type=content_type,
                 is_image=is_image,
             )
 
@@ -526,15 +627,17 @@ class StorageService:
                 "public_url": result["secure_url"],
                 "file_type": file_type,
                 "file_size": result["bytes"],
-                "content_type": file.content_type,
+                "content_type": content_type,
                 "original_filename": file.filename,
             }
 
         except BaseAPIException:
             raise
-        except Exception as e:
-            logger.error("File upload error: %s", e)
-            raise StorageException(detail=f"File upload failed: {str(e)}") from None
+        except Exception:
+            logger.exception("File upload error")
+            raise StorageException(
+                detail="File upload failed", error_code="UPLOAD_FAILED"
+            ) from None
 
     async def _create_media_record(
         self,
@@ -580,6 +683,68 @@ class StorageService:
 
     def _get_file_extension(self, filename: str, *, content_type: str | None = None) -> str:
         return get_file_extension(filename, content_type=content_type)
+
+    async def delete_batch(
+        self,
+        db: AsyncSession,
+        media_ids: list[str],
+        actor: Any,
+    ) -> dict[str, list[str]]:
+        """Bulk-delete media files owned by ``actor``.
+
+        Reuses the single-delete ownership rule: only media whose ``user_id``
+        matches the actor are deleted. IDs that are not found or are owned by
+        another user are returned in ``failed`` rather than aborting the batch.
+        Underlying storage objects are best-effort deleted via ``delete_file``.
+        """
+        from app.schemas.storage import BatchDeleteResponse
+
+        deleted: list[str] = []
+        failed: list[str] = []
+        storage_warnings: list[str] = []
+
+        if not media_ids:
+            return BatchDeleteResponse(deleted=deleted, failed=failed, storage_warnings=storage_warnings).model_dump()
+
+        # Deduplicate while preserving order.
+        unique_ids: list[str] = []
+        seen: set[str] = set()
+        for mid in media_ids:
+            if mid not in seen:
+                seen.add(mid)
+                unique_ids.append(mid)
+
+        stmt = select(MediaFile).where(
+            MediaFile.id.in_(unique_ids),
+            MediaFile.user_id == actor.id,
+        )
+        result = await db.execute(stmt)
+        owned = {m.id: m for m in result.scalars().all()}
+
+        owned_set = set(owned.keys())
+        # Requested but not owned/found → failed (preserve input order).
+        for mid in unique_ids:
+            if mid not in owned_set:
+                failed.append(mid)
+
+        for mid, media in owned.items():
+            file_path: str | None = media.storage_path
+            if not file_path and media.filename:
+                file_path = (
+                    f"{media.folder}/{media.filename}" if media.folder else media.filename
+                )
+            if file_path:
+                bucket_name = media.bucket_name if media.bucket_name else None
+                try:
+                    self.delete_file(file_path, bucket_name=bucket_name)
+                except Exception as e:  # noqa: BLE001
+                    logger.error("Storage deletion failed for media %s: %s", mid, e)
+                    storage_warnings.append(mid)
+            await db.delete(media)
+            deleted.append(mid)
+
+        await db.flush()
+        return BatchDeleteResponse(deleted=deleted, failed=failed, storage_warnings=storage_warnings).model_dump()
 
 
 storage_service = StorageService()

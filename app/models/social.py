@@ -22,9 +22,6 @@ from sqlalchemy.types import TypeDecorator
 
 from app.core.database import Base
 from app.models.enums import (
-    ConversationSource,
-    ConversationStatus,
-    MessageType,
     UserMatchStatus,
     UserReportReason,
     UserReportStatus,
@@ -114,81 +111,6 @@ class UserMatch(Base):
     )
 
 
-class UserConversation(Base):
-    __tablename__ = "user_conversations"
-    __table_args__ = (
-        Index("idx_user_conversations_unique_pair", "user_one_id", "user_two_id", unique=True),
-        Index("idx_user_conversations_last_message", "last_message_at"),
-        enum_check_constraint("source", ConversationSource, "ck_user_conversations_source"),
-        enum_check_constraint("status", ConversationStatus, "ck_user_conversations_status"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_one_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    user_two_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    context_property_id: Mapped[int | None] = mapped_column(
-        ForeignKey("properties.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    source: Mapped[ConversationSource] = mapped_column(
-        EnumStringType(ConversationSource), default=ConversationSource.listing_interest
-    )
-    status: Mapped[ConversationStatus] = mapped_column(
-        EnumStringType(ConversationStatus), default=ConversationStatus.active
-    )
-    last_message_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    context_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        onupdate=func.now(),
-        nullable=True,
-    )
-
-    context_property: Mapped["Property | None"] = relationship(
-        "Property",
-        foreign_keys=[context_property_id],
-    )
-    messages: Mapped[list["UserMessage"]] = relationship(
-        "UserMessage",
-        back_populates="conversation",
-        cascade="all, delete-orphan",
-        order_by="UserMessage.created_at",
-    )
-
-
-class UserMessage(Base):
-    __tablename__ = "user_messages"
-    __table_args__ = (
-        Index("idx_user_messages_conversation", "conversation_id", "created_at"),
-        Index("idx_user_messages_unread", "conversation_id", "read_at"),
-        enum_check_constraint("message_type", MessageType, "ck_user_messages_message_type"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("user_conversations.id", ondelete="CASCADE")
-    )
-    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    attachment_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    message_type: Mapped[MessageType] = mapped_column(
-        EnumStringType(MessageType), default=MessageType.text
-    )
-    message_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, nullable=True)
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True),
-        onupdate=func.now(),
-        nullable=True,
-    )
-
-    conversation: Mapped["UserConversation"] = relationship(back_populates="messages")
-
-
 class FlatmateSuperLikeUsage(Base):
     __tablename__ = "flatmate_super_like_usage"
     __table_args__ = (
@@ -233,7 +155,7 @@ class UserReport(Base):
     reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     reported_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     conversation_id: Mapped[int | None] = mapped_column(
-        ForeignKey("user_conversations.id", ondelete="SET NULL"),
+        ForeignKey("conversations.id", ondelete="SET NULL"),
         nullable=True,
     )
     property_id: Mapped[int | None] = mapped_column(
@@ -298,7 +220,10 @@ class AppCatalog(Base):
 
 class MatchQnAAnswer(Base):
     __tablename__ = "match_qna_answers"
-    __table_args__ = (Index("idx_match_qna_match", "match_id"),)
+    __table_args__ = (
+        Index("idx_match_qna_match", "match_id"),
+        UniqueConstraint("match_id", "user_id", name="uq_match_qna_match_user"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     match_id: Mapped[int] = mapped_column(ForeignKey("user_matches.id", ondelete="CASCADE"))

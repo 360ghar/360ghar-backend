@@ -2,6 +2,8 @@
 End-to-end tests for booking complete flow.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
@@ -98,12 +100,11 @@ class TestBookingCompleteFlow:
             "app.api.api_v1.endpoints.properties.get_unified_properties_optimized",
             new_callable=AsyncMock,
         ) as mock_search:
-            mock_search.return_value = {
-                "items": [create_mock_property_dict(test_short_stay_property.id)],
-                "total": 1,
-                "page": 1,
-                "limit": 20,
-            }
+            mock_search.return_value = (
+                [create_mock_property_dict(test_short_stay_property.id)],
+                None,
+                1,
+            )
 
             response = await authenticated_client.get(
                 "/api/v1/properties/",
@@ -199,7 +200,7 @@ class TestBookingManagementFlow:
         self, authenticated_client: AsyncClient, test_user, test_booking
     ):
         """Test viewing and cancelling a booking."""
-        from unittest.mock import MagicMock, NonCallableMock
+        from unittest.mock import NonCallableMock
 
         # Step 1: View booking details - mock at the endpoint level
         # Use NonCallableMock with spec=[] to avoid auto-generated attributes
@@ -259,6 +260,7 @@ class TestBookingManagementFlow:
             mock_booking_cancel = NonCallableMock(spec=[])
             mock_booking_cancel.id = test_booking.id
             mock_booking_cancel.user_id = test_user.id  # Must match authenticated user
+            mock_booking_cancel.property_id = test_booking.property_id
             mock_booking_cancel.booking_status = "pending"
             mock_get_for_cancel.return_value = mock_booking_cancel
 
@@ -284,13 +286,7 @@ class TestBookingListingFlow:
         with patch(
             "app.api.api_v1.endpoints.bookings.get_user_bookings", new_callable=AsyncMock
         ) as mock_list:
-            mock_list.return_value = {
-                "bookings": [],
-                "total": 0,
-                "upcoming": 0,
-                "completed": 0,
-                "cancelled": 0,
-            }
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/bookings/",
@@ -298,16 +294,16 @@ class TestBookingListingFlow:
 
             assert response.status_code == 200
             data = response.json()
-            assert "bookings" in data
+            assert "items" in data
 
     @pytest.mark.asyncio
     async def test_list_upcoming_bookings(self, authenticated_client: AsyncClient):
         """Test listing upcoming bookings."""
         with patch(
-            "app.services.booking.get_user_upcoming_bookings",
+            "app.api.api_v1.endpoints.bookings.get_user_upcoming_bookings",
             new_callable=AsyncMock,
         ) as mock_list:
-            mock_list.return_value = {"bookings": [], "total": 0}
+            mock_list.return_value = ([], None, None)
 
             response = await authenticated_client.get(
                 "/api/v1/bookings/upcoming/",

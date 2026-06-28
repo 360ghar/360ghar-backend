@@ -8,7 +8,6 @@ import pytest
 
 from app.core.exceptions import InsufficientPermissionsError, NotFoundException
 from app.models.enums import DocumentType, UserRole
-from app.models.pm_documents import Document
 from app.models.users import User
 from app.services.pm_documents import assert_can_access_document, create_document
 
@@ -73,7 +72,7 @@ class TestCreateDocument:
         actor = User(id=1, supabase_user_id="abc", role=UserRole.admin.value, is_active=True)
 
         with patch("app.services.pm_documents.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
-            doc = await create_document(
+            await create_document(
                 db,
                 actor=actor,
                 owner_id=1,

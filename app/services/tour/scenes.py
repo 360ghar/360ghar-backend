@@ -208,7 +208,6 @@ async def process_scene_image_background(
     scene_id: str,
     tour_id: str,
     image_url: str,
-    db_url: str,
     user_id: int,
 ) -> None:
     """
@@ -221,7 +220,6 @@ async def process_scene_image_background(
         scene_id: The scene ID
         tour_id: The tour ID
         image_url: URL of the scene image
-        db_url: Database URL for creating a new session
         user_id: User ID for user-scoped storage paths
     """
     from app.core.database import get_bg_session_factory
@@ -305,8 +303,6 @@ def schedule_scene_processing(
         image_url: URL of the scene image
         user_id: User ID for user-scoped storage paths
     """
-    from app.config import settings
-
     if not image_url:
         logger.warning("No image URL provided for scene %s", scene_id)
         return
@@ -322,7 +318,6 @@ def schedule_scene_processing(
             scene_id=scene_id,
             tour_id=tour_id,
             image_url=image_url,
-            db_url=settings.ASYNC_DATABASE_URL,
             user_id=user_id,
         )
     )

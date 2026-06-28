@@ -26,7 +26,9 @@ from app.mcp.chatgpt.response_formatter import (
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
 from app.mcp.utils import get_user_from_mcp_context
+from app.schemas.pagination import decode_cursor, encode_cursor
 from app.schemas.visit import VisitCreate
+from app.services.visit import get_user_visits
 
 logger = get_logger(__name__)
 
@@ -193,7 +195,7 @@ async def visits_schedule(
 )
 async def visits_list(
     status: str | None = None,
-    page: int = 1,
+    cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
     """List the user's property visits.
@@ -204,17 +206,15 @@ async def visits_list(
 
     Args:
         status: Filter by status (scheduled, confirmed, completed, cancelled, rescheduled)
-        page: Page number for pagination
+        cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Results per page (max 50)
 
     Returns:
         List of visits with statistics.
     """
     try:
-        from app.services.visit import get_user_visits
-
         limit = min(max(1, limit), 50)
-        page = max(1, page)
+        cursor_payload = decode_cursor(cursor) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -225,37 +225,52 @@ async def visits_list(
                     message="To view your property visits, please log in to your 360Ghar account.",
                 )
 
-            # Get user's visits
-            result = await get_user_visits(db, user.id)
+            # Get user's visits (paginated via cursor). Status filtering is applied
+            # client-side because get_user_visits does not accept a status filter;
+            # counts may therefore be approximate when a status filter is applied.
+            rows, next_payload, total_count = await get_user_visits(
+                db, user.id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+            )
 
-            all_visits = result.get("visits", [])
+            # Filter by status if provided (applied after pagination).
+            # When a status filter is active, `total` still reflects the
+            # DB-level count across all statuses because get_user_visits does
+            # not accept a status filter server-side.
+            if status:
+                all_visits = [v for v in rows if (v.status.value if hasattr(v.status, "value") else v.status) == status]
+            else:
+                all_visits = rows
+
+            # Compute per-status counts from the fetched page. These are
+            # approximate when paginating (they reflect only the current page,
+            # not the full dataset).
+            def _s(v):
+                return v.status.value if hasattr(v.status, "value") else v.status
+            page_counts = {"upcoming": 0, "completed": 0, "cancelled": 0}
+            for v in all_visits:
+                s = _s(v)
+                if s in ("scheduled", "confirmed", "rescheduled"):
+                    page_counts["upcoming"] += 1
+                elif s == "completed":
+                    page_counts["completed"] += 1
+                elif s == "cancelled":
+                    page_counts["cancelled"] += 1
+
             counts = {
-                "total": result.get("total", 0),
-                "upcoming": result.get("upcoming", 0),
-                "completed": result.get("completed", 0),
-                "cancelled": result.get("cancelled", 0),
+                "total": total_count if total_count is not None else len(rows),
+                **page_counts,
             }
 
-            # Filter by status if provided
-            if status:
-                all_visits = [v for v in all_visits if (v.status.value if hasattr(v.status, "value") else v.status) == status]
-
-            # Paginate
-            total = len(all_visits)
-            start = (page - 1) * limit
-            end = start + limit
-            paginated_visits = all_visits[start:end]
-
             # Serialize visits
-            visits = [_serialize_visit(v) for v in paginated_visits]
+            visits = [_serialize_visit(v) for v in all_visits]
 
             return format_chatgpt_response(
                 data={
                     "visits": visits,
-                    "total": total,
-                    "page": page,
+                    "total": len(all_visits),
+                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "has_more": next_payload is not None,
                     "limit": limit,
-                    "total_pages": (total + limit - 1) // limit if total else 0,
                     "counts": counts,
                 },
                 content_summary=format_visits_list_summary(visits, counts),

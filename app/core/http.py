@@ -9,9 +9,9 @@ Four domain-specific clients are provided:
 
 | Client                | Default timeout | Max connections | Keepalive | Used by                            |
 |-----------------------|-----------------|-----------------|-----------|------------------------------------|
-| scraper               | 30 s            | 10              | 3         | data-hub scrapers, jamabandi       |
+| scraper               | 60 s            | 10              | 3         | data-hub scrapers, jamabandi       |
 | blog                  | 120 s           | 5               | 2         | Perplexity, SerpAPI                |
-| general               | 30 s            | 5               | 2         | misc HTTP, image downloads         |
+| general               | 60 s            | 20              | 10        | misc HTTP, image downloads         |
 | supabase_auth_http    | 10 s            | 10              | 5         | verify_token, admin user ops       |
 
 Per-request ``timeout=`` overrides are supported — httpx applies the
@@ -72,7 +72,7 @@ def get_general_client() -> httpx.AsyncClient:
     """Shared HTTP client for misc outbound calls (image downloads, geocoding, etc.)."""
     global _general_client
     if _general_client is None or _general_client.is_closed:
-        _general_client = _make_client(timeout=60.0, max_connections=5, max_keepalive=2)
+        _general_client = _make_client(timeout=60.0, max_connections=20, max_keepalive=10)
     return _general_client
 
 

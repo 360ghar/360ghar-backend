@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -27,6 +29,7 @@ from app.schemas.core import (
     PageResponse,
     PageUpdate,
 )
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.services.core import CoreService
 from app.services.storage import storage_service
 
@@ -45,14 +48,15 @@ async def get_faqs_public_cached(
     core_service: CoreService,
     category: str | None,
     limit: int,
-    offset: int
+    cursor_payload: dict,
 ):
     """Cached version of public FAQs listing."""
     return await core_service.get_faqs(
         category=category,
         is_active=True,
         limit=limit,
-        offset=offset,
+        cursor_payload=cursor_payload,
+        with_total=False,
     )
 
 
@@ -64,7 +68,6 @@ async def check_for_updates_cached(
     current_version: str
 ):
     """Cached version of app version check."""
-    from app.schemas.core import AppVersionCheckRequest
     check_data = AppVersionCheckRequest(
         app=app,
         platform=platform,
@@ -77,7 +80,7 @@ async def check_for_updates_cached(
 # BUG REPORT ENDPOINTS
 # ============================================================================
 
-@router.post("/bugs", response_model=BugReportResponse)
+@router.post("/bugs", response_model=BugReportResponse, summary="Create bug report")
 async def create_bug_report(
     bug_data: BugReportCreate,
     current_user: User | None = Depends(get_current_active_user),
@@ -87,7 +90,7 @@ async def create_bug_report(
     user_id = current_user.id if current_user else None
     return await core_service.create_bug_report(bug_data, user_id)
 
-@router.post("/bugs/with-media", response_model=BugReportResponse)
+@router.post("/bugs/with-media", response_model=BugReportResponse, summary="Create bug report with media")
 async def create_bug_report_with_media(
     source: str = Form(...),
     bug_type: str = Form(...),
@@ -106,6 +109,8 @@ async def create_bug_report_with_media(
 ):
     """Create a bug report with media uploads"""
     import json
+
+    from app.models.enums import BugSeverity, BugType
 
     # Parse JSON fields
     device_info_parsed = json.loads(device_info) if device_info else None
@@ -126,8 +131,6 @@ async def create_bug_report_with_media(
             continue
 
     # Create bug report data
-    from app.models.enums import BugSeverity, BugType
-
     bug_data = BugReportCreate(
         source=source,
         bug_type=BugType(bug_type),
@@ -146,12 +149,11 @@ async def create_bug_report_with_media(
     user_id = current_user.id if current_user else None
     return await core_service.create_bug_report(bug_data, user_id)
 
-@router.get("/bugs", response_model=list[BugReportResponse])
+@router.get("/bugs", response_model=CursorPage[BugReportResponse], summary="List bug reports")
 async def get_bug_reports(
     status: str | None = Query(None, description="Filter by bug status"),
     bug_type: str | None = Query(None, description="Filter by bug type"),
-    limit: int = Query(20, ge=1, le=100, description="Number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     core_service: CoreService = Depends(get_core_service)
 ):
@@ -174,15 +176,22 @@ async def get_bug_reports(
     else:
         user_id = None
 
-    return await core_service.get_bug_reports(
+    rows, next_payload, total = await core_service.get_bug_reports(
         user_id=user_id,
         status=status_enum,
         bug_type=bug_type_enum,
-        limit=limit,
-        offset=offset
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(
+        [BugReportResponse.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
 
-@router.get("/bugs/{bug_id}", response_model=BugReportResponse)
+@router.get("/bugs/{bug_id}", response_model=BugReportResponse, summary="Get bug report")
 async def get_bug_report(
     bug_id: int,
     current_user: User = Depends(get_current_active_user),
@@ -197,7 +206,7 @@ async def get_bug_report(
 
     return bug_report
 
-@router.put("/bugs/{bug_id}", response_model=BugReportResponse)
+@router.put("/bugs/{bug_id}", response_model=BugReportResponse, summary="Update bug report")
 async def update_bug_report(
     bug_id: int,
     update_data: BugReportUpdate,
@@ -225,7 +234,7 @@ async def update_bug_report(
 # PAGE ENDPOINTS
 # ============================================================================
 
-@router.post("/pages", response_model=PageResponse)
+@router.post("/pages", response_model=PageResponse, summary="Create page")
 async def create_page(
     page_data: PageCreate,
     current_user: User = Depends(get_current_admin),
@@ -234,24 +243,30 @@ async def create_page(
     """Create a new page (admin only)"""
     return await core_service.create_page(page_data, current_user.id)
 
-@router.get("/pages", response_model=list[PageResponse])
+@router.get("/pages", response_model=CursorPage[PageResponse], summary="List pages")
 async def get_pages(
     is_active: bool | None = Query(None, description="Filter by active status"),
     is_draft: bool | None = Query(None, description="Filter by draft status"),
-    limit: int = Query(20, ge=1, le=100, description="Number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_admin),
     core_service: CoreService = Depends(get_core_service)
 ):
     """Get pages (admin only)"""
-    return await core_service.get_pages(
+    rows, next_payload, total = await core_service.get_pages(
         is_active=is_active,
         is_draft=is_draft,
-        limit=limit,
-        offset=offset
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(
+        [PageResponse.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
 
-@router.get("/pages/{unique_name}", response_model=PageResponse)
+@router.get("/pages/{unique_name}", response_model=PageResponse, summary="Get page")
 async def get_page(
     unique_name: str,
     current_user: User = Depends(get_current_admin),
@@ -263,7 +278,7 @@ async def get_page(
         raise HTTPException(status_code=404, detail="Page not found")
     return page
 
-@router.get("/pages/{unique_name}/public", response_model=PagePublicResponse)
+@router.get("/pages/{unique_name}/public", response_model=PagePublicResponse, summary="Get public page")
 async def get_page_public(unique_name: str, core_service: CoreService = Depends(get_core_service)):
     """Get a page for public access (no auth required)"""
     page = await core_service.get_page_public(unique_name)
@@ -271,7 +286,7 @@ async def get_page_public(unique_name: str, core_service: CoreService = Depends(
         raise HTTPException(status_code=404, detail="Page not found")
     return page
 
-@router.put("/pages/{unique_name}", response_model=PageResponse)
+@router.put("/pages/{unique_name}", response_model=PageResponse, summary="Update page")
 async def update_page(
     unique_name: str,
     update_data: PageUpdate,
@@ -281,7 +296,7 @@ async def update_page(
     """Update a page (admin only)"""
     return await core_service.update_page(unique_name, update_data, current_user.id)
 
-@router.delete("/pages/{unique_name}", response_model=MessageResponse)
+@router.delete("/pages/{unique_name}", response_model=MessageResponse, summary="Delete page")
 async def delete_page(
     unique_name: str,
     current_user: User = Depends(get_current_admin),
@@ -298,7 +313,7 @@ async def delete_page(
 # APP VERSION ENDPOINTS
 # ============================================================================
 
-@router.post("/versions", response_model=AppVersionResponse)
+@router.post("/versions", response_model=AppVersionResponse, summary="Create app version")
 @invalidate_cache([CacheKeyPatterns.VERSIONS])
 async def create_app_version(
     version_data: AppVersionCreate,
@@ -308,7 +323,7 @@ async def create_app_version(
     """Create a new app version entry (admin only). Invalidates version cache."""
     return await core_service.create_app_version(version_data)
 
-@router.post("/versions/check", response_model=AppVersionCheckResponse)
+@router.post("/versions/check", response_model=AppVersionCheckResponse, summary="Check for app updates")
 async def check_for_updates(
     check_data: AppVersionCheckRequest,
     core_service: CoreService = Depends(get_core_service)
@@ -321,26 +336,27 @@ async def check_for_updates(
         check_data.current_version
     )
 
-@router.get("/versions", response_model=list[AppVersionResponse])
+@router.get("/versions", response_model=CursorPage[AppVersionResponse], summary="List app versions")
 async def get_app_versions(
     app: str | None = Query(None, description="Filter by app identifier"),
     platform: str | None = Query(None, description="Filter by platform"),
     is_active: bool | None = Query(None, description="Filter by active status"),
-    limit: int = Query(10, ge=1, le=100, description="Number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_admin),
     core_service: CoreService = Depends(get_core_service)
 ):
     """Get app versions (admin only)"""
-    return await core_service.get_app_versions(
+    rows, next_payload, total = await core_service.get_app_versions(
         app=app,
         platform=platform,
         is_active=is_active,
-        limit=limit,
-        offset=offset
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
     )
+    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
-@router.put("/versions/{version_id}", response_model=AppVersionResponse)
+@router.put("/versions/{version_id}", response_model=AppVersionResponse, summary="Update app version")
 @invalidate_cache([CacheKeyPatterns.VERSIONS])
 async def update_app_version(
     version_id: int,
@@ -355,7 +371,7 @@ async def update_app_version(
 # FAQ ENDPOINTS
 # ============================================================================
 
-@router.post("/faqs", response_model=FAQResponse)
+@router.post("/faqs", response_model=FAQResponse, summary="Create FAQ")
 @invalidate_cache([CacheKeyPatterns.FAQS])
 async def create_faq(
     faq_data: FAQCreate,
@@ -365,34 +381,50 @@ async def create_faq(
     """Create a new FAQ (admin only). Invalidates FAQ cache."""
     return await core_service.create_faq(faq_data)
 
-@router.get("/faqs", response_model=list[FAQResponse])
+@router.get("/faqs", response_model=CursorPage[FAQResponse], summary="List FAQs (admin)")
 async def get_faqs_admin(
     category: str | None = Query(None, description="Filter by category/platform"),
     is_active: bool | None = Query(None, description="Filter by active status"),
-    limit: int = Query(50, ge=1, le=100, description="Number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
+    page: CursorParams = Depends(),
     current_user: User = Depends(get_current_admin),
     core_service: CoreService = Depends(get_core_service)
 ):
     """Get FAQs with admin filters (admin only)"""
-    return await core_service.get_faqs(
+    rows, next_payload, total = await core_service.get_faqs(
         category=category,
         is_active=is_active,
-        limit=limit,
-        offset=offset,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(
+        [FAQResponse.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
 
-@router.get("/faqs/public", response_model=list[FAQResponse])
+@router.get("/faqs/public", response_model=CursorPage[FAQResponse], summary="List FAQs (public)")
 async def get_faqs_public(
     category: str | None = Query(None, description="Filter by category/platform"),
-    limit: int = Query(50, ge=1, le=100, description="Number of results"),
-    offset: int = Query(0, ge=0, description="Pagination offset"),
+    page: CursorParams = Depends(),
     core_service: CoreService = Depends(get_core_service)
 ):
     """Public FAQs listing (only active FAQs, cached 6hrs)."""
-    return await get_faqs_public_cached(core_service, category, limit, offset)
+    rows, next_payload, total = await get_faqs_public_cached(
+        core_service,
+        category=category,
+        limit=page.limit,
+        cursor_payload=page.decoded(),
+    )
+    return build_cursor_page(
+        [FAQResponse.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
-@router.get("/faqs/{faq_id}", response_model=FAQResponse)
+@router.get("/faqs/{faq_id}", response_model=FAQResponse, summary="Get FAQ")
 async def get_faq(
     faq_id: int,
     current_user: User = Depends(get_current_admin),
@@ -401,7 +433,7 @@ async def get_faq(
     """Get a specific FAQ (admin only)"""
     return await core_service.get_faq_by_id(faq_id)
 
-@router.put("/faqs/{faq_id}", response_model=FAQResponse)
+@router.put("/faqs/{faq_id}", response_model=FAQResponse, summary="Update FAQ")
 @invalidate_cache([CacheKeyPatterns.FAQS])
 async def update_faq(
     faq_id: int,
@@ -412,7 +444,7 @@ async def update_faq(
     """Update an FAQ (admin only). Invalidates FAQ cache."""
     return await core_service.update_faq(faq_id, update_data)
 
-@router.delete("/faqs/{faq_id}", response_model=MessageResponse)
+@router.delete("/faqs/{faq_id}", response_model=MessageResponse, summary="Delete FAQ")
 @invalidate_cache([CacheKeyPatterns.FAQS])
 async def delete_faq(
     faq_id: int,

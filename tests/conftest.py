@@ -9,9 +9,8 @@ This is the main conftest.py providing:
 """
 
 import os
-from typing import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
@@ -21,13 +20,32 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
+# Import all models to ensure they're registered with SQLAlchemy
+import app.models  # noqa: F401
 from app.core.database import Base
 from app.core.utils import utc_now_iso
 from app.factory import create_app
 
-# Import all models to ensure they're registered with SQLAlchemy
-import app.models  # noqa: F401
+# =============================================================================
+# Shared SQL
 
+# PL/pgSQL block that drops all non-extension-owned tables in the public schema.
+_DROP_NON_EXTENSION_TABLES = text(
+    "DO $$ DECLARE r RECORD; "
+    "BEGIN "
+    "FOR r IN ("
+    "  SELECT tablename FROM pg_tables "
+    "  WHERE schemaname = 'public' "
+    "  AND tablename NOT IN ("
+    "    SELECT c.relname FROM pg_depend d "
+    "    JOIN pg_extension e ON d.refobjid = e.oid "
+    "    JOIN pg_class c ON d.objid = c.oid "
+    "    WHERE d.deptype = 'e' AND c.relkind = 'r'"
+    "  )"
+    ") LOOP "
+    "EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE'; "
+    "END LOOP; END $$;"
+)
 
 # =============================================================================
 # Configuration
@@ -63,23 +81,25 @@ async def test_engine():
         connect_args={"prepare_threshold": None},
     )
 
-    # Create all tables
+    # Ensure required extensions exist (idempotent; must run before drop_all
+    # because dropping tables doesn't remove extensions, and creating them
+    # after a fresh schema is very slow for PostGIS).
     async with engine.begin() as conn:
-        # Drop all tables first for a clean slate (use raw SQL to handle circular deps)
-        await conn.execute(text("DROP SCHEMA public CASCADE"))
-        await conn.execute(text("CREATE SCHEMA public"))
-        await conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
-        # Create required extensions
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
+    # Drop all application tables for a clean slate (raw SQL handles circular FK
+    # deps).  Exclude extension-owned tables (e.g. PostGIS's spatial_ref_sys)
+    # because they cannot be dropped while the extension is installed.
+    async with engine.begin() as conn:
+        await conn.execute(_DROP_NON_EXTENSION_TABLES)
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine
 
-    # Cleanup: drop schema to avoid circular dependency issues
+    # Cleanup: drop application tables only (keep extensions for faster re-runs)
     async with engine.begin() as conn:
-        await conn.execute(text("DROP SCHEMA public CASCADE"))
-        await conn.execute(text("CREATE SCHEMA public"))
+        await conn.execute(_DROP_NON_EXTENSION_TABLES)
 
     await engine.dispose()
 
@@ -109,7 +129,7 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
     )
 
     # Start a nested transaction (savepoint) for the actual test
-    nested = await connection.begin_nested()
+    await connection.begin_nested()
 
     @event.listens_for(session.sync_session, "after_transaction_end")
     def restart_savepoint(session_sync, transaction_inner):
@@ -151,8 +171,8 @@ async def test_app(db_session: AsyncSession):
     Also adds root-level endpoints that are defined in app/main.py
     but not in the factory.
     """
-    from app.core.database import get_db
     from app.config import settings
+    from app.core.database import get_db
 
     app = create_app(testing=True)
 

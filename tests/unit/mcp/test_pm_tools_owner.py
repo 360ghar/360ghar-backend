@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import date, datetime, timezone
 from enum import Enum
 from types import SimpleNamespace
@@ -242,7 +244,7 @@ async def test_owner_rent_status_summary_all_current_when_no_outstanding_balance
     user = _build_user()
 
     # No unpaid charges returned for any status
-    mock_list = AsyncMock(return_value=[])
+    mock_list = AsyncMock(return_value=([], None, None))
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
@@ -269,8 +271,8 @@ async def test_owner_rent_status_includes_overdue_counts_in_summary():
     async def _list_by_status(*args, **kwargs):
         status = kwargs.get("status")
         if status == RentChargeStatus.overdue:
-            return [overdue_charge]
-        return []
+            return ([overdue_charge], None, None)
+        return ([], None, None)
 
     mock_list = AsyncMock(side_effect=_list_by_status)
 
@@ -292,7 +294,7 @@ async def test_owner_rent_status_includes_overdue_counts_in_summary():
 async def test_owner_rent_status_include_paid_disables_status_filter():
     db = AsyncMock()
     user = _build_user()
-    mock_list = AsyncMock(return_value=[])
+    mock_list = AsyncMock(return_value=([], None, None))
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),

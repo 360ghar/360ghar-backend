@@ -104,7 +104,7 @@ class BankRateScraper(BaseScraper):
                     }
                 )
                 stmt = stmt.on_conflict_do_update(
-                    constraint="uq_bank_rates_key",
+                    index_elements=["bank_name", "rate_type", "effective_date"],
                     set_={
                         "rate_value": stmt.excluded.rate_value,
                         "raw_data": stmt.excluded.raw_data,

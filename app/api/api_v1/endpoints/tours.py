@@ -4,6 +4,8 @@
 This module provides REST API endpoints for managing virtual tours,
 including CRUD operations, publishing, duplication, and analytics.
 """
+from __future__ import annotations
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,8 +15,8 @@ from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.enums import TourStatus
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
-    PaginatedTourResponse,
     Scene,
     SceneCreate,
     SceneReorder,
@@ -33,12 +35,12 @@ logger = get_logger(__name__)
 
 @router.get(
     "",
-    response_model=PaginatedTourResponse,
+    response_model=CursorPage[Tour],
     response_model_exclude={"items": {"__all__": {"scenes"}}},
+    summary="List tours",
 )
 async def list_tours(
-    page: int = Query(1, ge=1, description="Page number"),
-    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    page: CursorParams = Depends(),
     status: TourStatus | None = Query(None, description="Filter by status"),
     search: str | None = Query(None, description="Search in title/description"),
     db: AsyncSession = Depends(get_db),
@@ -49,18 +51,24 @@ async def list_tours(
 
     Returns paginated list of tours with optional filtering by status and search.
     """
-    result = await tour_service.get_tours(
+    tours, next_payload, total = await tour_service.get_tours(
         db=db,
         user_id=current_user.id,
-        page=page,
-        page_size=page_size,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
         status_filter=status,
         search=search,
     )
-    return result
+    return build_cursor_page(
+        [Tour.model_validate(t) for t in tours],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.post("", response_model=Tour, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=Tour, status_code=status.HTTP_201_CREATED, summary="Create tour")
 async def create_tour(
     tour_data: TourCreate,
     db: AsyncSession = Depends(get_db),
@@ -79,7 +87,7 @@ async def create_tour(
     return tour
 
 
-@router.get("/{tour_id}", response_model=TourWithScenes)
+@router.get("/{tour_id}", response_model=TourWithScenes, summary="Get tour")
 async def get_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -97,8 +105,8 @@ async def get_tour(
     )
 
 
-@router.put("/{tour_id}", response_model=Tour)
-@router.patch("/{tour_id}", response_model=Tour)
+@router.put("/{tour_id}", response_model=Tour, summary="Update tour")
+@router.patch("/{tour_id}", response_model=Tour, summary="Update tour")
 async def update_tour(
     tour_id: str,
     tour_data: TourUpdate,
@@ -118,7 +126,7 @@ async def update_tour(
     )
 
 
-@router.delete("/{tour_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{tour_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete tour")
 async def delete_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -137,7 +145,7 @@ async def delete_tour(
     return None
 
 
-@router.post("/{tour_id}/publish", response_model=Tour)
+@router.post("/{tour_id}/publish", response_model=Tour, summary="Publish tour")
 async def publish_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -155,7 +163,7 @@ async def publish_tour(
     )
 
 
-@router.post("/{tour_id}/unpublish", response_model=Tour)
+@router.post("/{tour_id}/unpublish", response_model=Tour, summary="Unpublish tour")
 async def unpublish_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -173,7 +181,7 @@ async def unpublish_tour(
     )
 
 
-@router.post("/{tour_id}/duplicate", response_model=Tour, status_code=status.HTTP_201_CREATED)
+@router.post("/{tour_id}/duplicate", response_model=Tour, status_code=status.HTTP_201_CREATED, summary="Duplicate tour")
 async def duplicate_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -192,7 +200,7 @@ async def duplicate_tour(
     )
 
 
-@router.get("/{tour_id}/analytics", response_model=TourAnalytics)
+@router.get("/{tour_id}/analytics", response_model=TourAnalytics, summary="Get tour analytics")
 async def get_tour_analytics(
     tour_id: str,
     start_date: date | None = Query(None, description="Analytics start date"),
@@ -215,21 +223,23 @@ async def get_tour_analytics(
 
 
 # Scene endpoints nested under tours
-@router.get("/{tour_id}/scenes", response_model=list[Scene])
+@router.get("/{tour_id}/scenes", response_model=list[Scene], summary="List tour scenes")
 async def list_scenes(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
+    limit: int = Query(100, le=100, description="Max scenes to return (hard cap 100)"),
 ):
     """
     List all scenes for a tour.
 
     Returns scenes ordered by their order_index.
     """
-    return await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
+    scenes = await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
+    return scenes[:limit]
 
 
-@router.post("/{tour_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED)
+@router.post("/{tour_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED, summary="Create tour scene")
 async def create_scene(
     tour_id: str,
     scene_data: SceneCreate,
@@ -249,8 +259,8 @@ async def create_scene(
     )
 
 
-@router.put("/{tour_id}/scenes/reorder", response_model=list[Scene])
-@router.post("/{tour_id}/scenes/reorder", response_model=list[Scene])
+@router.put("/{tour_id}/scenes/reorder", response_model=list[Scene], summary="Reorder tour scenes")
+@router.post("/{tour_id}/scenes/reorder", response_model=list[Scene], summary="Reorder tour scenes")
 async def reorder_scenes(
     tour_id: str,
     reorder_data: SceneReorder,
@@ -276,7 +286,7 @@ async def reorder_scenes(
     return scenes
 
 
-@router.get("/{tour_id}/qr-code")
+@router.get("/{tour_id}/qr-code", summary="Get tour QR code")
 async def get_tour_qr_code(
     tour_id: str,
     size: int = Query(256, ge=64, le=1024, description="QR code size in pixels"),
@@ -333,7 +343,7 @@ async def get_tour_qr_code(
     )
 
 
-@router.get("/{tour_id}/heatmap")
+@router.get("/{tour_id}/heatmap", summary="Get tour heatmap")
 async def get_tour_heatmap(
     tour_id: str,
     scene_id: str | None = Query(None, description="Filter by specific scene"),

@@ -61,11 +61,11 @@ class TestStorageFolder:
     """Tests for StorageFolder enum."""
 
     def test_avatar_value(self):
-        assert StorageFolder.AVATAR.value == "avatars"
+        assert StorageFolder.AVATAR.value == "avatars/{user_id}"
 
     def test_property_image_value(self):
         assert "property_id" in StorageFolder.PROPERTY_IMAGE.value
-        assert "images" in StorageFolder.PROPERTY_IMAGE.value
+        assert "properties" in StorageFolder.PROPERTY_IMAGE.value
 
     def test_tour_thumbnail_value(self):
         assert "tour_id" in StorageFolder.TOUR_THUMBNAIL.value
@@ -82,7 +82,7 @@ class TestGenerateStoragePath:
 
     def test_avatar_path(self):
         path = generate_storage_path(user_id=1, folder=StorageFolder.AVATAR, extension="jpg")
-        assert path.startswith("users/1/avatars/")
+        assert path.startswith("avatars/1/")
         assert path.endswith(".jpg")
 
     def test_property_image_path(self):
@@ -92,7 +92,7 @@ class TestGenerateStoragePath:
             property_id=42,
             extension="png",
         )
-        assert "users/1/properties/42/images/" in path
+        assert "properties/42/" in path
 
     def test_property_image_missing_property_id(self):
         with pytest.raises(BadRequestException, match="property_id"):
@@ -151,10 +151,10 @@ class TestGenerateStoragePath:
             folder=StorageFolder.AVATAR,
             extension="jpg",
         )
-        # UUID is 36 chars (with dashes)
+        # UUID is truncated to 8 chars + ".jpg" = 12 chars
         parts = path.split("/")
         filename = parts[-1]
-        assert len(filename) > 36  # UUID + extension
+        assert len(filename) > 8  # uuid8chars + extension
 
 
 class TestGetFolderForContentType:
@@ -180,7 +180,7 @@ class TestParseUserIdFromPath:
     """Tests for parse_user_id_from_path function."""
 
     def test_valid_user_path(self):
-        assert parse_user_id_from_path("users/123/avatars/photo.jpg") == 123
+        assert parse_user_id_from_path("avatars/123/photo.jpg") == 123
 
     def test_agent_path_returns_none(self):
         assert parse_user_id_from_path("agents/5/avatars/photo.jpg") is None

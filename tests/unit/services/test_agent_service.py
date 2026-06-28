@@ -2,12 +2,9 @@
 Tests for agent service module.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.agents import Agent
 
 
 class TestGetAllAgents:
@@ -81,8 +78,8 @@ class TestCreateAgent:
     @pytest.mark.asyncio
     async def test_create_agent_success(self, db_session: AsyncSession, test_user):
         """Test successful agent creation."""
-        from app.services.agent import create_agent
         from app.schemas.agent import AgentCreate
+        from app.services.agent import create_agent
 
         agent_data = AgentCreate(
             user_id=test_user.id,
@@ -106,8 +103,8 @@ class TestUpdateAgent:
     @pytest.mark.asyncio
     async def test_update_agent_success(self, db_session: AsyncSession, test_agent):
         """Test successful agent update."""
-        from app.services.agent import update_agent
         from app.schemas.agent import AgentUpdate
+        from app.services.agent import update_agent
 
         update_data = AgentUpdate(name="Updated Agent Name")
 
@@ -119,8 +116,8 @@ class TestUpdateAgent:
     @pytest.mark.asyncio
     async def test_update_agent_not_found(self, db_session: AsyncSession):
         """Test updating non-existent agent."""
-        from app.services.agent import update_agent
         from app.schemas.agent import AgentUpdate
+        from app.services.agent import update_agent
 
         update_data = AgentUpdate(name="Updated Name")
 
@@ -135,7 +132,7 @@ class TestDeleteAgent:
     @pytest.mark.asyncio
     async def test_delete_agent_success(self, db_session: AsyncSession, test_agent):
         """Test soft deleting agent."""
-        from app.services.agent import delete_agent, get_agent_by_id
+        from app.services.agent import delete_agent
 
         result = await delete_agent(db_session, test_agent.id)
 
@@ -318,22 +315,24 @@ class TestAgentPagination:
         """Test paginated agent listing."""
         from app.services.agent import get_all_agents_paginated
 
-        result = await get_all_agents_paginated(db_session, page=1, limit=10)
+        rows, next_payload, count_total = await get_all_agents_paginated(
+            db_session, cursor_payload={}, limit=10
+        )
 
-        assert "items" in result
-        assert "total" in result
-        assert "page" in result
-        assert "has_next" in result
-        assert "has_prev" in result
+        assert isinstance(rows, list)
+        assert next_payload is None or isinstance(next_payload, dict)
+        assert count_total is None
 
     @pytest.mark.asyncio
     async def test_get_available_agents_paginated(self, db_session: AsyncSession, test_agents):
         """Test paginated available agents."""
         from app.services.agent import get_available_agents_paginated
 
-        result = await get_available_agents_paginated(db_session, page=1, limit=10)
+        rows, next_payload, count_total = await get_available_agents_paginated(
+            db_session, cursor_payload={}, limit=10
+        )
 
-        assert "items" in result
-        for agent in result["items"]:
+        assert isinstance(rows, list)
+        for agent in rows:
             assert agent.is_active is True
             assert agent.is_available is True

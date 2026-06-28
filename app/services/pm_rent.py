@@ -12,6 +12,7 @@ from app.models.enums import LeaseStatus, RentChargeStatus, UserRole
 from app.models.pm_finance import RentCharge, RentPayment
 from app.models.pm_leases import Lease
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.pm_authz import assert_can_access_lease, assert_can_manage_owner_portfolio
 
 
@@ -122,9 +123,10 @@ async def list_rent_charges(
     lease_id: int | None = None,
     property_id: int | None = None,
     status: RentChargeStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[dict]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict], dict | None, int | None]:
     """List rent charges with computed payment totals and outstanding amounts."""
     if as_tenant:
         if actor.role != UserRole.user.value:
@@ -139,6 +141,25 @@ async def list_rent_charges(
         if owner_id is not None:
             await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
 
+    # Base filter stmt (without keyset) — used for total count
+    filter_stmt = select(RentCharge.id)
+    if as_tenant:
+        filter_stmt = filter_stmt.where(RentCharge.tenant_user_id == actor.id)
+    elif owner_id is not None:
+        filter_stmt = filter_stmt.where(RentCharge.owner_id == owner_id)
+    if lease_id is not None:
+        filter_stmt = filter_stmt.where(RentCharge.lease_id == lease_id)
+    if property_id is not None:
+        filter_stmt = filter_stmt.where(RentCharge.property_id == property_id)
+    if status is not None:
+        filter_stmt = filter_stmt.where(RentCharge.status == status)
+
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(filter_stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    # Build the aggregating query for items
     stmt = (
         select(
             RentCharge,
@@ -160,11 +181,19 @@ async def list_rent_charges(
     if status is not None:
         stmt = stmt.where(RentCharge.status == status)
 
-    stmt = stmt.order_by(RentCharge.due_date.asc()).offset(offset).limit(limit)
+    predicate = keyset_filter(RentCharge.due_date, RentCharge.id, cursor_payload, descending=False)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(RentCharge.due_date.asc(), RentCharge.id.asc()).limit(limit + 1)
     res = await db.execute(stmt)
+    rows = res.all()
+
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
 
     items: list[dict] = []
-    for charge, paid_total in res.all():
+    for charge, paid_total in page_rows:
         due_total = float(charge.amount_due or 0) + float(charge.late_fee_assessed or 0)
         paid_total_f = float(paid_total or 0)
         outstanding = max(due_total - paid_total_f, 0.0)
@@ -176,7 +205,13 @@ async def list_rent_charges(
                 "outstanding": outstanding,
             }
         )
-    return items
+
+    next_payload: dict | None = None
+    if has_more and items:
+        last = items[-1]["charge"]
+        next_payload = keyset_payload(keyset_sort_value(last.due_date), last.id)
+
+    return items, next_payload, count_total
 
 
 async def record_rent_payment(
@@ -207,6 +242,22 @@ async def record_rent_payment(
         # Owner or tenant
         if charge.owner_id != actor.id and charge.tenant_user_id != actor.id:
             raise InsufficientPermissionsError("Not authorized to record payment for this charge")
+
+    # Guard against overpayment: compute current outstanding before recording
+    existing_paid_res = await db.execute(
+        select(func.coalesce(func.sum(RentPayment.amount_paid), 0.0)).where(
+            RentPayment.charge_id == charge.id
+        )
+    )
+    existing_paid = float(existing_paid_res.scalar_one() or 0.0)
+    due_total = float(charge.amount_due or 0) + float(charge.late_fee_assessed or 0)
+    outstanding = max(due_total - existing_paid, 0.0)
+    if outstanding <= 0:
+        raise BadRequestException(detail="This charge is already fully paid")
+    if amount_paid > outstanding:
+        raise BadRequestException(
+            detail=f"Payment amount ({amount_paid}) exceeds outstanding balance ({outstanding:.2f})"
+        )
 
     payment = RentPayment(
         charge_id=charge.id,
@@ -258,9 +309,10 @@ async def list_rent_payments(
     owner_id: int | None = None,
     lease_id: int | None = None,
     property_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[RentPayment]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[RentPayment], dict | None, int | None]:
     if as_tenant:
         if actor.role != UserRole.user.value:
             raise InsufficientPermissionsError("Only user role can view as tenant")
@@ -282,6 +334,25 @@ async def list_rent_payments(
     if property_id is not None:
         stmt = stmt.where(RentPayment.property_id == property_id)
 
-    stmt = stmt.order_by(RentPayment.paid_at.desc()).offset(offset).limit(limit)
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(RentPayment.paid_at, RentPayment.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(RentPayment.paid_at.desc(), RentPayment.id.desc()).limit(limit + 1)
     res = await db.execute(stmt)
-    return list(res.scalars().all())
+    rows = list(res.scalars().all())
+
+    has_more = len(rows) > limit
+    items = rows[:limit]
+
+    next_payload: dict | None = None
+    if has_more and items:
+        last = items[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.paid_at), last.id)
+
+    return items, next_payload, count_total

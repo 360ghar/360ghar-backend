@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,7 @@ from app.api.api_v1.dependencies.auth import (
     get_current_agent,
 )
 from app.core.database import get_db
+from app.models.enums import AgentType
 from app.schemas.agent import (
     Agent,
     AgentAssignment,
@@ -17,8 +19,10 @@ from app.schemas.agent import (
     AgentWithStats,
     AgentWorkload,
 )
-from app.schemas.common import MessageResponse, PaginatedResponse
+from app.schemas.common import MessageResponse
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.user import User as UserSchema
+from app.schemas.visit import Visit as VisitSchema
 from app.services.agent import (
     assign_agent_to_user,
     create_agent,
@@ -31,7 +35,7 @@ from app.services.agent import (
     get_available_agents_paginated,
     get_system_stats,
     get_user_agent,
-    get_workload_distribution,
+    get_workload_distribution_paginated,
     update_agent,
     update_agent_availability,
 )
@@ -45,7 +49,7 @@ router = APIRouter()
 
 
 # User-facing agent endpoints
-@router.get("/assigned", response_model=Agent)
+@router.get("/assigned", response_model=Agent, summary="Get my assigned agent")
 async def get_my_agent(
     current_user: UserSchema = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
 ):
@@ -56,7 +60,7 @@ async def get_my_agent(
     return agent
 
 
-@router.post("/assign", response_model=AgentAssignment)
+@router.post("/assign", response_model=AgentAssignment, summary="Assign agent to me")
 async def assign_my_agent(
     agent_id: int | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -73,59 +77,90 @@ async def assign_my_agent(
 
 
 # Public agent information endpoints
-@router.get("/available", response_model=PaginatedResponse)
+@router.get("/available", response_model=CursorPage[Agent], summary="List available agents")
 async def list_available_agents(
     specialization: str | None = Query(None, description="Filter by specialization"),
     agent_type: str | None = Query(None, description="Filter by agent type"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get list of available agents with optional filters"""
     if specialization:
-        return await get_agents_by_specialization_paginated(
-            db, page=page, limit=limit, specialization=specialization
+        rows, next_payload, total = await get_agents_by_specialization_paginated(
+            db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, specialization=specialization
         )
-    return await get_available_agents_paginated(db, page=page, limit=limit, agent_type=agent_type)
+    else:
+        rows, next_payload, total = await get_available_agents_paginated(
+            db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, agent_type=agent_type
+        )
+    return build_cursor_page(
+        [Agent.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.get("/types/{agent_type}", response_model=PaginatedResponse)
+@router.get("/types/{agent_type}", response_model=CursorPage[Agent], summary="List agents by type")
 async def get_agents_by_agent_type(
     agent_type: str,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get agents by type (general, specialist, senior)"""
-    return await get_agents_by_type_paginated(db, page=page, limit=limit, agent_type=agent_type)
+    valid_types = {t.value for t in AgentType}
+    if agent_type not in valid_types:
+        raise HTTPException(status_code=422, detail=f"Invalid agent_type. Must be one of: {', '.join(sorted(valid_types))}")
+    rows, next_payload, total = await get_agents_by_type_paginated(
+        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, agent_type=agent_type
+    )
+    return build_cursor_page(
+        [Agent.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+    )
 
 
-@router.get("/specializations/{specialization}", response_model=PaginatedResponse)
+@router.get("/specializations/{specialization}", response_model=CursorPage[Agent], summary="List agents by specialization")
 async def get_agents_by_agent_specialization(
     specialization: str,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Get agents by specialization - returns all active agents"""
-    return await get_agents_by_specialization_paginated(
-        db, page=page, limit=limit, specialization=specialization
+    rows, next_payload, total = await get_agents_by_specialization_paginated(
+        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, specialization=specialization
+    )
+    return build_cursor_page(
+        [Agent.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
 
 
 # System monitoring endpoints (must be before /{agent_id})
-@router.get("/system/workload", response_model=list[AgentWorkload])
+@router.get("/system/workload", response_model=CursorPage[AgentWorkload], summary="Get system workload")
 async def get_system_workload(
-    current_user: UserSchema = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
+    page: CursorParams = Depends(),
+    current_user: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Get workload distribution across all agents (admin endpoint)"""
-    return await get_workload_distribution(db)
+    rows, next_payload, total = await get_workload_distribution_paginated(
+        db,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        with_total=page.include_total,
+    )
+    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.get("/system/stats", response_model=AgentSystemStats)
+@router.get("/system/stats", response_model=AgentSystemStats, summary="Get system statistics")
 async def get_system_statistics(
     current_user: UserSchema = Depends(get_current_admin), db: AsyncSession = Depends(get_db)
 ):
@@ -134,7 +169,7 @@ async def get_system_statistics(
 
 
 # Agent self profile endpoint (must be before /{agent_id})
-@router.get("/me", response_model=Agent)
+@router.get("/me", response_model=Agent, summary="Get my agent profile")
 async def get_my_agent_profile(
     current_user: UserSchema = Depends(get_current_agent), db: AsyncSession = Depends(get_db)
 ):
@@ -160,7 +195,7 @@ async def get_my_agent_profile(
 # =============================================================================
 
 
-@router.get("/{agent_id}", response_model=Agent)
+@router.get("/{agent_id}", response_model=Agent, summary="Get agent details")
 async def get_agent_details(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -173,7 +208,7 @@ async def get_agent_details(
     return agent
 
 
-@router.get("/{agent_id}/stats", response_model=AgentWithStats)
+@router.get("/{agent_id}/stats", response_model=AgentWithStats, summary="Get agent statistics")
 async def get_agent_statistics(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -186,11 +221,10 @@ async def get_agent_statistics(
     return agent_with_stats
 
 
-@router.get("/{agent_id}/visits", response_model=PaginatedResponse)
+@router.get("/{agent_id}/visits", response_model=CursorPage[VisitSchema], summary="Get agent visit history")
 async def get_agent_visit_history(
     agent_id: int,
-    page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -205,8 +239,10 @@ async def get_agent_visit_history(
 
     # Admin can access all agent visits
     if user_role == "admin":
-        visits = await get_agent_visits(db, agent_id, page, limit)
-        return visits
+        items, next_payload, total = await get_agent_visits(
+            db, agent_id, page.decoded(), page.limit, page.include_total
+        )
+        return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
     # Agent can access their own visits (if their user account is linked to agent_id)
     # Regular users can view visits for their assigned agent
@@ -215,16 +251,20 @@ async def get_agent_visit_history(
     if user_role == "agent":
         # Check if this agent_id belongs to the current user
         if user_agent and user_agent.id == agent_id:
-            visits = await get_agent_visits(db, agent_id, page, limit)
-            return visits
+            items, next_payload, total = await get_agent_visits(
+                db, agent_id, page.decoded(), page.limit, page.include_total
+            )
+            return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="You can only view your own agent visits"
         )
 
     # Regular users can view visits for their assigned agent
     if user_agent and user_agent.id == agent_id:
-        visits = await get_agent_visits(db, agent_id, page, limit)
-        return visits
+        items, next_payload, total = await get_agent_visits(
+            db, agent_id, page.decoded(), page.limit, page.include_total
+        )
+        return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -233,21 +273,26 @@ async def get_agent_visit_history(
 
 
 # Admin endpoints
-@router.get("", response_model=PaginatedResponse)
+@router.get("", response_model=CursorPage[Agent], summary="List all agents")
 async def list_all_agents(
     include_inactive: bool = Query(False, description="Include inactive agents"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
+    page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ):
     """Get list of all agents (admin endpoint)"""
-    return await get_all_agents_paginated(
-        db, page=page, limit=limit, include_inactive=include_inactive
+    rows, next_payload, total = await get_all_agents_paginated(
+        db, cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total, include_inactive=include_inactive
+    )
+    return build_cursor_page(
+        [Agent.model_validate(r) for r in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
     )
 
 
-@router.post("", response_model=Agent)
+@router.post("", response_model=Agent, summary="Create agent")
 async def create_new_agent(
     agent_data: AgentCreate,
     current_user: UserSchema = Depends(get_current_admin),
@@ -263,7 +308,7 @@ async def create_new_agent(
     return agent
 
 
-@router.put("/{agent_id}", response_model=Agent)
+@router.put("/{agent_id}", response_model=Agent, summary="Update agent")
 async def update_agent_details(
     agent_id: int,
     update_data: AgentUpdate,
@@ -277,7 +322,7 @@ async def update_agent_details(
     return updated_agent
 
 
-@router.delete("/{agent_id}", response_model=MessageResponse)
+@router.delete("/{agent_id}", response_model=MessageResponse, summary="Deactivate agent")
 async def deactivate_agent(
     agent_id: int,
     current_user: UserSchema = Depends(get_current_admin),
@@ -290,7 +335,7 @@ async def deactivate_agent(
     return MessageResponse(message="Agent deactivated successfully")
 
 
-@router.patch("/{agent_id}/availability", response_model=MessageResponse)
+@router.patch("/{agent_id}/availability", response_model=MessageResponse, summary="Update agent availability")
 async def update_agent_availability_status(
     agent_id: int,
     is_available: bool,

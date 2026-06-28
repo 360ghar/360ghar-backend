@@ -31,9 +31,16 @@ async def get_floor_plans(db: AsyncSession, tour_id: str, user_id: int) -> list[
     return list(result.scalars().all())
 
 
-async def get_floor_plan(db: AsyncSession, floor_plan_id: str, user_id: int) -> FloorPlan:
-    """Get a floor plan by ID."""
+async def get_floor_plan(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    tour_id: str | None = None,
+) -> FloorPlan:
+    """Get a floor plan by ID, optionally scoped to a specific tour."""
     query = select(FloorPlan).where(FloorPlan.id == floor_plan_id)
+    if tour_id is not None:
+        query = query.where(FloorPlan.tour_id == tour_id)
     result = await db.execute(query)
     floor_plan = result.scalar_one_or_none()
 
@@ -79,10 +86,14 @@ async def create_floor_plan(
 
 
 async def update_floor_plan(
-    db: AsyncSession, floor_plan_id: str, user_id: int, data: FloorPlanUpdate
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    data: FloorPlanUpdate,
+    tour_id: str | None = None,
 ) -> FloorPlan:
     """Update a floor plan."""
-    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id, tour_id=tour_id)
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -101,12 +112,16 @@ async def update_floor_plan(
 
 
 async def update_floor_plan_markers(
-    db: AsyncSession, floor_plan_id: str, user_id: int, markers: list[dict]
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    markers: list[dict],
+    tour_id: str | None = None,
 ) -> FloorPlan:
     """Update only the markers of a floor plan."""
-    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id, tour_id=tour_id)
 
-    floor_plan.markers = markers  # type: ignore[assignment]
+    floor_plan.markers = markers
     await db.commit()
     await db.refresh(floor_plan)
 
@@ -114,9 +129,14 @@ async def update_floor_plan_markers(
     return floor_plan
 
 
-async def delete_floor_plan(db: AsyncSession, floor_plan_id: str, user_id: int) -> bool:
+async def delete_floor_plan(
+    db: AsyncSession,
+    floor_plan_id: str,
+    user_id: int,
+    tour_id: str | None = None,
+) -> bool:
     """Delete a floor plan."""
-    floor_plan = await get_floor_plan(db, floor_plan_id, user_id)
+    floor_plan = await get_floor_plan(db, floor_plan_id, user_id, tour_id=tour_id)
 
     await db.delete(floor_plan)
     await db.commit()

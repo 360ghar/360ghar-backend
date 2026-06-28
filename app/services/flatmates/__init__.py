@@ -26,15 +26,15 @@ from app.services.flatmates.matching import (
     unmatch_user_pair,
 )
 from app.services.flatmates.moderation import (
-    apply_expired_move_in_pause,
     apply_listing_prescreen_metadata,
     apply_report_auto_pause,
+    apply_stale_listing_pause,
     build_listing_prescreen_result,
     create_block,
     create_report,
     delete_block,
     list_blocks,
-    pause_expired_flatmate_listings,
+    pause_stale_flatmate_listings,
     prescreen_flatmate_listing,
 )
 from app.services.flatmates.profiles import (
@@ -86,10 +86,10 @@ __all__ = [
     "list_blocks",
     "create_report",
     "build_listing_prescreen_result",
-    "apply_expired_move_in_pause",
+    "apply_stale_listing_pause",
     "apply_listing_prescreen_metadata",
     "apply_report_auto_pause",
-    "pause_expired_flatmate_listings",
+    "pause_stale_flatmate_listings",
     "prescreen_flatmate_listing",
     # visits
     "update_visit_status",

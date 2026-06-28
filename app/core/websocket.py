@@ -4,6 +4,8 @@ WebSocket Connection Manager.
 This module provides real-time communication capabilities for AI job progress
 updates and user notifications.
 """
+from __future__ import annotations
+
 import asyncio
 import json
 from typing import Any

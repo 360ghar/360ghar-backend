@@ -1,8 +1,7 @@
 """Tests for blog model SEO fields."""
 
-import pytest
 from app.models.blogs import BlogPost
-from app.services.blog import _compute_word_count, _compute_reading_time
+from app.services.blog import _compute_reading_time, _compute_word_count
 
 
 class TestBlogPostSEOFields:

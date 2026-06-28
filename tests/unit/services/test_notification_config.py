@@ -5,12 +5,12 @@ Tests for app.services.notification_config module.
 import pytest
 
 from app.services.notification_config import (
+    NOTIFICATION_TYPES,
     FrequencyCap,
     NotificationCategory,
     NotificationChannel,
     NotificationPriority,
     NotificationTypeConfig,
-    NOTIFICATION_TYPES,
 )
 
 

@@ -12,13 +12,12 @@ Provides fixtures that mock external API calls to:
 - MCP context
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import respx
 from httpx import Response
-
 
 # =============================================================================
 # MCP Context Mocks
@@ -111,9 +110,7 @@ def mock_cloudinary_storage():
 
     Returns a mock client that simulates successful file uploads.
     """
-    with patch("app.services.cloudinary.service.cloudinary_service") as mock:
-        mock_client = MagicMock()
-
+    with patch("app.services.cloudinary.service.cloudinary_service") as mock_client:
         # Mock upload method
         mock_client.upload_file.return_value = {
             "public_id": "360ghar/uploads/test_file.jpg",
@@ -289,12 +286,12 @@ def mock_redis():
     Provides an in-memory mock of Redis operations.
     """
     # Storage for mock data
-    mock_data: Dict[str, Any] = {}
+    mock_data: dict[str, Any] = {}
 
     with patch("app.core.cache.backends.redis.redis.asyncio.from_url") as mock:
         mock_redis = AsyncMock()
 
-        async def mock_get(key: str) -> Optional[bytes]:
+        async def mock_get(key: str) -> bytes | None:
             value = mock_data.get(key)
             if value is None:
                 return None
@@ -303,7 +300,7 @@ def mock_redis():
         async def mock_set(
             key: str,
             value: Any,
-            ex: Optional[int] = None,
+            ex: int | None = None,
         ) -> bool:
             mock_data[key] = value
             return True
@@ -319,7 +316,7 @@ def mock_redis():
         async def mock_exists(*keys: str) -> int:
             return sum(1 for key in keys if key in mock_data)
 
-        async def mock_keys(pattern: str) -> List[bytes]:
+        async def mock_keys(pattern: str) -> list[bytes]:
             import fnmatch
 
             return [
@@ -373,7 +370,7 @@ def mock_email_service():
 
     Captures sent emails for assertion.
     """
-    sent_emails: List[Dict[str, Any]] = []
+    sent_emails: list[dict[str, Any]] = []
 
     with patch("app.services.email.send_email") as mock:
 
@@ -403,7 +400,7 @@ def mock_sms_service():
 
     Captures sent SMS for assertion.
     """
-    sent_sms: List[Dict[str, Any]] = []
+    sent_sms: list[dict[str, Any]] = []
 
     with patch("app.services.sms.send_sms") as mock:
 

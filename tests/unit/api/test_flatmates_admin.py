@@ -30,6 +30,7 @@ from app.api.api_v1.endpoints.flatmates_admin import (
     prescreen_listing,
 )
 from app.schemas.flatmates import ListingModerationAction, ReportModerationAction
+from app.schemas.pagination import CursorParams
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -121,6 +122,11 @@ def _make_report(
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
+
+
+def _default_page(limit: int = 50, include_total: bool = False) -> CursorParams:
+    """Build a CursorParams with no cursor (first page)."""
+    return CursorParams(cursor=None, limit=limit, include_total=include_total)
 
 
 def _mock_db() -> AsyncMock:
@@ -234,8 +240,7 @@ class TestGetPendingListingsAuth:
         with pytest.raises(HTTPException) as exc_info:
             await get_pending_listings(
                 status="pending_review",
-                limit=50,
-                offset=0,
+                page=_default_page(),
                 current_user=user,
                 db=db,
             )
@@ -251,8 +256,7 @@ class TestGetPendingListingsAuth:
         with pytest.raises(HTTPException) as exc_info:
             await get_pending_listings(
                 status="pending_review",
-                limit=50,
-                offset=0,
+                page=_default_page(),
                 current_user=user,
                 db=db,
             )
@@ -291,8 +295,7 @@ class TestGetPendingReportsAuth:
         with pytest.raises(HTTPException) as exc_info:
             await get_pending_reports(
                 status="open",
-                limit=50,
-                offset=0,
+                page=_default_page(),
                 current_user=user,
                 db=db,
             )
@@ -375,7 +378,7 @@ class TestModerateListingApprove:
 
     @pytest.mark.asyncio
     async def test_approve_emits_sse_event(self):
-        """Approve action emits SSE listing_status_changed event to the listing owner."""
+        """Approve action emits SSE property_update event to the listing owner."""
         db = _mock_db()
         admin = _make_admin_user_schema()
         prop = _make_property(prop_id=1, owner_id=10)
@@ -399,10 +402,8 @@ class TestModerateListingApprove:
         mock_sse_bus.emit.assert_awaited_once_with(
             10,
             {
-                "type": "listing_status_changed",
-                "listing_id": 1,
-                "status": "live",
-                "reason": "Looks good",
+                "type": "property_update",
+                "data": {"property_id": 1, "change_type": "live"},
             },
         )
         assert result["status"] == "live"
@@ -440,7 +441,7 @@ class TestModerateListingReject:
 
     @pytest.mark.asyncio
     async def test_reject_emits_sse_event(self):
-        """Reject action emits SSE listing_status_changed event to the listing owner."""
+        """Reject action emits SSE property_update event to the listing owner."""
         db = _mock_db()
         admin = _make_admin_user_schema()
         prop = _make_property(prop_id=2, owner_id=10)
@@ -464,10 +465,8 @@ class TestModerateListingReject:
         mock_sse_bus.emit.assert_awaited_once_with(
             10,
             {
-                "type": "listing_status_changed",
-                "listing_id": 2,
-                "status": "rejected",
-                "reason": "Incomplete info",
+                "type": "property_update",
+                "data": {"property_id": 2, "change_type": "rejected"},
             },
         )
         assert result["status"] == "rejected"
@@ -712,57 +711,88 @@ class TestModerateReportNotFound:
 
 
 class TestGetPendingListingsPagination:
-    """Tests for get_pending_listings with admin user and pagination."""
+    """Tests for get_pending_listings with admin user and cursor pagination."""
 
     @pytest.mark.asyncio
-    async def test_returns_listings_with_pagination(self):
+    async def test_returns_listings_cursor_page(self):
         db = _mock_db()
         admin = _make_admin_user_schema()
 
         prop1 = _make_property(prop_id=1)
         prop2 = _make_property(prop_id=2)
 
-        # First db.execute -> listing query (returns scalars().all())
-        # Second db.execute -> count query (returns scalar())
+        # Only one db.execute call (main listing query; no count since include_total=False)
         mock_scalars = MagicMock()
         mock_scalars.all.return_value = [prop1, prop2]
 
         mock_listings_result = MagicMock()
         mock_listings_result.scalars.return_value = mock_scalars
-        mock_listings_result.scalar.return_value = 2
 
-        db.execute = AsyncMock(side_effect=[mock_listings_result, mock_listings_result])
+        db.execute = AsyncMock(return_value=mock_listings_result)
 
         with patch(
-            "app.api.api_v1.endpoints.flatmates_admin.pause_expired_flatmate_listings",
+            "app.api.api_v1.endpoints.flatmates_admin.pause_stale_flatmate_listings",
             new=AsyncMock(),
         ):
             result = await get_pending_listings(
                 status="pending_review",
-                limit=50,
-                offset=0,
+                page=_default_page(limit=50),
                 current_user=admin,
                 db=db,
             )
 
-        assert "listings" in result
-        assert result["total"] == 2
+        # CursorPage envelope: items, next_cursor, has_more, limit
+        assert "items" in result
         assert result["limit"] == 50
-        assert result["offset"] == 0
+        assert result["has_more"] is False
+        assert result["next_cursor"] is None
+
+    @pytest.mark.asyncio
+    async def test_returns_listings_with_total_when_requested(self):
+        db = _mock_db()
+        admin = _make_admin_user_schema()
+
+        prop1 = _make_property(prop_id=1)
+        prop2 = _make_property(prop_id=2)
+
+        mock_scalars = MagicMock()
+        mock_scalars.all.return_value = [prop1, prop2]
+
+        mock_listings_result = MagicMock()
+        mock_listings_result.scalars.return_value = mock_scalars
+
+        mock_count_result = MagicMock()
+        mock_count_result.scalar_one.return_value = 2
+
+        # With include_total=True: count first, then listings
+        db.execute = AsyncMock(side_effect=[mock_count_result, mock_listings_result])
+
+        with patch(
+            "app.api.api_v1.endpoints.flatmates_admin.pause_stale_flatmate_listings",
+            new=AsyncMock(),
+        ):
+            result = await get_pending_listings(
+                status="pending_review",
+                page=_default_page(limit=50, include_total=True),
+                current_user=admin,
+                db=db,
+            )
+
+        assert "items" in result
+        assert result["total"] == 2
 
 
 class TestGetPendingReportsPagination:
-    """Tests for get_pending_reports with admin user and pagination."""
+    """Tests for get_pending_reports with admin user and cursor pagination."""
 
     @pytest.mark.asyncio
-    async def test_returns_reports_with_pagination(self):
+    async def test_returns_reports_cursor_page(self):
         db = _mock_db()
         admin = _make_admin_user_schema()
 
         report1 = _make_report(report_id=1)
         report2 = _make_report(report_id=2)
 
-        # First execute -> reports, second -> user lookup, third -> count
         mock_scalars = MagicMock()
         mock_scalars.all.return_value = [report1, report2]
 
@@ -772,25 +802,19 @@ class TestGetPendingReportsPagination:
         mock_users_result = MagicMock()
         mock_users_result.scalars.return_value.all.return_value = []
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar.return_value = 2
-
-        db.execute = AsyncMock(
-            side_effect=[mock_reports_result, mock_users_result, mock_count_result]
-        )
+        # No count query since include_total=False; reports query then user lookup
+        db.execute = AsyncMock(side_effect=[mock_reports_result, mock_users_result])
 
         result = await get_pending_reports(
             status="open",
-            limit=50,
-            offset=0,
+            page=_default_page(limit=50),
             current_user=admin,
             db=db,
         )
 
-        assert "reports" in result
-        assert result["total"] == 2
+        assert "items" in result
         assert result["limit"] == 50
-        assert result["offset"] == 0
+        assert result["has_more"] is False
 
     @pytest.mark.asyncio
     async def test_empty_reports(self):
@@ -803,21 +827,17 @@ class TestGetPendingReportsPagination:
         mock_reports_result = MagicMock()
         mock_reports_result.scalars.return_value = mock_scalars
 
-        mock_count_result = MagicMock()
-        mock_count_result.scalar.return_value = 0
-
-        db.execute = AsyncMock(side_effect=[mock_reports_result, mock_count_result])
+        db.execute = AsyncMock(return_value=mock_reports_result)
 
         result = await get_pending_reports(
             status="open",
-            limit=50,
-            offset=0,
+            page=_default_page(limit=50),
             current_user=admin,
             db=db,
         )
 
-        assert result["reports"] == []
-        assert result["total"] == 0
+        assert result["items"] == []
+        assert result["has_more"] is False
 
 
 # ===========================================================================

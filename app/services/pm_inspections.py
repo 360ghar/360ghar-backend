@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
@@ -10,6 +10,7 @@ from app.models.enums import InspectionType, UserRole
 from app.models.pm_inspections import InspectionChecklist
 from app.models.pm_leases import Lease
 from app.models.users import User
+from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.services.pm_authz import assert_can_access_lease, assert_can_manage_owner_portfolio
 
 
@@ -52,9 +53,10 @@ async def list_inspections(
     owner_id: int | None = None,
     lease_id: int | None = None,
     property_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[InspectionChecklist]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[InspectionChecklist], dict | None, int | None]:
     if actor.role == UserRole.user.value:
         owner_id = actor.id
     elif actor.role == UserRole.agent.value:
@@ -71,9 +73,24 @@ async def list_inspections(
     if property_id is not None:
         stmt = stmt.where(InspectionChecklist.property_id == property_id)
 
-    stmt = stmt.order_by(InspectionChecklist.conducted_at.desc()).offset(offset).limit(limit)
-    res = await db.execute(stmt)
-    return list(res.scalars().all())
+    count_total = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    predicate = keyset_filter(InspectionChecklist.conducted_at, InspectionChecklist.id, cursor_payload, descending=True)
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+
+    stmt = stmt.order_by(InspectionChecklist.conducted_at.desc(), InspectionChecklist.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    next_payload = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last = rows[-1]
+        next_payload = keyset_payload(keyset_sort_value(last.conducted_at), last.id)
+    return rows, next_payload, count_total
 
 
 async def get_inspection(

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.ai_conversations import AIConversation, AIConversationMessage
+from app.schemas.pagination import offset_payload, read_offset
 
 logger = get_logger(__name__)
 
@@ -97,10 +98,24 @@ async def get_history(
 async def list_conversations(
     db: AsyncSession,
     user_id: int,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
+    *,
+    cursor_payload: dict | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     """List conversations for a user with message counts."""
+    if cursor_payload is None:
+        cursor_payload = {}
+    offset = read_offset(cursor_payload)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(
+                select(func.count()).select_from(AIConversation).where(AIConversation.user_id == user_id)
+            )
+        ).scalar_one()
+
     msg_count = (
         select(func.count(AIConversationMessage.id))
         .where(AIConversationMessage.conversation_id == AIConversation.id)
@@ -112,11 +127,16 @@ async def list_conversations(
         .where(AIConversation.user_id == user_id)
         .order_by(AIConversation.updated_at.desc())
         .offset(offset)
-        .limit(limit)
+        .limit(limit + 1)
     )
     result = await db.execute(stmt)
     rows = result.all()
-    return [
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_payload = offset_payload(offset + limit) if has_more else None
+
+    items = [
         {
             "id": conv.id,
             "title": conv.title,
@@ -126,6 +146,7 @@ async def list_conversations(
         }
         for conv, count in rows
     ]
+    return items, next_payload, total
 
 
 async def delete_conversation(

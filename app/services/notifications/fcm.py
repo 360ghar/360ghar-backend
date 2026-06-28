@@ -156,8 +156,7 @@ async def send_message(message: dict[str, Any]) -> dict[str, Any]:
     """Send a single FCM HTTP v1 message."""
     token = _access_token()
     if token is None:
-        logger.warning("FCM send skipped — credentials not available")
-        return {"ok": False, "error": "FCM not configured"}
+        raise RuntimeError("FCM credentials not configured — push notifications disabled")
     project_id = settings.FIREBASE_PROJECT_ID
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
     client = _get_fcm_client()

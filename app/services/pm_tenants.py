@@ -9,6 +9,7 @@ from app.core.exceptions import InsufficientPermissionsError, NotFoundException
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.users import User
+from app.schemas.pagination import offset_payload, read_offset
 from app.services.pm_authz import assert_can_manage_owner_portfolio, get_accessible_owner_ids
 
 
@@ -17,9 +18,10 @@ async def list_tenants(
     *,
     actor: User,
     owner_id: int | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
+    cursor_payload: dict,
+    limit: int = 20,
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     """List tenant users across an owner's (or RM's) accessible portfolio."""
     owner_ids: list[int] | None = None
     if actor.role == UserRole.user.value:
@@ -50,16 +52,24 @@ async def list_tenants(
         .join(Lease, Lease.tenant_user_id == User.id)
         .where(Lease.tenant_user_id.is_not(None))
         .group_by(User.id)
-        .order_by(active_count_expr.desc(), User.id.desc())
-        .offset(offset)
-        .limit(limit)
     )
 
     if owner_ids is not None:
         stmt = stmt.where(Lease.owner_id.in_(owner_ids))
 
-    rows = (await db.execute(stmt)).all()
-    return [
+    count_total: int | None = None
+    if with_total:
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        count_total = (await db.execute(count_stmt)).scalar_one()
+
+    offset = read_offset(cursor_payload)
+    stmt = stmt.order_by(active_count_expr.desc(), User.id.desc()).offset(offset).limit(limit + 1)
+
+    raw_rows = (await db.execute(stmt)).all()
+    next_p = offset_payload(offset + limit) if len(raw_rows) > limit else None
+    page_rows = raw_rows[:limit]
+
+    items = [
         {
             "user_id": int(r.user_id),
             "full_name": r.full_name,
@@ -67,8 +77,9 @@ async def list_tenants(
             "email": r.email,
             "active_leases_count": int(r.active_leases_count or 0),
         }
-        for r in rows
+        for r in page_rows
     ]
+    return items, next_p, count_total
 
 
 async def get_tenant_detail(

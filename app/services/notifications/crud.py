@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from typing import Any, Literal
+from uuid import UUID
 
 from app.core.logging import get_logger
 from app.core.utils import utc_now_iso
+from app.schemas.pagination import offset_payload, read_offset
 
 from .helpers import _run_sync, _supa
 
@@ -55,15 +57,21 @@ async def _record_notification(
 async def list_notifications_for_user(
     target_user_id: str,
     *,
+    cursor_payload: dict | None = None,
     limit: int = 50,
-    offset: int = 0,
-) -> list[dict[str, Any]]:
-    """Return notifications for a given Supabase user id."""
+    with_total: bool = False,
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
+    """Return notifications for a given Supabase user id (offset-fallback pagination)."""
+    if cursor_payload is None:
+        cursor_payload = {}
+
+    offset = read_offset(cursor_payload)
+    fetch_limit = limit + 1
 
     def _sync_list():
         supa = _supa()
         start = offset
-        end = offset + max(limit, 1) - 1
+        end = offset + max(fetch_limit, 1) - 1
         res = (
             supa.table("notifications")
             .select("id,title,body,data,audience_type,target_user_id,topic,created_at")
@@ -74,7 +82,28 @@ async def list_notifications_for_user(
         )
         return res.data or []
 
-    return list(await _run_sync(_sync_list))
+    rows: list[dict[str, Any]] = list(await _run_sync(_sync_list))
+
+    count_total: int | None = None
+    if with_total:
+        def _sync_count():
+            supa = _supa()
+            res = (
+                supa.table("notifications")
+                .select("id", count="exact")
+                .eq("target_user_id", target_user_id)
+                .execute()
+            )
+            return res.count or 0
+
+        count_total = int(await _run_sync(_sync_count))
+
+    next_pg: dict | None = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        next_pg = offset_payload(offset + limit)
+
+    return rows, next_pg, count_total
 
 
 async def mark_delivery_opened(
@@ -85,6 +114,10 @@ async def mark_delivery_opened(
     """Mark a notification delivery as opened, verifying user ownership when possible."""
     if not user_supabase_id:
         return {"ok": False, "error": "unauthenticated"}
+    try:
+        UUID(delivery_id)
+    except (ValueError, AttributeError):
+        return {"ok": False, "error": "not_found"}
 
     def _sync_mark_opened():
         supa = _supa()

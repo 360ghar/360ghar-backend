@@ -626,7 +626,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/VisitList'
+                $ref: '#/components/schemas/CursorPageVisit'
 
   /visits/upcoming:
     get:
@@ -2992,15 +2992,23 @@ components:
           type: string
           format: date-time
 
-    VisitList:
+    CursorPageVisit:
       type: object
       properties:
-        visits:
+        items:
           type: array
           items:
             $ref: '#/components/schemas/Visit'
+        next_cursor:
+          type: string
+          nullable: true
+        has_more:
+          type: boolean
+        limit:
+          type: integer
         total:
           type: integer
+          nullable: true
 
     VisitSlice:
       type: object
