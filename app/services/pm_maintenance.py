@@ -173,8 +173,8 @@ async def update_maintenance_request(
     if request_status is not None:
         # Validate status transition
         ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-            "open": {"in_review", "closed"},
-            "in_review": {"work_order_created", "resolved", "closed"},
+            "open": {"in_review", "work_order_created", "resolved", "closed"},
+            "in_review": {"work_order_created", "resolved", "closed", "open"},
             "work_order_created": {"resolved", "closed"},
             "resolved": {"closed", "open"},
             "closed": set(),

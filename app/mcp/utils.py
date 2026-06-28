@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from app.models.pm_maintenance import MaintenanceRequest
     from app.models.properties import Property
     from app.models.users import User
+    from app.schemas.property import Property as PropertySchema
 
 logger = get_logger(__name__)
 
@@ -141,7 +142,7 @@ async def get_user_from_mcp_context(db) -> User | None:
     return user
 
 
-def serialize_property_basic(prop: Property) -> dict:
+def serialize_property_basic(prop: Property | PropertySchema) -> dict:
     """Serialize a property object to basic dict for MCP responses."""
     property_type = getattr(prop, "property_type", None)
     purpose = getattr(prop, "purpose", None)

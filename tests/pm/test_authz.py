@@ -17,7 +17,7 @@ from app.services.pm_authz import assert_can_access_property
 
 
 @pytest.mark.asyncio
-async def test_pm_authz_owner_agent_tenant_property_access(test_db):
+async def test_pm_authz_owner_agent_tenant_property_access(db_session):
     agent_profile = Agent(
         name="RM 1",
         contact_number="9999999999",
@@ -26,8 +26,8 @@ async def test_pm_authz_owner_agent_tenant_property_access(test_db):
         is_active=True,
         is_available=True,
     )
-    test_db.add(agent_profile)
-    await test_db.flush()
+    db_session.add(agent_profile)
+    await db_session.flush()
 
     owner = User(
         supabase_user_id="owner-supa",
@@ -55,8 +55,8 @@ async def test_pm_authz_owner_agent_tenant_property_access(test_db):
         is_active=True,
         is_verified=True,
     )
-    test_db.add_all([owner, rm_user, tenant])
-    await test_db.flush()
+    db_session.add_all([owner, rm_user, tenant])
+    await db_session.flush()
 
     prop = Property(
         title="Test PM Property",
@@ -66,15 +66,15 @@ async def test_pm_authz_owner_agent_tenant_property_access(test_db):
         owner_id=owner.id,
         is_managed=True,
     )
-    test_db.add(prop)
-    await test_db.flush()
+    db_session.add(prop)
+    await db_session.flush()
 
     amenity = Amenity(title="Gym", icon="dumbbell", category="fitness", is_active=True)
-    test_db.add(amenity)
-    await test_db.flush()
+    db_session.add(amenity)
+    await db_session.flush()
     prop_amenity = PropertyAmenity(property_id=prop.id, amenity_id=amenity.id)
-    test_db.add(prop_amenity)
-    await test_db.flush()
+    db_session.add(prop_amenity)
+    await db_session.flush()
 
     lease = Lease(
         property_id=prop.id,
@@ -88,26 +88,26 @@ async def test_pm_authz_owner_agent_tenant_property_access(test_db):
         grace_period_days=5,
         payment_due_day=1,
     )
-    test_db.add(lease)
-    await test_db.flush()
+    db_session.add(lease)
+    await db_session.flush()
 
     # Owner can access
-    p1 = await assert_can_access_property(test_db, actor=owner, property_id=prop.id)
+    p1 = await assert_can_access_property(db_session, actor=owner, property_id=prop.id)
     assert p1.id == prop.id
     assert len(p1.property_amenities) == 1
     assert p1.property_amenities[0].amenity.title == "Gym"
 
     # RM can access (via owner.agent_id match)
-    p2 = await assert_can_access_property(test_db, actor=rm_user, property_id=prop.id)
+    p2 = await assert_can_access_property(db_session, actor=rm_user, property_id=prop.id)
     assert p2.id == prop.id
 
     # Tenant can access only when allow_tenant=True
     p3 = await assert_can_access_property(
-        test_db, actor=tenant, property_id=prop.id, allow_tenant=True
+        db_session, actor=tenant, property_id=prop.id, allow_tenant=True
     )
     assert p3.id == prop.id
 
     from app.core.exceptions import InsufficientPermissionsError
 
     with pytest.raises(InsufficientPermissionsError):
-        await assert_can_access_property(test_db, actor=tenant, property_id=prop.id, allow_tenant=False)
+        await assert_can_access_property(db_session, actor=tenant, property_id=prop.id, allow_tenant=False)

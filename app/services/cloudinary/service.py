@@ -186,7 +186,7 @@ class CloudinaryService:
         try:
             result = self._api.delete_resources([public_id], resource_type="auto")
             deleted = result.get("deleted", {})
-            return deleted.get(public_id) == "deleted"
+            return bool(deleted.get(public_id) == "deleted")
         except Exception as e:
             logger.error("Cloudinary delete error: %s", e)
             return False
@@ -219,7 +219,7 @@ class CloudinaryService:
             transformation=transformations,
             secure=True,
         )
-        return url
+        return str(url)
 
     def extract_public_id_from_url(self, url: str) -> str | None:
         try:

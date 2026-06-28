@@ -12,7 +12,7 @@ from app.services.pm_rent import generate_rent_charges, record_rent_payment
 
 
 @pytest.mark.asyncio
-async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
+async def test_generate_rent_charges_idempotent_and_payment_status(db_session):
     owner = User(
         supabase_user_id="owner-supa-2",
         phone="+944444444444",
@@ -29,8 +29,8 @@ async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
         is_active=True,
         is_verified=True,
     )
-    test_db.add_all([owner, tenant])
-    await test_db.flush()
+    db_session.add_all([owner, tenant])
+    await db_session.flush()
 
     prop = Property(
         title="Rent Property",
@@ -40,8 +40,8 @@ async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
         owner_id=owner.id,
         is_managed=True,
     )
-    test_db.add(prop)
-    await test_db.flush()
+    db_session.add(prop)
+    await db_session.flush()
 
     lease = Lease(
         property_id=prop.id,
@@ -55,11 +55,11 @@ async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
         grace_period_days=5,
         payment_due_day=5,
     )
-    test_db.add(lease)
-    await test_db.flush()
+    db_session.add(lease)
+    await db_session.flush()
 
     res1 = await generate_rent_charges(
-        test_db,
+        db_session,
         actor=owner,
         owner_id=owner.id,
         start_month=date(2025, 1, 1),
@@ -68,7 +68,7 @@ async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
     assert res1["created"] == 1
 
     res2 = await generate_rent_charges(
-        test_db,
+        db_session,
         actor=owner,
         owner_id=owner.id,
         start_month=date(2025, 1, 1),
@@ -77,26 +77,26 @@ async def test_generate_rent_charges_idempotent_and_payment_status(test_db):
     assert res2["created"] == 0
     assert res2["skipped"] == 1
 
-    charge = (await test_db.execute(select(RentCharge))).scalars().first()
+    charge = (await db_session.execute(select(RentCharge))).scalars().first()
     assert charge is not None
     assert charge.status == RentChargeStatus.pending
 
     # Partial payment -> partial/overdue depending on due_date vs today; we assert non-paid
     await record_rent_payment(
-        test_db,
+        db_session,
         actor=owner,
         charge_id=charge.id,
         amount_paid=10000,
     )
-    await test_db.refresh(charge)
+    await db_session.refresh(charge)
     assert charge.status in {RentChargeStatus.partial, RentChargeStatus.overdue, RentChargeStatus.pending}
 
     # Pay the remaining 20000 -> paid
     await record_rent_payment(
-        test_db,
+        db_session,
         actor=tenant,
         charge_id=charge.id,
         amount_paid=20000,
     )
-    await test_db.refresh(charge)
+    await db_session.refresh(charge)
     assert charge.status == RentChargeStatus.paid

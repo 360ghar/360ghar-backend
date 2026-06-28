@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from collections.abc import Sequence
+from typing import Any
 
 from app.config import settings
 from app.core.logging import get_logger
@@ -28,7 +29,7 @@ def _get_client():
     return _client
 
 
-def _embed_one(client: object, model: str, text: str, *, task_type: str = "retrieval_document") -> list[float]:
+def _embed_one(client: Any, model: str, text: str, *, task_type: str = "retrieval_document") -> list[float]:
     from google.genai import types
 
     retries = max(1, int(settings.VECTOR_SYNC_MAX_RETRIES))

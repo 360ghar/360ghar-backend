@@ -339,8 +339,7 @@ class TestAgentPropertiesVerify:
         db = AsyncMock()
         agent = make_agent()
         prop = make_property(property_id=3)
-        prop.is_verified = False  # type: ignore[attr-defined]
-        prop.features = {}  # type: ignore[attr-defined]
+        prop.listing_preferences = {}  # type: ignore[attr-defined]
         mock_authz = AsyncMock(return_value=prop)
         with (
             patch.object(properties_tools, "get_db", return_value=async_gen_db(db)),
@@ -353,8 +352,9 @@ class TestAgentPropertiesVerify:
             )
         assert result["ok"] is True
         assert result["data"]["is_verified"] is True
-        assert prop.is_verified is True  # type: ignore[attr-defined]
-        assert prop.features["verification_notes"] == "Site visit done"  # type: ignore[attr-defined]
+        verification = prop.listing_preferences["verification"]  # type: ignore[attr-defined]
+        assert verification["is_verified"] is True
+        assert verification["notes"] == "Site visit done"
         db.flush.assert_awaited()
         db.commit.assert_awaited()
 

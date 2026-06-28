@@ -279,7 +279,7 @@ async def get_properties(
 
 ## Coding Conventions
 
-- **Python 3.10+**, FastAPI, SQLAlchemy 2.x async, Pydantic v2
+- **Python 3.12+**, FastAPI, SQLAlchemy 2.x async, Pydantic v2
 - **snake_case** for modules/functions/variables; **PascalCase** for classes
 - Full type hints everywhere
 - Custom exceptions from `app/core/exceptions.py` (e.g., `UserNotFoundException`)
@@ -340,7 +340,7 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - **Research before integrating**: Before implementing any 3rd party integration (APIs, SDKs, libraries, AI models, protocols), look up the current official documentation and latest version. Do not rely on training data alone — docs, APIs, model names, and SDKs change frequently. Always verify from official sources.
 - **Use Context7 MCP or web search**: Use the `context7` MCP tools (`resolve-library-id` + `query-docs`) or `WebSearch`/`WebFetch`/`google_search` to retrieve up-to-date documentation, latest version numbers, API references, and code examples for any library, service, model, or SDK being used.
 - **Verify everything latest**: When referencing package versions, AI/LLM model names, API endpoints or signatures, SDK methods, protocol versions (e.g., MCP protocol version), or any external service reference, always confirm the latest from official sources (docs sites, GitHub releases, PyPI, npm, official changelogs). Never assume a version or API shape from memory.
-- **Verify compatibility**: Confirm that new dependencies are compatible with the project's Python 3.10+ requirement and existing stack (FastAPI, SQLAlchemy 2.x async, Pydantic v2).
+- **Verify compatibility**: Confirm that new dependencies are compatible with the project's Python 3.12+ requirement and existing stack (FastAPI, SQLAlchemy 2.x async, Pydantic v2).
 - **Check changelogs for breaking changes**: When upgrading a dependency, review its changelog/migration guide to avoid breaking changes.
 - **Stay current with ecosystem**: Periodically check for newer versions of key dependencies (FastAPI, SQLAlchemy, Pydantic, Supabase, FastMCP, etc.) and update when safe. Prefer latest docs and examples over outdated tutorials or blog posts.
 
