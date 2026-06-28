@@ -328,6 +328,7 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
     if visit:
         old_status = visit.status
         update_data = visit_update.model_dump(exclude_unset=True)
+        update_data.pop("status", None)
         for field, value in update_data.items():
             setattr(visit, field, value)
 
@@ -544,7 +545,7 @@ async def get_all_visits(
 
     if filter_agent_id is not None:
         stmt = stmt.outerjoin(User, Visit.user_id == User.id).outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
-        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id))
+        filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id, Visit.agent_id == filter_agent_id))
 
     if filters:
         stmt = stmt.where(and_(*filters))

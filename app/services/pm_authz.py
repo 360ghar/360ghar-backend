@@ -230,6 +230,7 @@ async def can_access_visit(
     visit_user_id: int,
     visit_property_id: int,
     visit_counterparty_user_id: int | None = None,
+    visit_agent_id: int | None = None,
 ) -> bool:
     """Check if the actor can access a visit.
 
@@ -249,6 +250,8 @@ async def can_access_visit(
     if role == UserRole.admin:
         return True
     if role == UserRole.agent and actor.agent_id is not None:
+        if visit_agent_id is not None and visit_agent_id == actor.agent_id:
+            return True
         visit_user = await db.get(User, visit_user_id)
         property_obj = await db.get(Property, visit_property_id)
         owner = await db.get(User, property_obj.owner_id) if property_obj else None

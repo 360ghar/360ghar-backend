@@ -43,7 +43,6 @@ class VisitCreate(BaseModel):
 
 class VisitUpdate(BaseModel):
     scheduled_date: datetime | None = None
-    status: VisitStatus | None = None
     special_requirements: str | None = None
     visit_notes: str | None = None
     visitor_feedback: str | None = None
