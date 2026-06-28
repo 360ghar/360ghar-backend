@@ -36,7 +36,7 @@ def _truthy(value: object, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
-        return value.lower() not in ("false", "0", "no", "off", "")
+        return value.strip().lower() not in ("false", "0", "no", "off", "")
     return bool(value)
 
 
