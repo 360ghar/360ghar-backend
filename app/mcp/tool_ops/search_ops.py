@@ -157,8 +157,8 @@ def parse_natural_query(query: str) -> dict[str, Any]:
             extracted["price_max"] = max_price
         text = text[: price_range.start()] + text[price_range.end() :]
 
-    # 3. Extract property type keywords
-    for keyword, prop_type in _PROPERTY_TYPE_KEYWORDS.items():
+    # 3. Extract property type keywords (sorted by length descending to match "flatmate" before "flat")
+    for keyword, prop_type in sorted(_PROPERTY_TYPE_KEYWORDS.items(), key=lambda x: -len(x[0])):
         # Match whole words only
         pattern = re.compile(r"\b" + re.escape(keyword) + r"\b", re.IGNORECASE)
         match = pattern.search(text)

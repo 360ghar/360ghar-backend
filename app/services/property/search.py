@@ -355,10 +355,11 @@ async def get_unified_properties_optimized(
         if filters.city:
             normalized_city = normalize_city(filters.city)
             logger.debug("Adding city filter: %s (normalized from: %s)", normalized_city, filters.city)
-            conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%"))
+            conditions.append(func.lower(Property.city).like(f"%{normalized_city.lower()}%", escape="\\"))
         if filters.locality:
             logger.debug("Adding locality filter: %s", filters.locality)
-            conditions.append(Property.locality.ilike(f"%{filters.locality}%"))
+            escaped_locality = filters.locality.replace("%", r"\%").replace("_", r"\_")
+            conditions.append(Property.locality.ilike(f"%{escaped_locality}%", escape="\\"))
         if filters.pincode:
             logger.debug("Adding pincode filter: %s", filters.pincode)
             conditions.append(Property.pincode == filters.pincode)

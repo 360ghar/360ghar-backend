@@ -131,7 +131,7 @@ def format_property_list_summary(
         price_range = "various prices"
 
     # Extract property types
-    types = {p.get("property_type", "property") for p in properties}
+    types = {p.get("property_type") or "property" for p in properties}
     type_str = ", ".join(types) if len(types) <= 3 else "various types"
 
     # Extract locations

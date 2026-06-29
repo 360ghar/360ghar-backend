@@ -342,6 +342,6 @@ class AppsSDKFastMCP(FastMCP):
                 "MCP tool failed", extra={"tool": key, "error": str(exc)}, exc_info=True
             )
             return mcp_types.CallToolResult(
-                content=[mcp_types.TextContent(type="text", text=str(exc))],
+                content=[mcp_types.TextContent(type="text", text="An unexpected error occurred. Please try again later.")],
                 isError=True,
             )

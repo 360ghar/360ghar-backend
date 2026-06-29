@@ -156,11 +156,11 @@ def serialize_property_basic(prop: Property | PropertySchema) -> dict:
         "property_type": property_type.value if property_type else None,
         "purpose": purpose.value if purpose else None,
         "status": status.value if status else None,
-        "city": prop.city,
-        "locality": prop.locality,
+        "city": getattr(prop, "city", None),
+        "locality": getattr(prop, "locality", None),
         "full_address": getattr(prop, "full_address", None),
-        "base_price": prop.base_price,
-        "price": prop.base_price,
+        "base_price": getattr(prop, "base_price", None),
+        "price": getattr(prop, "base_price", None),
         "monthly_rent": getattr(prop, "monthly_rent", None),
         "daily_rate": getattr(prop, "daily_rate", None),
         "bedrooms": getattr(prop, "bedrooms", None),
@@ -169,9 +169,9 @@ def serialize_property_basic(prop: Property | PropertySchema) -> dict:
         "is_available": getattr(prop, "is_available", True),
         "is_managed": getattr(prop, "is_managed", False),
         "management_status": management_status.value if management_status else None,
-        "latitude": prop.latitude,
-        "longitude": prop.longitude,
-        "main_image_url": prop.main_image_url,
+        "latitude": getattr(prop, "latitude", None),
+        "longitude": getattr(prop, "longitude", None),
+        "main_image_url": getattr(prop, "main_image_url", None),
         "created_at": created_at.isoformat() if created_at else None,
     }
 
@@ -204,7 +204,7 @@ def serialize_property_full(prop: Property) -> dict:
 
     basic.update(
         {
-            "description": prop.description,
+            "description": getattr(prop, "description", None),
             "sub_locality": getattr(prop, "sub_locality", None),
             "landmark": getattr(prop, "landmark", None),
             "pincode": getattr(prop, "pincode", None),
@@ -254,8 +254,8 @@ def serialize_booking(booking: Booking) -> dict:
         "booking_reference": getattr(booking, "booking_reference", None),
         "property_id": booking.property_id,
         "user_id": booking.user_id,
-        "check_in_date": booking.check_in_date.isoformat() if booking.check_in_date else None,
-        "check_out_date": booking.check_out_date.isoformat() if booking.check_out_date else None,
+        "check_in_date": booking.check_in_date.isoformat() if getattr(booking, "check_in_date", None) else None,
+        "check_out_date": booking.check_out_date.isoformat() if getattr(booking, "check_out_date", None) else None,
         "guests": getattr(booking, "guests", None),
         "nights": getattr(booking, "nights", None),
         "base_amount": float(getattr(booking, "base_amount", 0) or 0),
