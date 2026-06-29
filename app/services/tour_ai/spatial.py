@@ -214,7 +214,7 @@ def _match_target(
         return str(candidates[0]["id"])
     # Multiple: prefer one not already linked from this source.
     for c in candidates:
-        if c["id"] not in already_linked:
+        if str(c["id"]) not in already_linked:
             return str(c["id"])
     return str(candidates[0]["id"])
 

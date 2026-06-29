@@ -37,6 +37,7 @@ class TestConversationsService:
         )
 
         with patch("app.services.flatmates.conversations.asyncio.create_task") as mock_create_task:
+            mock_create_task.side_effect = lambda coro: coro.close()
             # We must mock _find_participant_peer_id and _is_blocked as well, or just run them with DB
             await send_message(db_session, conv.id, test_user.id, payload)
             

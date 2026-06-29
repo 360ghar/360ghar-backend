@@ -552,6 +552,19 @@ async def create_report(db: AsyncSession, user_id: int, payload: ReportCreate) -
             db.add(report)
             await db.flush()
     except IntegrityError:
+        # Concurrent insert race condition: fetch and return the winning report
+        stmt = (
+            select(UserReport)
+            .where(
+                UserReport.reporter_user_id == user_id,
+                UserReport.reported_user_id == payload.reported_user_id,
+                UserReport.status == UserReportStatus.open,
+            )
+            .limit(1)
+        )
+        existing_report = (await db.execute(stmt)).scalars().first()
+        if existing_report:
+            return existing_report
         raise BadRequestException(detail="You have already reported this user") from None
 
     report_count = await _active_reporter_count(db, payload.reported_user_id)

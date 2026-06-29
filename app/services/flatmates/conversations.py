@@ -627,19 +627,19 @@ async def send_message(
 
 
                 async def _bg_notify() -> None:
-                    from app.core.database import AsyncSessionLocal
-                    from app.services.push_notification import notify_new_message
+                    try:
+                        from app.core.database import AsyncSessionLocal
+                        from app.services.push_notification import notify_new_message
 
-                    async with AsyncSessionLocal() as bg_db:
-                        try:
+                        async with AsyncSessionLocal() as bg_db:
                             await notify_new_message(
                                 bg_db,
                                 recipient_db_id=peer_id,
                                 sender_name=sender_name,
                                 conversation_id=conversation.id,
                             )
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("Message notification failed (best-effort): %s", exc, exc_info=True)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("Message notification failed (best-effort): %s", exc, exc_info=True)
 
                 asyncio.create_task(_bg_notify())
 
