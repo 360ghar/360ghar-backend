@@ -28,7 +28,7 @@ from app.services.flatmates.matching import (
 from app.services.flatmates.moderation import (
     apply_listing_prescreen_metadata,
     apply_report_auto_pause,
-    apply_stale_listing_pause,
+    apply_expired_move_in_pause,
     build_listing_prescreen_result,
     create_block,
     create_report,
@@ -86,7 +86,7 @@ __all__ = [
     "list_blocks",
     "create_report",
     "build_listing_prescreen_result",
-    "apply_stale_listing_pause",
+    "apply_expired_move_in_pause",
     "apply_listing_prescreen_metadata",
     "apply_report_auto_pause",
     "pause_stale_flatmate_listings",
