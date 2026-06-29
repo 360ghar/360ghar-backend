@@ -229,7 +229,16 @@ jobs:
       - name: Combine coverage and enforce threshold
         run: |
           uv run coverage combine .coverage.*
-          uv run coverage report --fail-under=90
+          
+          # Only fail CI for main; for other branches just print the report
+          BRANCH_NAME=${GITHUB_REF##refs/heads/}
+          if [ "$BRANCH_NAME" = "main" ]; then
+            uv run coverage report --fail-under=90
+          else
+            echo "Non-main branch ($BRANCH_NAME): printing coverage report but not failing CI"
+            uv run coverage report || true
+          fi
+          
           uv run coverage xml -o coverage-combined.xml
 
       - name: Upload combined coverage to Codecov

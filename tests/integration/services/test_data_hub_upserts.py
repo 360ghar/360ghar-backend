@@ -94,7 +94,16 @@ class TestBankAuctionUpsert:
             set_={"reserve_price": stmt.excluded.reserve_price},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+
+        # Verify initial insert
+        row1 = await db_session.execute(
+            select(BankAuction).where(
+                BankAuction.bank_name == "Test Bank",
+                BankAuction.normalized_address_hash == "abc123hash",
+                BankAuction.auction_date == date(2026, 1, 15),
+            )
+        )
+        assert row1.scalar_one().reserve_price == 1000000
 
         # Second insert (ON CONFLICT triggers update)
         insert_data["reserve_price"] = 2000000
@@ -104,7 +113,6 @@ class TestBankAuctionUpsert:
             set_={"reserve_price": stmt2.excluded.reserve_price},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         # Verify the value was updated
         row = await db_session.execute(
@@ -136,7 +144,14 @@ class TestCourtAuctionUpsert:
             set_={"reserve_price": stmt.excluded.reserve_price},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+        
+        row1 = await db_session.execute(
+            select(CourtAuction).where(
+                CourtAuction.case_number == "CA-2026-001",
+                CourtAuction.auction_date == date(2026, 2, 20),
+            )
+        )
+        assert row1.scalar_one().is_active is True
 
         # Second insert (ON CONFLICT triggers update)
         insert_data["reserve_price"] = 500000
@@ -146,7 +161,6 @@ class TestCourtAuctionUpsert:
             set_={"reserve_price": stmt2.excluded.reserve_price},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         row = await db_session.execute(
             select(CourtAuction).where(
@@ -173,7 +187,15 @@ class TestBankRateUpsert:
             set_={"rate_value": stmt.excluded.rate_value},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+        
+        row1 = await db_session.execute(
+            select(BankRate).where(
+                BankRate.bank_name == "Test Bank",
+                BankRate.rate_type == "home_loan_min",
+                BankRate.effective_date == date(2026, 1, 1),
+            )
+        )
+        assert row1.scalar_one().rate_value == 8.5
 
         insert_data["rate_value"] = 9.0
         stmt2 = pg_insert(BankRate).values(**insert_data)
@@ -182,7 +204,6 @@ class TestBankRateUpsert:
             set_={"rate_value": stmt2.excluded.rate_value},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         row = await db_session.execute(
             select(BankRate).where(
@@ -212,7 +233,15 @@ class TestJamabandiCacheUpsert:
             set_={"khewat_number": stmt.excluded.khewat_number},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+        
+        row1 = await db_session.execute(
+            select(JamabandiCache).where(
+                JamabandiCache.tehsil == "Test Tehsil",
+                JamabandiCache.village == "Test Village",
+                JamabandiCache.khasra_number == "KH-001",
+            )
+        )
+        assert row1.scalar_one().khewat_number is None
 
         insert_data["khewat_number"] = "KW-999"
         stmt2 = pg_insert(JamabandiCache).values(**insert_data)
@@ -221,7 +250,6 @@ class TestJamabandiCacheUpsert:
             set_={"khewat_number": stmt2.excluded.khewat_number},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         row = await db_session.execute(
             select(JamabandiCache).where(
@@ -251,7 +279,16 @@ class TestCircleRateUpsert:
             set_={"rate_per_sqyd": stmt.excluded.rate_per_sqyd},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+        
+        row1 = await db_session.execute(
+            select(CircleRate).where(
+                CircleRate.sector == "Sector 1",
+                CircleRate.colony == "Test Colony",
+                CircleRate.property_type == "residential",
+                CircleRate.revision_year == 2026,
+            )
+        )
+        assert row1.scalar_one().rate_per_sqyd == 50000
 
         insert_data["rate_per_sqyd"] = 60000
         stmt2 = pg_insert(CircleRate).values(**insert_data)
@@ -260,7 +297,6 @@ class TestCircleRateUpsert:
             set_={"rate_per_sqyd": stmt2.excluded.rate_per_sqyd},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         row = await db_session.execute(
             select(CircleRate).where(
@@ -291,7 +327,14 @@ class TestZoningDataUpsert:
             set_={"far_limit": stmt.excluded.far_limit},
         )
         result = await db_session.execute(stmt)
-        assert result.rowcount >= 1
+        
+        row1 = await db_session.execute(
+            select(ZoningData).where(
+                ZoningData.sector == "Sector 1",
+                ZoningData.land_use == "residential",
+            )
+        )
+        assert row1.scalar_one().far_limit == 2.0
 
         insert_data["far_limit"] = 3.5
         stmt2 = pg_insert(ZoningData).values(**insert_data)
@@ -300,7 +343,6 @@ class TestZoningDataUpsert:
             set_={"far_limit": stmt2.excluded.far_limit},
         )
         result2 = await db_session.execute(stmt2)
-        assert result2.rowcount >= 1
 
         row = await db_session.execute(
             select(ZoningData).where(

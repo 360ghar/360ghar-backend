@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -337,11 +338,15 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
         raise BadRequestException(detail="Cannot block yourself")
     if await db.get(User, blocked_user_id) is None:
         raise BadRequestException(detail="User not found")
-    stmt = select(UserBlock).where(
-        UserBlock.blocker_user_id == user_id,
-        UserBlock.blocked_user_id == blocked_user_id,
+    stmt = (
+        select(UserBlock)
+        .where(
+            UserBlock.blocker_user_id == user_id,
+            UserBlock.blocked_user_id == blocked_user_id,
+        )
+        .limit(1)
     )
-    existing = (await db.execute(stmt)).scalar_one_or_none()
+    existing = (await db.execute(stmt)).scalars().first()
     if existing:
         return existing
 
@@ -521,6 +526,19 @@ async def create_report(db: AsyncSession, user_id: int, payload: ReportCreate) -
     reported_user = await db.get(User, payload.reported_user_id)
     if reported_user is None:
         raise BadRequestException(detail="Reported user not found")
+    stmt = (
+        select(UserReport)
+        .where(
+            UserReport.reporter_user_id == user_id,
+            UserReport.reported_user_id == payload.reported_user_id,
+            UserReport.status == UserReportStatus.open,
+        )
+        .limit(1)
+    )
+    existing_report = (await db.execute(stmt)).scalars().first()
+    if existing_report:
+        return existing_report
+
     report = UserReport(
         reporter_user_id=user_id,
         reported_user_id=payload.reported_user_id,
@@ -529,8 +547,25 @@ async def create_report(db: AsyncSession, user_id: int, payload: ReportCreate) -
         reason=payload.reason.value,
         notes=payload.notes,
     )
-    db.add(report)
-    await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(report)
+            await db.flush()
+    except IntegrityError:
+        # Concurrent insert race condition: fetch and return the winning report
+        stmt = (
+            select(UserReport)
+            .where(
+                UserReport.reporter_user_id == user_id,
+                UserReport.reported_user_id == payload.reported_user_id,
+                UserReport.status == UserReportStatus.open,
+            )
+            .limit(1)
+        )
+        existing_report = (await db.execute(stmt)).scalars().first()
+        if existing_report:
+            return existing_report
+        raise BadRequestException(detail="You have already reported this user") from None
 
     report_count = await _active_reporter_count(db, payload.reported_user_id)
     if apply_report_auto_pause(reported_user, report_count=report_count):
