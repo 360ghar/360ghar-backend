@@ -615,19 +615,34 @@ async def send_message(
     peer_id = await _find_participant_peer_id(db, conversation.id, user_id)
 
     if peer_id is not None and not await _is_blocked(db, user_id, peer_id):
-        try:
-            from app.services.push_notification import notify_new_message
+        sender = await db.get(User, user_id)
+        sender_name = (sender.full_name if sender else None) or "Someone"
 
-            sender = await db.get(User, user_id)
-            sender_name = (sender.full_name if sender else None) or "Someone"
-            await notify_new_message(
-                db,
-                recipient_db_id=peer_id,
-                sender_name=sender_name,
-                conversation_id=conversation.id,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Message notification failed (best-effort): %s", exc, exc_info=True)
+        def _schedule_notification() -> None:
+            from sqlalchemy import event
+
+            @event.listens_for(db.sync_session, "after_commit", once=True)
+            def receive_after_commit(session) -> None:
+                import asyncio
+
+                async def _bg_notify() -> None:
+                    from app.core.database import AsyncSessionLocal
+                    from app.services.push_notification import notify_new_message
+
+                    async with AsyncSessionLocal() as bg_db:
+                        try:
+                            await notify_new_message(
+                                bg_db,
+                                recipient_db_id=peer_id,
+                                sender_name=sender_name,
+                                conversation_id=conversation.id,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("Message notification failed (best-effort): %s", exc, exc_info=True)
+
+                asyncio.create_task(_bg_notify())
+
+        _schedule_notification()
 
     return message
 

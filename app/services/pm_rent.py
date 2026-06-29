@@ -229,7 +229,12 @@ async def record_rent_payment(
     if amount_paid <= 0:
         raise BadRequestException(detail="amount_paid must be > 0")
 
-    charge = await db.get(RentCharge, charge_id)
+    charge = await db.get(
+        RentCharge,
+        charge_id,
+        with_for_update=True,
+        populate_existing=True,
+    )
     if not charge:
         raise NotFoundException(detail="Rent charge not found")
 

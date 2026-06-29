@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -147,6 +148,13 @@ class UserReport(Base):
     __table_args__ = (
         Index("idx_user_reports_reported_user", "reported_user_id", "status"),
         Index("idx_user_reports_reporter_user", "reporter_user_id", "created_at"),
+        Index(
+            "idx_user_reports_unique_open",
+            "reporter_user_id",
+            "reported_user_id",
+            unique=True,
+            postgresql_where=text("status = 'open'"),
+        ),
         enum_check_constraint("reason", UserReportReason, "ck_user_reports_reason"),
         enum_check_constraint("status", UserReportStatus, "ck_user_reports_status"),
     )
