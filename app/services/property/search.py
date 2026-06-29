@@ -14,6 +14,7 @@ from sqlalchemy import (
     and_,
     bindparam,
     cast,
+    false as sqlfalse,
     func,
     or_,
     select,
@@ -415,6 +416,9 @@ async def get_unified_properties_optimized(
                     .having(func.count(PropertyAmenity.amenity_id) >= len(amenity_ids))
                 )
                 conditions.append(Property.id.in_(amenity_subquery))
+            elif amenity_names and not amenity_ids:
+                logger.warning("No amenities found for names: %s", amenity_names)
+                conditions.append(sqlfalse())
 
         # Listing preference filters for PG / flatmate use cases
         listing_preferences_json = cast(Property.listing_preferences, JSONB)

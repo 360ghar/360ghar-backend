@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from sqlalchemy import func, select
+
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import MCP_SECURITY_SCHEMES_MIXED, AuthRequiredError, build_widget_tool_meta
@@ -38,6 +40,7 @@ from app.mcp.utils import (
     serialize_property_full,
 )
 from app.models.enums import PropertyPurpose, PropertyType
+from app.models.properties import Amenity
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.schemas.property import PropertySwipe, UnifiedPropertyFilter
 
@@ -152,6 +155,30 @@ async def discovery_search(
             amenities = [a.strip() for a in amenities.split(",") if a.strip()]
         elif amenities is not None and not isinstance(amenities, list):
             amenities = [str(amenities)]
+
+        # Validate amenity names against the database
+        if amenities is not None:
+            async with AsyncSessionLocal() as _amenity_db:
+                result = await _amenity_db.execute(
+                    select(Amenity.title).where(
+                        func.lower(Amenity.title).in_([a.lower() for a in amenities])
+                    )
+                )
+                found = {row[0].lower() for row in result.fetchall()}
+                missing = [a for a in amenities if a.lower() not in found]
+                if missing:
+                    valid_list = await _amenity_db.execute(
+                        select(Amenity.title).order_by(Amenity.title)
+                    )
+                    valid_amenities = [row[0] for row in valid_list.fetchall()]
+                    return format_chatgpt_response(
+                        data={
+                            "error": True,
+                            "message": f"Unknown amenities: {missing}. Valid amenities: {valid_amenities}",
+                        },
+                        content_summary=f"The following amenities were not found: {', '.join(missing)}. Available amenities include: {', '.join(valid_amenities[:10])}.",
+                        widget_uri=get_widget_for_tool("discovery_search"),
+                    )
 
         # Apply city alias normalization
         if city:
