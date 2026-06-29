@@ -35,8 +35,8 @@ from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
+    apply_expired_move_in_pause,
     apply_listing_prescreen_metadata,
-    apply_stale_listing_pause,
 )
 from app.services.pm_authz import _get_actor_role
 from app.services.property.helpers import _validate_listing_contract, build_location_wkt
@@ -310,7 +310,7 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
         if not property_obj:
             logger.warning("Property %s not found", property_id)
             raise PropertyNotFoundException(property_id=property_id)
-        if apply_stale_listing_pause(property_obj):
+        if apply_expired_move_in_pause(property_obj):
             await db.flush()
 
         logger.debug(
@@ -347,14 +347,9 @@ async def list_user_properties(
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
     """List properties owned by a specific user (auth enforced by caller)."""
     count_total: int | None = None
-    base_stmt = (
-        select(Property)
-        .where(Property.owner_id == owner_id)
-    )
+    base_stmt = select(Property).where(Property.owner_id == owner_id)
     if with_total:
-        count_result = await db.execute(
-            select(func.count()).select_from(base_stmt.subquery())
-        )
+        count_result = await db.execute(select(func.count()).select_from(base_stmt.subquery()))
         count_total = count_result.scalar_one()
 
     predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=True)
@@ -374,7 +369,7 @@ async def list_user_properties(
     properties = list(res.scalars().all())
     paused_count = 0
     for property_obj in properties:
-        if apply_stale_listing_pause(property_obj):
+        if apply_expired_move_in_pause(property_obj):
             paused_count += 1
     if paused_count:
         await db.flush()
@@ -512,7 +507,7 @@ async def update_property(
                 image_urls=image_urls if image_urls_present else None,
             )
         if final_property_type in PG_FLATMATE_TYPES:
-            apply_stale_listing_pause(property_obj)
+            apply_expired_move_in_pause(property_obj)
 
         await db.flush()
         if final_property_type in PG_FLATMATE_TYPES:
@@ -605,12 +600,14 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
                 select(Lease.id)
                 .where(
                     Lease.property_id == property_id,
-                    Lease.status.in_([
-                        LeaseStatus.draft,
-                        LeaseStatus.pending_signature,
-                        LeaseStatus.active,
-                        LeaseStatus.expiring_soon,
-                    ]),
+                    Lease.status.in_(
+                        [
+                            LeaseStatus.draft,
+                            LeaseStatus.pending_signature,
+                            LeaseStatus.active,
+                            LeaseStatus.expiring_soon,
+                        ]
+                    ),
                 )
                 .limit(1)
             )
@@ -657,12 +654,12 @@ async def increment_property_view_count(db: AsyncSession, property_id: int):
         result = await db.execute(stmt)
         await db.flush()
 
-        if getattr(result, 'rowcount', 0) > 0:
+        if getattr(result, "rowcount", 0) > 0:
             logger.debug("View count incremented for property %s", property_id)
         else:
             logger.warning("Property %s not found for view count increment", property_id)
 
-        return getattr(result, 'rowcount', 0) > 0
+        return getattr(result, "rowcount", 0) > 0
     except Exception as e:
         logger.error(
             "Failed to increment view count for property %s: %s", property_id, e, exc_info=True

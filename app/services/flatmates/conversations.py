@@ -265,6 +265,33 @@ async def create_conversation_from_payload(
         conversation.last_message_preview = payload.initial_message.strip()
         await db.flush()
         await db.refresh(message)
+
+        # --- Push notification to peer for the initial message ---
+        try:
+            import asyncio
+
+            from app.core.database import AsyncSessionLocalBG
+            from app.services.push_notification import notify_new_message
+
+            async def _send_initial_message_notification():
+                # Brief delay to allow the endpoint transaction to commit
+                await asyncio.sleep(2.0)
+                async with AsyncSessionLocalBG() as bg_db:
+                    try:
+                        sender = await bg_db.get(User, user_id)
+                        sender_name = (sender.full_name if sender else None) or "Someone"
+                        await notify_new_message(
+                            bg_db,
+                            recipient_db_id=payload.peer_user_id,
+                            sender_name=sender_name,
+                            conversation_id=conversation.id,
+                        )
+                    except Exception as bg_exc:
+                        logger.warning("Background notification task failed: %s", bg_exc, exc_info=True)
+
+            asyncio.create_task(_send_initial_message_notification())
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to schedule initial message notification: %s", exc, exc_info=True)
     else:
         await db.flush()
 
@@ -363,17 +390,16 @@ async def list_conversations(
     participant_rows = list(
         (
             await db.execute(
-                select(ConversationParticipant.conversation_id, ConversationParticipant.user_id).where(
+                select(
+                    ConversationParticipant.conversation_id, ConversationParticipant.user_id
+                ).where(
                     ConversationParticipant.conversation_id.in_(conv_ids),
                     ConversationParticipant.user_id != user_id,
                 )
             )
-        )
-        .all()
+        ).all()
     )
-    peer_by_conv: dict[int, int] = {
-        row.conversation_id: row.user_id for row in participant_rows
-    }
+    peer_by_conv: dict[int, int] = {row.conversation_id: row.user_id for row in participant_rows}
 
     # Bulk-load context properties (flatmates context_type='property')
     property_ids = {
@@ -384,7 +410,9 @@ async def list_conversations(
     property_map: dict[int, Property] = {}
     if property_ids:
         prop_rows = list(
-            (await db.execute(select(Property).where(Property.id.in_(property_ids)))).scalars().all()
+            (await db.execute(select(Property).where(Property.id.in_(property_ids))))
+            .scalars()
+            .all()
         )
         property_map = {p.id: p for p in prop_rows}
 

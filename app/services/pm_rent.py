@@ -229,7 +229,10 @@ async def record_rent_payment(
     if amount_paid <= 0:
         raise BadRequestException(detail="amount_paid must be > 0")
 
-    charge = await db.get(RentCharge, charge_id)
+    # Acquire a row-level lock to prevent concurrent payment requests
+    # from interleaving and corrupting the outstanding balance calculation.
+    stmt = select(RentCharge).where(RentCharge.id == charge_id).with_for_update()
+    charge = (await db.execute(stmt)).scalar_one_or_none()
     if not charge:
         raise NotFoundException(detail="Rent charge not found")
 
@@ -343,7 +346,9 @@ async def list_rent_payments(
     if predicate is not None:
         stmt = stmt.where(predicate)
 
-    stmt = stmt.order_by(RentPayment.paid_at.desc(), RentPayment.id.desc()).limit(limit + 1)
+    stmt = stmt.order_by(RentPayment.paid_at.desc().nulls_last(), RentPayment.id.desc()).limit(
+        limit + 1
+    )
     res = await db.execute(stmt)
     rows = list(res.scalars().all())
 

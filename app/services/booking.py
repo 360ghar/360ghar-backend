@@ -15,7 +15,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.bookings import Booking
-from app.models.enums import BookingStatus, PaymentStatus
+from app.models.enums import BookingStatus, PaymentStatus, PropertyPurpose
 from app.models.properties import Property
 from app.models.users import User
 from app.schemas.booking import BookingCreate, BookingPayment, BookingReview, BookingUpdate
@@ -309,13 +309,21 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
     if nights <= 0:
         return {"error": "Invalid date range"}
 
-   # Choose a per-night rate: prefer daily_rate, else derive from monthly_rent ÷ 30, else fall back to base_price ÷ 30
-    if property_obj.daily_rate is not None:
-        per_night_rate = float(property_obj.daily_rate)
-    elif property_obj.monthly_rent is not None:
-        per_night_rate = float(property_obj.monthly_rent) / 30
+    # Choose a per-night rate: prefer daily_rate, else derive from monthly_rent / 30
+    if property_obj.purpose == PropertyPurpose.short_stay:
+        if property_obj.daily_rate is not None:
+            per_night_rate = float(property_obj.daily_rate)
+        elif property_obj.monthly_rent is not None:
+            per_night_rate = float(property_obj.monthly_rent) / 30
+        else:
+            per_night_rate = float(property_obj.base_price or 0.0)
     else:
-        per_night_rate = float(property_obj.base_price or 0.0) / 30
+        if property_obj.daily_rate is not None:
+            per_night_rate = float(property_obj.daily_rate)
+        elif property_obj.monthly_rent is not None:
+            per_night_rate = float(property_obj.monthly_rent) / 30
+        else:
+            per_night_rate = float(property_obj.base_price or 0.0) / 30
 
     if per_night_rate <= 0:
         return {"error": "Property has no valid rate configured"}
