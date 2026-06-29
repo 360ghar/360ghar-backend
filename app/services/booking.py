@@ -309,9 +309,13 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
     if nights <= 0:
         return {"error": "Invalid date range"}
 
-    # Choose a per-night rate: prefer daily_rate, else fall back to base_price
-    per_night_rate = property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
-    per_night_rate = float(per_night_rate or 0.0)
+   # Choose a per-night rate: prefer daily_rate, else derive from monthly_rent ÷ 30, else fall back to base_price ÷ 30
+    if property_obj.daily_rate is not None:
+        per_night_rate = float(property_obj.daily_rate)
+    elif property_obj.monthly_rent is not None:
+        per_night_rate = float(property_obj.monthly_rent) / 30
+    else:
+        per_night_rate = float(property_obj.base_price or 0.0) / 30
 
     if per_night_rate <= 0:
         return {"error": "Property has no valid rate configured"}
