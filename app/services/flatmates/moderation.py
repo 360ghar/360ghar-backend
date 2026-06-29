@@ -525,6 +525,19 @@ async def create_report(db: AsyncSession, user_id: int, payload: ReportCreate) -
     reported_user = await db.get(User, payload.reported_user_id)
     if reported_user is None:
         raise BadRequestException(detail="Reported user not found")
+
+    # Prevent infinite duplicate reports from the same reporter against the same user
+    # to avoid database bloat and moderation queue spam.
+    existing_report = await db.execute(
+        select(UserReport.id).where(
+            UserReport.reporter_user_id == user_id,
+            UserReport.reported_user_id == payload.reported_user_id,
+            UserReport.status == UserReportStatus.open.value
+        )
+    )
+    if existing_report.scalar_one_or_none():
+        raise BadRequestException(detail="You already have an open report against this user")
+
     report = UserReport(
         reporter_user_id=user_id,
         reported_user_id=payload.reported_user_id,
