@@ -64,7 +64,17 @@ async def owner_leases_list(
                 )
 
             # Convert status string to LeaseStatus enum for the service layer
-            lease_status = LeaseStatus(status) if status else None
+            lease_status = None
+            if status:
+                try:
+                    lease_status = LeaseStatus(status)
+                except ValueError:
+                    valid_statuses = [e.value for e in LeaseStatus]
+                    return format_chatgpt_response(
+                        data={"error": True, "message": f"Invalid status: '{status}'. Valid values: {valid_statuses}"},
+                        content_summary=f"Invalid status '{status}'. Valid options are: {', '.join(valid_statuses)}.",
+                        widget_uri=get_widget_for_tool("owner_leases_list"),
+                    )
 
             # Get leases for owner's properties (cursor-based pagination)
             rows, next_payload, _total = await list_leases(

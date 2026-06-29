@@ -69,7 +69,7 @@ def _serialize_visit(visit) -> dict[str, Any]:
         "property": property_data,
         "scheduled_date": visit.scheduled_date.isoformat() if visit.scheduled_date else None,
         "status": visit.status.value if hasattr(visit.status, "value") else visit.status,
-        "notes": visit.notes,
+        "notes": visit.visit_notes or visit.special_requirements,
         "created_at": visit.created_at.isoformat() if visit.created_at else None,
     }
 

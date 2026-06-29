@@ -93,6 +93,9 @@ async def bookings_create(
                 check_out_date=check_out_date,
                 guests=guests,
                 special_requests=special_requests,
+                primary_guest_name=user.full_name or "Guest",
+                primary_guest_phone=user.phone or "N/A",
+                primary_guest_email=user.email or "guest@360ghar.com",
             )
 
             if result.get("error"):
