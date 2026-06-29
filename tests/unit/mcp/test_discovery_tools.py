@@ -205,7 +205,7 @@ class TestDiscoverySearch:
         assert result.structured_content["properties"] == []
         assert "No properties found" in _content_text(result)
 
-    async def test_guest_search_amenities_as_string(self):
+    async def test_guest_search_amenities_as_json_list(self):
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_make_amenity_result(["wifi", "pool"]))
         mock_search = AsyncMock(return_value=([], None, 0))
@@ -213,11 +213,11 @@ class TestDiscoverySearch:
         with _patch_env(db, user=None), patch(
             "app.services.property.get_unified_properties_optimized", new=mock_search
         ):
-            await discovery_search(amenities="wifi,pool")
+            await discovery_search(amenities_json='["wifi","pool"]')
 
         assert mock_search.call_args.kwargs["filters"].amenities == ["wifi", "pool"]
 
-    async def test_guest_search_amenities_as_list(self):
+    async def test_guest_search_amenities_as_comma_string(self):
         db = AsyncMock()
         db.execute = AsyncMock(return_value=_make_amenity_result(["wifi", "pool"]))
         mock_search = AsyncMock(return_value=([], None, 0))
@@ -225,7 +225,7 @@ class TestDiscoverySearch:
         with _patch_env(db, user=None), patch(
             "app.services.property.get_unified_properties_optimized", new=mock_search
         ):
-            await discovery_search(amenities=["wifi", "pool"])
+            await discovery_search(amenities_json="wifi,pool")
 
         assert mock_search.call_args.kwargs["filters"].amenities == ["wifi", "pool"]
 
@@ -242,8 +242,6 @@ class TestDiscoverySearch:
 
     async def test_guest_search_amenities_unknown_returns_error(self):
         db = AsyncMock()
-        # When amenity names don't match, the DB returns no rows for the lookup
-        # and also needs to return the full amenities list for the error message
         _lookup_result = MagicMock()
         _lookup_result.fetchall.return_value = []
 
@@ -256,7 +254,7 @@ class TestDiscoverySearch:
         with _patch_env(db, user=None), patch(
             "app.services.property.get_unified_properties_optimized", new=mock_search
         ):
-            result = await discovery_search(amenities=["nonexistent_amenity"])
+            result = await discovery_search(amenities_json='["nonexistent_amenity"]')
 
         assert result.structured_content["error"] is True
         assert "nonexistent_amenity" in result.structured_content["message"].lower()

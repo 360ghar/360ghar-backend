@@ -12,6 +12,7 @@ These tools enable property discovery features:
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from sqlalchemy import func, select
@@ -110,7 +111,7 @@ async def discovery_search(
     price_max: float | None = None,
     bedrooms_min: int | None = None,
     bedrooms_max: int | None = None,
-    amenities: list[str] | None = None,
+    amenities_json: str | None = None,
     city: str | None = None,
     locality: str | None = None,
     cursor: str | None = None,
@@ -134,7 +135,7 @@ async def discovery_search(
         price_max: Maximum price filter
         bedrooms_min: Minimum number of bedrooms
         bedrooms_max: Maximum number of bedrooms
-        amenities: List of required amenity names
+        amenities_json: JSON-encoded list of required amenity names (e.g. '["wifi","pool"]') or comma-separated string
         city: Filter by city name
         locality: Filter by locality/neighborhood
         cursor: Opaque pagination cursor from a prior response's next_cursor
@@ -150,11 +151,19 @@ async def discovery_search(
         limit = min(max(1, limit), 50)
         cursor_payload = decode_cursor(cursor) if cursor else {}
 
-        # Coerce amenities from string to list (MCP clients may send "wifi,pool" as a string)
-        if isinstance(amenities, str):
-            amenities = [a.strip() for a in amenities.split(",") if a.strip()]
-        elif amenities is not None and not isinstance(amenities, list):
-            amenities = [str(amenities)]
+        # Parse amenities from JSON string (FastMCP workaround — list params fail)
+        amenities: list[str] | None = None
+        if amenities_json is not None:
+            try:
+                parsed = json.loads(amenities_json)
+                if isinstance(parsed, list):
+                    amenities = [str(a).strip() for a in parsed if a]
+                elif isinstance(parsed, str):
+                    amenities = [a.strip() for a in parsed.split(",") if a.strip()]
+                else:
+                    amenities = [str(parsed)]
+            except (json.JSONDecodeError, TypeError):
+                amenities = [a.strip() for a in amenities_json.split(",") if a.strip()]
 
         # Validate amenity names against the database
         if amenities is not None:
