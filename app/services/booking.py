@@ -15,7 +15,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.bookings import Booking
-from app.models.enums import BookingStatus, PaymentStatus
+from app.models.enums import BookingStatus, PaymentStatus, PropertyPurpose
 from app.models.properties import Property
 from app.models.users import User
 from app.schemas.booking import BookingCreate, BookingPayment, BookingReview, BookingUpdate
@@ -310,7 +310,16 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
         return {"error": "Invalid date range"}
 
     # Choose a per-night rate: prefer daily_rate, else fall back to base_price
-    per_night_rate = property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
+    if property_obj.purpose == PropertyPurpose.short_stay:
+        if property_obj.daily_rate is not None:
+            per_night_rate = property_obj.daily_rate
+        elif property_obj.monthly_rent is not None:
+            per_night_rate = property_obj.monthly_rent / 30
+        else:
+            per_night_rate = property_obj.base_price
+    else:
+        per_night_rate = property_obj.daily_rate if property_obj.daily_rate is not None else property_obj.base_price
+
     per_night_rate = float(per_night_rate or 0.0)
 
     if per_night_rate <= 0:
