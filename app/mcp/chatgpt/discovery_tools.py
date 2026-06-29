@@ -289,6 +289,7 @@ async def discovery_search(
                     "price_max": price_max,
                     "bedrooms_min": bedrooms_min,
                     "bedrooms_max": bedrooms_max,
+                    "amenities": amenities,
                     "city": city,
                     "locality": locality,
                 }.items() if v is not None
