@@ -73,6 +73,9 @@ async def create_booking(
     check_out_date: str,
     guests: int = 1,
     special_requests: str | None = None,
+    primary_guest_name: str = "Guest",
+    primary_guest_phone: str = "N/A",
+    primary_guest_email: str = "guest@360ghar.com",
 ) -> dict:
     """Create a short-stay booking."""
     try:
@@ -99,9 +102,9 @@ async def create_booking(
         check_in_date=check_in,
         check_out_date=check_out,
         guests=guests,
-        primary_guest_name="Guest",
-        primary_guest_phone="N/A",
-        primary_guest_email="guest@360ghar.com",
+        primary_guest_name=primary_guest_name,
+        primary_guest_phone=primary_guest_phone,
+        primary_guest_email=primary_guest_email,
         special_requests=special_requests,
     )
 

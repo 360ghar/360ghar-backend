@@ -14,7 +14,7 @@ class SearchParams(BaseModel):
     query: str | None = None
     latitude: float | None = None
     longitude: float | None = None
-    radius_km: int = 5
+    radius_km: int = Field(default=5, ge=1, le=100)
     page: int = 1
     limit: int = 20
 

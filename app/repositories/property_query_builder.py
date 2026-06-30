@@ -6,7 +6,7 @@ All property query construction should go through this builder.
 """
 
 
-from sqlalchemy import func, select
+from sqlalchemy import false as sqlfalse, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -223,7 +223,9 @@ class PropertyQueryBuilder:
 
         if amenity_names:
             result = await db.execute(
-                select(Amenity.id).where(Amenity.title.in_(amenity_names))
+                select(Amenity.id).where(
+                    func.lower(Amenity.title).in_([n.lower() for n in amenity_names])
+                )
             )
             amenity_ids.extend(row[0] for row in result.fetchall())
 
@@ -235,6 +237,9 @@ class PropertyQueryBuilder:
                 .having(func.count(PropertyAmenity.amenity_id) >= len(amenity_ids))
             )
             conditions.append(Property.id.in_(subquery))
+        elif amenity_names and not amenity_ids:
+            logger.warning("No amenities found for names: %s", amenity_names)
+            conditions.append(sqlfalse())
 
     def apply_sort(
         self,

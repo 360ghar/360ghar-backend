@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import and_, case, desc, func, or_, select, update
+from sqlalchemy import and_, case, desc, false as sqlfalse, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -220,10 +220,12 @@ async def get_swipe_history(
             else:
                 amenity_names.append(amenity)
 
-        # Get amenity IDs from names if any
+        # Get amenity IDs from names if any — case-insensitive matching
         if amenity_names:
             amenity_result = await db.execute(
-                select(Amenity.id).where(Amenity.title.in_(amenity_names))
+                select(Amenity.id).where(
+                    func.lower(Amenity.title).in_([n.lower() for n in amenity_names])
+                )
             )
             amenity_ids.extend([row[0] for row in amenity_result.fetchall()])
 
@@ -235,6 +237,8 @@ async def get_swipe_history(
                 .having(func.count(PropertyAmenity.amenity_id) >= len(amenity_ids))
             )
             conditions.append(Property.id.in_(amenity_subquery))
+        elif amenity_names and not amenity_ids:
+            conditions.append(sqlfalse())
 
     # Guests filter (max occupancy)
     if filters.guests is not None:

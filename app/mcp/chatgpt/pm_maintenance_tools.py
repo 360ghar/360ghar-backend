@@ -244,7 +244,11 @@ async def owner_maintenance_update(
                         scheduled_date.replace("Z", "+00:00")
                     )
                 except ValueError:
-                    pass
+                    return format_chatgpt_response(
+                        data={"error": True, "code": "INVALID_DATE", "message": f"Invalid date format: '{scheduled_date}'. Use ISO-8601 (e.g. '2025-06-15T10:00:00')."},
+                        content_summary=f"Invalid date format. Please use ISO-8601 format like '2025-06-15T10:00:00'.",
+                        widget_uri=get_widget_for_tool("owner_maintenance_update"),
+                    )
             if estimated_cost is not None:
                 request.estimated_cost = estimated_cost
             if actual_cost is not None:

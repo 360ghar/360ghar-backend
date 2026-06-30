@@ -126,6 +126,13 @@ def _content_text(result) -> str:
     return str(content)
 
 
+def _make_amenity_result(titles: list[str]):
+    """Return a MagicMock whose ``fetchall()`` yields amenity title tuples."""
+    result = MagicMock()
+    result.fetchall.return_value = [(t.lower(),) for t in titles]
+    return result
+
+
 @contextlib.contextmanager
 def _patch_env(db, user=None):
     """Patch module-level dependencies shared by all discovery tools."""
@@ -198,25 +205,27 @@ class TestDiscoverySearch:
         assert result.structured_content["properties"] == []
         assert "No properties found" in _content_text(result)
 
-    async def test_guest_search_amenities_as_string(self):
+    async def test_guest_search_amenities_as_json_list(self):
         db = AsyncMock()
+        db.execute = AsyncMock(return_value=_make_amenity_result(["wifi", "pool"]))
         mock_search = AsyncMock(return_value=([], None, 0))
 
         with _patch_env(db, user=None), patch(
             "app.services.property.get_unified_properties_optimized", new=mock_search
         ):
-            await discovery_search(amenities="wifi,pool")
+            await discovery_search(amenities_json='["wifi","pool"]')
 
         assert mock_search.call_args.kwargs["filters"].amenities == ["wifi", "pool"]
 
-    async def test_guest_search_amenities_as_list(self):
+    async def test_guest_search_amenities_as_comma_string(self):
         db = AsyncMock()
+        db.execute = AsyncMock(return_value=_make_amenity_result(["wifi", "pool"]))
         mock_search = AsyncMock(return_value=([], None, 0))
 
         with _patch_env(db, user=None), patch(
             "app.services.property.get_unified_properties_optimized", new=mock_search
         ):
-            await discovery_search(amenities=["wifi", "pool"])
+            await discovery_search(amenities_json="wifi,pool")
 
         assert mock_search.call_args.kwargs["filters"].amenities == ["wifi", "pool"]
 
@@ -230,6 +239,26 @@ class TestDiscoverySearch:
             await discovery_search()
 
         assert mock_search.call_args.kwargs["filters"].amenities is None
+
+    async def test_guest_search_amenities_unknown_returns_error(self):
+        db = AsyncMock()
+        _lookup_result = MagicMock()
+        _lookup_result.fetchall.return_value = []
+
+        _all_result = MagicMock()
+        _all_result.fetchall.return_value = [("WiFi",), ("Parking",)]
+
+        db.execute = AsyncMock(side_effect=[_lookup_result, _all_result])
+        mock_search = AsyncMock(return_value=([], None, 0))
+
+        with _patch_env(db, user=None), patch(
+            "app.services.property.get_unified_properties_optimized", new=mock_search
+        ):
+            result = await discovery_search(amenities_json='["nonexistent_amenity"]')
+
+        assert result.structured_content["error"] is True
+        assert "nonexistent_amenity" in result.structured_content["message"].lower()
+        mock_search.assert_not_awaited()
 
     async def test_guest_search_invalid_purpose(self):
         db = AsyncMock()

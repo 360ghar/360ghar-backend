@@ -12,21 +12,36 @@ logger = get_logger(__name__)
 
 
 def get_public_base_url() -> str:
-    """Return the public base URL (scheme+host) for OAuth metadata and resource binding."""
+    """Return the public base URL (scheme+host) for OAuth metadata and resource binding.
+
+    Resolution order:
+      1. ``settings.PUBLIC_BASE_URL`` when explicitly configured.
+      2. The current HTTP request's base URL (runtime), so tunnel/proxy URLs
+         (e.g. ngrok) are picked up automatically in any environment.
+      3. ``settings.PUBLIC_BASE_URL`` fallback — already checked in (1) but
+         rechecked here to keep the fallback chain explicit.
+      4. Production default (``https://api.360ghar.com``) when ENVIRONMENT is
+         production and no explicit URL is set.
+      5. Development default (``http://127.0.0.1:3600``) for all other cases.
+    """
     public_base_url = getattr(settings, "PUBLIC_BASE_URL", None)
     if public_base_url:
         return str(public_base_url.rstrip("/"))
 
-    if settings.ENVIRONMENT == "production":
-        return "https://api.360ghar.com"
-
+    # Runtime request URL — works with tunnels, proxies, etc.
     try:
         from fastmcp.server.dependencies import get_http_request
 
         request = get_http_request()
-        return str(request.base_url).rstrip("/")
+        if request is not None:
+            return str(request.base_url).rstrip("/")
     except Exception:
+        pass
+
+    if settings.ENVIRONMENT == "production":
         return "https://api.360ghar.com"
+
+    return "http://127.0.0.1:3600"
 
 
 class SupabaseTokenVerifier(TokenVerifier):
@@ -64,7 +79,8 @@ class SupabaseTokenVerifier(TokenVerifier):
         Only first-party OAuth access tokens from our token store are accepted.
         Supabase JWT tokens are no longer supported in MCP endpoints.
         """
-        logger.debug("Verifying OAuth token", extra={"token_len": len(token) if token else 0})
+        logger.debug("=== SUPABASE TOKEN VERIFIER ===")
+        logger.debug("Verifying OAuth token", extra={"token_len": len(token) if token else 0, "token_preview": token[:20] + "..." if token else "none"})
 
         # OAuth access token verification
         try:
@@ -73,7 +89,14 @@ class SupabaseTokenVerifier(TokenVerifier):
                 from app.services.oauth_token_store import oauth_token_store
 
                 logger.debug("Looking up token in OAuth store")
-                token_data = await oauth_token_store.get_access_token(token)
+                try:
+                    token_data = await oauth_token_store.get_access_token(token)
+                except Exception as store_exc:
+                    logger.error("OAuth store get_access_token failed", extra={"error": str(store_exc)}, exc_info=True)
+                    raise
+
+                logger.debug("OAuth store returned", extra={"found": token_data is not None, "type": type(token_data).__name__ if token_data else "None"})
+
                 if token_data:
                     user_id = token_data["user_id"]
                     expires_at_raw = token_data.get("expires_at")
@@ -149,15 +172,16 @@ class SupabaseTokenVerifier(TokenVerifier):
                         claims=claims,
                     )
                 else:
-                    logger.debug("Token not found in OAuth store")
+                    logger.warning("Token not found in OAuth store")
             else:
-                logger.debug(
-                    "Token format not recognized as OAuth token", extra={"has_dots": "." in token}
+                logger.warning(
+                    "Token format not recognized as OAuth token",
+                    extra={"token_len": len(token) if token else 0, "has_dots": "." in token if token else "n/a"}
                 )
         except Exception as exc:  # pragma: no cover - defensive logging
             logger.error("Error verifying OAuth token", extra={"error": str(exc)}, exc_info=True)
 
-        logger.debug("Token verification failed")
+        logger.warning("Token verification failed - returning None")
         return None
 
 

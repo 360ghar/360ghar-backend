@@ -12,7 +12,10 @@ These tools enable property discovery features:
 """
 from __future__ import annotations
 
+import json
 from typing import Any
+
+from sqlalchemy import func, select
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
@@ -38,6 +41,7 @@ from app.mcp.utils import (
     serialize_property_full,
 )
 from app.models.enums import PropertyPurpose, PropertyType
+from app.models.properties import Amenity
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.schemas.property import PropertySwipe, UnifiedPropertyFilter
 
@@ -107,7 +111,7 @@ async def discovery_search(
     price_max: float | None = None,
     bedrooms_min: int | None = None,
     bedrooms_max: int | None = None,
-    amenities: list[str] | None = None,
+    amenities_json: str | None = None,
     city: str | None = None,
     locality: str | None = None,
     cursor: str | None = None,
@@ -131,7 +135,7 @@ async def discovery_search(
         price_max: Maximum price filter
         bedrooms_min: Minimum number of bedrooms
         bedrooms_max: Maximum number of bedrooms
-        amenities: List of required amenity names
+        amenities_json: JSON-encoded list of required amenity names (e.g. '["wifi","pool"]') or comma-separated string
         city: Filter by city name
         locality: Filter by locality/neighborhood
         cursor: Opaque pagination cursor from a prior response's next_cursor
@@ -147,11 +151,43 @@ async def discovery_search(
         limit = min(max(1, limit), 50)
         cursor_payload = decode_cursor(cursor) if cursor else {}
 
-        # Coerce amenities from string to list (MCP clients may send "wifi,pool" as a string)
-        if isinstance(amenities, str):
-            amenities = [a.strip() for a in amenities.split(",") if a.strip()]
-        elif amenities is not None and not isinstance(amenities, list):
-            amenities = [str(amenities)]
+        # Parse amenities from JSON string (FastMCP workaround — list params fail)
+        amenities: list[str] | None = None
+        if amenities_json is not None:
+            try:
+                parsed = json.loads(amenities_json)
+                if isinstance(parsed, list):
+                    amenities = [str(a).strip() for a in parsed if a]
+                elif isinstance(parsed, str):
+                    amenities = [a.strip() for a in parsed.split(",") if a.strip()]
+                else:
+                    amenities = [str(parsed)]
+            except (json.JSONDecodeError, TypeError):
+                amenities = [a.strip() for a in amenities_json.split(",") if a.strip()]
+
+        # Validate amenity names against the database
+        if amenities is not None:
+            async with AsyncSessionLocal() as _amenity_db:
+                result = await _amenity_db.execute(
+                    select(Amenity.title).where(
+                        func.lower(Amenity.title).in_([a.lower() for a in amenities])
+                    )
+                )
+                found = {row[0].lower() for row in result.fetchall()}
+                missing = [a for a in amenities if a.lower() not in found]
+                if missing:
+                    valid_list = await _amenity_db.execute(
+                        select(Amenity.title).order_by(Amenity.title)
+                    )
+                    valid_amenities = [row[0] for row in valid_list.fetchall()]
+                    return format_chatgpt_response(
+                        data={
+                            "error": True,
+                            "message": f"Unknown amenities: {missing}. Valid amenities: {valid_amenities}",
+                        },
+                        content_summary=f"The following amenities were not found: {', '.join(missing)}. Available amenities include: {', '.join(valid_amenities[:10])}.",
+                        widget_uri=get_widget_for_tool("discovery_search"),
+                    )
 
         # Apply city alias normalization
         if city:
@@ -253,6 +289,7 @@ async def discovery_search(
                     "price_max": price_max,
                     "bedrooms_min": bedrooms_min,
                     "bedrooms_max": bedrooms_max,
+                    "amenities": amenities,
                     "city": city,
                     "locality": locality,
                 }.items() if v is not None
