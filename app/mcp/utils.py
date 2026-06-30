@@ -110,14 +110,20 @@ async def get_user_from_mcp_context(db) -> User | None:
     Returns:
         User object or None if not authenticated
     """
-    logger.debug("Resolving user from MCP auth context")
-    access_token = get_auth_access_token()
+    logger.debug("=== GET USER FROM MCP CONTEXT ===")
+    try:
+        access_token = get_auth_access_token()
+    except Exception as exc:
+        logger.error("get_auth_access_token() raised exception", extra={"error": str(exc)}, exc_info=True)
+        return None
+    logger.debug("get_auth_access_token() returned", extra={"token_type": type(access_token).__name__ if access_token else "None", "token_is_none": access_token is None})
     if access_token is None:
-        logger.debug("No access token in MCP auth context")
+        logger.warning("No access token in MCP auth context - user will be None")
         return None
 
     claims = getattr(access_token, "claims", {}) or {}
     auth_method = claims.get("auth_method")
+    logger.debug("Access token claims", extra={"auth_method": auth_method, "sub": claims.get("sub"), "claims_keys": list(claims.keys())})
 
     if auth_method != "oauth":
         logger.warning("Unsupported auth method in MCP context", extra={"auth_method": auth_method})
