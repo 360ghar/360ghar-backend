@@ -97,6 +97,7 @@ async def flatmates_client(test_app, viewer_user) -> AsyncClient:
     """Authenticated ASGI client wired to viewer_user."""
     from app.api.api_v1.dependencies.auth import (
         get_current_active_user,
+        get_current_cached_active_user,
         get_current_user,
         get_current_user_optional,
     )
@@ -109,6 +110,7 @@ async def flatmates_client(test_app, viewer_user) -> AsyncClient:
 
     test_app.dependency_overrides[get_current_user] = _get_user
     test_app.dependency_overrides[get_current_active_user] = _get_user
+    test_app.dependency_overrides[get_current_cached_active_user] = _get_user
     test_app.dependency_overrides[get_current_user_optional] = _get_user
 
     transport = ASGITransport(app=test_app)
@@ -123,6 +125,7 @@ async def admin_client(test_app, admin_user) -> AsyncClient:
     """Authenticated ASGI client wired to admin_user."""
     from app.api.api_v1.dependencies.auth import (
         get_current_active_user,
+        get_current_cached_active_user,
         get_current_user,
         get_current_user_optional,
     )
@@ -135,6 +138,7 @@ async def admin_client(test_app, admin_user) -> AsyncClient:
 
     test_app.dependency_overrides[get_current_user] = _get_user
     test_app.dependency_overrides[get_current_active_user] = _get_user
+    test_app.dependency_overrides[get_current_cached_active_user] = _get_user
     test_app.dependency_overrides[get_current_user_optional] = _get_user
 
     transport = ASGITransport(app=test_app)

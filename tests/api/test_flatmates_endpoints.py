@@ -41,6 +41,19 @@ def create_bootstrap_response() -> dict:
         "active_listing_count": 1,
         "conversation_count": 2,
         "unread_message_count": 3,
+        "realtime": {
+            "provider": "supabase",
+            "channel": "flatmates:user:1",
+            "private": True,
+            "events": [
+                "new_match",
+                "new_message",
+                "conversation_updated",
+                "visit_updated",
+                "listing_status_changed",
+                "new_notification",
+            ],
+        },
     }
 
 
