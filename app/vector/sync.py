@@ -112,7 +112,8 @@ async def _prepare_batch(db: AsyncSession, props: list[dict[str, Any]]) -> tuple
             tag_list = []
         text = build_embedding_text(p, amenities, tag_list)
         meta = build_metadata(p, amenities, tag_list)
-        h = compute_text_hash(text)
+        # Include the model name so a model swap invalidates existing hashes and forces a re-embed.
+        h = compute_text_hash(f"{text}\0{settings.GEMINI_EMBED_MODEL}")
         existing = await get_existing_hash(db, pid)
         need_embed = (existing != h)
         texts.append(text)

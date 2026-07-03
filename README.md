@@ -367,8 +367,8 @@ NOTIF_SCHED_TZ=Asia/Kolkata
 
 # Vector Embeddings / Semantic Search
 GOOGLE_API_KEY=
-GEMINI_MODEL=gemini-3.1-flash-lite-preview
-GEMINI_EMBED_MODEL=text-embedding-004
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_EMBED_MODEL=gemini-embedding-2
 VECTOR_SYNC_ENABLED=true
 # Either provide CRON schedule or interval seconds (defaults to CRON below)
 VECTOR_SYNC_CRON=*/10 * * * *

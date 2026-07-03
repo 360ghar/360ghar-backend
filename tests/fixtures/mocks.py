@@ -143,7 +143,7 @@ def mock_gemini_api():
 
     Returns a mock that simulates successful Vastu analysis results.
     """
-    with patch("app.services.ai.vastu_analyzer.get_ai_provider") as mock:
+    with patch("app.services.ai.vastu.analyzer.get_ai_provider") as mock:
         mock_provider = MagicMock()
         mock_provider.supports_vision = True
         mock_provider.complete_json = AsyncMock(

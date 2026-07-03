@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.elements import TextClause
 
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
@@ -95,9 +96,13 @@ class TestRentRollReportQueryCount:
 
             result = await pm_reports.rent_roll_report(db, actor=actor)
 
-        # Exactly 2 queries regardless of property count: 1 properties + 1 leases
-        assert len(execute_calls) == 2, (
-            f"Expected exactly 2 DB queries (batched), got {len(execute_calls)}. "
+        # Exactly 2 *data* queries regardless of property count:
+        # 1 properties + 1 leases. The ``SET LOCAL statement_timeout`` preamble
+        # issued by ``apply_statement_timeout`` is a TextClause, not a Select,
+        # and is excluded from the N+1 regression count.
+        data_queries = [q for q in execute_calls if not isinstance(q, TextClause)]
+        assert len(data_queries) == 2, (
+            f"Expected exactly 2 data queries (batched), got {len(data_queries)}. "
             "The N+1 pattern regressed: one lease query per property."
         )
         mock_resolve.assert_awaited_once()
@@ -144,9 +149,12 @@ class TestRentRollReportQueryCount:
 
             result = await pm_reports.rent_roll_report(db, actor=actor)
 
-        # Only 1 query (the property select); no lease query for empty set.
-        assert len(execute_calls) == 1, (
-            f"Expected 1 query for empty property set, got {len(execute_calls)}"
+        # Only 1 *data* query (the property select); no lease query for empty
+        # set. The ``SET LOCAL statement_timeout`` preamble (TextClause) is
+        # excluded from the regression count.
+        data_queries = [q for q in execute_calls if not isinstance(q, TextClause)]
+        assert len(data_queries) == 1, (
+            f"Expected 1 data query for empty property set, got {len(data_queries)}"
         )
         items, next_payload, total = result
         assert items == []

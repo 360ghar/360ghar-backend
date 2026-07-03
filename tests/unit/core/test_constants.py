@@ -15,10 +15,10 @@ class TestVisionConstants:
         assert "glm" in VALID_VISION_PROVIDERS
         assert len(VALID_VISION_PROVIDERS) == 2
 
-    def test_default_vision_provider_is_glm(self):
+    def test_default_vision_provider_is_gemini(self):
         from app.core.constants import DEFAULT_VISION_PROVIDER
 
-        assert DEFAULT_VISION_PROVIDER == "glm"
+        assert DEFAULT_VISION_PROVIDER == "gemini"
 
     def test_default_vision_model_gemini(self):
         from app.core.constants import DEFAULT_VISION_MODEL_GEMINI

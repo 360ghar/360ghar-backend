@@ -32,6 +32,19 @@ def _get_client():
 def _embed_one(client: Any, model: str, text: str, *, task_type: str = "retrieval_document") -> list[float]:
     from google.genai import types
 
+    # gemini-embedding-2-* ignores task_type; the task is an in-prompt instruction instead.
+    # Asymmetric retrieval format per https://ai.google.dev/gemini-api/docs/embeddings
+    is_v2 = model.startswith("gemini-embedding-2")
+    if is_v2:
+        if task_type == "retrieval_query":
+            content = f"task: search result | query: {text}"
+        else:
+            content = f"title: none | text: {text}"
+        config = types.EmbedContentConfig(output_dimensionality=768)  # matches vector(768) column
+    else:
+        content = text
+        config = types.EmbedContentConfig(task_type=task_type, output_dimensionality=768)
+
     retries = max(1, int(settings.VECTOR_SYNC_MAX_RETRIES))
     delay = 1.0
     last_err: Exception | None = None
@@ -39,8 +52,8 @@ def _embed_one(client: Any, model: str, text: str, *, task_type: str = "retrieva
         try:
             resp = client.models.embed_content(
                 model=model,
-                contents=text,
-                config=types.EmbedContentConfig(task_type=task_type),
+                contents=content,
+                config=config,
             )
             if resp.embeddings:
                 return list(resp.embeddings[0].values)
@@ -59,7 +72,7 @@ def _embed_one(client: Any, model: str, text: str, *, task_type: str = "retrieva
 def embed_sync(texts: Sequence[str]) -> list[list[float]]:
     """Embed a list of texts synchronously using Gemini (per-item API call).
 
-    Returns a list of vectors (lists of floats). Length should be 768 for text-embedding-004.
+    Returns a list of 768-d vectors (output_dimensionality pinned to match the pgvector column).
     """
     client = _get_client()
     model = settings.GEMINI_EMBED_MODEL

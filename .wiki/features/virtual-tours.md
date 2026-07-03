@@ -52,7 +52,7 @@ app/models/
 
 Tour CRUD is straightforward keyset pagination on `(created_at, id)`. Scenes belong to tours and carry `order_index`; `reorder_scenes` updates positions atomically. Hotspots carry a `HotspotType` and arbitrary content that is sanitised through `_sanitize_hotspot_html` using `_HOTSPOT_HTML_ALLOWED_TAGS`, `_HOTSPOT_HTML_ALLOWED_ATTRIBUTES`, and `_HOTSPOT_HTML_ALLOWED_PROTOCOLS`. Floor plans accept marker updates for navigation overlay.
 
-The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. The provider call is wrapped in `_call_ai_with_retry` with exponential backoff, and JSON responses go through `_complete_json_with_retry` which appends a corrective nudge on parse failure.
+The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries with exponential backoff and appends a corrective nudge on parse failure; if the primary vision provider (Gemini) exhausts its retries, it transparently falls back to the other configured provider (GLM, or vice-versa) once via `_resolve_fallback_provider` before giving up.
 
 ```mermaid
 graph TD
@@ -62,9 +62,9 @@ graph TD
     AS --> BG[_track_background_task _run_with_semaphore]
     BG --> DL[_download_image_as_base64]
     DL --> AI[AIProvider.complete_json]
-    AI -->|retry| RT[_call_ai_with_retry]
-    AI -->|JSON parse fail| JSON[_complete_json_with_retry + nudge]
-    RT & JSON --> UPD[update_job_status completed]
+    AI -->|JSON parse fail + retry| JSON[_complete_json_with_retry + nudge]
+    JSON -->|primary exhausted| FB[_resolve_fallback_provider GLM<->Gemini]
+    JSON & FB --> UPD[update_job_status completed]
     UPD --> Client2[SSE/ws job status]
     Client -->|POST /tours/.../ai/suggest-hotspots| SH[suggest_scene_hotspots]
     SH --> BG2[background _run_hotspot_suggestions]

@@ -213,51 +213,62 @@ class Settings(BaseSettings):
     # ── AI Providers ─────────────────────────────────────────────────────────────
     # Gemini
     GOOGLE_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
-    GEMINI_EMBED_MODEL: str = "text-embedding-004"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_EMBED_MODEL: str = "gemini-embedding-2"
     # GLM (ZhipuAI) — used for Vastu and other AI features
     GLM_API_KEY: str | None = None
     GLM_API_URL: str = "https://api.z.ai/api/coding/paas/v4/chat/completions"
     GLM_MODEL: str = "glm-5v-turbo"
     # Vastu analyzer
-    VASTU_DEFAULT_PROVIDER: str = "glm"  # "gemini" or "glm"
+    VASTU_DEFAULT_PROVIDER: str = "gemini"  # "gemini" or "glm"
     VASTU_FALLBACK_PROVIDER: str = ""  # Auto-derived if empty (swaps to the other provider)
-    # Pydantic AI Agent — fallback chain: GLM -> Gemini -> Groq
-    # API keys come from the shared provider credentials (GLM_API_KEY,
-    # GOOGLE_API_KEY, GROQ_API_KEY) via the AI_AGENT_PROVIDERS property.
+    # Pydantic AI Agent — fallback chain: Gemini -> GLM -> Groq
+    # API keys come from the shared provider credentials (GOOGLE_API_KEY,
+    # GLM_API_KEY, GROQ_API_KEY) via the AI_AGENT_PROVIDERS property.
     # Only set model/base vars here if the agent needs different values.
-    AI_AGENT_MODEL: str = "glm-4.7-flash"
-    AI_AGENT_API_BASE: str = "https://api.z.ai/api/coding/paas/v4"
-    AI_AGENT_FALLBACK_MODEL: str | None = None
-    AI_AGENT_FALLBACK_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    # NOTE: ``AI_AGENT_API_BASE`` is only used by the OpenAI-compatible
+    # fallback providers (GLM, Groq). The Gemini primary uses Pydantic AI's
+    # native ``GoogleModel``/``GoogleProvider``, which ignores ``api_base``
+    # and targets Google's own endpoint.
+    AI_AGENT_MODEL: str = "gemini-3.5-flash"
+    AI_AGENT_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta/openai"
+    AI_AGENT_FALLBACK_MODEL: str = "glm-4.7-flash"
+    AI_AGENT_FALLBACK_API_BASE: str = "https://api.z.ai/api/coding/paas/v4"
     AI_AGENT_FALLBACK2_MODEL: str | None = None  # Defaults to GROQ_MODEL when unset
 
     @property
     def AI_AGENT_PROVIDERS(self) -> list[dict[str, str]]:
         """Ordered fallback chain for the Pydantic AI Agent.
 
-        API keys come from the shared provider credentials (GLM_API_KEY,
-        GOOGLE_API_KEY, GROQ_API_KEY) rather than separate AI_AGENT_*_API_KEY
+        API keys come from the shared provider credentials (GOOGLE_API_KEY,
+        GLM_API_KEY, GROQ_API_KEY) rather than separate AI_AGENT_*_API_KEY
         env vars. Each entry has ``label``, ``model``, ``api_base``,
         and ``api_key``.
         """
         providers: list[dict[str, str]] = []
 
-        # Primary: GLM via ZhipuAI-compatible endpoint
-        providers.append({
-            "label": self.AI_AGENT_MODEL,
-            "model": self.AI_AGENT_MODEL,
-            "api_base": self.AI_AGENT_API_BASE,
-            "api_key": self.GLM_API_KEY or "",
-        })
-
-        # Fallback 1: Gemini via OpenAI-compatible wrapper
-        if self.AI_AGENT_FALLBACK_MODEL:
+        # Primary: Gemini via Pydantic AI's native Google provider.
+        # ``backend: "gemini"`` makes the agent use ``GoogleModel`` (not the
+        # OpenAI-compatible shim) so multi-turn tool calls work — thinking
+        # Gemini models return a thought_signature on function calls that the
+        # OpenAI shim drops (HTTP 400).
+        if self.GOOGLE_API_KEY:
             providers.append({
-                "label": self.AI_AGENT_FALLBACK_MODEL,
+                "label": "gemini",
+                "backend": "gemini",
+                "model": self.AI_AGENT_MODEL,
+                "api_base": self.AI_AGENT_API_BASE,
+                "api_key": self.GOOGLE_API_KEY,
+            })
+
+        # Fallback 1: GLM via OpenAI-compatible endpoint
+        if self.AI_AGENT_FALLBACK_MODEL and self.GLM_API_KEY:
+            providers.append({
+                "label": "glm",
+                "backend": "openai",
                 "model": self.AI_AGENT_FALLBACK_MODEL,
                 "api_base": self.AI_AGENT_FALLBACK_API_BASE,
-                "api_key": self.GOOGLE_API_KEY or "",
+                "api_key": self.GLM_API_KEY,
             })
 
         # Fallback 2: Groq (model falls back to GROQ_MODEL when
@@ -265,7 +276,8 @@ class Settings(BaseSettings):
         fb2_model = self.AI_AGENT_FALLBACK2_MODEL or self.GROQ_MODEL
         if fb2_model and self.GROQ_API_KEY:
             providers.append({
-                "label": fb2_model,
+                "label": "groq",
+                "backend": "openai",
                 "model": fb2_model,
                 "api_base": self.GROQ_API_BASE,
                 "api_key": self.GROQ_API_KEY,

@@ -19,6 +19,7 @@ class FakeDb:
         self.properties = properties or {}
         self.added = []
         self.flushed = False
+        self.committed = False
 
     async def get(self, model, key):
         if model is User:
@@ -40,6 +41,9 @@ class FakeDb:
             from datetime import datetime, timezone
 
             obj.created_at = datetime.now(timezone.utc)
+
+    async def commit(self):
+        self.committed = True
 
 
 def _listing(**overrides):
@@ -75,6 +79,7 @@ async def test_record_profile_view_event_persists_duration_sample():
     assert event.duration_seconds == 14
     assert event.scroll_depth_percent == 100
     assert db.flushed is True
+    assert db.committed is True
 
 
 @pytest.mark.asyncio

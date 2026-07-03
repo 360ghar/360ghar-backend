@@ -236,7 +236,7 @@ class TestSettings:
 
             settings = config.Settings()
 
-            assert settings.VASTU_DEFAULT_PROVIDER == "glm"
+            assert settings.VASTU_DEFAULT_PROVIDER == "gemini"
 
     def test_supabase_client_key_returns_publishable_key(self):
         """Test SUPABASE_CLIENT_KEY returns publishable key."""

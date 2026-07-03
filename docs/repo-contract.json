@@ -240,6 +240,7 @@
     "pm_tenants.py",
     "property/crud.py",
     "property/search.py",
+    "property/search_orchestration.py",
     "property/recommendations.py",
     "property/helpers.py",
     "push_notification.py",

@@ -15,9 +15,9 @@ VALID_VISION_PROVIDERS: tuple[str, ...] = ("gemini", "glm")
 def __getattr__(name: str):
     """Lazily resolve constants from settings to avoid stale import-time values."""
     _LAZY_CONSTANTS = {
-        "DEFAULT_VISION_MODEL_GEMINI": lambda: settings.GEMINI_MODEL or "gemini-3.1-flash-lite-preview",
+        "DEFAULT_VISION_MODEL_GEMINI": lambda: settings.GEMINI_MODEL or "gemini-3.5-flash",
         "DEFAULT_VISION_MODEL_GLM": lambda: settings.GLM_MODEL or "glm-5v-turbo",
-        "DEFAULT_VISION_PROVIDER": lambda: settings.VASTU_DEFAULT_PROVIDER or "glm",
+        "DEFAULT_VISION_PROVIDER": lambda: settings.VASTU_DEFAULT_PROVIDER or "gemini",
         "VASTU_FALLBACK_PROVIDER": lambda: settings.VASTU_FALLBACK_PROVIDER or "",
     }
     if name in _LAZY_CONSTANTS:

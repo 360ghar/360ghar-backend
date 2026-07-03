@@ -6,10 +6,16 @@ conversation history, and streams SSE events back to the client.
 """
 from __future__ import annotations
 
+import functools
+import inspect
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
 from typing import Any
+from uuid import UUID
 
 from pydantic_ai import (
     Agent,
@@ -29,7 +35,10 @@ from pydantic_ai.messages import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.models import Model
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +49,50 @@ from app.services.ai_agent.system_prompt import get_system_prompt
 from app.services.ai_agent.tools import AgentDeps, get_tools_for_role
 
 logger = get_logger(__name__)
+
+
+def _jsonable(value: Any) -> Any:
+    """Coerce ORM/Pydantic types to JSON-safe primitives.
+
+    Gemini's native serializer is stricter than the OpenAI client's encoder;
+    tool returns often carry ``datetime``/``Decimal``/``UUID`` values from ORM
+    models. This guarantees every model adapter can encode them.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_jsonable(v) for v in value]
+    if hasattr(value, "model_dump"):
+        return _jsonable(value.model_dump(mode="json"))
+    return str(value)
+
+
+def _jsonable_tool(func: Any) -> Any:
+    """Wrap a tool so its return value is JSON-safe, preserving its signature
+    so Pydantic AI's schema introspection is unaffected."""
+
+    if inspect.iscoroutinefunction(func):
+        @functools.wraps(func)
+        async def _async_wrapped(*args: Any, **kwargs: Any) -> Any:
+            return _jsonable(await func(*args, **kwargs))
+
+        return _async_wrapped
+
+    @functools.wraps(func)
+    def _sync_wrapped(*args: Any, **kwargs: Any) -> Any:
+        return _jsonable(func(*args, **kwargs))
+
+    return _sync_wrapped
 
 
 class _AgentRunError(Exception):
@@ -126,7 +179,7 @@ def _build_message_history(
 class PydanticAIAgentService:
     """Manages a Pydantic AI Agent instance per model configuration.
 
-    Fallback chain: GLM (primary) -> Gemini -> Groq.
+    Fallback chain: Gemini (primary) -> GLM -> Groq.
     If the primary provider fails, the next provider in the chain is tried.
     """
 
@@ -134,8 +187,19 @@ class PydanticAIAgentService:
         self.model_name = model or settings.AI_AGENT_MODEL
 
     @staticmethod
-    def _create_model(cfg: dict[str, str]) -> OpenAIChatModel:
-        """Create an OpenAIChatModel from a provider config dict."""
+    def _create_model(cfg: dict[str, str]) -> Model:
+        """Create a model from a provider config dict.
+
+        Gemini uses Pydantic AI's native ``GoogleModel`` (not the OpenAI-
+        compatible shim) so multi-turn tool calls work — thinking Gemini models
+        attach a ``thought_signature`` to function calls that the OpenAI shim
+        drops, causing HTTP 400. GLM and Groq use the OpenAI-compatible client.
+        """
+        if cfg.get("backend") == "gemini":
+            return GoogleModel(
+                cfg["model"],
+                provider=GoogleProvider(api_key=cfg["api_key"]),
+            )
         return OpenAIChatModel(
             cfg["model"],
             provider=OpenAIProvider(
@@ -144,7 +208,7 @@ class PydanticAIAgentService:
             ),
         )
 
-    def _build_providers(self) -> list[tuple[str, OpenAIChatModel]]:
+    def _build_providers(self) -> list[tuple[str, Model]]:
         """Build ordered (label, model) pairs from the provider map.
 
         The first entry is the primary model. If ``self.model_name`` was
@@ -164,7 +228,7 @@ class PydanticAIAgentService:
             for cfg in configs
         ]
 
-    def _build_agent(self, user_role: str, model: OpenAIChatModel) -> Agent[AgentDeps, str]:
+    def _build_agent(self, user_role: str, model: Model) -> Agent[AgentDeps, str]:
         """Build an Agent with the given model and role-specific tools."""
         tools = get_tools_for_role(user_role)
         agent: Agent[AgentDeps, str] = Agent(
@@ -173,7 +237,7 @@ class PydanticAIAgentService:
             retries=2,
         )
         for name, func, description in tools:
-            agent.tool(func, name=name, description=description)  # type: ignore[call-overload]
+            agent.tool(_jsonable_tool(func), name=name, description=description)  # type: ignore[call-overload]
         return agent
 
     async def _run_agent_stream(
