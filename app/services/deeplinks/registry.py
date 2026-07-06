@@ -301,8 +301,8 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
 
     # Root flagship app: first segment is the entity itself.
     head = segments[0]
-    app = _ROOT_ENTITY_INDEX.get(head)
-    if app is not None:
+    root_app: AppLinkConfig | None = _ROOT_ENTITY_INDEX.get(head)
+    if root_app is not None:
         if len(segments) < 2:
             # /p and /property without an identifier are not valid deep links.
             return None
@@ -310,6 +310,6 @@ def get_app_for_path(path: str) -> tuple[AppLinkConfig, str, str] | None:
         identifier = "/".join(segments[1:]).strip()
         if not identifier:
             return None
-        return (app, head, identifier)
+        return (root_app, head, identifier)
 
     return None

@@ -90,7 +90,8 @@ async def agent_rent_list_due(
 
             if user_role != UserRole.admin:
                 accessible_owners = await get_accessible_owner_ids(db, actor=user)
-                if owner_id and accessible_owners is not None and owner_id not in accessible_owners:
+                owner_ids = list(accessible_owners) if accessible_owners is not None else None
+                if owner_id and owner_ids is not None and owner_id not in owner_ids:
                     return MCPResponse.success({
                         "items": [],
                         "total_due": 0,
@@ -100,7 +101,6 @@ async def agent_rent_list_due(
                         "limit": limit,
                         "total": 0,
                     }).model_dump()
-                owner_ids = accessible_owners
 
             if owner_id:
                 owner_ids = [owner_id]

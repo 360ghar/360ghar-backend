@@ -120,7 +120,7 @@ async def get_swipe_history(
     conditions = [UserSwipe.user_id == user_id]
 
     # Only show swipes on available, live properties (mirrors main search filter)
-    conditions.append(Property.is_available)
+    conditions.append(Property.is_available.is_(True))
     conditions.append(
         or_(
             Property.property_type.notin_(PG_FLATMATE_TYPES),

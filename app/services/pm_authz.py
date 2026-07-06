@@ -21,9 +21,12 @@ from app.models.users import User
 
 @runtime_checkable
 class _Actor(Protocol):
-    id: int
-    role: Any
-    agent_id: int | None
+    @property
+    def id(self) -> int: ...
+    @property
+    def role(self) -> Any: ...
+    @property
+    def agent_id(self) -> int | None: ...
 
 
 def get_actor_role(actor: _Actor) -> UserRole:
