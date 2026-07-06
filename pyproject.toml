@@ -65,6 +65,8 @@ dev = [
     "fastapi-cli>=0.0.24",
     "hypercorn>=0.18.0",
     "PyJWT>=2.9.0",
+    "types-bleach",
+    "types-PyYAML",
 ]
 
 [tool.pytest.ini_options]
