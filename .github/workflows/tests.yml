@@ -143,8 +143,24 @@ jobs:
           if [ "$failed" -eq 1 ]; then
             exit 1
           fi
-          docker exec test-postgres psql -U test_user -d test_db -c \
-            "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'postgis');"
+
+          # Allow database to stabilize after extension creation
+          sleep 3
+
+          # Verify extensions with retry logic
+          for i in {1..3}; do
+            if docker exec test-postgres psql -U test_user -d test_db -c \
+              "SELECT extname FROM pg_extension WHERE extname IN ('vector', 'postgis');"; then
+              echo "Extensions verified successfully"
+              exit 0
+            fi
+            if [ $i -lt 3 ]; then
+              echo "Verification attempt $i/3 failed, retrying..."
+              sleep 2
+            fi
+          done
+          echo "ERROR: Failed to verify extensions"
+          exit 1
 
       # ── Python ───────────────────────────────────────────────────────────
       - name: Set up Python
