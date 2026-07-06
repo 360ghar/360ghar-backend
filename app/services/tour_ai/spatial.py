@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from typing import Any
+from typing import Any, cast
 
 from app.core.logging import get_logger
 from app.services.ai import AIMessage, AIRole, VisionInput
@@ -211,12 +211,12 @@ def _match_target(
     if not candidates:
         return None
     if len(candidates) == 1:
-        return candidates[0]["id"]
+        return str(candidates[0]["id"])
     # Multiple: prefer one not already linked from this source.
     for c in candidates:
         if c["id"] not in already_linked:
-            return c["id"]
-    return candidates[0]["id"]
+            return str(c["id"])
+    return str(candidates[0]["id"])
 
 
 def _add_hotspot(scene: dict[str, Any], target_id: str, opening: dict[str, Any], target_title: str) -> None:
@@ -251,17 +251,17 @@ def build_graph(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     # Pass 2: enforce bidirectionality.
     for s in scenes:
         for hs in list(s["hotspots"]):
-            target = by_id.get(hs["target_scene_id"])
-            if not target:
+            target_scene: dict[str, Any] | None = by_id.get(hs["target_scene_id"])
+            if not target_scene:
                 continue
-            has_reciprocal = any(h["target_scene_id"] == s["id"] for h in target["hotspots"])
+            has_reciprocal = any(h["target_scene_id"] == s["id"] for h in target_scene["hotspots"])
             if has_reciprocal:
                 continue
             # Prefer an opening in target that points back at this room type.
-            op = _best_opening_for(target, s["room_type"])
+            op = _best_opening_for(target_scene, s["room_type"])
             if op is None:
                 continue  # leave one-way; still reachable elsewhere
-            _add_hotspot(target, s["id"], op, s["title"])
+            _add_hotspot(target_scene, s["id"], op, s["title"])
 
     # Pass 3: connectivity repair (every scene reachable from the start scene).
     _repair_connectivity(scenes, by_id)
@@ -351,7 +351,7 @@ def _best_opening_for(scene: dict[str, Any], target_room_type: str) -> dict[str,
     pool = free or pool
     if not pool:
         return None
-    return max(pool, key=lambda o: o.get("leads_to_confidence", 0.0))
+    return cast(dict[str, Any], max(pool, key=lambda o: o.get("leads_to_confidence", 0.0)))
 
 
 def start_scene_id(scenes: list[dict[str, Any]]) -> str:
@@ -360,7 +360,8 @@ def start_scene_id(scenes: list[dict[str, Any]]) -> str:
         scenes,
         key=lambda s: (_ORDER_PRIORITY.get(s["room_type"], 50), -len(s["hotspots"])),
     )
-    return ranked[0]["id"] if ranked else scenes[0]["id"]
+    val = ranked[0]["id"] if ranked else scenes[0]["id"]
+    return str(val)
 
 
 def _repair_connectivity(scenes: list[dict[str, Any]], by_id: dict[str, dict[str, Any]]) -> None:
@@ -404,7 +405,7 @@ def _repair_connectivity(scenes: list[dict[str, Any]], by_id: dict[str, dict[str
 
 def _fallback_opening(scene: dict[str, Any]) -> dict[str, Any]:
     if scene["openings"]:
-        return scene["openings"][0]
+        return cast(dict[str, Any], scene["openings"][0])
     return {"yaw": round(scene.get("facing_yaw", 0.0), 1), "pitch": NAV_PITCH_DEFAULT, "type": "other"}
 
 

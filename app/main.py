@@ -5,7 +5,7 @@ import logging
 
 import sentry_sdk
 import sentry_sdk.integrations.fastapi
-import yaml  # type: ignore[import-untyped]
+import yaml
 from dotenv import load_dotenv
 from fastapi.responses import Response
 from sentry_sdk.integrations.logging import LoggingIntegration

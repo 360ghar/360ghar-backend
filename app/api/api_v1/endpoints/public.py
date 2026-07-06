@@ -60,13 +60,16 @@ def _is_ip_rate_limited(
     # Periodic reap of fully-stale keys to bound memory under sustained
     # traffic from many distinct IPs. We do this on every call (cheap) and
     # gate on a per-helper last-reap timestamp stored on the store itself.
-    last_reap = store.get(last_reap_attr, 0.0)
+    last_reap_raw = store.get(last_reap_attr)
+    last_reap: float = last_reap_raw[0] if last_reap_raw else 0.0
     if now - last_reap > _REAP_INTERVAL_S:
         with _reaper_lock:
             # Re-check under lock so two workers don't both decide to reap
-            if now - store.get(last_reap_attr, 0.0) <= _REAP_INTERVAL_S:
+            current_raw = store.get(last_reap_attr)
+            current_reap: float = current_raw[0] if current_raw else 0.0
+            if now - current_reap <= _REAP_INTERVAL_S:
                 return False
-            store[last_reap_attr] = now
+            store[last_reap_attr] = [now]
             stale = [k for k, v in store.items() if k == last_reap_attr or not v]
             for k in stale:
                 if k != last_reap_attr:
