@@ -29,7 +29,7 @@ class TestCreateVisit:
         visit_data = VisitCreate(
             property_id=test_property.id,
             scheduled_date=scheduled,
-            notes="I want to see the property",
+            special_requirements="I want to see the property",
         )
 
         result = await create_visit(db_session, test_user.id, visit_data)
@@ -293,3 +293,77 @@ class TestGetAllVisits:
         rows, _next, _total = await get_all_visits(db_session, cursor_payload={}, limit=20, status="scheduled")
 
         assert isinstance(rows, list)
+
+
+class TestVisitTimezoneConflict:
+    """Tests for timezone naive/aware comparison safety in visit conflict checking."""
+
+    @pytest.mark.asyncio
+    async def test_ensure_no_visit_conflict_naive_existing_aware_incoming_overlap(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.core.exceptions import ConflictException
+        from app.models.properties import Visit
+        from app.services.visit import _ensure_no_visit_conflict
+
+        mock_db = AsyncMock()
+        naive_dt = datetime.now()  # naive (no tzinfo)
+        mock_visit = Visit(
+            id=1,
+            user_id=1,
+            property_id=1,
+            scheduled_date=naive_dt,
+            status="scheduled",
+        )
+
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_scalars.all.return_value = [mock_visit]
+        mock_db.execute.return_value = mock_result
+
+        # Incoming check is UTC-aware and within conflict window (+10 mins)
+        incoming_aware = naive_dt.replace(tzinfo=timezone.utc) + timedelta(minutes=10)
+
+        # Should detect the overlap and raise ConflictException, NOT TypeError
+        with pytest.raises(ConflictException):
+            await _ensure_no_visit_conflict(
+                mock_db,
+                user_id=1,
+                property_id=1,
+                scheduled_date=incoming_aware,
+            )
+
+    @pytest.mark.asyncio
+    async def test_ensure_no_visit_conflict_naive_existing_aware_incoming_allowed(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.models.properties import Visit
+        from app.services.visit import _ensure_no_visit_conflict
+
+        mock_db = AsyncMock()
+        naive_dt = datetime.now()  # naive (no tzinfo)
+        mock_visit = Visit(
+            id=1,
+            user_id=1,
+            property_id=1,
+            scheduled_date=naive_dt,
+            status="scheduled",
+        )
+
+        mock_result = MagicMock()
+        mock_scalars = MagicMock()
+        mock_result.scalars.return_value = mock_scalars
+        mock_scalars.all.return_value = [mock_visit]
+        mock_db.execute.return_value = mock_result
+
+        # Incoming check is UTC-aware and far in the future (+5 hours)
+        incoming_aware = naive_dt.replace(tzinfo=timezone.utc) + timedelta(hours=5)
+
+        # Should execute successfully without ConflictException or TypeError
+        await _ensure_no_visit_conflict(
+            mock_db,
+            user_id=1,
+            property_id=1,
+            scheduled_date=incoming_aware,
+        )

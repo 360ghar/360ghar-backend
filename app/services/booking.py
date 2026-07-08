@@ -230,6 +230,18 @@ async def update_booking(db: AsyncSession, booking_id: int, booking_update: Book
     booking = result.scalar_one_or_none()
 
     if booking:
+        new_check_in = booking_update.check_in_date if booking_update.check_in_date is not None else booking.check_in_date
+        new_check_out = booking_update.check_out_date if booking_update.check_out_date is not None else booking.check_out_date
+
+        if new_check_in is not None and new_check_out is not None:
+            if new_check_in.tzinfo is None:
+                new_check_in = new_check_in.replace(tzinfo=timezone.utc)
+            if new_check_out.tzinfo is None:
+                new_check_out = new_check_out.replace(tzinfo=timezone.utc)
+
+            if new_check_out <= new_check_in:
+                raise BadRequestException(detail="Invalid date range: check-out must be after check-in")
+
         update_data = booking_update.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(booking, field, value)

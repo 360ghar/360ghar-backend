@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.auth import admin_find_user_by_phone, get_supabase_auth_client, verify_supabase_token
+from app.core.auth import get_supabase_auth_client, verify_supabase_token
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.services.oauth_token_store import oauth_token_store

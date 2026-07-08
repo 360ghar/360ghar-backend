@@ -64,8 +64,10 @@ class BookingCreate(BookingBase):
     guest_details: dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def validate_dates(self):
-        if _to_utc(self.check_out_date) <= _to_utc(self.check_in_date):
+    def validate_dates(self) -> BookingCreate:
+        self.check_in_date = _to_utc(self.check_in_date)
+        self.check_out_date = _to_utc(self.check_out_date)
+        if self.check_out_date <= self.check_in_date:
             raise ValueError('Check-out date must be after check-in date')
         return self
 

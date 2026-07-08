@@ -122,6 +122,13 @@ async def _validate_flatmate_visit_context(
     raise BadRequestException(detail="Flatmate meeting requires an active conversation or match")
 
 
+def _to_utc(dt: datetime) -> datetime:
+    """Normalize a datetime to a UTC-aware value for safe comparison."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 async def _ensure_no_visit_conflict(
     db: AsyncSession,
     user_id: int,
@@ -144,7 +151,7 @@ async def _ensure_no_visit_conflict(
     duration = timedelta(minutes=settings.VISIT_DEFAULT_DURATION_MINUTES)
     buffer = timedelta(minutes=settings.VISIT_CONFLICT_BUFFER_MINUTES)
 
-    new_start = scheduled_date
+    new_start = _to_utc(scheduled_date)
     new_end = new_start + duration
     # Coarse window to limit the candidate set; the precise check runs in Python.
     window_start = new_start - duration - buffer
@@ -161,7 +168,7 @@ async def _ensure_no_visit_conflict(
     existing_visits = result.scalars().all()
 
     for existing in existing_visits:
-        existing_start = existing.scheduled_date
+        existing_start = _to_utc(existing.scheduled_date)
         existing_end = existing_start + duration
         # Two intervals [a, b) and [c, d) overlap iff a < d and c < b.
         # Apply the buffer to both sides so back-to-back visits still conflict.

@@ -266,3 +266,286 @@ class TestAddReview:
         await db_session.refresh(test_booking)
         assert test_booking.guest_rating == 5
         assert test_booking.guest_review == "Great stay and smooth check-in."
+
+
+class TestBookingTimezoneNormalization:
+    """Tests for timezone normalization in BookingCreate and schema validations."""
+
+    @pytest.mark.asyncio
+    async def test_booking_create_naive_aware_input(self):
+        from app.schemas.booking import BookingCreate
+
+        check_in = "2026-07-15T12:00:00"  # naive
+        check_out = "2026-07-18T12:00:00Z"  # aware
+
+        booking_data = BookingCreate(
+            property_id=1,
+            check_in_date=check_in,
+            check_out_date=check_out,
+            guests=2,
+            primary_guest_name="Test Guest",
+            primary_guest_phone="+919876543210",
+            primary_guest_email="guest@test.com",
+        )
+
+        assert booking_data.check_in_date.tzinfo is not None
+        assert booking_data.check_in_date.tzinfo == timezone.utc
+        assert booking_data.check_out_date.tzinfo is not None
+        assert booking_data.check_out_date.tzinfo == timezone.utc
+
+    @pytest.mark.asyncio
+    async def test_booking_create_aware_aware_input(self):
+        from app.schemas.booking import BookingCreate
+
+        check_in = "2026-07-15T12:00:00+02:00"  # aware
+        check_out = "2026-07-18T12:00:00Z"  # aware
+
+        booking_data = BookingCreate(
+            property_id=1,
+            check_in_date=check_in,
+            check_out_date=check_out,
+            guests=2,
+            primary_guest_name="Test Guest",
+            primary_guest_phone="+919876543210",
+            primary_guest_email="guest@test.com",
+        )
+
+        assert booking_data.check_in_date.tzinfo is not None
+        assert booking_data.check_in_date.tzinfo == timezone.utc
+        assert booking_data.check_out_date.tzinfo is not None
+        assert booking_data.check_out_date.tzinfo == timezone.utc
+
+    @pytest.mark.asyncio
+    async def test_booking_create_naive_naive_input(self):
+        from app.schemas.booking import BookingCreate
+
+        check_in = "2026-07-15T12:00:00"  # naive
+        check_out = "2026-07-18T12:00:00"  # naive
+
+        booking_data = BookingCreate(
+            property_id=1,
+            check_in_date=check_in,
+            check_out_date=check_out,
+            guests=2,
+            primary_guest_name="Test Guest",
+            primary_guest_phone="+919876543210",
+            primary_guest_email="guest@test.com",
+        )
+
+        assert booking_data.check_in_date.tzinfo is not None
+        assert booking_data.check_in_date.tzinfo == timezone.utc
+        assert booking_data.check_out_date.tzinfo is not None
+        assert booking_data.check_out_date.tzinfo == timezone.utc
+
+    @pytest.mark.asyncio
+    async def test_booking_create_invalid_dates(self):
+        from pydantic import ValidationError
+
+        from app.schemas.booking import BookingCreate
+
+        check_in = "2026-07-15T12:00:00"
+        check_out = "2026-07-12T12:00:00"  # invalid
+
+        with pytest.raises(ValidationError) as exc_info:
+            BookingCreate(
+                property_id=1,
+                check_in_date=check_in,
+                check_out_date=check_out,
+                guests=2,
+                primary_guest_name="Test Guest",
+                primary_guest_phone="+919876543210",
+                primary_guest_email="guest@test.com",
+            )
+        assert "Check-out date must be after check-in date" in str(exc_info.value)
+
+
+class TestBookingUpdate:
+    """Tests for update_booking function and service-layer validation."""
+
+    @pytest.mark.asyncio
+    async def test_update_booking_valid_full_update(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        # 1. Setup mock database session
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        # 2. Complete update with valid dates
+        new_in = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+        new_out = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_in_date=new_in, check_out_date=new_out)
+
+        updated = await update_booking(mock_db, 1, payload)
+
+        assert updated is not None
+        assert updated.check_in_date == new_in
+        assert updated.check_out_date == new_out
+
+    @pytest.mark.asyncio
+    async def test_update_booking_invalid_full_update(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.core.exceptions import BadRequestException
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        # check-out <= check-in
+        new_in = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+        new_out = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_in_date=new_in, check_out_date=new_out)
+
+        with pytest.raises(BadRequestException) as exc_info:
+            await update_booking(mock_db, 1, payload)
+        assert "Invalid date range: check-out must be after check-in" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_update_booking_partial_check_in_only_valid(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        new_in = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_in_date=new_in)
+
+        updated = await update_booking(mock_db, 1, payload)
+        assert updated is not None
+        assert updated.check_in_date == new_in
+        assert updated.check_out_date == datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc)
+
+    @pytest.mark.asyncio
+    async def test_update_booking_partial_check_in_only_invalid(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.core.exceptions import BadRequestException
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        new_in = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_in_date=new_in)
+
+        with pytest.raises(BadRequestException):
+            await update_booking(mock_db, 1, payload)
+
+    @pytest.mark.asyncio
+    async def test_update_booking_partial_check_out_only_valid(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        new_out = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_out_date=new_out)
+
+        updated = await update_booking(mock_db, 1, payload)
+        assert updated is not None
+        assert updated.check_in_date == datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+        assert updated.check_out_date == new_out
+
+    @pytest.mark.asyncio
+    async def test_update_booking_partial_check_out_only_invalid(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.core.exceptions import BadRequestException
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc),
+            check_out_date=datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        new_out = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_out_date=new_out)
+
+        with pytest.raises(BadRequestException):
+            await update_booking(mock_db, 1, payload)
+
+    @pytest.mark.asyncio
+    async def test_update_booking_mixed_naive_aware(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.models.bookings import Booking
+        from app.schemas.booking import BookingUpdate
+        from app.services.booking import update_booking
+
+        mock_db = AsyncMock()
+        # Existing booking has naive datetimes
+        existing_booking = Booking(
+            id=1,
+            check_in_date=datetime(2026, 7, 15, 12, 0),  # naive
+            check_out_date=datetime(2026, 7, 18, 12, 0),  # naive
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = existing_booking
+        mock_db.execute.return_value = mock_result
+
+        # Update is aware
+        new_in = datetime(2026, 7, 16, 12, 0, tzinfo=timezone.utc)
+        payload = BookingUpdate(check_in_date=new_in)
+
+        updated = await update_booking(mock_db, 1, payload)
+        assert updated is not None
+        assert updated.check_in_date == new_in
+
