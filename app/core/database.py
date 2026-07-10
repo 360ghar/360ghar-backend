@@ -1,19 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 import time
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 
 import sentry_sdk
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import TimeoutError as SATimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.core.db_resilience import apply_statement_timeout
+from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -131,13 +136,13 @@ logger.info("Connecting to database with psycopg for PgBouncer compatibility")
 _connect_args = {
     "application_name": "360ghar_backend",
     "prepare_threshold": None,  # Disable prepared statements for PgBouncer
-    "connect_timeout": 10,
+    "connect_timeout": settings.DB_CONNECT_TIMEOUT_S,
 }
 
 _bg_connect_args = {
     "application_name": "360ghar_bg",
     "prepare_threshold": None,
-    "connect_timeout": 10,
+    "connect_timeout": settings.DB_CONNECT_TIMEOUT_S,
 }
 
 # ── Serverless: NullPool prevents persistent connections that generate ────────
@@ -266,56 +271,102 @@ AsyncSessionLocalBG = async_sessionmaker(
 
 
 # ── FastAPI dependencies ───────────────────────────────────────────────────────
+def _db_unavailable(exc: BaseException, *, error_code: str) -> ServiceUnavailableException:
+    """Map acquire/connect failures to a retryable 503 for API clients."""
+    return ServiceUnavailableException(
+        detail="Database is temporarily unavailable. Please retry shortly.",
+        headers={"Retry-After": "30"},
+        details={"error_code": error_code, "endpoint": "get_db"},
+    )
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        session_start = time.monotonic()
-        # Bound every request transaction so a stalled query (or a path that
-        # forgot its own apply_statement_timeout) fails fast and frees the
-        # Supavisor slot instead of holding until the 2-minute server default.
-        # Per-service calls may override with a later SET LOCAL.
-        # Note: SET LOCAL ends on commit — auth deps re-apply after their
-        # mid-request commit (see app/api/api_v1/dependencies/auth.py).
-        await apply_statement_timeout(session, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-        try:
-            yield session
-        except HTTPException:
-            # Propagate HTTP errors without logging as DB errors
-            await session.rollback()
-            raise
-        except RequestValidationError:
-            # FastAPI request validation failures are user input errors, not
-            # database session failures. Roll back any implicit transaction
-            # and let the validation handler produce the 422 response.
-            await session.rollback()
-            raise
-        except Exception as e:
-            logger.error("Database session error: %s", e)
-            sentry_sdk.set_context("database", {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            })
-            await session.rollback()
-            raise
-        else:
-            # Commit only if the session actually has pending changes.
-            # Read-only requests (GETs, detail views) should not force a
-            # write transaction against the database / PgBouncer. Services
-            # that explicitly call ``await session.commit()`` are unaffected
-            # because by the time we reach this branch those changes have
-            # already been committed and the session is clean.
-            if session.new or session.dirty or session.deleted:
-                await session.commit()
-        finally:
-            hold_time = time.monotonic() - session_start
-            if hold_time > _SESSION_HOLD_WARN_S:
-                # Includes pooler checkout wait under NullPool/serverless, so
-                # this is "session lifetime" not necessarily a code-level leak.
-                logger.warning(
-                    "DB session lifetime %.1fs (includes pooler checkout wait) — "
-                    "investigate slow queries or pool saturation",
-                    hold_time,
-                    stack_info=True,
-                )
+    """Yield a request-scoped session, failing fast if checkout hangs.
+
+    Acquisition (pool checkout / NullPool connect + statement-timeout setup)
+    is hard-bounded by ``DB_ACQUIRE_TIMEOUT_S``. The timeout deliberately does
+    **not** cover the request body — only opening the session — so normal
+    request work is not truncated.
+    """
+    session_start = time.monotonic()
+    session_cm = AsyncSessionLocal()
+    session: AsyncSession | None = None
+    try:
+        # Bound only acquire + first statement; do not wrap the yielded body.
+        async with asyncio.timeout(settings.DB_ACQUIRE_TIMEOUT_S):
+            session = await session_cm.__aenter__()
+            # Bound every request transaction so a stalled query (or a path that
+            # forgot its own apply_statement_timeout) fails fast and frees the
+            # Supavisor slot instead of holding until the 2-minute server default.
+            # Per-service calls may override with a later SET LOCAL.
+            # Note: SET LOCAL ends on commit — auth deps re-apply after their
+            # mid-request commit (see app/api/api_v1/dependencies/auth.py).
+            await apply_statement_timeout(session, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+    except TimeoutError as e:
+        with suppress(Exception):
+            await session_cm.__aexit__(*sys.exc_info())
+        logger.error(
+            "DB session acquire timed out after %.1fs",
+            settings.DB_ACQUIRE_TIMEOUT_S,
+            extra={"event": "db_acquire_timeout", "error_code": "DB_ACQUIRE_TIMEOUT"},
+        )
+        raise _db_unavailable(e, error_code="DB_ACQUIRE_TIMEOUT") from e
+    except SATimeoutError as e:
+        with suppress(Exception):
+            await session_cm.__aexit__(*sys.exc_info())
+        logger.error(
+            "DB pool checkout timed out: %s",
+            e,
+            extra={"event": "db_pool_timeout", "error_code": "DB_POOL_TIMEOUT"},
+        )
+        raise _db_unavailable(e, error_code="DB_POOL_TIMEOUT") from e
+    except BaseException:
+        with suppress(Exception):
+            await session_cm.__aexit__(*sys.exc_info())
+        raise
+
+    assert session is not None
+    try:
+        yield session
+    except HTTPException:
+        # Propagate HTTP errors without logging as DB errors
+        await session.rollback()
+        raise
+    except RequestValidationError:
+        # FastAPI request validation failures are user input errors, not
+        # database session failures. Roll back any implicit transaction
+        # and let the validation handler produce the 422 response.
+        await session.rollback()
+        raise
+    except Exception as e:
+        logger.error("Database session error: %s", e)
+        sentry_sdk.set_context("database", {
+            "error_type": type(e).__name__,
+            "error_message": str(e),
+        })
+        await session.rollback()
+        raise
+    else:
+        # Commit only if the session actually has pending changes.
+        # Read-only requests (GETs, detail views) should not force a
+        # write transaction against the database / PgBouncer. Services
+        # that explicitly call ``await session.commit()`` are unaffected
+        # because by the time we reach this branch those changes have
+        # already been committed and the session is clean.
+        if session.new or session.dirty or session.deleted:
+            await session.commit()
+    finally:
+        hold_time = time.monotonic() - session_start
+        if hold_time > _SESSION_HOLD_WARN_S:
+            # Includes pooler checkout wait under NullPool/serverless, so
+            # this is "session lifetime" not necessarily a code-level leak.
+            logger.warning(
+                "DB session lifetime %.1fs (includes pooler checkout wait) — "
+                "investigate slow queries or pool saturation",
+                hold_time,
+                stack_info=True,
+            )
+        await session_cm.__aexit__(None, None, None)
 
 
 async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:

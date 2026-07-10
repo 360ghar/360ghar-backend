@@ -153,3 +153,33 @@ def test_get_db_signature_is_unchanged_async_generator():
 
     assert inspect.isasyncgenfunction(db_module.get_db)
     assert inspect.isasyncgenfunction(db_module.get_bg_db)
+
+
+@pytest.mark.asyncio
+async def test_get_db_raises_503_when_acquire_times_out():
+    """Hung pooler checkout must fail fast with ServiceUnavailableException."""
+    import asyncio
+
+    from app.core import database as db_module
+    from app.core.exceptions import ServiceUnavailableException
+
+    hang = asyncio.Event()
+
+    class _HangingSessionCM:
+        async def __aenter__(self):
+            await hang.wait()  # cancelled by asyncio.timeout in get_db
+            raise AssertionError("should not complete")
+
+        async def __aexit__(self, *args):
+            return None
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(db_module, "AsyncSessionLocal", lambda: _HangingSessionCM())
+        mp.setattr(db_module.settings, "DB_ACQUIRE_TIMEOUT_S", 0.05)
+
+        gen = db_module.get_db()
+        with pytest.raises(ServiceUnavailableException) as exc_info:
+            await gen.__anext__()
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.details.get("error_code") == "DB_ACQUIRE_TIMEOUT"

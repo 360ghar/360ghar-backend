@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import socket
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from fastapi import FastAPI
 
@@ -22,14 +24,17 @@ logger = get_logger(__name__)
 
 LifespanFactory = Callable[[FastAPI], Any]
 
-# Readiness probe budget: short per-attempt caps so Supavisor's 60s
-# ECHECKOUTTIMEOUT cannot burn Railway's healthcheck window. Total wait is
-# well under the default 5m healthcheck while still surviving brief pooler
-# blips during cold start / rolling deploy.
-_DB_READINESS_MAX_ATTEMPTS = 12
-_DB_READINESS_ATTEMPT_TIMEOUT_S = 8.0
-_DB_READINESS_CONNECT_TIMEOUT_S = 5
-_DB_READINESS_MAX_SLEEP_S = 8.0
+# Readiness probe budget: hard wall-clock + short per-attempt caps so
+# Supavisor's 60s ECHECKOUTTIMEOUT cannot burn Railway's healthcheck window.
+# asyncio.wait_for alone does not abort a hung Supavisor queue wait; the
+# probe uses sync libpq connect_timeout in a worker thread, and the loop
+# exits as soon as the total budget is spent so lifespan can yield and
+# /health becomes reachable (possibly degraded).
+_DB_READINESS_MAX_ATTEMPTS = 3
+_DB_READINESS_ATTEMPT_TIMEOUT_S = 5.0
+_DB_READINESS_CONNECT_TIMEOUT_S = 4
+_DB_READINESS_TOTAL_BUDGET_S = 25.0
+_DB_READINESS_MAX_SLEEP_S = 2.0
 
 
 def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> LifespanFactory:
@@ -282,48 +287,78 @@ def _is_transient_readiness_failure(exc: BaseException) -> bool:
     return False
 
 
-async def _raw_database_probe() -> None:
-    """Open a short-lived psycopg connection and run ``SELECT 1``.
+def _readiness_conninfo() -> str:
+    """Build a libpq conninfo with a forced short ``connect_timeout``.
 
-    Uses raw psycopg (not SQLAlchemy ``engine.connect()``) so ``asyncio.wait_for``
-    can actually cancel a hung Supavisor handshake. SQLAlchemy's greenlet path
-    was observed waiting the full Supavisor 60s ECHECKOUTTIMEOUT despite an
-    outer ``asyncio.timeout(5)``, which burned Railway's healthcheck window.
+    Embedding the timeout in the URL (not only as a kwarg) ensures libpq
+    always sees it even when callers pass other connection options.
+    """
+    url = settings.ASYNC_DATABASE_URL.replace(
+        "postgresql+psycopg://", "postgresql://", 1
+    )
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["connect_timeout"] = str(_DB_READINESS_CONNECT_TIMEOUT_S)
+    return urlunparse(parsed._replace(query=urlencode(query)))
+
+
+def _sync_select_1(conninfo: str) -> None:
+    """Blocking ``SELECT 1`` using sync psycopg + libpq ``connect_timeout``.
+
+    Sync connect is preferred for readiness: libpq's connect_timeout aborts
+    hung pooler waits more reliably than relying solely on asyncio
+    cancellation of ``AsyncConnection.connect``.
     """
     import psycopg
 
-    conninfo = settings.ASYNC_DATABASE_URL.replace(
-        "postgresql+psycopg://", "postgresql://", 1
-    )
-    async with await psycopg.AsyncConnection.connect(
+    with psycopg.connect(
         conninfo,
         connect_timeout=_DB_READINESS_CONNECT_TIMEOUT_S,
         prepare_threshold=None,
         application_name="360ghar_readiness",
     ) as conn:
-        await conn.execute("SELECT 1")
+        conn.execute("SELECT 1")
+
+
+async def _raw_database_probe() -> None:
+    """Open a short-lived connection and run ``SELECT 1`` off the event loop."""
+    await asyncio.to_thread(_sync_select_1, _readiness_conninfo())
 
 
 async def _verify_database_ready() -> None:
     """Probe the database before accepting requests.
 
-    Retries with a short per-attempt timeout so transient Supavisor pressure
-    does not monopolize startup. Non-transient failures (auth, bad host) fail
-    immediately without burning the retry budget. Raises after the budget is
-    exhausted; the required-startup wrapper degrades on transient failures
-    instead of aborting production (which would make ``/health`` unreachable).
+    Retries under a hard wall-clock budget so transient Supavisor pressure
+    cannot monopolize startup. Non-transient failures (auth, bad host) fail
+    immediately. Raises after the budget is exhausted; the required-startup
+    wrapper degrades on transient failures instead of aborting production
+    (which would make ``/health`` unreachable).
     """
     last_exc: Exception | None = None
+    started = time.monotonic()
+    deadline = started + _DB_READINESS_TOTAL_BUDGET_S
+
     for attempt in range(1, _DB_READINESS_MAX_ATTEMPTS + 1):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+
+        attempt_started = time.monotonic()
         try:
             await asyncio.wait_for(
                 _raw_database_probe(),
-                timeout=_DB_READINESS_ATTEMPT_TIMEOUT_S,
+                timeout=min(_DB_READINESS_ATTEMPT_TIMEOUT_S, remaining),
             )
-            logger.info("Database readiness check passed (attempt %d)", attempt)
+            elapsed_ms = int((time.monotonic() - attempt_started) * 1000)
+            logger.info(
+                "Database readiness check passed (attempt %d, elapsed_ms=%d)",
+                attempt,
+                elapsed_ms,
+            )
             return
         except Exception as exc:
             last_exc = exc
+            elapsed_ms = int((time.monotonic() - attempt_started) * 1000)
             error_code = extract_db_error_code(exc) or type(exc).__name__
             transient = _is_transient_readiness_failure(exc)
 
@@ -331,39 +366,59 @@ async def _verify_database_ready() -> None:
             if not transient:
                 logger.error(
                     "Database readiness check failed with non-transient error "
-                    "(attempt %d, code=%s): %s",
+                    "(attempt %d, code=%s, elapsed_ms=%d): %s",
                     attempt,
                     error_code,
+                    elapsed_ms,
                     exc,
                 )
                 raise RuntimeError(
                     f"Database readiness check failed: {exc}"
                 ) from exc
 
-            if attempt < _DB_READINESS_MAX_ATTEMPTS:
-                sleep_s = min(1.0 * attempt, _DB_READINESS_MAX_SLEEP_S)
+            remaining_after = deadline - time.monotonic()
+            if attempt < _DB_READINESS_MAX_ATTEMPTS and remaining_after > 0:
+                sleep_s = min(
+                    0.5 * attempt,
+                    _DB_READINESS_MAX_SLEEP_S,
+                    remaining_after,
+                )
                 logger.warning(
-                    "Database readiness check failed (attempt %d/%d, code=%s): %s",
+                    "Database readiness check failed "
+                    "(attempt %d/%d, code=%s, elapsed_ms=%d): %s",
                     attempt,
                     _DB_READINESS_MAX_ATTEMPTS,
                     error_code,
+                    elapsed_ms,
                     exc,
                 )
-                await asyncio.sleep(sleep_s)
+                if sleep_s > 0:
+                    await asyncio.sleep(sleep_s)
             else:
+                total_ms = int((time.monotonic() - started) * 1000)
                 logger.error(
-                    "Database readiness check failed after %d attempts (code=%s): %s. "
+                    "Database readiness check failed after %d attempt(s) "
+                    "(code=%s, total_elapsed_ms=%d): %s. "
                     "Startup cannot be marked fully ready.",
-                    _DB_READINESS_MAX_ATTEMPTS,
+                    attempt,
                     error_code,
+                    total_ms,
                     exc,
                 )
                 raise RuntimeError(
                     f"Database readiness check failed: {exc}"
                 ) from exc
 
-    # Unreachable, but keeps type-checkers happy if the loop is empty.
-    raise RuntimeError("Database readiness check failed") from last_exc
+    total_ms = int((time.monotonic() - started) * 1000)
+    logger.error(
+        "Database readiness check exhausted budget after %dms (last code=%s): %s",
+        total_ms,
+        extract_db_error_code(last_exc) if last_exc else "none",
+        last_exc,
+    )
+    raise RuntimeError(
+        f"Database readiness check failed: {last_exc}"
+    ) from last_exc
 
 
 async def _prewarm_supabase_dns() -> None:

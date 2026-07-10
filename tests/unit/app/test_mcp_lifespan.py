@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -399,6 +400,7 @@ async def test_verify_database_ready_retries_then_raises(
 
     monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_ATTEMPTS", 3)
     monkeypatch.setattr(lifespan_module, "_DB_READINESS_ATTEMPT_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_TOTAL_BUDGET_S", 5.0)
     monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_SLEEP_S", 0.0)
     monkeypatch.setattr(lifespan_module, "_raw_database_probe", always_fail)
 
@@ -426,6 +428,74 @@ async def test_verify_database_ready_fails_fast_on_non_transient(
         await lifespan_module._verify_database_ready()
 
     assert attempts["n"] == 1
+
+
+@pytest.mark.asyncio
+async def test_verify_database_ready_respects_total_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung probe must not wait beyond the wall-clock readiness budget."""
+    import time
+
+    attempts = {"n": 0}
+
+    async def hang_forever() -> None:
+        attempts["n"] += 1
+        await asyncio.sleep(120)
+
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_ATTEMPTS", 12)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_ATTEMPT_TIMEOUT_S", 0.15)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_TOTAL_BUDGET_S", 0.4)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_SLEEP_S", 0.0)
+    monkeypatch.setattr(lifespan_module, "_raw_database_probe", hang_forever)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="Database readiness check failed"):
+        await lifespan_module._verify_database_ready()
+    elapsed = time.monotonic() - started
+
+    # Budget 0.4s + one attempt timeout slack; must not approach Supavisor's 60s.
+    assert elapsed < 1.5
+    assert attempts["n"] >= 1
+    assert attempts["n"] <= 4
+
+
+@pytest.mark.asyncio
+async def test_verify_database_ready_times_out_hung_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Per-attempt wait_for must surface as a transient readiness failure."""
+    import time
+
+    async def hang_once() -> None:
+        await asyncio.sleep(120)
+
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_ATTEMPTS", 1)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_ATTEMPT_TIMEOUT_S", 0.1)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_TOTAL_BUDGET_S", 1.0)
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_MAX_SLEEP_S", 0.0)
+    monkeypatch.setattr(lifespan_module, "_raw_database_probe", hang_once)
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError, match="Database readiness check failed"):
+        await lifespan_module._verify_database_ready()
+    assert time.monotonic() - started < 1.0
+
+
+def test_readiness_conninfo_forces_connect_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        lifespan_module.settings,
+        "DATABASE_URL",
+        "postgresql://u:p@db.pooler.supabase.com:6543/postgres?sslmode=require",
+    )
+    monkeypatch.setattr(lifespan_module, "_DB_READINESS_CONNECT_TIMEOUT_S", 4)
+    conninfo = lifespan_module._readiness_conninfo()
+    assert conninfo.startswith("postgresql://")
+    assert "connect_timeout=4" in conninfo
+    assert "sslmode=require" in conninfo
+    assert "+psycopg" not in conninfo
 
 
 @pytest.mark.asyncio

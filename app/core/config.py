@@ -167,11 +167,19 @@ class Settings(BaseSettings):
     # Main pool (HTTP/MCP request traffic)
     DB_POOL_SIZE: int = 4
     DB_MAX_OVERFLOW: int = 0
-    DB_POOL_TIMEOUT: int = 15
+    # Seconds to wait for a free pooled connection before failing the request.
+    # Keep this short so pooler pressure returns 503 instead of open hangs.
+    DB_POOL_TIMEOUT: int = 10
     DB_POOL_RECYCLE: int = 180
     # Background pool (schedulers, scrapers, long-running tasks)
     DB_BG_POOL_SIZE: int = 1
     DB_BG_MAX_OVERFLOW: int = 0
+    # Hard bound (seconds) for opening a request session + applying the
+    # statement timeout. Covers NullPool connect + Supavisor checkout wait.
+    # Must stay below typical mobile receive timeouts so clients get a 503.
+    DB_ACQUIRE_TIMEOUT_S: float = 10.0
+    # TCP/handshake timeout (seconds) passed to psycopg connect_args.
+    DB_CONNECT_TIMEOUT_S: int = 5
     # Per-request statement timeout (ms) for interactive read endpoints such as
     # property search. Bounds a stalled query so it fails fast and frees its
     # pooler connection instead of holding it until the 2-minute server default.

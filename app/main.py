@@ -125,24 +125,38 @@ async def readiness_check(response: Response):
 
 
 async def _probe_database_ready() -> tuple[bool, str]:
-    """Probe database connectivity for readiness checks."""
+    """Probe database connectivity for readiness checks.
+
+    Hard-bounded so load balancers / clients never hang with 0 response bytes
+    when the pooler is wedged. Prefer a fast ``unready`` over open waits.
+    """
+    # Outer bound for the entire probe (includes one optional transient retry).
+    _READY_PROBE_BUDGET_S = 8.0
     try:
         from app.core.database import engine
 
-        for _attempt in range(2):
-            try:
-                async with asyncio.timeout(5):
+        async with asyncio.timeout(_READY_PROBE_BUDGET_S):
+            for _attempt in range(2):
+                try:
                     async with engine.connect() as conn:
                         await conn.execute(text("SELECT 1"))
-                return True, "connected"
-            except Exception as db_e:
-                if _attempt == 0 and is_transient_db_error(db_e):
-                    logger.warning(
-                        "Transient DB error on readiness check; retrying: %s", db_e
-                    )
-                    continue
-                logger.error("Database readiness check failed: %s", db_e)
-                return False, "disconnected"
+                    return True, "connected"
+                except Exception as db_e:
+                    if _attempt == 0 and is_transient_db_error(db_e):
+                        logger.warning(
+                            "Transient DB error on readiness check; retrying: %s",
+                            db_e,
+                        )
+                        continue
+                    logger.error("Database readiness check failed: %s", db_e)
+                    return False, "disconnected"
+    except TimeoutError:
+        logger.error(
+            "Database readiness check timed out after %.1fs",
+            _READY_PROBE_BUDGET_S,
+            extra={"event": "ready_probe_timeout"},
+        )
+        return False, "timeout"
     except Exception as e:
         logger.error("Readiness DB probe failed unexpectedly: %s", e)
     return False, "disconnected"
