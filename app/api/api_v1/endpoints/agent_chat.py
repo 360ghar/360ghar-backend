@@ -64,28 +64,31 @@ async def agent_chat_public(
     """
     service = get_agent_service()
 
-    # Release the main-pool session — streaming may take minutes
+    # Release the main-pool session — streaming may take minutes and must
+    # not pin a Supavisor backend while waiting on the LLM.
     await db.close()
 
     async def event_stream():
         from app.core.database import AsyncSessionLocalBG
 
-        async with AsyncSessionLocalBG() as stream_db:
-            try:
-                async for event in service.stream_response(
-                    user_message=body.message,
-                    conversation_id=None,
-                    conversation_history=[],
-                    user=None,
-                    db=stream_db,
-                    user_role="guest",
-                ):
-                    yield event
-            except Exception as exc:
-                logger.error("Public SSE stream error: %s", exc, exc_info=True)
-                yield (
-                    f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
-                )
+        try:
+            # Tools open short-lived sessions via session_factory; do not hold
+            # one connection for the entire multi-minute SSE stream.
+            async for event in service.stream_response(
+                user_message=body.message,
+                conversation_id=None,
+                conversation_history=[],
+                user=None,
+                db=None,
+                user_role="guest",
+                session_factory=AsyncSessionLocalBG,
+            ):
+                yield event
+        except Exception as exc:
+            logger.error("Public SSE stream error: %s", exc, exc_info=True)
+            yield (
+                f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+            )
 
     return StreamingResponse(
         event_stream(),
@@ -139,50 +142,51 @@ async def agent_chat(
     # Snapshot IDs needed after the session is released
     conversation_id = conversation.id
 
-    # Release the main-pool session — streaming may take minutes
+    # Release the main-pool session — streaming may take minutes.
     await db.close()
 
     async def event_stream():
         full_response = ""
         widget_events: list[dict] = []
-        # Open a background-pool session for tool calls during streaming
-        from app.core.database import AsyncSessionLocalBG
-        async with AsyncSessionLocalBG() as stream_db:
-            try:
-                async for event in service.stream_response(
-                    user_message=body.message,
-                    conversation_id=conversation_id,
-                    conversation_history=history[:-1],  # exclude the message we just stored
-                    user=current_user,
-                    db=stream_db,
-                ):
-                    # Extract response text from done event to persist
-                    if '"response_text"' in event:
-                        try:
-                            line = event.split("data: ", 1)[1].split("\n")[0]
-                            data = _json.loads(line)
-                            full_response = data.get("response_text", "")
-                        except Exception:
-                            pass
-                    # Capture widget events for persistence
-                    elif '"widget_name"' in event:
-                        try:
-                            line = event.split("data: ", 1)[1].split("\n")[0]
-                            data = _json.loads(line)
-                            if "widget_name" in data:
-                                widget_events.append(data)
-                        except Exception:
-                            pass
-                    yield event
-            except Exception as exc:
-                logger.error("SSE stream error: %s", exc, exc_info=True)
-                yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+        from app.core.database import AsyncSessionLocal, AsyncSessionLocalBG
+
+        try:
+            # Short sessions per tool call only — never hold a connection
+            # across LLM token generation.
+            async for event in service.stream_response(
+                user_message=body.message,
+                conversation_id=conversation_id,
+                conversation_history=history[:-1],  # exclude the message we just stored
+                user=current_user,
+                db=None,
+                session_factory=AsyncSessionLocalBG,
+            ):
+                # Extract response text from done event to persist
+                if '"response_text"' in event:
+                    try:
+                        line = event.split("data: ", 1)[1].split("\n")[0]
+                        data = _json.loads(line)
+                        full_response = data.get("response_text", "")
+                    except Exception:
+                        pass
+                # Capture widget events for persistence
+                elif '"widget_name"' in event:
+                    try:
+                        line = event.split("data: ", 1)[1].split("\n")[0]
+                        data = _json.loads(line)
+                        if "widget_name" in data:
+                            widget_events.append(data)
+                    except Exception:
+                        pass
+                yield event
+        except Exception as exc:
+            logger.error("SSE stream error: %s", exc, exc_info=True)
+            yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
 
         # After streaming completes, open a fresh session to persist results.
         # Use AsyncSessionLocal directly instead of the get_db() generator,
         # which is a FastAPI dependency not designed for manual consumption
         # outside of request scope (causes _ConnectionRecord.pool errors).
-        from app.core.database import AsyncSessionLocal
         async with AsyncSessionLocal() as fresh_db:
             try:
                 # Persist widget events

@@ -46,7 +46,8 @@ from app.config import settings
 from app.core.logging import get_logger
 from app.mcp.chatgpt import get_widget_name_for_tool
 from app.services.ai_agent.system_prompt import get_system_prompt
-from app.services.ai_agent.tools import AgentDeps, get_tools_for_role
+from app.services.ai_agent.deps import AgentDeps, run_with_short_db_session
+from app.services.ai_agent.tools import get_tools_for_role
 
 logger = get_logger(__name__)
 
@@ -79,11 +80,23 @@ def _jsonable(value: Any) -> Any:
 
 def _jsonable_tool(func: Any) -> Any:
     """Wrap a tool so its return value is JSON-safe, preserving its signature
-    so Pydantic AI's schema introspection is unaffected."""
+    so Pydantic AI's schema introspection is unaffected.
+
+    When ``AgentDeps.session_factory`` is set, each tool call opens a short
+    session so the SSE stream does not hold a Supavisor slot for the whole
+    LLM turn — only while the tool runs SQL.
+    """
 
     if inspect.iscoroutinefunction(func):
         @functools.wraps(func)
         async def _async_wrapped(*args: Any, **kwargs: Any) -> Any:
+            ctx = args[0] if args else None
+            deps = getattr(ctx, "deps", None) if ctx is not None else None
+            if isinstance(deps, AgentDeps):
+                async def _run() -> Any:
+                    return _jsonable(await func(*args, **kwargs))
+
+                return await run_with_short_db_session(deps, _run)
             return _jsonable(await func(*args, **kwargs))
 
         return _async_wrapped
@@ -345,8 +358,9 @@ class PydanticAIAgentService:
         conversation_id: int | None,
         conversation_history: list[dict[str, Any]],
         user: Any,
-        db: AsyncSession,
+        db: AsyncSession | None = None,
         user_role: str | None = None,
+        session_factory: Any | None = None,
     ) -> AsyncIterator[str]:
         """
         Run the agent and yield SSE events.
@@ -360,6 +374,9 @@ class PydanticAIAgentService:
         Pass user_role="guest" with user=None for unauthenticated requests.
         conversation_id=None is allowed for stateless (guest) sessions.
 
+        Prefer ``session_factory`` over a long-lived ``db`` so tools open
+        short sessions and do not pin Supavisor backends during LLM waits.
+
         Events emitted:
             conversation_info  — once, at the start (only when conversation_id is not None)
             text_chunk         — partial text from the model
@@ -370,7 +387,16 @@ class PydanticAIAgentService:
             error              — all providers failed
         """
         role = str(user_role or getattr(user, "role", "user"))
-        deps = AgentDeps(user=user, db=db, user_role=role)
+        if session_factory is None and db is None:
+            from app.core.database import AsyncSessionLocalBG
+
+            session_factory = AsyncSessionLocalBG
+        deps = AgentDeps(
+            user=user,
+            db=db,
+            user_role=role,
+            session_factory=session_factory,
+        )
         message_history = _build_message_history(conversation_history)
 
         # Build the fallback chain of (label, agent) pairs from the provider map

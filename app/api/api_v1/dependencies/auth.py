@@ -8,7 +8,6 @@ from app.config import settings
 from app.core.auth import AuthFailureReason, _is_failure, verify_supabase_token
 from app.core.database import get_bg_session_factory, get_db
 from app.core.db_resilience import (
-    apply_statement_timeout,
     extract_db_error_code,
     is_statement_timeout,
     is_transient_db_error,
@@ -68,11 +67,9 @@ async def _rollback_optional_auth(db: AsyncSession) -> None:
         await db.rollback()
     except Exception as rollback_exc:  # noqa: BLE001
         logger.warning("Optional auth rollback failed: %s", rollback_exc)
-    # rollback ends SET LOCAL statement_timeout — re-apply for the rest of the request.
-    try:
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-    except Exception as timeout_exc:  # noqa: BLE001
-        logger.warning("Optional auth re-apply statement_timeout failed: %s", timeout_exc)
+    # Do not re-open a transaction with SET LOCAL here — connection-level
+    # statement_timeout (libpq options) still applies, and starting a new
+    # idle transaction would pin a Supavisor backend until the request ends.
 
 
 def _parse_bearer_token(authorization: str | None) -> str:
@@ -172,10 +169,9 @@ async def get_current_user(
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         # Auth sync uses a transaction-scoped advisory lock. It is independent
         # from endpoint business writes, so release it before endpoint logic runs.
+        # Commit ends the txn so Supavisor can free the backend until the next
+        # query; connection-level statement_timeout still applies.
         await db.commit()
-        # commit ends SET LOCAL statement_timeout from get_db — re-apply so the
-        # rest of the request stays bounded.
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
         request.state.user_id = getattr(db_user, "id", None)
         # Store raw Supabase user data so endpoints that need identity
         # metadata (e.g. GET /users/me/identities) can access it without
@@ -301,7 +297,6 @@ async def get_current_cached_active_user(
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         await db.commit()
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
         snapshot = snapshot_from_user(db_user)
         await cache_auth_user(snapshot)
 
@@ -507,7 +502,6 @@ async def get_current_user_optional(
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
         await db.commit()
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
         request.state.user_id = getattr(db_user, "id", None)
         sentry_sdk.set_user({
             "id": str(getattr(db_user, "id", None)),

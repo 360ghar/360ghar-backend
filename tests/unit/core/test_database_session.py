@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _fake_session(*, pending: bool = False) -> MagicMock:
-    """Session mock with async execute for global statement-timeout setup."""
+    """Session mock for get_db / get_bg_db dependency tests."""
     fake_session = MagicMock(spec=AsyncSession)
     fake_session.new = {object()} if pending else set()
     fake_session.dirty = set()
@@ -56,7 +56,37 @@ async def test_get_db_does_not_commit_when_session_is_clean():
             await gen.__anext__()
 
     fake_session.commit.assert_not_awaited()
-    fake_session.execute.assert_awaited()  # statement_timeout setup
+    # Statement timeout is applied at connection open (libpq options), not via
+    # SET LOCAL on every acquire — so no execute is required here.
+    fake_session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_db_does_not_open_transaction_on_acquire():
+    """Acquiring a session must not run SET LOCAL (which pins Supavisor backends)."""
+    from app.core import database as db_module
+
+    fake_session = _fake_session()
+    factory = _session_factory(fake_session)
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(db_module, "AsyncSessionLocal", factory)
+        gen = db_module.get_db()
+        await gen.__anext__()
+        with pytest.raises(StopAsyncIteration):
+            await gen.__anext__()
+
+    fake_session.execute.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_psycopg_connect_args_include_statement_timeout():
+    from app.core import database as db_module
+
+    args = db_module._psycopg_connect_args(application_name="test_app")
+    assert args["application_name"] == "test_app"
+    assert args["prepare_threshold"] is None
+    assert "statement_timeout=" in args.get("options", "")
 
 
 @pytest.mark.asyncio

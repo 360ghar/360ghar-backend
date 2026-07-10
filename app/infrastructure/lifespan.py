@@ -72,20 +72,36 @@ def create_lifespan(testing: bool, user_mcp_app: Any, admin_mcp_app: Any) -> Lif
                     },
                 )
 
-                yield
-
-                # ---- Graceful shutdown ----
-                if not testing:
-                    shutdown_scheduler()
-                    await _shutdown_ai_providers()
-                    await _shutdown_shared_http_clients()
-                    await close_all_http_clients()
-                    _shutdown_notification_executor()
-                    await _shutdown_cache()
-                mark_engines_disposing()
-                await engine.dispose()
-                await bg_engine.dispose()
-                logger.info("API shutdown", extra={"event": "shutdown"})
+                try:
+                    yield
+                finally:
+                    # Always free Supavisor client connections even if other
+                    # teardown steps fail or hang until graceful-shutdown timeout.
+                    try:
+                        if not testing:
+                            shutdown_scheduler()
+                            await _shutdown_ai_providers()
+                            await _shutdown_shared_http_clients()
+                            await close_all_http_clients()
+                            _shutdown_notification_executor()
+                            await _shutdown_cache()
+                    except Exception as shutdown_exc:
+                        logger.warning(
+                            "Non-DB shutdown step failed: %s",
+                            shutdown_exc,
+                            extra={"event": "shutdown_partial_failure"},
+                        )
+                    mark_engines_disposing()
+                    try:
+                        await engine.dispose()
+                        await bg_engine.dispose()
+                    except Exception as dispose_exc:
+                        logger.error(
+                            "Engine dispose failed: %s",
+                            dispose_exc,
+                            extra={"event": "engine_dispose_failed"},
+                        )
+                    logger.info("API shutdown", extra={"event": "shutdown"})
 
     return lifespan
 

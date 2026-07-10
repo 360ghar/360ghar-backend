@@ -17,7 +17,6 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.core.db_resilience import apply_statement_timeout
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 
@@ -27,6 +26,25 @@ _SUPABASE_POOLER_HOST_SUFFIX = ".pooler.supabase.com"
 _SUPABASE_SESSION_POOLER_PORT = 5432
 _SUPABASE_TRANSACTION_POOLER_PORT = 6543
 _SESSION_POOLER_SAFE_CLIENT_BUDGET = 12
+
+
+def _psycopg_connect_args(*, application_name: str) -> dict:
+    """Build psycopg connect_args for PgBouncer/Supavisor safety.
+
+    ``statement_timeout`` is set at connection open (libpq ``options``) so
+    request sessions do not need ``SET LOCAL`` on every acquire — that would
+    open a transaction and pin a transaction-mode backend for the whole
+    request lifetime even when no SQL is running.
+    """
+    args: dict = {
+        "application_name": application_name,
+        "prepare_threshold": None,  # Disable prepared statements for PgBouncer
+        "connect_timeout": settings.DB_CONNECT_TIMEOUT_S,
+    }
+    timeout_ms = settings.DB_READ_STATEMENT_TIMEOUT_MS
+    if timeout_ms > 0:
+        args["options"] = f"-c statement_timeout={int(timeout_ms)}"
+    return args
 
 # Base class for all models
 class Base(DeclarativeBase):
@@ -130,20 +148,9 @@ _validate_database_pooler_config(
 # Log database connection info
 logger.info("Connecting to database with psycopg for PgBouncer compatibility")
 
-# Shared connection args for PgBouncer compatibility.
-# connect_timeout (seconds) fails hung TCP/pooler handshakes before the
-# Supavisor default 60s ECHECKOUTTIMEOUT where the OS would otherwise wait.
-_connect_args = {
-    "application_name": "360ghar_backend",
-    "prepare_threshold": None,  # Disable prepared statements for PgBouncer
-    "connect_timeout": settings.DB_CONNECT_TIMEOUT_S,
-}
-
-_bg_connect_args = {
-    "application_name": "360ghar_bg",
-    "prepare_threshold": None,
-    "connect_timeout": settings.DB_CONNECT_TIMEOUT_S,
-}
+# Shared connection args for PgBouncer/Supavisor compatibility.
+_connect_args = _psycopg_connect_args(application_name="360ghar_backend")
+_bg_connect_args = _psycopg_connect_args(application_name="360ghar_bg")
 
 # ── Serverless: NullPool prevents persistent connections that generate ────────
 # outbound packets, which would keep Railway from scaling to zero.
@@ -283,25 +290,22 @@ def _db_unavailable(exc: BaseException, *, error_code: str) -> ServiceUnavailabl
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """Yield a request-scoped session, failing fast if checkout hangs.
 
-    Acquisition (pool checkout / NullPool connect + statement-timeout setup)
-    is hard-bounded by ``DB_ACQUIRE_TIMEOUT_S``. The timeout deliberately does
-    **not** cover the request body — only opening the session — so normal
-    request work is not truncated.
+    Acquisition (pool checkout / NullPool connect) is hard-bounded by
+    ``DB_ACQUIRE_TIMEOUT_S``. The timeout deliberately does **not** cover the
+    request body — only opening the session — so normal request work is not
+    truncated.
+
+    Statement timeout is applied at connection open (libpq options), not via
+    ``SET LOCAL`` here, so idle request sessions do not pin a Supavisor
+    transaction-mode backend before the first real query.
     """
     session_start = time.monotonic()
     session_cm = AsyncSessionLocal()
     session: AsyncSession | None = None
     try:
-        # Bound only acquire + first statement; do not wrap the yielded body.
+        # Bound only acquire; do not wrap the yielded body.
         async with asyncio.timeout(settings.DB_ACQUIRE_TIMEOUT_S):
             session = await session_cm.__aenter__()
-            # Bound every request transaction so a stalled query (or a path that
-            # forgot its own apply_statement_timeout) fails fast and frees the
-            # Supavisor slot instead of holding until the 2-minute server default.
-            # Per-service calls may override with a later SET LOCAL.
-            # Note: SET LOCAL ends on commit — auth deps re-apply after their
-            # mid-request commit (see app/api/api_v1/dependencies/auth.py).
-            await apply_statement_timeout(session, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     except TimeoutError as e:
         with suppress(Exception):
             await session_cm.__aexit__(*sys.exc_info())

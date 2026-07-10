@@ -174,17 +174,24 @@ class Settings(BaseSettings):
     # Background pool (schedulers, scrapers, long-running tasks)
     DB_BG_POOL_SIZE: int = 1
     DB_BG_MAX_OVERFLOW: int = 0
-    # Hard bound (seconds) for opening a request session + applying the
-    # statement timeout. Covers NullPool connect + Supavisor checkout wait.
-    # Must stay below typical mobile receive timeouts so clients get a 503.
+    # Hard bound (seconds) for opening a request session. Covers NullPool
+    # connect + Supavisor checkout wait. Must stay below typical mobile
+    # receive timeouts so clients get a 503 instead of hanging.
     DB_ACQUIRE_TIMEOUT_S: float = 10.0
     # TCP/handshake timeout (seconds) passed to psycopg connect_args.
     DB_CONNECT_TIMEOUT_S: int = 5
-    # Per-request statement timeout (ms) for interactive read endpoints such as
-    # property search. Bounds a stalled query so it fails fast and frees its
-    # pooler connection instead of holding it until the 2-minute server default.
-    # 0 disables the guardrail (falls back to the server/role default).
+    # Default statement timeout (ms) applied at connection open via libpq
+    # ``options=-c statement_timeout=…``. Avoids opening a transaction in
+    # ``get_db`` just to run ``SET LOCAL`` (which would pin a Supavisor
+    # transaction-mode backend for the entire request). 0 disables the
+    # connection-level guardrail (server/role default applies).
+    # Services may still call ``apply_statement_timeout`` for a tighter
+    # per-transaction override after they begin work.
     DB_READ_STATEMENT_TIMEOUT_MS: int = 8000
+    # Seconds uvicorn waits for in-flight requests after SIGTERM before
+    # forcing exit. Keeps engine.dispose() reachable on Railway redeploy
+    # instead of waiting forever on SSE/WebSocket clients.
+    UVICORN_GRACEFUL_SHUTDOWN_S: int = 20
 
     @property
     def ASYNC_DATABASE_URL(self) -> str:

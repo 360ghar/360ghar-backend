@@ -42,6 +42,14 @@ if __name__ == "__main__":
     debug = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
     log_level = "debug" if debug else "info"
 
+    # Bound graceful drain so Railway SIGTERM reaches lifespan dispose
+    # instead of waiting forever on SSE/WebSocket clients (default is None).
+    try:
+        graceful_shutdown_s = int(os.getenv("UVICORN_GRACEFUL_SHUTDOWN_S", "20"))
+    except (ValueError, TypeError):
+        graceful_shutdown_s = 20
+    graceful_shutdown_s = max(5, min(graceful_shutdown_s, 60))
+
     # Build uvicorn options with safe feature detection
     uvicorn_kwargs = {
         "host": "0.0.0.0",
@@ -53,6 +61,7 @@ if __name__ == "__main__":
         "workers": 1,
         # IMPORTANT: Don't let uvicorn override our logging config
         "log_config": None,
+        "timeout_graceful_shutdown": graceful_shutdown_s,
     }
 
     if reload:
