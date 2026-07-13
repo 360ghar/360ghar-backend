@@ -255,7 +255,7 @@ class Settings(BaseSettings):
     # ── AI Providers ─────────────────────────────────────────────────────────────
     # Gemini
     GOOGLE_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3.5-flash"
+    GEMINI_MODEL: str = "gemini-3.1-flash-lite"
     GEMINI_EMBED_MODEL: str = "gemini-embedding-2"
     # GLM (ZhipuAI) — used for Vastu and other AI features
     GLM_API_KEY: str | None = None
@@ -272,7 +272,7 @@ class Settings(BaseSettings):
     # fallback providers (GLM, Groq). The Gemini primary uses Pydantic AI's
     # native ``GoogleModel``/``GoogleProvider``, which ignores ``api_base``
     # and targets Google's own endpoint.
-    AI_AGENT_MODEL: str = "gemini-3.5-flash"
+    AI_AGENT_MODEL: str = "gemini-3.1-flash-lite"
     AI_AGENT_API_BASE: str = "https://generativelanguage.googleapis.com/v1beta/openai"
     AI_AGENT_FALLBACK_MODEL: str = "glm-4.7-flash"
     AI_AGENT_FALLBACK_API_BASE: str = "https://api.z.ai/api/coding/paas/v4"
