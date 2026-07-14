@@ -127,6 +127,7 @@ async def _ensure_no_visit_conflict(
     user_id: int,
     property_id: int,
     scheduled_date: datetime,
+    exclude_visit_id: int | None = None,
 ) -> None:
     """Raise ConflictException if the user already has an active visit overlapping
     the requested window **for the same property**.
@@ -157,11 +158,16 @@ async def _ensure_no_visit_conflict(
         Visit.scheduled_date >= window_start,
         Visit.scheduled_date <= window_end,
     )
+    if exclude_visit_id is not None:
+        stmt = stmt.where(Visit.id != exclude_visit_id)
     result = await db.execute(stmt)
     existing_visits = result.scalars().all()
 
     for existing in existing_visits:
         existing_start = existing.scheduled_date
+        # Normalize naive datetimes from DB (e.g. SQLite) to UTC for safe comparison
+        if existing_start.tzinfo is None:
+            existing_start = existing_start.replace(tzinfo=timezone.utc)
         existing_end = existing_start + duration
         # Two intervals [a, b) and [c, d) overlap iff a < d and c < b.
         # Apply the buffer to both sides so back-to-back visits still conflict.
@@ -398,6 +404,23 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
                 raise BadRequestException(
                     detail=f"Cannot transition from '{visit.status.value}' to '{new_label}'"
                 )
+
+    # --- Re-validate scheduling conflicts if scheduled_date changes ---
+    new_scheduled_date = update_data.get("scheduled_date")
+    if new_scheduled_date is not None:
+        if new_scheduled_date.tzinfo is None:
+            new_scheduled_date = new_scheduled_date.replace(tzinfo=timezone.utc)
+            update_data["scheduled_date"] = new_scheduled_date
+
+        now = datetime.now(timezone.utc)
+        if new_scheduled_date < now:
+            raise BadRequestException(detail="scheduled_date must be in the future")
+
+        if new_scheduled_date != visit.scheduled_date:
+            await _ensure_no_visit_conflict(
+                db, visit.user_id, visit.property_id, new_scheduled_date,
+                exclude_visit_id=visit.id,
+            )
 
     old_status = visit.status
     for field, value in update_data.items():

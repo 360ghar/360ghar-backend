@@ -16,7 +16,7 @@ from app.core.exceptions import (
 )
 from app.core.logging import get_logger
 from app.models.bookings import Booking
-from app.models.enums import BookingStatus, PaymentStatus
+from app.models.enums import BookingStatus, PaymentStatus, UserRole
 from app.models.properties import Property
 from app.models.users import User
 from app.schemas.booking import BookingCreate, BookingPayment, BookingReview, BookingUpdate
@@ -24,16 +24,32 @@ from app.schemas.pagination import keyset_filter, trim_keyset_lookahead
 
 logger = get_logger(__name__)
 
+
+def _apply_pricing_fields(pricing: dict, target: dict | Booking) -> None:
+    """Apply pricing fields to either a dictionary or a Booking object to avoid drift."""
+    fields = ["nights", "base_amount", "taxes_amount", "service_charges", "total_amount"]
+    if isinstance(target, dict):
+        for field in fields:
+            target[field] = pricing[field]
+        target["discount_amount"] = pricing.get("discount_amount", 0.0)
+    else:
+        for field in fields:
+            setattr(target, field, pricing[field])
+        target.discount_amount = pricing.get("discount_amount", 0.0)
+
 async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate):
     """Create a new booking"""
     booking_data = booking.model_dump()
     booking_data["user_id"] = user_id
     booking_data["booking_reference"] = f"BK{uuid.uuid4().hex[:8].upper()}"
 
-    # Calculate nights
+    # Calculate nights using calendar dates (not raw timedelta seconds) so that
+    # e.g. check-in at 14:00 and check-out at 11:00 next day correctly yields 1 night.
     check_in = booking_data["check_in_date"]
     check_out = booking_data["check_out_date"]
-    nights = (check_out - check_in).days
+    check_in_date_only = check_in.date() if hasattr(check_in, "date") else check_in
+    check_out_date_only = check_out.date() if hasattr(check_out, "date") else check_out
+    nights = (check_out_date_only - check_in_date_only).days
     if nights <= 0:
         logger.warning(
             "Invalid date range in booking creation",
@@ -67,12 +83,7 @@ async def create_booking(db: AsyncSession, user_id: int, booking: BookingCreate)
     if isinstance(pricing, dict) and pricing.get("error"):
         raise BadRequestException(detail=pricing["error"])
 
-    booking_data["nights"] = pricing["nights"]
-    booking_data["base_amount"] = pricing["base_amount"]
-    booking_data["taxes_amount"] = pricing["taxes_amount"]
-    booking_data["service_charges"] = pricing["service_charges"]
-    booking_data["discount_amount"] = pricing.get("discount_amount", 0.0)
-    booking_data["total_amount"] = pricing["total_amount"]
+    _apply_pricing_fields(pricing, booking_data)
 
     # Set initial statuses
     booking_data["booking_status"] = BookingStatus.pending
@@ -223,14 +234,82 @@ async def get_user_past_bookings(
     )
     return rows, next_payload, count_total
 
-async def update_booking(db: AsyncSession, booking_id: int, booking_update: BookingUpdate):
-    """Update a booking"""
+async def update_booking(
+    db: AsyncSession,
+    booking_id: int,
+    booking_update: BookingUpdate,
+    actor_role: UserRole | None = None,
+):
+    """Update a booking.
+
+    Security guards:
+    - Non-staff actors cannot modify ``internal_notes``.
+    - When dates or guests change, pricing and occupancy are re-validated and
+      the booking reverts to ``pending`` payment/booking status if the total
+      changes (prevents price manipulation via update).
+    """
     stmt = select(Booking).where(Booking.id == booking_id)
     result = await db.execute(stmt)
     booking = result.scalar_one_or_none()
 
     if booking:
         update_data = booking_update.model_dump(exclude_unset=True)
+
+        # Privilege escalation check: only admins or agents can modify internal_notes
+        is_staff = actor_role in (UserRole.admin, UserRole.agent) if actor_role else False
+        if not is_staff:
+            update_data.pop("internal_notes", None)
+
+        # Recalculate pricing and availability if dates or guests change
+        new_check_in = update_data.get("check_in_date", booking.check_in_date)
+        new_check_out = update_data.get("check_out_date", booking.check_out_date)
+        new_guests = update_data.get("guests", booking.guests)
+
+        if (
+            "check_in_date" in update_data
+            or "check_out_date" in update_data
+            or "guests" in update_data
+        ):
+            if new_check_in is not None and new_check_out is not None:
+                if new_check_in.tzinfo is None:
+                    new_check_in = new_check_in.replace(tzinfo=timezone.utc)
+                    update_data["check_in_date"] = new_check_in
+                if new_check_out.tzinfo is None:
+                    new_check_out = new_check_out.replace(tzinfo=timezone.utc)
+                    update_data["check_out_date"] = new_check_out
+
+                if new_check_out <= new_check_in:
+                    raise BadRequestException(detail="Invalid date range: check-out must be after check-in")
+
+                availability = await check_availability(
+                    db,
+                    booking.property_id,
+                    new_check_in.isoformat(),
+                    new_check_out.isoformat(),
+                    new_guests,
+                )
+                if not availability.get("available", False):
+                    reason = availability.get("reason", "Property not available for these dates")
+                    raise BookingConflictError(detail=reason)
+
+                pricing = await calculate_pricing(
+                    db,
+                    booking.property_id,
+                    new_check_in,
+                    new_check_out,
+                    new_guests,
+                )
+                if isinstance(pricing, dict) and pricing.get("error"):
+                    raise BadRequestException(detail=pricing["error"])
+
+                # If the price changes, revoke paid/confirmed status so the
+                # difference must be paid before the booking is confirmed again.
+                if round(float(pricing["total_amount"]), 2) != round(float(booking.total_amount), 2):
+                    booking.payment_status = PaymentStatus.pending
+                    booking.booking_status = BookingStatus.pending
+
+                _apply_pricing_fields(pricing, booking)
+
         for field, value in update_data.items():
             setattr(booking, field, value)
 
@@ -240,15 +319,39 @@ async def update_booking(db: AsyncSession, booking_id: int, booking_update: Book
     return booking
 
 async def cancel_booking(db: AsyncSession, booking_id: int, reason: str):
-    """Cancel a booking"""
+    """Cancel a booking.
+
+    Guards:
+    - Raises BadRequestException if the booking is already cancelled (idempotency).
+    - Automatically marks payment as refunded and records refund_amount when the
+      booking was already paid, so accounting is never left in an inconsistent state.
+    """
     stmt = select(Booking).where(Booking.id == booking_id)
     result = await db.execute(stmt)
     booking = result.scalar_one_or_none()
 
     if booking:
+        # Guard: prevent double-cancellation
+        if booking.booking_status == BookingStatus.cancelled:
+            raise BadRequestException(detail="Booking is already cancelled")
+
         booking.booking_status = BookingStatus.cancelled
         booking.cancellation_date = datetime.now(timezone.utc)
         booking.cancellation_reason = reason
+
+        # If the booking was paid, mark it as refunded so accounting stays consistent.
+        if booking.payment_status == PaymentStatus.paid:
+            booking.payment_status = PaymentStatus.refunded
+            booking.refund_amount = booking.total_amount
+            logger.info(
+                "Paid booking cancelled — refund recorded",
+                extra={
+                    "booking_id": booking_id,
+                    "user_id": booking.user_id,
+                    "refund_amount": float(booking.total_amount),
+                },
+            )
+
         await db.flush()
         logger.info(
             "Booking cancelled",
@@ -259,12 +362,28 @@ async def cancel_booking(db: AsyncSession, booking_id: int, reason: str):
     return False
 
 async def process_payment(db: AsyncSession, payment_data: BookingPayment):
-    """Process payment for a booking"""
+    """Process payment for a booking.
+
+    Validates that the supplied amount covers the booking total to prevent
+    underpayment attacks where a user sends a tiny amount to mark a booking as paid.
+    """
     stmt = select(Booking).where(Booking.id == payment_data.booking_id)
     result = await db.execute(stmt)
     booking = result.scalar_one_or_none()
 
     if booking:
+        # Prevent payment amount bypass
+        if round(float(payment_data.amount), 2) < round(float(booking.total_amount), 2):
+            logger.warning(
+                "Payment amount mismatch",
+                extra={
+                    "booking_id": booking.id,
+                    "expected": float(booking.total_amount),
+                    "received": float(payment_data.amount),
+                },
+            )
+            raise BadRequestException(detail="Payment amount is insufficient")
+
         booking.payment_status = PaymentStatus.paid
         booking.payment_method = payment_data.payment_method
         booking.transaction_id = payment_data.transaction_id
@@ -283,13 +402,24 @@ async def process_payment(db: AsyncSession, payment_data: BookingPayment):
 
     return False
 
-async def add_review(db: AsyncSession, review_data: BookingReview):
-    """Add a review to a booking"""
+async def add_review(db: AsyncSession, review_data: BookingReview, actor_id: int):
+    """Add a guest review to a completed booking.
+
+    Guards:
+    - Only the guest who made the booking (booking.user_id) may submit a guest review.
+    - The booking must be in ``completed`` or ``checked_out`` status (stay must have occurred).
+    """
     stmt = select(Booking).where(Booking.id == review_data.booking_id)
     result = await db.execute(stmt)
     booking = result.scalar_one_or_none()
 
     if booking:
+        if booking.user_id != actor_id:
+            raise BadRequestException(detail="Only the booking guest may submit a review")
+
+        if booking.booking_status not in (BookingStatus.completed, BookingStatus.checked_out):
+            raise BadRequestException(detail="Booking must be completed before a review can be submitted")
+
         booking.guest_rating = review_data.guest_rating
         booking.guest_review = review_data.guest_review
         await db.flush()
@@ -348,7 +478,10 @@ async def calculate_pricing(db: AsyncSession, property_id: int, check_in_date: d
     if not property_obj:
         return {"error": "Property not found"}
 
-    nights = (check_out_date - check_in_date).days
+    # Use calendar-date subtraction so times-of-day don't shorten the night count.
+    ci_date = check_in_date.date() if hasattr(check_in_date, "date") else check_in_date
+    co_date = check_out_date.date() if hasattr(check_out_date, "date") else check_out_date
+    nights = (co_date - ci_date).days
     if nights <= 0:
         return {"error": "Invalid date range"}
 

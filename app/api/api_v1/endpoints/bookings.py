@@ -256,7 +256,7 @@ async def update_booking_details(
     if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return await update_booking(db, booking_id, booking_update)
+    return await update_booking(db, booking_id, booking_update, actor_role=current_user.role)
 
 @router.post("/cancel", response_model=MessageResponse, summary="Cancel booking")
 async def cancel_booking_request(
@@ -278,13 +278,24 @@ async def cancel_booking_request(
 
     return MessageResponse(message="Booking cancelled successfully")
 
-@router.post("/payment", response_model=MessageResponse, summary="Process booking payment")
+@router.post("/payment", response_model=MessageResponse, summary="Process booking payment (admin only)")
 async def process_booking_payment(
     payment_data: BookingPayment,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Process booking payment."""
+    """Process booking payment.
+
+    WARNING: This endpoint records a manual payment without Razorpay verification.
+    It is intentionally restricted to admin users only. Regular users must go
+    through POST /payments/razorpay/order -> POST /payments/razorpay/verify.
+    """
+    if current_user.role != UserRole.admin:
+        raise HTTPException(
+            status_code=403,
+            detail="This endpoint is restricted to admins. Use /payments/razorpay/verify instead.",
+        )
+
     booking = await get_booking(db, payment_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
@@ -322,15 +333,13 @@ async def add_booking_review(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Add booking review."""
+    """Add booking review. Only the guest who made the booking may submit a review,
+    and only after the stay is completed or checked-out."""
     booking = await get_booking(db, review_data.booking_id)
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if not await can_access_booking(db, actor=current_user, booking_user_id=booking.user_id, booking_property_id=booking.property_id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    success = await add_review(db, review_data)
+    success = await add_review(db, review_data, actor_id=current_user.id)
     if not success:
         raise HTTPException(status_code=400, detail="Failed to add review")
 

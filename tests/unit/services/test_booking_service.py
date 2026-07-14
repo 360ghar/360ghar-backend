@@ -254,13 +254,17 @@ class TestAddReview:
         from app.schemas.booking import BookingReview
         from app.services.booking import add_review
 
+        # add_review requires a completed or checked-out booking
+        test_booking.booking_status = BookingStatus.completed
+        await db_session.flush()
+
         review_data = BookingReview(
             booking_id=test_booking.id,
             guest_rating=5,
             guest_review="Great stay and smooth check-in.",
         )
 
-        result = await add_review(db_session, review_data)
+        result = await add_review(db_session, review_data, actor_id=test_booking.user_id)
 
         assert result is True
         await db_session.refresh(test_booking)
