@@ -6,6 +6,7 @@ from app.services.flatmates.compatibility import (
     calculate_compatibility,
     calculate_compatibility_score,
     calculate_property_compatibility_score,
+    snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
 from app.services.flatmates.conversations import (
@@ -65,6 +66,7 @@ __all__ = [
     "calculate_compatibility",
     "calculate_compatibility_score",
     "calculate_property_compatibility_score",
+    "snapshot_user_for_compat",
     "user_has_lifestyle_profile",
 
     # profiles

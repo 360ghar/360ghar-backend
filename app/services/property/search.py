@@ -36,6 +36,7 @@ from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
 from app.services.flatmates.compatibility import (
     calculate_property_compatibility_score,
+    snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
 from app.utils.geo import city_match_names, escape_like_pattern
@@ -253,8 +254,15 @@ async def get_unified_properties_optimized(
                 Amenity.category,
             ),
         ]
+        # Snapshot lifestyle fields before any execute_with_transient_retry call.
+        # A retry invalidates the session and detaches this ORM User; later
+        # access to current_user.id would raise DetachedInstanceError.
         current_user = await db.get(User, user_id) if user_id else None
         score_compatibility = user_has_lifestyle_profile(current_user)
+        viewer_for_compat = (
+            snapshot_user_for_compat(current_user) if score_compatibility else None
+        )
+        viewer_id = viewer_for_compat.id if viewer_for_compat is not None else None
         if score_compatibility:
             query_options.append(
                 selectinload(Property.owner).load_only(*_OWNER_COMPAT_LOAD_ONLY)
@@ -712,12 +720,12 @@ async def get_unified_properties_optimized(
                     schema.relevance_score = float(mapping["relevance_score"])
                 if (
                     score_compatibility
-                    and current_user is not None
+                    and viewer_for_compat is not None
                     and prop.owner_id is not None
-                    and prop.owner_id != current_user.id
+                    and prop.owner_id != viewer_id
                 ):
                     schema.compatibility_score = calculate_property_compatibility_score(
-                        current_user, prop.owner
+                        viewer_for_compat, prop.owner  # type: ignore[arg-type]
                     )
                 property_list.append(schema)
         else:
@@ -727,12 +735,12 @@ async def get_unified_properties_optimized(
                 schema = PropertySchema.model_validate(prop)
                 if (
                     score_compatibility
-                    and current_user is not None
+                    and viewer_for_compat is not None
                     and prop.owner_id is not None
-                    and prop.owner_id != current_user.id
+                    and prop.owner_id != viewer_id
                 ):
                     schema.compatibility_score = calculate_property_compatibility_score(
-                        current_user, prop.owner
+                        viewer_for_compat, prop.owner  # type: ignore[arg-type]
                     )
                 property_list.append(schema)
 

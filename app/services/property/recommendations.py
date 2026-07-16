@@ -19,6 +19,7 @@ from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import Property as PropertySchema
 from app.services.flatmates.compatibility import (
     calculate_property_compatibility_score,
+    snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
 
@@ -135,8 +136,14 @@ async def get_property_recommendations(
                 logger.debug("Preference-signal lookup failed for user %s: %s", user_id, exc)
 
         base_filters = [Property.is_available, availability_filter]
+        # Snapshot before execute_with_transient_retry — a retry detaches ORM
+        # instances and would break later current_user.id / lifestyle access.
         current_user = await db.get(User, user_id) if user_id else None
         score_compatibility = user_has_lifestyle_profile(current_user)
+        viewer_for_compat = (
+            snapshot_user_for_compat(current_user) if score_compatibility else None
+        )
+        viewer_id = viewer_for_compat.id if viewer_for_compat is not None else None
         query_options = [
             selectinload(Property.images),
             selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
@@ -197,12 +204,12 @@ async def get_property_recommendations(
             schema = PropertySchema.model_validate(prop)
             if (
                 score_compatibility
-                and current_user is not None
+                and viewer_for_compat is not None
                 and prop.owner_id is not None
-                and prop.owner_id != current_user.id
+                and prop.owner_id != viewer_id
             ):
                 schema.compatibility_score = calculate_property_compatibility_score(
-                    current_user, prop.owner
+                    viewer_for_compat, prop.owner  # type: ignore[arg-type]
                 )
             schemas.append(schema)
 

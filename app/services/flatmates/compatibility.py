@@ -9,6 +9,7 @@ breakdown, and top-match chips.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, cast
 
 from app.models.users import User
@@ -166,6 +167,23 @@ def user_has_lifestyle_profile(user: User | None) -> bool:
     if user is None:
         return False
     return any(_get_dimension_value(user, key) is not None for key in DIMENSION_WEIGHTS)
+
+
+def snapshot_user_for_compat(user: User | None) -> SimpleNamespace | None:
+    """Copy id + lifestyle fields into a session-independent namespace.
+
+    Hold this across later DB work (including
+    :func:`execute_with_transient_retry` session invalidation). Reusing an
+    ORM ``User`` after the session is reset causes ``DetachedInstanceError``
+    when compatibility scoring reads attributes.
+    """
+    if user is None:
+        return None
+    data: dict[str, Any] = {"id": user.id}
+    for key in DIMENSION_WEIGHTS:
+        attr = f"flatmates_{key}"
+        data[attr] = getattr(user, attr, None)
+    return SimpleNamespace(**data)
 
 
 def calculate_compatibility(

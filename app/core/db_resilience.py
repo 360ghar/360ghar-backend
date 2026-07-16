@@ -160,6 +160,13 @@ async def execute_with_transient_retry(
     *,
     operation_name: str,
 ) -> T:
+    """Run ``operation`` once; on a transient DB error, reset the session and retry once.
+
+    On retry the session is rolled back and invalidated, which **detaches** all
+    previously loaded ORM instances. Callers must not reuse ORM objects loaded
+    before this call after it returns (snapshot needed ids/fields first, or
+    re-load after).
+    """
     try:
         return await operation()
     except Exception as exc:
