@@ -6,6 +6,7 @@ from app.services.flatmates.compatibility import (
     calculate_compatibility,
     calculate_compatibility_score,
     calculate_property_compatibility_score,
+    score_viewer_owner_compatibility,
     snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "calculate_compatibility",
     "calculate_compatibility_score",
     "calculate_property_compatibility_score",
+    "score_viewer_owner_compatibility",
     "snapshot_user_for_compat",
     "user_has_lifestyle_profile",
 

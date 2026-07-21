@@ -144,7 +144,11 @@ async def discovery_search(
     city: str | None = None,
     locality: str | None = None,
     cursor: str | None = None,
-    limit: int = 20,
+    limit: int | None = None,
+    # ChatGPT / Apps SDK sometimes send multi-query batches and max_results
+    # instead of the canonical query + limit shape.
+    queries: list[dict[str, Any]] | None = None,
+    max_results: int | None = None,
 ) -> AppsSDKToolResult:
     """Search properties with comprehensive filtering.
 
@@ -168,14 +172,40 @@ async def discovery_search(
         city: Filter by city name
         locality: Filter by locality/neighborhood
         cursor: Opaque pagination cursor from a prior response's next_cursor
-        limit: Results per page (max 50)
+        limit: Results per page (max 50). Canonical limit parameter.
+        queries: Optional ChatGPT-style batch: list of {query, max_results}.
+            First entry is used when query/limit are not set.
+        max_results: Alias for limit (ChatGPT clients often send this).
 
     Returns:
         Property search results with pagination info.
     """
     try:
+        # Normalize ChatGPT multi-query / max_results aliases into query + limit.
+        # Only fill gaps: explicit top-level query/limit always win.
+        if queries:
+            first = queries[0] if isinstance(queries, list) and queries else None
+            if isinstance(first, dict):
+                if query is None and first.get("query") is not None:
+                    query = str(first["query"]) or None
+                if max_results is None and first.get("max_results") is not None:
+                    try:
+                        max_results = int(first["max_results"])
+                    except (TypeError, ValueError):
+                        pass
+                # Some clients nest limit inside the batch item
+                if limit is None and first.get("limit") is not None:
+                    try:
+                        limit = int(first["limit"])
+                    except (TypeError, ValueError):
+                        pass
+        if limit is None:
+            limit = max_results if max_results is not None else 20
         # Validate and clamp limit
-        limit = min(max(1, limit), 50)
+        try:
+            limit = min(max(1, int(limit)), 50)
+        except (TypeError, ValueError):
+            limit = 20
         cursor_payload = decode_cursor(cursor) if cursor else {}
 
         # Coerce amenities from string to list (MCP clients may send "wifi,pool" as a string)

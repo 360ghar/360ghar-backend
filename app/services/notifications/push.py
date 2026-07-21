@@ -160,6 +160,14 @@ async def send_to_user(
     deep_link: str | None = None,
     type_key: str | None = None,
 ) -> dict[str, Any]:
+    """Send a push notification to all active device tokens for a user.
+
+    Best-effort: Supabase record/token failures return
+    ``{ok: False, error: ...}`` instead of raising, so callers (notification
+    dispatcher) can continue email/SMS channels. Per-token FCM failures are
+    recorded individually; the overall call still returns ``ok: True`` with
+    ``sent`` equal to the number of tokens attempted when the fan-out ran.
+    """
     priority_label, ttl, priority_high = _get_type_config(type_key)
     payload_data = _augment_data_with_meta(
         data,
@@ -167,13 +175,22 @@ async def send_to_user(
         channel=NotificationChannel.PUSH,
         priority=priority_label,
     )
-    notif = await _record_notification(
-        title=title,
-        body=body,
-        data=payload_data,
-        audience_type="user",
-        target_user_id=user_id,
-    )
+    try:
+        notif = await _record_notification(
+            title=title,
+            body=body,
+            data=payload_data,
+            audience_type="user",
+            target_user_id=user_id,
+        )
+    except Exception as e:
+        logger.error(
+            "Failed to record push notification for user %s: %s",
+            user_id,
+            e,
+            exc_info=True,
+        )
+        return {"ok": False, "sent": 0, "error": f"record_notification: {e}"}
 
     def _sync_get_tokens():
         supa = _supa()
@@ -186,7 +203,22 @@ async def send_to_user(
             .data
         )
 
-    tokens = await _run_sync(_sync_get_tokens)
+    try:
+        tokens = await _run_sync(_sync_get_tokens)
+    except Exception as e:
+        logger.error(
+            "Failed to fetch device tokens for user %s: %s",
+            user_id,
+            e,
+            exc_info=True,
+        )
+        return {
+            "ok": False,
+            "sent": 0,
+            "notification_id": notif.get("id"),
+            "error": f"device_tokens: {e}",
+        }
+
     if not tokens:
         return {"ok": True, "sent": 0, "notification_id": notif["id"]}
 
@@ -238,10 +270,17 @@ async def send_to_user(
                         }
                     ).execute()
 
-                await _run_sync(_sync_record_failed)
+                try:
+                    await _run_sync(_sync_record_failed)
+                except Exception as record_err:
+                    logger.warning(
+                        "Failed to record FCM delivery failure: %s",
+                        record_err,
+                        exc_info=True,
+                    )
 
     await asyncio.gather(*[_send_one(t) for t in tokens])
-    return {"ok": True, "sent": len(tokens)}
+    return {"ok": True, "sent": len(tokens), "notification_id": notif.get("id")}
 
 
 async def send_to_topic(

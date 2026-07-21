@@ -151,6 +151,62 @@ class TestMCPToolsIntegration:
                 assert result.content is not None
 
     @pytest.mark.asyncio
+    async def test_discovery_search_accepts_chatgpt_queries_batch(self):
+        """ChatGPT clients send queries=[{query, max_results}] instead of query+limit."""
+        from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_search
+
+        fn = get_tool_fn(discovery_search)
+
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
+            mock_user.return_value = None
+            with patch(
+                "app.mcp.chatgpt.discovery_tools.run_property_search",
+                new_callable=AsyncMock,
+            ) as mock_search:
+                mock_search.return_value = ([], None, 0)
+
+                result = await fn(
+                    queries=[{"query": "2 BHK Sector 85", "max_results": 8}]
+                )
+
+                assert isinstance(result, AppsSDKToolResult)
+                assert mock_search.await_count == 1
+                kwargs = mock_search.await_args.kwargs
+                assert kwargs["limit"] == 8
+                filters = kwargs["filters"]
+                # "2 BHK Sector 85" is parsed into bedrooms + residual locality text
+                assert filters.bedrooms_min == 2
+                assert filters.bedrooms_max == 2
+                residual = (filters.search_query or "").lower()
+                assert residual == "" or "sector" in residual or "85" in residual
+
+    @pytest.mark.asyncio
+    async def test_discovery_search_accepts_max_results_alias(self):
+        """max_results is accepted as an alias for limit."""
+        from app.mcp.apps_sdk import AppsSDKToolResult
+        from app.mcp.chatgpt.discovery_tools import discovery_search
+
+        fn = get_tool_fn(discovery_search)
+
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
+            mock_user.return_value = None
+            with patch(
+                "app.mcp.chatgpt.discovery_tools.run_property_search",
+                new_callable=AsyncMock,
+            ) as mock_search:
+                mock_search.return_value = ([], None, 0)
+
+                result = await fn(query="Godrej Nest", max_results=5)
+
+                assert isinstance(result, AppsSDKToolResult)
+                assert mock_search.await_args.kwargs["limit"] == 5
+
+    @pytest.mark.asyncio
     async def test_auth_required_response_format(self):
         """Test that auth-required responses include proper metadata."""
         from app.mcp.apps_sdk import AuthRequiredError

@@ -29,7 +29,17 @@ logger = get_logger(__name__)
 
 # Suppress FastMCP's internal ERROR log for AuthRequiredError — it is
 # expected control flow handled by AppsSDKFastMCP._call_tool_mcp.
-logging.getLogger("fastmcp.tools.tool").addFilter(AuthRequiredExcFilter())
+# Attach to every FastMCP logger that has been observed emitting the noise.
+_auth_required_filter = AuthRequiredExcFilter()
+for _logger_name in (
+    "fastmcp.tools.tool",
+    "fastmcp.tools.base",
+    "fastmcp.tools.function_tool",
+    "fastmcp.server.server",
+    "fastmcp.server",
+    "fastmcp",
+):
+    logging.getLogger(_logger_name).addFilter(_auth_required_filter)
 
 
 # Required MIME type for MCP App widget resources (per Apps SDK spec).

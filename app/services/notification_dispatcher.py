@@ -136,7 +136,7 @@ async def dispatch_notification_to_user(
     # via Supabase notifications table. For in-app-only types, we could add
     # a dedicated path in the future.
 
-    # Push via FCM
+    # Push via FCM (best-effort; soft-fails inside send_to_user)
     if NotificationChannel.PUSH in allowed_channels and user.supabase_user_id:
         try:
             push_resp = await send_to_user(
@@ -147,11 +147,27 @@ async def dispatch_notification_to_user(
                 deep_link=deep_link,
                 type_key=cfg.key,
             )
-            result["channels"]["push"] = {"ok": True, "response": push_resp}
+            if push_resp.get("ok", True):
+                result["channels"]["push"] = {"ok": True, "response": push_resp}
+            else:
+                err = push_resp.get("error") or "unknown push failure"
+                logger.error(
+                    "Failed to send push notification: %s (user_id=%s type_key=%s)",
+                    err,
+                    user.supabase_user_id,
+                    cfg.key,
+                )
+                result["channels"]["push"] = {"ok": False, "error": str(err), "response": push_resp}
         except Exception as e:
+            # Include the exception in the message body — Railway often drops
+            # structured `extra` fields, so "Failed to send push notification"
+            # alone is unactionable in production logs.
             logger.error(
-                "Failed to send push notification",
-                extra={"user_id": user.supabase_user_id, "type_key": cfg.key, "error": str(e)},
+                "Failed to send push notification: %s (user_id=%s type_key=%s)",
+                e,
+                user.supabase_user_id,
+                cfg.key,
+                exc_info=True,
             )
             result["channels"]["push"] = {"ok": False, "error": str(e)}
 

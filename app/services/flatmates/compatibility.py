@@ -176,14 +176,48 @@ def snapshot_user_for_compat(user: User | None) -> SimpleNamespace | None:
     :func:`execute_with_transient_retry` session invalidation). Reusing an
     ORM ``User`` after the session is reset causes ``DetachedInstanceError``
     when compatibility scoring reads attributes.
+
+    Returns ``None`` if the instance is detached/expired and attributes cannot
+    be read (callers should treat that as "no score" rather than 500ing).
     """
     if user is None:
         return None
-    data: dict[str, Any] = {"id": user.id}
-    for key in DIMENSION_WEIGHTS:
-        attr = f"flatmates_{key}"
-        data[attr] = getattr(user, attr, None)
-    return SimpleNamespace(**data)
+    try:
+        data: dict[str, Any] = {"id": user.id}
+        for key in DIMENSION_WEIGHTS:
+            attr = f"flatmates_{key}"
+            data[attr] = getattr(user, attr, None)
+        return SimpleNamespace(**data)
+    except Exception:
+        # DetachedInstanceError / ObjectDeletedError / MissingGreenlet, etc.
+        return None
+
+
+def score_viewer_owner_compatibility(
+    viewer_for_compat: User | SimpleNamespace | None,
+    *,
+    owner_id: int | None,
+    owner: User | None,
+    viewer_id: int | None,
+) -> float | None:
+    """Score viewer vs property owner using session-independent snapshots.
+
+    Never raises for detached ORM state: returns ``None`` when owner cannot
+    be snapshotted so property search stays available without compatibility.
+    """
+    if viewer_for_compat is None or owner_id is None:
+        return None
+    if viewer_id is not None and owner_id == viewer_id:
+        return None
+    # ``owner`` is already resolved at the call site (try/except around
+    # prop.owner). Snapshot soft-fails if the instance is detached/expired.
+    owner_snap = snapshot_user_for_compat(owner)
+    if owner_snap is None:
+        return None
+    return calculate_property_compatibility_score(
+        viewer_for_compat,  # type: ignore[arg-type]
+        owner_snap,  # type: ignore[arg-type]
+    )
 
 
 def calculate_compatibility(

@@ -8,6 +8,7 @@ from app.services.flatmates.compatibility import (
     calculate_compatibility,
     calculate_compatibility_score,
     calculate_property_compatibility_score,
+    score_viewer_owner_compatibility,
     snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
@@ -127,3 +128,55 @@ class TestSnapshotUserForCompat:
         score = calculate_property_compatibility_score(viewer_snap, owner)  # type: ignore[arg-type]
         assert score == 100.0
         assert viewer_snap.id != owner.id
+
+    def test_snapshot_returns_none_when_attribute_access_fails(self):
+        """Detached/expired ORM User must not raise out of snapshot_user_for_compat."""
+
+        class _BrokenOwner:
+            @property
+            def id(self):  # noqa: ANN201
+                raise RuntimeError("Instance is not bound to a Session")
+
+        assert snapshot_user_for_compat(_BrokenOwner()) is None  # type: ignore[arg-type]
+
+    def test_score_viewer_owner_compatibility_snapshots_owner(self):
+        viewer = _user(
+            id=1,
+            flatmates_sleep_schedule="early_bird",
+            flatmates_cleanliness="spotless",
+        )
+        owner = _user(
+            id=2,
+            flatmates_sleep_schedule="early_bird",
+            flatmates_cleanliness="spotless",
+        )
+        viewer_snap = snapshot_user_for_compat(viewer)  # type: ignore[arg-type]
+        score = score_viewer_owner_compatibility(
+            viewer_snap,
+            owner_id=2,
+            owner=owner,  # type: ignore[arg-type]
+            viewer_id=1,
+        )
+        assert score == 100.0
+
+    def test_score_viewer_owner_compatibility_skips_self_and_missing(self):
+        viewer = _user(id=1, flatmates_work_style="remote")
+        viewer_snap = snapshot_user_for_compat(viewer)  # type: ignore[arg-type]
+        assert (
+            score_viewer_owner_compatibility(
+                viewer_snap, owner_id=1, owner=viewer, viewer_id=1  # type: ignore[arg-type]
+            )
+            is None
+        )
+        assert (
+            score_viewer_owner_compatibility(
+                viewer_snap, owner_id=None, owner=None, viewer_id=1
+            )
+            is None
+        )
+        assert (
+            score_viewer_owner_compatibility(
+                viewer_snap, owner_id=9, owner=None, viewer_id=1
+            )
+            is None
+        )

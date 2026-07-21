@@ -2,7 +2,7 @@
 Tests for notification service module.
 """
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -350,6 +350,52 @@ class TestSendToUser:
 
             assert result["ok"] is True
             assert result["sent"] == 0
+
+    @pytest.mark.asyncio
+    async def test_send_to_user_record_failure_soft_fails(self):
+        """Supabase notification insert failure must not raise out of send_to_user."""
+        from app.services.notifications import send_to_user
+
+        with patch(
+            "app.services.notifications.push._record_notification",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("supabase down"),
+        ):
+            result = await send_to_user(
+                user_id="user_123",
+                title="Test",
+                body="Test Body",
+            )
+
+        assert result["ok"] is False
+        assert result["sent"] == 0
+        assert "record_notification" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_send_to_user_token_fetch_failure_soft_fails(self):
+        """Device token lookup failure must not raise out of send_to_user."""
+        from app.services.notifications import send_to_user
+
+        with patch(
+            "app.services.notifications.push._record_notification",
+            new_callable=AsyncMock,
+            return_value={"id": "notif_1"},
+        ):
+            with patch(
+                "app.services.notifications.push._run_sync",
+                new_callable=AsyncMock,
+                side_effect=RuntimeError("device_tokens unavailable"),
+            ):
+                result = await send_to_user(
+                    user_id="user_123",
+                    title="Test",
+                    body="Test Body",
+                )
+
+        assert result["ok"] is False
+        assert result["sent"] == 0
+        assert result["notification_id"] == "notif_1"
+        assert "device_tokens" in result["error"]
 
 
 class TestSendToTopic:

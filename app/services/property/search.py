@@ -35,7 +35,7 @@ from app.schemas.pagination import offset_payload, read_offset
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
 from app.services.flatmates.compatibility import (
-    calculate_property_compatibility_score,
+    score_viewer_owner_compatibility,
     snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
@@ -718,14 +718,16 @@ async def get_unified_properties_optimized(
                     schema.vector_distance = float(mapping["vector_distance"])
                 if "relevance_score" in mapping and mapping["relevance_score"] is not None:
                     schema.relevance_score = float(mapping["relevance_score"])
-                if (
-                    score_compatibility
-                    and viewer_for_compat is not None
-                    and prop.owner_id is not None
-                    and prop.owner_id != viewer_id
-                ):
-                    schema.compatibility_score = calculate_property_compatibility_score(
-                        viewer_for_compat, prop.owner  # type: ignore[arg-type]
+                if score_compatibility and viewer_for_compat is not None:
+                    try:
+                        owner = prop.owner
+                    except Exception:
+                        owner = None
+                    schema.compatibility_score = score_viewer_owner_compatibility(
+                        viewer_for_compat,
+                        owner_id=prop.owner_id,
+                        owner=owner,
+                        viewer_id=viewer_id,
                     )
                 property_list.append(schema)
         else:
@@ -733,14 +735,16 @@ async def get_unified_properties_optimized(
             property_list = []
             for prop in properties:
                 schema = PropertySchema.model_validate(prop)
-                if (
-                    score_compatibility
-                    and viewer_for_compat is not None
-                    and prop.owner_id is not None
-                    and prop.owner_id != viewer_id
-                ):
-                    schema.compatibility_score = calculate_property_compatibility_score(
-                        viewer_for_compat, prop.owner  # type: ignore[arg-type]
+                if score_compatibility and viewer_for_compat is not None:
+                    try:
+                        owner = prop.owner
+                    except Exception:
+                        owner = None
+                    schema.compatibility_score = score_viewer_owner_compatibility(
+                        viewer_for_compat,
+                        owner_id=prop.owner_id,
+                        owner=owner,
+                        viewer_id=viewer_id,
                     )
                 property_list.append(schema)
 
