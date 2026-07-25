@@ -17,7 +17,7 @@ from app.core.exceptions import (
     ValidationException,
 )
 from app.core.logging import get_logger
-from app.core.utils import utc_now
+from app.core.utils import is_valid_uuid, utc_now
 from app.models.enums import AuthMethod, FlatmatesProfileStatus, UserRole
 from app.models.users import User
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
@@ -726,11 +726,15 @@ async def complete_app_onboarding(db: AsyncSession, user: User, *, app: str) -> 
     column = _APP_ONBOARDING_COLUMNS.get(app)
     if column is None:
         raise BadRequestException(detail=f"Unknown app slug: {app}")
-    logger.info("Marking onboarding complete for user %s app=%s", user.id, app)
-    setattr(user, column, True)
+    # Re-bind if a prior transient retry invalidated the request session.
+    bound = await db.get(User, user.id)
+    if bound is None:
+        raise BadRequestException(detail="User not found")
+    logger.info("Marking onboarding complete for user %s app=%s", bound.id, app)
+    setattr(bound, column, True)
     await db.flush()
-    await db.refresh(user)
-    return user
+    await db.refresh(bound)
+    return bound
 
 
 async def compute_auth_gate_state(
@@ -751,6 +755,11 @@ async def compute_auth_gate_state(
       - ``next_action``: what the client should do next
       - ``missing_fields``: list of profile fields still required (if applicable)
     """
+    # Re-bind if a prior session invalidate left a detached User.
+    bound = await db.get(User, user.id)
+    if bound is not None:
+        user = bound
+
     # ── IDENTIFIER_VERIFICATION: is at least one channel confirmed? ──────
     if not user.email_verified and not user.phone_verified:
         return {
@@ -761,7 +770,9 @@ async def compute_auth_gate_state(
 
     # ── PASSWORD_SETUP: does the account have a password? ────────────────
     # Queried from auth.users because the local mirror does not store it.
-    has_password = await _check_user_has_password(db, user.supabase_user_id)
+    # Snapshot id first so a detached instance cannot break the UUID check path.
+    supabase_id = str(user.supabase_user_id) if user.supabase_user_id else ""
+    has_password = await _check_user_has_password(db, supabase_id)
     if not has_password:
         return {
             "stage": "password_setup",
@@ -808,6 +819,13 @@ async def compute_auth_gate_state(
 
 async def _check_user_has_password(db: AsyncSession, supabase_user_id: str) -> bool:
     """Check whether the Supabase auth user has a password credential."""
+    # auth.users.id is UUID. Legacy seed placeholders like seed-{email} raise
+    # "invalid input syntax for type uuid" and must not hit the database.
+    if not is_valid_uuid(supabase_user_id):
+        logger.debug(
+            "auth-state: skipping password check for non-UUID supabase_user_id"
+        )
+        return False
     try:
         stmt = text(
             "SELECT (encrypted_password IS NOT NULL) AS has_password "

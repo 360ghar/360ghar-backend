@@ -53,6 +53,8 @@ Declared in `pyproject.toml` under `[project].dependencies`. Requires Python `>=
 ### Media and utilities
 
 - `Pillow>=12.2.0` - image processing (thumbnails, EXIF)
+- `opencv-python-headless>=5.0.0.93` - panorama stitching (`cv2.Stitcher`) for tour scenes
+- `numpy>=2.4.2` - equirect→cubemap sampling for 3D world generation (also an OpenCV dependency)
 - `qrcode[pil]>=8.2` - QR code generation
 - `bleach>=6.3.0` - HTML sanitization for blog content
 - `PyYAML>=6.0.3` - YAML parsing

@@ -7,10 +7,16 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import HotspotType, TourStatus, TourVisibility
+
+# Allowed hosts for user-supplied frame/scene image URLs (SSRF guard).
+# Extend this set if the Cloudinary delivery host ever differs from the
+# default (e.g. a custom CNAME).
+ALLOWED_FRAME_HOSTS = {"res.cloudinary.com"}
 
 # ====================
 # Tour Settings Schema
@@ -95,6 +101,7 @@ class TourSettings(BaseModel):
     gyroscope_auto_start: bool | None = False
     branding: TourBrandingSettings | None = None
     floor_plans: list[FloorPlan] | None = None
+    world_3d: dict[str, Any] | None = None
 
 
 # ====================
@@ -275,6 +282,7 @@ class Tour(TourBase):
     """Tour response schema."""
     id: str
     user_id: int
+    short_code: str | None = None
     is_featured: bool
     visibility: TourVisibility
     view_count: int
@@ -293,7 +301,10 @@ class Tour(TourBase):
 
 
 class TourWithScenes(Tour):
-    """Tour with all scenes loaded."""
+    """Tour with all scenes loaded (also the public tour response shape).
+
+    Inherits ``short_code`` from ``Tour``.
+    """
     scenes: list[Scene] = []
 
 
@@ -406,6 +417,22 @@ class AIJobBase(BaseModel):
 class AIJobResponse(BaseModel):
     """Response containing an AI job."""
     job: AIJobBase
+
+
+class SceneStitchRequest(BaseModel):
+    """Request payload for cloud panorama stitching of captured frames."""
+    frame_urls: list[str] = Field(..., min_length=2, max_length=32)
+
+    @field_validator("frame_urls")
+    @classmethod
+    def validate_frame_urls(cls, v: list[str]) -> list[str]:
+        for url in v:
+            parsed = urlparse(url)
+            if parsed.scheme != "https" or parsed.hostname not in ALLOWED_FRAME_HOSTS:
+                raise ValueError(
+                    f"frame_urls must be https URLs from allowed hosts, got: {url}"
+                )
+        return v
 
 
 class SceneAnalysisResult(BaseModel):

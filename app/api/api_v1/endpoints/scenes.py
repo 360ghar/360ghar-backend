@@ -10,15 +10,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
+from app.core.exceptions import ForbiddenException, SceneNotFoundException
 from app.core.logging import get_logger
 from app.schemas.tour import (
+    AIJobResponse,
     Hotspot,
     HotspotCreate,
     Scene,
+    SceneStitchRequest,
     SceneUpdate,
 )
 from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
+from app.services import tour_ai
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -85,6 +89,36 @@ async def delete_scene(
             detail="Scene not found or not authorized"
         )
     return None
+
+
+@router.post("/{scene_id}/stitch", response_model=AIJobResponse, summary="Stitch scene frames")
+async def stitch_scene(
+    scene_id: str,
+    stitch_data: SceneStitchRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Stitch captured frames into a panorama for a scene in the cloud.
+
+    Downloads the frames, stitches them with OpenCV, pads the result to a
+    2:1 equirect canvas, and replaces the scene image. Returns a job ID for
+    tracking progress (also broadcast over the jobs WebSocket).
+    """
+    try:
+        scene = await tour_service.get_scene(db=db, scene_id=scene_id, user_id=current_user.id)
+    except ForbiddenException:
+        # Present foreign scenes as missing to avoid leaking their existence.
+        raise SceneNotFoundException() from None
+
+    job = await tour_ai.request_scene_stitch(
+        db=db,
+        user_id=current_user.id,
+        tour_id=scene.tour_id,
+        scene_id=scene_id,
+        frame_urls=stitch_data.frame_urls,
+    )
+    return {"job": job}
 
 
 # Hotspot endpoints nested under scenes

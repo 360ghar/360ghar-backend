@@ -25,13 +25,57 @@ setup_logging()
 logger = get_logger(__name__)
 
 
+# Exact fixture messages from the test suite that must never reach Sentry if a
+# DSN leaks into a test/dev process. Keep these specific — substring "boom"
+# alone is too broad and could hide real errors.
+_SENTRY_DROP_EXACT_MESSAGES = frozenset({
+    "boom",
+    "unexpected programming error",
+    "sentry test error - this is intentional",
+})
+# Substrings that only appear on test mocks / intentional noise.
+_SENTRY_DROP_SUBSTRINGS = (
+    "magicmock",
+    "name='mock.email'",
+)
+
+
 def _sentry_before_send(event, hint):
-    """Strip sensitive headers from Sentry event payloads."""
+    """Filter test noise and strip sensitive headers from Sentry payloads.
+
+    Production transient DB / pooler failures are intentionally NOT dropped
+    here — capacity issues must stay visible. Test isolation is enforced by
+    blanking ``SENTRY_DSN`` in ``tests/conftest.py`` and ``.env.test``.
+    """
     if "request" in event and "headers" in event["request"]:
         headers = event["request"]["headers"]
         if isinstance(headers, dict):
             headers.pop("authorization", None)
             headers.pop("x-api-key", None)
+
+    user = event.get("user") or {}
+    for field in ("email", "id", "username", "ip_address"):
+        value = user.get(field)
+        if value is not None and "magicmock" in str(value).lower():
+            return None
+
+    message_parts: list[str] = []
+    if event.get("message"):
+        message_parts.append(str(event["message"]))
+    for entry in event.get("exception", {}).get("values") or []:
+        if entry.get("value"):
+            message_parts.append(str(entry["value"]))
+        if entry.get("type"):
+            message_parts.append(str(entry["type"]))
+    combined = " ".join(message_parts).lower()
+
+    # Exact message match (exception value alone).
+    for part in message_parts:
+        if part.strip().lower() in _SENTRY_DROP_EXACT_MESSAGES:
+            return None
+    if any(marker in combined for marker in _SENTRY_DROP_SUBSTRINGS):
+        return None
+
     return event
 
 

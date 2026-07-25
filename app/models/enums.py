@@ -506,6 +506,8 @@ class AIJobType(str, Enum):
     scene_analysis = "scene_analysis"
     hotspot_generation = "hotspot_generation"
     floor_plan_processing = "floor_plan_processing"
+    panorama_stitch = "panorama_stitch"
+    generate_3d_world = "generate_3d_world"
 
 
 class CustomDomainVerificationStatus(str, Enum):

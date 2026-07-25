@@ -9,9 +9,17 @@ This is the main conftest.py providing:
 """
 
 import os
+
+# Disable Sentry before any app import can read SENTRY_DSN from .env.* and
+# ship intentional test exceptions (boom, ECHECKOUTTIMEOUT fixtures, MagicMock
+# users) to the production project.
+os.environ["SENTRY_DSN"] = ""
+os.environ.setdefault("ENVIRONMENT", "test")
+
 from collections.abc import AsyncGenerator
 
 import pytest_asyncio
+import sentry_sdk
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
@@ -19,6 +27,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.pool import NullPool
+
+# Ensure no leftover client from a prior import of app.main in this process.
+sentry_sdk.init(dsn=None)
 
 # Import all models to ensure they're registered with SQLAlchemy
 import app.models  # noqa: F401

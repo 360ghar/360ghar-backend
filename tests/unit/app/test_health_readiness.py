@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -13,8 +14,9 @@ from app.api.api_v1.api import api_v1_ready_redirect
 async def test_health_is_liveness_without_database_probe(monkeypatch: pytest.MonkeyPatch) -> None:
     probe = AsyncMock(side_effect=AssertionError("health must not probe the database"))
     monkeypatch.setattr(main_module, "_probe_database_ready", probe)
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
 
-    result = await main_module.health_check()
+    result = await main_module.health_check(request)
 
     assert result["status"] == "healthy"
     assert "database" not in result

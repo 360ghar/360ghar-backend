@@ -69,9 +69,13 @@ async def assign_my_agent(
     """Assign an agent to the current user (auto-assign if no agent_id provided)"""
     assignment = await assign_agent_to_user(db, current_user.id, agent_id)
     if not assignment:
+        # Empty inventory is a business state, not an infra outage.
         raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No agents available at the moment",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "NO_AGENTS_AVAILABLE",
+                "message": "No agents available at the moment",
+            },
         )
     return assignment
 

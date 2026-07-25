@@ -58,6 +58,14 @@ def test_transient_db_error_detection_and_code_extraction() -> None:
     assert extract_db_error_code(exc) == "ECHECKOUTTIMEOUT"
 
 
+def test_ssl_eof_is_transient() -> None:
+    exc = Exception(
+        "(psycopg.OperationalError) consuming input failed: "
+        "SSL error: unexpected eof while reading"
+    )
+    assert is_transient_db_error(exc) is True
+
+
 def test_supabase_max_clients_error_is_transient_capacity() -> None:
     exc = Exception(
         "(psycopg.OperationalError) connection failed: FATAL: "

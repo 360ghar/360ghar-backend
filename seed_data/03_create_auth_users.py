@@ -46,11 +46,30 @@ class UserToProcess:
     old_supabase_id: str
 
 
-async def find_seed_users_without_auth() -> list[UserToProcess]:
-    """Find all users that still have placeholder supabase_user_id
+def _needs_auth_link(email: str | None, supabase_user_id: str | None) -> bool:
+    """True when the local row is not yet linked to a real Auth UUID.
 
-    (``seed-*`` or ``PLACEHOLDER_*``). Uses raw column selection to avoid
-    pulling columns that may not exist on the remote DB (e.g. ``email_verified``).
+    Covers legacy ``seed-{email}`` / ``PLACEHOLDER_*`` ids and deterministic
+    UUID5 seed placeholders from the loaders (not yet replaced by GoTrue).
+    """
+    if not email or not supabase_user_id:
+        return False
+    sid = str(supabase_user_id)
+    if PLACEHOLDER_PATTERN.match(sid):
+        return True
+    try:
+        from app.core.utils import seed_supabase_user_id
+
+        return sid == seed_supabase_user_id(email)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+async def find_seed_users_without_auth() -> list[UserToProcess]:
+    """Find seed users that still need a real Supabase Auth UUID.
+
+    Selects ``is_seed_data`` users (plus any legacy placeholder ids) using raw
+    column selection to avoid columns that may not exist on older remote DBs.
     """
     users: list[UserToProcess] = []
     async with AsyncSessionLocal() as session:
@@ -59,20 +78,26 @@ async def find_seed_users_without_auth() -> list[UserToProcess]:
             User.email,
             User.full_name,
             User.supabase_user_id,
+            User.is_seed_data,
         ).where(
             User.email.isnot(None),
         )
         result = await session.execute(stmt)
         for row in result.all():
-            if row.supabase_user_id and PLACEHOLDER_PATTERN.match(str(row.supabase_user_id)):
-                users.append(
-                    UserToProcess(
-                        id=row.id,
-                        email=row.email,
-                        name=row.full_name or row.email,
-                        old_supabase_id=row.supabase_user_id,
+            sid = row.supabase_user_id
+            if not sid:
+                continue
+            is_seed = bool(getattr(row, "is_seed_data", False))
+            if is_seed or PLACEHOLDER_PATTERN.match(str(sid)):
+                if _needs_auth_link(row.email, sid) or PLACEHOLDER_PATTERN.match(str(sid)):
+                    users.append(
+                        UserToProcess(
+                            id=row.id,
+                            email=row.email,
+                            name=row.full_name or row.email,
+                            old_supabase_id=row.supabase_user_id,
+                        )
                     )
-                )
     logger.info("Found %d users needing auth user creation", len(users))
     return users
 

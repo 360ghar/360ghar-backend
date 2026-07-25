@@ -61,6 +61,11 @@ _TRANSIENT_DB_MESSAGE_MARKERS = (
     "connection to database closed",
     "max clients reached",
     "unable to check out connection from the pool",
+    "ssl error",
+    "unexpected eof while reading",
+    "connection reset",
+    "server closed the connection",
+    "consuming input failed",
 )
 
 

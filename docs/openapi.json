@@ -5164,8 +5164,8 @@
         "tags": [
           "bookings"
         ],
-        "summary": "Process booking payment",
-        "description": "Process booking payment.",
+        "summary": "Process booking payment (admin only)",
+        "description": "Process booking payment.\n\nWARNING: This endpoint records a manual payment without Razorpay verification.\nIt is intentionally restricted to admin users only. Regular users must go\nthrough POST /payments/razorpay/order -> POST /payments/razorpay/verify.",
         "operationId": "process_booking_payment_api_v1_bookings_payment_post",
         "parameters": [
           {
@@ -5225,7 +5225,7 @@
           "bookings"
         ],
         "summary": "Add booking review",
-        "description": "Add booking review.",
+        "description": "Add booking review. Only the guest who made the booking may submit a review,\nand only after the stay is completed or checked-out.",
         "operationId": "add_booking_review_api_v1_bookings_review_post",
         "parameters": [
           {
@@ -20510,6 +20510,65 @@
         }
       }
     },
+    "/api/v1/tours/{tour_id}/generate-3d": {
+      "post": {
+        "tags": [
+          "tours"
+        ],
+        "summary": "Generate 3D world",
+        "description": "Generate a navigable 3D world (textured skybox mesh) for a tour.\n\nConverts each scene's panorama into a cubemap, builds a GLB of textured\nskybox cubes (one per scene), and stores the mesh URL in the tour\nsettings. Returns a job ID for tracking progress.",
+        "operationId": "generate_3d_world_api_v1_tours__tour_id__generate_3d_post",
+        "parameters": [
+          {
+            "name": "tour_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tour Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIJobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tours/{tour_id}/analytics": {
       "get": {
         "tags": [
@@ -21321,6 +21380,75 @@
         }
       }
     },
+    "/api/v1/scenes/{scene_id}/stitch": {
+      "post": {
+        "tags": [
+          "scenes"
+        ],
+        "summary": "Stitch scene frames",
+        "description": "Stitch captured frames into a panorama for a scene in the cloud.\n\nDownloads the frames, stitches them with OpenCV, pads the result to a\n2:1 equirect canvas, and replaces the scene image. Returns a job ID for\ntracking progress (also broadcast over the jobs WebSocket).",
+        "operationId": "stitch_scene_api_v1_scenes__scene_id__stitch_post",
+        "parameters": [
+          {
+            "name": "scene_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Scene Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SceneStitchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIJobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/scenes/{scene_id}/hotspots": {
       "get": {
         "tags": [
@@ -21759,6 +21887,357 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Hotspot"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/jobs": {
+      "post": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "Create Job",
+        "description": "Start a new Gaussian Splat job.",
+        "operationId": "create_job_api_v1_lab_jobs_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JobCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Create Job Api V1 Lab Jobs Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "List Jobs",
+        "description": "List user's splat jobs.",
+        "operationId": "list_jobs_api_v1_lab_jobs_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response List Jobs Api V1 Lab Jobs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/jobs/{job_id}/start": {
+      "post": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "Start Job",
+        "description": "Trigger the modal pipeline after video is uploaded to Supabase.",
+        "operationId": "start_job_api_v1_lab_jobs__job_id__start_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Start Job Api V1 Lab Jobs  Job Id  Start Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/jobs/{job_id}/upload-video": {
+      "post": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "Get Upload Url",
+        "description": "Get a presigned URL to upload a video clip.",
+        "operationId": "get_upload_url_api_v1_lab_jobs__job_id__upload_video_post",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "filename",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Filename"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Upload Url Api V1 Lab Jobs  Job Id  Upload Video Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/lab/jobs/{job_id}": {
+      "get": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "Get Job",
+        "description": "Get job status.",
+        "operationId": "get_job_api_v1_lab_jobs__job_id__get",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Get Job Api V1 Lab Jobs  Job Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "lab"
+        ],
+        "summary": "Delete Job",
+        "description": "Delete job.",
+        "operationId": "delete_job_api_v1_lab_jobs__job_id__delete",
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Delete Job Api V1 Lab Jobs  Job Id  Delete"
                 }
               }
             }
@@ -26328,6 +26807,65 @@
             "schema": {
               "type": "string",
               "title": "Tour Id"
+            }
+          },
+          {
+            "name": "redirect",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Redirect"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v/{code}": {
+      "get": {
+        "tags": [
+          "share"
+        ],
+        "summary": "Tour Short Link",
+        "description": "Short share link for a tour (assigned on publish).\n\nResolves the short code and renders the same share preview as\n``/share/tours/{tour_id}``.",
+        "operationId": "tour_short_link_v__code__get",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Code"
             }
           },
           {
@@ -32636,9 +33174,7 @@
                 "type": "null"
               }
             ],
-            "title": "Overall Percentage",
-            "default": null,
-            "description": "Weighted score over comparable dimensions; null when no dimensions are comparable."
+            "title": "Overall Percentage"
           },
           "color": {
             "type": "string",
@@ -39340,6 +39876,39 @@
         ],
         "title": "JamabandiLookupResponse"
       },
+      "JobCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "is_360_video": {
+            "type": "boolean",
+            "title": "Is 360 Video",
+            "default": false
+          },
+          "quality_preset": {
+            "type": "string",
+            "title": "Quality Preset",
+            "default": "balanced"
+          },
+          "filenames": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filenames",
+            "default": [
+              "video.mp4"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "JobCreate"
+      },
       "LastMethodRequest": {
         "properties": {
           "method": {
@@ -40295,6 +40864,28 @@
             ],
             "title": "Completion Notes"
           },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "vendor_contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Contact"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -40518,6 +41109,28 @@
               }
             ],
             "title": "Completion Notes"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "vendor_contact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Contact"
           }
         },
         "type": "object",
@@ -46299,6 +46912,25 @@
         "title": "SceneReorder",
         "description": "Schema for reordering scenes."
       },
+      "SceneStitchRequest": {
+        "properties": {
+          "frame_urls": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "minItems": 2,
+            "title": "Frame Urls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "frame_urls"
+        ],
+        "title": "SceneStitchRequest",
+        "description": "Request payload for cloud panorama stitching of captured frames."
+      },
       "SceneUpdate": {
         "properties": {
           "title": {
@@ -47304,6 +47936,17 @@
             "type": "integer",
             "title": "User Id"
           },
+          "short_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Code"
+          },
           "is_featured": {
             "type": "boolean",
             "title": "Is Featured"
@@ -48226,6 +48869,17 @@
             "type": "integer",
             "title": "User Id"
           },
+          "short_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Short Code"
+          },
           "is_featured": {
             "type": "boolean",
             "title": "Is Featured"
@@ -48333,7 +48987,7 @@
           "updated_at"
         ],
         "title": "TourWithScenes",
-        "description": "Tour with all scenes loaded."
+        "description": "Tour with all scenes loaded (also the public tour response shape).\n\nInherits ``short_code`` from ``Tour``."
       },
       "TypedUserNotification": {
         "properties": {

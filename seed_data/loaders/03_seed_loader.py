@@ -82,8 +82,17 @@ async def load_seed_users(id_map: IDMap, media_urls: dict[str, str] | None = Non
 
             clean = {k: v for k, v in data.items() if not k.startswith("_")}
             clean["is_seed_data"] = True
-            if clean.get("supabase_user_id") and clean["supabase_user_id"].startswith("PLACEHOLDER"):
-                clean["supabase_user_id"] = f"seed-{email}"
+            raw_sid = clean.get("supabase_user_id")
+            # Never store seed-{email}: auth.users.id and PostgREST UUID columns
+            # reject non-UUID strings. Use a deterministic UUID5 placeholder.
+            if (
+                not raw_sid
+                or str(raw_sid).startswith("PLACEHOLDER")
+                or str(raw_sid).startswith("seed-")
+            ):
+                from app.core.utils import seed_supabase_user_id
+
+                clean["supabase_user_id"] = seed_supabase_user_id(email or f"user-{id(data)}")
             clean = resolve_refs(clean, id_map, media_urls, model=User)
             record = User(**clean)
             session.add(record)

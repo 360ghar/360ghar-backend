@@ -42,8 +42,8 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/design-studio` | design-studio | `design_studio.py` | AI image generation (auth required). |
 | `/vastu` | vastu | `vastu.py` | Vastu checker (public). |
 | `/deeplinks` | deeplinks | `app/api/deeplinks.py` | Public app deep-link generation/resolution (no auth). |
-| `/tours` | tours | `tours.py` | Virtual tour CRUD. |
-| `/scenes` | scenes | `scenes.py` | Tour scenes. |
+| `/tours` | tours | `tours.py` | Virtual tour CRUD. Includes `POST /tours/{tour_id}/generate-3d` (textured skybox mesh AIJob). |
+| `/scenes` | scenes | `scenes.py` | Tour scenes. Includes `POST /scenes/{scene_id}/stitch` (cloud panorama stitch AIJob). |
 | `/hotspots` | hotspots | `hotspots.py` | Scene hotspots. |
 | (none) | floor-plans | `floor_plans.py` | Floor plan upload and processing. |
 | `/dashboard` | dashboard | `dashboard.py` | Tour analytics dashboard. |

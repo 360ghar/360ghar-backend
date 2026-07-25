@@ -5,9 +5,11 @@ Create, read, update, delete, publish, unpublish, and duplicate tours.
 """
 from __future__ import annotations
 
+import secrets
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -25,6 +27,27 @@ from app.schemas.tour import TourCreate, TourUpdate
 from app.services.tour.helpers import _ensure_tour_ownership
 
 logger = get_logger(__name__)
+
+# Unambiguous lowercase alphabet for short share codes (no 0/o/1/l/i).
+_SHORT_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+_SHORT_CODE_LENGTH = 6
+_SHORT_CODE_MAX_ATTEMPTS = 5
+
+
+async def generate_short_code(db: AsyncSession) -> str:
+    """Generate a unique 6-char short share code for a tour.
+
+    Retries up to 5 times on collision (checked via SELECT; the partial
+    unique index on tours.short_code is the hard guarantee).
+    """
+    for _ in range(_SHORT_CODE_MAX_ATTEMPTS):
+        code = "".join(secrets.choice(_SHORT_ALPHABET) for _ in range(_SHORT_CODE_LENGTH))
+        exists = (
+            await db.execute(select(Tour.id).where(Tour.short_code == code))
+        ).scalar_one_or_none()
+        if exists is None:
+            return code
+    raise RuntimeError("Could not generate a unique tour short code after 5 attempts")
 
 
 async def get_tours(
@@ -221,7 +244,17 @@ async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     tour.visibility = TourVisibility.public
     tour.is_public = True
 
-    await db.commit()
+    # Assign a short share code on first publish; never cleared on unpublish
+    # so existing /v/{code} links keep working after a republish.
+    if not tour.short_code:
+        tour.short_code = await generate_short_code(db)
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Race on short_code unique index: regenerate once and retry.
+        await db.rollback()
+        tour.short_code = await generate_short_code(db)
+        await db.commit()
 
     logger.info("Tour published: %s", tour_id)
     return await get_tour(db=db, tour_id=tour_id, user_id=user_id, include_scenes=True)

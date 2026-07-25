@@ -71,3 +71,45 @@ async def test_non_transient_error_still_500() -> None:
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_ssl_eof_returns_503() -> None:
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/ssl")
+    async def ssl_fail():
+        raise Exception(
+            "(psycopg.OperationalError) consuming input failed: "
+            "SSL error: unexpected eof while reading"
+        )
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/ssl")
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "SERVICE_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+async def test_detached_instance_returns_stable_code() -> None:
+    from sqlalchemy.orm.exc import DetachedInstanceError
+
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/detached")
+    async def detached():
+        raise DetachedInstanceError(
+            "Instance <User at 0x1> is not bound to a Session; "
+            "attribute refresh operation cannot proceed"
+        )
+
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/detached")
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == "DETACHED_ORM_INSTANCE"

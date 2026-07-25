@@ -165,9 +165,17 @@ async def load_hardcoded_users(id_map: IDMap, media_urls: dict[str, str] | None 
 
             clean = {k: v for k, v in data.items() if not k.startswith("_")}
             clean["is_seed_data"] = True
-            # Handle null supabase_user_id
-            if clean.get("supabase_user_id") and clean["supabase_user_id"].startswith("PLACEHOLDER"):
-                clean["supabase_user_id"] = f"seed-{email}"
+            # Never store seed-{email}: auth.users.id and PostgREST UUID columns
+            # reject non-UUID strings. Use a deterministic UUID5 placeholder.
+            raw_sid = clean.get("supabase_user_id")
+            if (
+                not raw_sid
+                or str(raw_sid).startswith("PLACEHOLDER")
+                or str(raw_sid).startswith("seed-")
+            ):
+                from app.core.utils import seed_supabase_user_id
+
+                clean["supabase_user_id"] = seed_supabase_user_id(email or f"user-{id(data)}")
             _resolve_media_refs(clean, media_urls or {})
             record = User(**clean)
             session.add(record)
