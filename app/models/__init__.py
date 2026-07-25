@@ -7,6 +7,7 @@ from .agents import Agent, AgentInteraction
 from .ai_conversations import AIConversation, AIConversationMessage
 from .blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
 from .bookings import Booking
+from .capture import CaptureFrame, CaptureSession
 from .conversations import Conversation, ConversationParticipant, Message
 from .core import FAQ, AppVersion, BugReport, Page
 from .data_hub import (
@@ -31,6 +32,9 @@ from .enums import (
     BugSeverity,
     BugStatus,
     BugType,
+    CaptureMode,
+    CaptureSessionStatus,
+    CaptureTrackingBackend,
     ComplaintNature,
     ConversationApp,
     ConversationSource,
@@ -161,6 +165,9 @@ __all__ = [
     "TourBranding",
     "CustomDomain",
     "VideoMetadata",
+    # Guided capture
+    "CaptureSession",
+    "CaptureFrame",
     # AI Conversations
     "AIConversation",
     "AIConversationMessage",
@@ -196,6 +203,9 @@ __all__ = [
     "BugSeverity",
     "BugStatus",
     "BugType",
+    "CaptureMode",
+    "CaptureSessionStatus",
+    "CaptureTrackingBackend",
     "ComplaintNature",
     "ConversationApp",
     "ConversationSource",
