@@ -17,6 +17,7 @@ from app.core.logging import get_logger
 from app.models.enums import TourStatus
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
+    AIJobResponse,
     Scene,
     SceneCreate,
     SceneReorder,
@@ -28,6 +29,7 @@ from app.schemas.tour import (
 )
 from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
+from app.services import tour_ai
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -200,6 +202,27 @@ async def duplicate_tour(
     )
 
 
+@router.post("/{tour_id}/generate-3d", response_model=AIJobResponse, summary="Generate 3D world")
+async def generate_3d_world(
+    tour_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Generate a navigable 3D world (textured skybox mesh) for a tour.
+
+    Converts each scene's panorama into a cubemap, builds a GLB of textured
+    skybox cubes (one per scene), and stores the mesh URL in the tour
+    settings. Returns a job ID for tracking progress.
+    """
+    job = await tour_ai.generate_3d_world(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+    )
+    return {"job": job}
+
+
 @router.get("/{tour_id}/analytics", response_model=TourAnalytics, summary="Get tour analytics")
 async def get_tour_analytics(
     tour_id: str,
@@ -286,6 +309,29 @@ async def reorder_scenes(
     return scenes
 
 
+def _build_tour_qr_url(
+    tour: Tour,
+    *,
+    public_base_url: str | None,
+    public_app_url: str | None,
+) -> str:
+    """Build the URL encoded into a tour QR code.
+
+    Prefers the short link ``/v/{short_code}`` when present; otherwise the
+    frontend viewer path ``/view/{tour_id}``.
+
+    Accepts either the ORM tour model or the response schema (both expose
+    ``id`` and ``short_code``).
+    """
+    short_code = tour.short_code
+    tour_id = tour.id
+    if short_code:
+        base_url = (public_base_url or "https://360ghar.com").rstrip("/")
+        return f"{base_url}/v/{short_code}"
+    base_url = (public_app_url or public_base_url or "https://360ghar.com").rstrip("/")
+    return f"{base_url}/view/{tour_id}"
+
+
 @router.get("/{tour_id}/qr-code", summary="Get tour QR code")
 async def get_tour_qr_code(
     tour_id: str,
@@ -310,10 +356,13 @@ async def get_tour_qr_code(
             detail="Tour not found or not authorized"
         )
 
-    # Generate tour URL - use PUBLIC_BASE_URL if configured
     from app.config import settings
-    base_url = settings.PUBLIC_BASE_URL or "https://360ghar.com"
-    tour_url = f"{base_url}/tour/{tour_id}"
+
+    tour_url = _build_tour_qr_url(
+        tour,
+        public_base_url=settings.PUBLIC_BASE_URL,
+        public_app_url=settings.PUBLIC_APP_URL,
+    )
 
     # Generate QR code
     qr = qrcode.QRCode(

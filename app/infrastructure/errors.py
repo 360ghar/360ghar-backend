@@ -171,8 +171,8 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "error_code": error_code,
                 },
             )
-            # Still capture in Sentry — pool exhaustion is actionable — but
-            # return a retryable status to the client.
+            # Capture for capacity visibility. Test runs have SENTRY_DSN blanked
+            # so this does not flood the project from intentional fixture errors.
             sentry_sdk.capture_exception(exc)
             return JSONResponse(
                 status_code=503,
@@ -187,6 +187,29 @@ def register_exception_handlers(app: FastAPI) -> None:
                     }
                 },
                 headers={"Retry-After": "5"},
+            )
+
+        exc_name = type(exc).__name__
+        if exc_name == "DetachedInstanceError":
+            logger.error(
+                "Detached ORM instance: %s - %s %s",
+                exc,
+                request.method,
+                request.url.path,
+                exc_info=True,
+                extra={"endpoint": str(request.url.path), "error_code": "DETACHED_ORM_INSTANCE"},
+            )
+            sentry_sdk.capture_exception(exc)
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "DETACHED_ORM_INSTANCE",
+                        "message": (
+                            str(exc) if settings.DEBUG else "An unexpected error occurred"
+                        ),
+                    }
+                },
             )
 
         logger.error(

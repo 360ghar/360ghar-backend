@@ -33,7 +33,12 @@ async def register_device_token(
     locale: str | None = None,
 ) -> dict[str, Any]:
     """Upsert a device token in Supabase device_tokens."""
+    from app.core.utils import is_valid_uuid
+
     now_iso = utc_now_iso()
+    # user_id is UUID FK to auth.users. Non-UUID seed placeholders must not
+    # bind (APIError invalid uuid) — still register the token unbound.
+    bind_user_id = user_id if is_valid_uuid(user_id) else None
 
     # Atomic upsert: resolves the (token) unique constraint inside Postgres
     # via INSERT ... ON CONFLICT (token) DO UPDATE. The previous SELECT-then-
@@ -44,7 +49,7 @@ async def register_device_token(
         supa.table("device_tokens").upsert(
             {
                 "token": token,
-                "user_id": user_id,
+                "user_id": bind_user_id,
                 "platform": platform,
                 "app_version": app_version,
                 "locale": locale,
@@ -55,7 +60,10 @@ async def register_device_token(
         ).execute()
 
     await _run_sync(_sync_register)
-    logger.info("Registered device token", extra={"token_hash": hash(token), "user_id": user_id})
+    logger.info(
+        "Registered device token",
+        extra={"token_hash": hash(token), "user_id": bind_user_id},
+    )
     return {"ok": True}
 
 
@@ -160,6 +168,18 @@ async def send_to_user(
     deep_link: str | None = None,
     type_key: str | None = None,
 ) -> dict[str, Any]:
+    from app.core.utils import is_valid_uuid
+
+    # device_tokens.user_id / notifications.target_user_id are UUID columns.
+    # Legacy seed-{email} ids must not hit PostgREST (APIError invalid uuid).
+    if not is_valid_uuid(user_id):
+        return {
+            "ok": True,
+            "sent": 0,
+            "notification_id": None,
+            "skipped": "invalid_user_id",
+        }
+
     priority_label, ttl, priority_high = _get_type_config(type_key)
     payload_data = _augment_data_with_meta(
         data,

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 import sentry_sdk
 from fastapi import Depends, Header, HTTPException, Query, Request, status
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import AuthFailureReason, _is_failure, verify_supabase_token
@@ -25,6 +28,45 @@ from app.services.user import get_or_create_user_from_supabase
 logger = get_logger(__name__)
 
 _RETRY_AFTER_SECONDS = "5"
+
+
+def _safe_sentry_field(value: Any) -> str | None:
+    """Serialize a user field for Sentry; drop mocks / non-scalars."""
+    if value is None:
+        return None
+    type_name = type(value).__name__
+    if type_name in {"MagicMock", "AsyncMock", "Mock", "NonCallableMagicMock"}:
+        return None
+    text = str(value)
+    if "MagicMock" in text or "AsyncMock" in text:
+        return None
+    return text
+
+
+def _set_sentry_user(user: Any) -> None:
+    sentry_sdk.set_user({
+        "id": _safe_sentry_field(getattr(user, "id", None)),
+        "email": _safe_sentry_field(getattr(user, "email", None)),
+        "username": _safe_sentry_field(getattr(user, "phone", None)),
+    })
+
+
+def _eager_load_user_columns(user: User) -> None:
+    """Load all column attrs so they remain usable after session invalidate.
+
+    ``execute_with_transient_retry`` can invalidate the request session and
+    detach ORM instances. Loaded scalar columns stay readable; unloaded ones
+    raise ``DetachedInstanceError`` on access.
+    """
+    try:
+        state = sa_inspect(user)
+    except Exception:  # noqa: BLE001
+        return
+    for attr in state.mapper.column_attrs:
+        try:
+            getattr(user, attr.key)
+        except Exception:  # noqa: BLE001
+            continue
 
 
 def _provider_unavailable_response() -> HTTPException:
@@ -166,6 +208,9 @@ async def get_current_user(
             )
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+        # Touch all column attrs before commit so a later session invalidate
+        # (transient retry) does not force a refresh that raises DetachedInstanceError.
+        _eager_load_user_columns(db_user)
         # Auth sync uses a transaction-scoped advisory lock. It is independent
         # from endpoint business writes, so release it before endpoint logic runs.
         # Commit ends the txn so Supavisor can free the backend until the next
@@ -176,11 +221,7 @@ async def get_current_user(
         # metadata (e.g. GET /users/me/identities) can access it without
         # a second round-trip.
         request.state.supabase_user_data = supabase_user_data
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
+        _set_sentry_user(db_user)
         logger.debug("User authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
         return db_user
     except HTTPException:
@@ -287,14 +328,11 @@ async def get_current_cached_active_user(
                     )
                 request.state.user_id = cached_user.id
                 request.state.supabase_user_data = supabase_user_data
-                sentry_sdk.set_user({
-                    "id": str(cached_user.id),
-                    "email": cached_user.email,
-                    "username": cached_user.phone,
-                })
+                _set_sentry_user(cached_user)
                 return cached_user
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+        _eager_load_user_columns(db_user)
         await db.commit()
         snapshot = snapshot_from_user(db_user)
         await cache_auth_user(snapshot)
@@ -309,11 +347,7 @@ async def get_current_cached_active_user(
             )
         request.state.user_id = snapshot.id
         request.state.supabase_user_data = supabase_user_data
-        sentry_sdk.set_user({
-            "id": str(snapshot.id),
-            "email": snapshot.email,
-            "username": snapshot.phone,
-        })
+        _set_sentry_user(snapshot)
         return snapshot
     except HTTPException:
         raise
@@ -412,17 +446,14 @@ async def get_current_user_sse(
         async with session_factory() as db:
             try:
                 db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+                _eager_load_user_columns(db_user)
                 db.expunge(db_user)
                 await db.commit()
             except Exception:
                 await db.rollback()
                 raise
         request.state.user_id = getattr(db_user, "id", None)
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
+        _set_sentry_user(db_user)
         logger.debug("SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
     except HTTPException:
         raise
@@ -500,13 +531,10 @@ async def get_current_user_optional(
             return None
 
         db_user = await get_or_create_user_from_supabase(db, supabase_user_data)
+        _eager_load_user_columns(db_user)
         await db.commit()
         request.state.user_id = getattr(db_user, "id", None)
-        sentry_sdk.set_user({
-            "id": str(getattr(db_user, "id", None)),
-            "email": getattr(db_user, "email", None),
-            "username": getattr(db_user, "phone", None),
-        })
+        _set_sentry_user(db_user)
         return db_user
     except Exception:
         logger.warning("Optional auth resolution failed", exc_info=True)

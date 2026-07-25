@@ -62,6 +62,12 @@ async def list_notifications_for_user(
     with_total: bool = False,
 ) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     """Return notifications for a given Supabase user id (offset-fallback pagination)."""
+    from app.core.utils import is_valid_uuid
+
+    # target_user_id is UUID in Supabase. Non-UUID seed placeholders must not query.
+    if not is_valid_uuid(target_user_id):
+        return [], None, 0 if with_total else None
+
     if cursor_payload is None:
         cursor_payload = {}
 

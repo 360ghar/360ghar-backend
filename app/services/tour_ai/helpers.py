@@ -260,6 +260,33 @@ async def _ensure_navigation_hotspots(
     return created
 
 
+# Cap outbound image downloads to bound memory/DoS from oversized assets.
+MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
+
+
+async def _download_image_bytes(url: str, timeout: float = 60.0) -> bytes:
+    """Download an image (or any asset) and return the raw bytes."""
+    from app.core.http import get_general_client
+
+    client = get_general_client()
+    async with client.stream(
+        "GET", url, timeout=timeout, follow_redirects=False
+    ) as response:
+        if response.is_redirect or 300 <= response.status_code < 400:
+            raise ValueError(
+                f"Refusing to follow redirect for {url} (status {response.status_code})"
+            )
+        response.raise_for_status()
+        buffer = bytearray()
+        async for chunk in response.aiter_bytes():
+            buffer.extend(chunk)
+            if len(buffer) > MAX_DOWNLOAD_BYTES:
+                raise ValueError(
+                    f"Download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}"
+                )
+        return bytes(buffer)
+
+
 async def _download_image_as_base64(url: str) -> tuple[str, str]:
     """Download an image and convert to base64."""
     from app.core.http import get_general_client

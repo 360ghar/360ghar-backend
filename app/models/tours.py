@@ -63,6 +63,7 @@ class Tour(Base):
         nullable=False
     )
     is_public: Mapped[bool] = mapped_column(Boolean, default=False)
+    short_code: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True, index=True)
     visibility: Mapped[TourVisibility] = mapped_column(
         SQLEnum(TourVisibility, name="tour_visibility"),
         default=TourVisibility.private,

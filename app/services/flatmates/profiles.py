@@ -423,6 +423,8 @@ async def mark_flatmates_notification_read(
     user_id: int,
     notification_id: str,
 ) -> dict[str, Any]:
+    from app.core.utils import is_valid_uuid
+
     user = await db.get(User, user_id)
     if user is None:
         raise BadRequestException(detail="User not found")
@@ -430,6 +432,8 @@ async def mark_flatmates_notification_read(
         UUID(notification_id)
     except (ValueError, AttributeError):
         raise BadRequestException(detail="Notification not found") from None
+    if not is_valid_uuid(str(user.supabase_user_id or "")):
+        raise BadRequestException(detail="Notification not found")
     supa = _supa()
 
     def _sync_mark_read():
@@ -457,9 +461,13 @@ async def mark_flatmates_notification_read(
 
 
 async def mark_all_flatmates_notifications_read(db: AsyncSession, user_id: int) -> dict[str, Any]:
+    from app.core.utils import is_valid_uuid
+
     user = await db.get(User, user_id)
     if user is None:
         raise BadRequestException(detail="User not found")
+    if not is_valid_uuid(str(user.supabase_user_id or "")):
+        return {"ok": True, "updated": 0}
 
     def _sync_mark_all_read():
         supa = _supa()

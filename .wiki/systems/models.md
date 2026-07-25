@@ -47,7 +47,7 @@ Models inherit from `Base` (a `DeclarativeBase` in `app/core/database.py`) and u
 
 The `properties.py` file demonstrates the geospatial pattern: a `Geography` column stores `Point` geometries in SRID 4326. Because GeoAlchemy2's `Geography` type is not supported by SQLite (used in tests), the file registers `@compiles(Geography, "sqlite")` and `@compiles(ST_GeogFromText, "sqlite")` shims so `Base.metadata.create_all` works in the test runner.
 
-The `User` model anchors identity: `supabase_user_id` is unique, `email` has a partial unique index (`postgresql_where=email IS NOT NULL`), and `phone` is the primary identifier. The `Tour` model is the largest (482 lines) and owns scenes, hotspots, floor plans, analytics events, AI jobs, media files, branding, custom domains, and search index entries.
+The `User` model anchors identity: `supabase_user_id` is unique, `email` has a partial unique index (`postgresql_where=email IS NOT NULL`), and `phone` is the primary identifier. The `Tour` model is the largest (482 lines) and owns scenes, hotspots, floor plans, analytics events, AI jobs, media files, branding, custom domains, and search index entries. `Tour.short_code` (nullable `VARCHAR(12)`, partial unique index) holds the short share-link code assigned on first publish and never cleared on unpublish.
 
 Enum columns use SQLAlchemy's `Enum` type with the string enums from `enums.py`. The first 100 lines of `enums.py` show the pattern: `class PropertyType(str, Enum)`, `class PropertyPurpose(str, Enum)`, and so on. The `PG_FLATMATE_TYPES` set constant is used across the flatmates module to distinguish PG/flatmate listings from other property types.
 

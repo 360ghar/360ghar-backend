@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.api.api_v1.dependencies.auth import get_current_user
 from app.models.users import User
 from app.core.auth import get_supabase_service_client
+from app.core.utils import is_valid_uuid
 from app.services.modal_worker import train_splat
 
 router = APIRouter()
@@ -15,6 +16,20 @@ class JobCreate(BaseModel):
     is_360_video: bool = False
     quality_preset: str = "balanced" # fast, balanced, quality
     filenames: List[str] = ["video.mp4"]
+
+
+def _require_uuid_user_id(user: User) -> str:
+    """splat_jobs.user_id is UUID REFERENCES auth.users — reject non-UUID seed ids."""
+    uid = str(getattr(user, "supabase_user_id", "") or "")
+    if not is_valid_uuid(uid):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "INVALID_SUPABASE_USER_ID",
+                "message": "Account is not linked to a valid auth identity",
+            },
+        )
+    return uid
 
 @router.post("/jobs", response_model=Any)
 async def create_job(
@@ -26,16 +41,17 @@ async def create_job(
     """
     Start a new Gaussian Splat job.
     """
+    user_id = _require_uuid_user_id(current_user)
     job_id = str(uuid.uuid4())
     
     # Generate an upload path for the video
-    storage_path = f"{current_user.supabase_user_id}/{job_id}"
+    storage_path = f"{user_id}/{job_id}"
     
     # Create the record in Supabase
     video_paths = ",".join([f"{storage_path}/{f}" for f in job_in.filenames])
     job_data = {
         "id": job_id,
-        "user_id": str(current_user.supabase_user_id),
+        "user_id": user_id,
         "title": job_in.title,
         "status": "pending",
         "progress": 0,
@@ -62,8 +78,9 @@ async def start_job(
     """
     Trigger the modal pipeline after video is uploaded to Supabase.
     """
+    user_id = _require_uuid_user_id(current_user)
     # Verify job belongs to user
-    job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", str(current_user.supabase_user_id)).execute()
+    job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", user_id).execute()
     if not job_res.data:
         raise HTTPException(status_code=404, detail="Job not found")
         
@@ -91,11 +108,12 @@ async def get_upload_url(
     """
     Get a presigned URL to upload a video clip.
     """
-    job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", str(current_user.supabase_user_id)).execute()
+    user_id = _require_uuid_user_id(current_user)
+    job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", user_id).execute()
     if not job_res.data:
         raise HTTPException(status_code=404, detail="Job not found")
         
-    storage_path = f"{current_user.supabase_user_id}/{job_id}/{filename}"
+    storage_path = f"{user_id}/{job_id}/{filename}"
     
     # Generate signed upload URL from Supabase
     res = get_supabase_service_client().storage.from_("splat-jobs").create_signed_upload_url(storage_path)
@@ -122,7 +140,8 @@ async def list_jobs(
     """
     List user's splat jobs.
     """
-    res = get_supabase_service_client().table("splat_jobs").select("*").eq("user_id", str(current_user.supabase_user_id)).order("created_at", desc=True).execute()
+    user_id = _require_uuid_user_id(current_user)
+    res = get_supabase_service_client().table("splat_jobs").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
     return {"jobs": res.data, "total": len(res.data)}
 
 @router.get("/jobs/{job_id}", response_model=Any)
@@ -133,7 +152,8 @@ async def get_job(
     """
     Get job status.
     """
-    res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", str(current_user.supabase_user_id)).execute()
+    user_id = _require_uuid_user_id(current_user)
+    res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", user_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Job not found")
     return res.data[0]
@@ -146,5 +166,6 @@ async def delete_job(
     """
     Delete job.
     """
-    res = get_supabase_service_client().table("splat_jobs").delete().eq("id", job_id).eq("user_id", str(current_user.supabase_user_id)).execute()
+    user_id = _require_uuid_user_id(current_user)
+    get_supabase_service_client().table("splat_jobs").delete().eq("id", job_id).eq("user_id", user_id).execute()
     return {"status": "deleted"}

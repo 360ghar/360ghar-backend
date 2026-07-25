@@ -46,6 +46,8 @@ dependencies = [
     "PyJWT[crypto]>=2.9.0",
     "razorpay>=1.4.2",
     "modal>=1.5.2",
+    "opencv-python-headless>=5.0.0.93",
+    "numpy>=2.4.2",
 ]
 
 [project.optional-dependencies]

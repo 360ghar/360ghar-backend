@@ -245,8 +245,12 @@ class TestAssignAgentEndpoint:
 
             response = await authenticated_client.post("/api/v1/agents/assign/")
 
-            # Returns 503 when no agents available
-            assert response.status_code == 503
+            # Empty inventory is a business state (404), not infra outage (503)
+            assert response.status_code == 404
+            body = response.json()
+            assert body.get("error", {}).get("code") == "NO_AGENTS_AVAILABLE" or (
+                "No agents available" in str(body)
+            )
 
 
 class TestGetAgentWithStatsEndpoint:

@@ -28,6 +28,8 @@ app/services/
 │   ├── scene_analysis.py  # scene analysis + description generation
 │   ├── hotspot_suggestions.py # AI hotspot placement
 │   ├── background.py      # tour generation, optimization, apply suggestions
+│   ├── stitch.py          # cloud panorama stitching (OpenCV) for scene frames
+│   ├── world3d.py         # "Generate 3D World": equirect→cubemap + GLB skybox mesh
 │   └── helpers.py         # retry decorator, semaphore, image download
 └── custom_domain.py       # domain creation, verification token, SSL status
 app/models/
@@ -47,12 +49,15 @@ app/models/
 | `_AI_TASK_SEMAPHORE` | `app/services/tour_ai/helpers.py` | Concurrency limiter for AI background tasks |
 | `create_custom_domain` | `app/services/custom_domain.py` | Domain registration with DNS TXT verification token |
 | `record_analytics_event` | `app/services/tour/analytics.py` | Public viewer event ingest |
+| `generate_short_code` | `app/services/tour/tours.py` | Unique 6-char share code assigned on first publish (`/v/{code}`) |
+| `request_scene_stitch` | `app/services/tour_ai/stitch.py` | Cloud panorama stitch of captured frames (cv2.Stitcher, 2:1 canvas) |
+| `generate_3d_world` | `app/services/tour_ai/world3d.py` | Textured skybox-mesh GLB built from scene panoramas |
 
 ## How it works
 
 Tour CRUD is straightforward keyset pagination on `(created_at, id)`. Scenes belong to tours and carry `order_index`; `reorder_scenes` updates positions atomically. Hotspots carry a `HotspotType` and arbitrary content that is sanitised through `_sanitize_hotspot_html` using `_HOTSPOT_HTML_ALLOWED_TAGS`, `_HOTSPOT_HTML_ALLOWED_ATTRIBUTES`, and `_HOTSPOT_HTML_ALLOWED_PROTOCOLS`. Floor plans accept marker updates for navigation overlay.
 
-The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries with exponential backoff and appends a corrective nudge on parse failure; if the primary vision provider (Gemini) exhausts its retries, it transparently falls back to the other configured provider (GLM, or vice-versa) once via `_resolve_fallback_provider` before giving up.
+The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries with exponential backoff and appends a corrective nudge on parse failure; if the primary vision provider (Gemini) exhausts its retries, it transparently falls back to the other configured provider (GLM, or vice-versa) once via `_resolve_fallback_provider` before giving up.
 
 ```mermaid
 graph TD
@@ -78,6 +83,12 @@ graph TD
 Custom domains use a DNS TXT verification flow. `create_custom_domain` generates a `360ghar-verify-{token_hex(16)}` token, stores it with `verification_status=pending` and `ssl_status=pending`, and the user adds it as a DNS TXT record. Verification status transitions through `pending → verified → failed`; SSL status through `none → pending → active → failed`. The custom domain is linked to a tour for branded URL serving.
 
 Analytics is split between owner-facing dashboards (`get_dashboard_stats`, `get_dashboard_realtime_stats`, `get_tour_heatmap`) and public-viewer event ingest (`record_analytics_event`). Public endpoints do not require auth and accept a `UserSession` identifier for funnel tracking.
+
+**Short share links**: publishing a tour assigns a unique 6-character `short_code` (lowercase alphabet without 0/o/1/l/i, generated with `secrets.choice`, up to 5 collision retries against a partial unique index). `GET /v/{code}` (root-level, in `app/api/share.py`) resolves the code and renders the same OG/Twitter share preview as `GET /share/tours/{tour_id}`. Codes are never cleared on unpublish so existing links survive republish cycles.
+
+**Cloud panorama stitching** (`POST /api/v1/scenes/{scene_id}/stitch`): accepts 2–32 http(s) frame URLs, creates a `panorama_stitch` AIJob, then in a tracked background task downloads the frames, downscales them (long side ≤ 1600px), stitches with `cv2.Stitcher` (PANORAMA mode), pads the result onto a 2:1 black canvas, uploads the JPEG to Cloudinary under the scene's `original` folder, swaps `scene.image_url`, and re-runs the standard scene-processing pipeline for the thumbnail. A module-level `Semaphore(1)` serialises stitches (memory-heavy) and the task carries a 5-minute timeout.
+
+**Generate 3D World** (`POST /api/v1/tours/{tour_id}/generate-3d`): creates a `generate_3d_world` AIJob that converts each scene's equirect panorama into a 6-face cubemap (numpy ray sampling), builds a GLB (glTF 2.0 binary, `KHR_materials_unlit`) of inward-facing textured cubes — one cube per scene laid out in a row (x += 3 units) — uploads the `.glb` to Cloudinary, and persists `{"mesh_url", "kind": "skybox_mesh", "scene_id", "scene_ids"}` into `tour.settings["world_3d"]` as well as the job result. Requires at least one scene (400 otherwise).
 
 ## Integration points
 

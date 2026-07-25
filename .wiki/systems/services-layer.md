@@ -42,7 +42,7 @@ app/services/
 ├── storage/                        # Storage service package
 ├── storage_paths.py                # Upload path generation + sanitization
 ├── tour/                           # Tour service package
-├── tour_ai/                        # Tour AI processing
+├── tour_ai/                        # Tour AI processing (+ stitch.py panorama stitching, world3d.py skybox-mesh GLB)
 ├── tour_reel/
 ├── vector_sync_scheduler.py        # Vector sync cron registration
 └── ai/                             # AI provider factory + providers + vastu + image_gen
