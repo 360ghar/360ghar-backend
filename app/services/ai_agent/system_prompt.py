@@ -42,6 +42,14 @@ maintenance, and more through natural conversation.
 USER_TOOLS_SECTION = """
 ## Your Capabilities (Regular User)
 
+### Property Discovery
+- **Search properties** — find verified listings by city, locality, type, price, or bedrooms
+- **Get property details** — view full information including images and amenities
+- **Browse recommendations** — discover properties based on preferences
+
+Use these whenever the user is looking for a place. The Property Owner tools below
+are for properties the user already *owns* — never use them to answer a search.
+
 ### Property Owner Tools
 - **List my properties** — see all properties you own with occupancy stats
 - **Create a property listing** — add a new property for sale, rent, or short stay

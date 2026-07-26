@@ -8,8 +8,6 @@ DELETE /agent/conversations/{id}       — Delete a conversation
 """
 from __future__ import annotations
 
-import json as _json
-
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +24,7 @@ from app.schemas.ai_agent import (
 )
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.services.ai_agent import conversation_store, get_agent_service
+from app.services.ai_agent.agent_service import sse_event
 
 _public_chat_limiter = EndpointRateLimiter(calls=10, period=60)
 
@@ -86,8 +85,8 @@ async def agent_chat_public(
                 yield event
         except Exception as exc:
             logger.error("Public SSE stream error: %s", exc, exc_info=True)
-            yield (
-                f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+            yield sse_event(
+                "error", {"code": "STREAM_ERROR", "message": str(exc)[:200]}
             )
 
     return StreamingResponse(
@@ -153,7 +152,12 @@ async def agent_chat(
         try:
             # Short sessions per tool call only — never hold a connection
             # across LLM token generation.
-            async for event in service.stream_response(
+            #
+            # Iterate the typed event stream rather than the serialized frames:
+            # this used to substring-sniff '"response_text"' out of the SSE
+            # string and re-parse it, which a text_chunk containing that literal
+            # would clobber.
+            async for event_name, event_data in service.stream_events(
                 user_message=body.message,
                 conversation_id=conversation_id,
                 conversation_history=history[:-1],  # exclude the message we just stored
@@ -161,27 +165,14 @@ async def agent_chat(
                 db=None,
                 session_factory=AsyncSessionLocalBG,
             ):
-                # Extract response text from done event to persist
-                if '"response_text"' in event:
-                    try:
-                        line = event.split("data: ", 1)[1].split("\n")[0]
-                        data = _json.loads(line)
-                        full_response = data.get("response_text", "")
-                    except Exception:
-                        pass
-                # Capture widget events for persistence
-                elif '"widget_name"' in event:
-                    try:
-                        line = event.split("data: ", 1)[1].split("\n")[0]
-                        data = _json.loads(line)
-                        if "widget_name" in data:
-                            widget_events.append(data)
-                    except Exception:
-                        pass
-                yield event
+                if event_name == "done":
+                    full_response = event_data.get("response_text", "")
+                elif event_name == "widget":
+                    widget_events.append(event_data)
+                yield sse_event(event_name, event_data)
         except Exception as exc:
             logger.error("SSE stream error: %s", exc, exc_info=True)
-            yield f"event: error\ndata: {_json.dumps({'code': 'STREAM_ERROR', 'message': str(exc)[:200]})}\n\n"
+            yield sse_event("error", {"code": "STREAM_ERROR", "message": str(exc)[:200]})
 
         # After streaming completes, open a fresh session to persist results.
         # Use AsyncSessionLocal directly instead of the get_db() generator,
@@ -288,7 +279,15 @@ async def get_widget_html(widget_name: str) -> Response:
     No auth required — widget HTML is static and data is injected
     client-side via postMessage after loading.
     """
-    from app.mcp.chatgpt import load_widget_html
+    from app.mcp.chatgpt import WIDGETS, load_widget_html
+
+    # Allowlist rather than trusting the path param: the filename is joined onto
+    # WIDGET_DIR, and the clients already validate the name twice.
+    if widget_name not in WIDGETS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Widget not found",
+        )
 
     html = load_widget_html(widget_name)
     if not html:

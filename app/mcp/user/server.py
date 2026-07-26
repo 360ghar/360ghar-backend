@@ -44,25 +44,23 @@ def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write
 # These imports trigger the @user_mcp.tool() decorators defined in each
 # sub-module. They must come AFTER the user_mcp instance is created.
 
+# The discovery_*, visits_* and owner_* PM tools live in app.mcp.chatgpt and
+# register themselves on `user_mcp` on import.
+#
+# Deliberately NOT wrapped in try/except: swallowing an ImportError here used to
+# drop discovery_search plus 10 PM tools from tools/list with nothing but a
+# WARNING in the log, which is indistinguishable from a client-side problem.
+# Fail at boot instead.
+from app.mcp.chatgpt import (  # noqa: E402,F401
+    discovery_tools,
+    pm_dashboard_tools,
+    pm_lease_tools,
+    pm_maintenance_tools,
+    pm_rent_tools,
+    pm_tenant_tools,
+    visit_tools,
+)
 from app.mcp.user import booking as booking  # noqa: E402,F401
-from app.mcp.user import discovery as discovery  # noqa: E402,F401
 from app.mcp.user import owner as owner  # noqa: E402,F401
 from app.mcp.user import system as system  # noqa: E402,F401
 from app.mcp.user import tenant as tenant  # noqa: E402,F401
-from app.mcp.user import visits as visits  # noqa: E402,F401
-
-# ============================================================================
-# ChatGPT App PM Tools Registration
-# ============================================================================
-# Import ChatGPT PM tools (cross-cutting owner/tenant) to register them
-try:
-    from app.mcp.chatgpt import (
-        pm_dashboard_tools,  # noqa: F401
-        pm_lease_tools,  # noqa: F401
-        pm_maintenance_tools,  # noqa: F401
-        pm_rent_tools,  # noqa: F401
-        pm_tenant_tools,  # noqa: F401
-    )
-    logger.info("ChatGPT PM tool modules imported for registration")
-except ImportError as e:
-    logger.warning("ChatGPT PM tools not registered: %s", e)

@@ -116,7 +116,7 @@ class _AgentRunError(Exception):
         self.message = message
 
 
-def _sse_event(event: str, data: dict[str, Any]) -> str:
+def sse_event(event: str, data: dict[str, Any]) -> str:
     """Format a single SSE event."""
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
@@ -339,7 +339,10 @@ class PydanticAIAgentService:
                     if len(final_output) >= len(full_text):
                         full_text = final_output
             except Exception:
-                pass
+                # Not fatal — the streamed text_chunks are still the answer. But an
+                # empty done.response_text used to be indistinguishable from "the
+                # model said nothing", so log it instead of swallowing it.
+                logger.warning("Could not read final agent output", exc_info=True)
 
         except Exception as e:
             raise _AgentRunError(str(e)) from e
@@ -362,8 +365,35 @@ class PydanticAIAgentService:
         user_role: str | None = None,
         session_factory: Any | None = None,
     ) -> AsyncIterator[str]:
+        """Serialize :meth:`stream_events` into SSE frames.
+
+        Callers that need the event payloads (e.g. to persist them) should
+        iterate :meth:`stream_events` and serialize with :func:`sse_event`
+        instead of re-parsing these strings.
         """
-        Run the agent and yield SSE events.
+        async for event_name, event_data in self.stream_events(
+            user_message,
+            conversation_id,
+            conversation_history,
+            user,
+            db=db,
+            user_role=user_role,
+            session_factory=session_factory,
+        ):
+            yield sse_event(event_name, event_data)
+
+    async def stream_events(
+        self,
+        user_message: str,
+        conversation_id: int | None,
+        conversation_history: list[dict[str, Any]],
+        user: Any,
+        db: AsyncSession | None = None,
+        user_role: str | None = None,
+        session_factory: Any | None = None,
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """
+        Run the agent and yield ``(event_name, data)`` pairs.
 
         Uses agent.iter() for node-by-node streaming so tool call events
         are interleaved with text chunks in real time.
@@ -382,6 +412,7 @@ class PydanticAIAgentService:
             text_chunk         — partial text from the model
             tool_call_start    — agent is invoking a tool
             tool_call_end      — tool returned a result
+            widget             — a tool result that has a linked UI widget
             fallback           — primary failed, switching to fallback provider
             done               — stream finished
             error              — all providers failed
@@ -410,7 +441,7 @@ class PydanticAIAgentService:
         for idx, (label, agent) in enumerate(candidates):
             if idx > 0:
                 logger.warning("Primary agent failed; falling back to %s", label)
-                yield _sse_event("fallback", {
+                yield ("fallback", {
                     "provider": label,
                     "reason": last_error or "unknown",
                 })
@@ -420,7 +451,7 @@ class PydanticAIAgentService:
                     agent, user_message, deps, message_history, conversation_id,
                     emit_conversation_info=(idx == 0),
                 ):
-                    yield _sse_event(event_name, event_data)
+                    yield (event_name, event_data)
                 return  # Success — stop trying fallbacks
             except _AgentRunError as exc:
                 last_error = exc.message
@@ -428,7 +459,7 @@ class PydanticAIAgentService:
                 continue
 
         # All providers failed
-        yield _sse_event("error", {
+        yield ("error", {
             "code": "AGENT_ERROR",
             "message": f"All providers failed. Last error: {last_error}"[:200],
             "recoverable": False,

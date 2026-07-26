@@ -9,7 +9,7 @@ from pydantic_ai.messages import (
 
 from app.services.ai_agent.agent_service import (
     _build_message_history,
-    _sse_event,
+    sse_event,
     _summarize_result,
 )
 
@@ -77,6 +77,6 @@ def test_summarize_result_covers_all_branches():
 
 
 def test_sse_event_format_is_valid():
-    event = _sse_event("done", {"k": "v"})
+    event = sse_event("done", {"k": "v"})
     assert event.startswith("event: done\ndata: ")
     assert event.endswith("\n\n")

@@ -553,6 +553,43 @@ When running locally:
 - AI Agent chat (auth): `POST /api/v1/agent/chat`
 - AI Agent chat (guest): `POST /api/v1/agent/chat-public`
 
+## AI Agent (in-app assistant)
+
+The in-app assistants (Flutter `360-ghar-app`, web `360ghar-web-ui`) do **not** speak
+MCP. They POST to `/api/v1/agent/chat` and consume an SSE stream of
+`conversation_info`, `text_chunk`, `tool_call_start`, `tool_call_end`, `widget`,
+`fallback`, `done`, `error` frames. Frames are produced by
+`PydanticAIAgentService.stream_events()` (typed `(name, data)` pairs) and serialized
+with `sse_event()`. **Consumers that need the payloads must iterate `stream_events`
+— never re-parse the serialized frames.**
+
+### Agent tool sets — keep these in sync with the MCP tool names
+
+`app/services/ai_agent/tools/__init__.py` defines three lists and
+`get_tools_for_role()` composes them:
+
+| List | Roles | Contents |
+|------|-------|----------|
+| `DISCOVERY_TOOLS` | **all**, incl. guest | `discovery_search`, `discovery_property_get`, `discovery_recommendations` |
+| `USER_TOOLS` | user, agent, admin | owner properties, tenant lease/rent/maintenance, bookings, `user_system_status` |
+| `ADMIN_TOOLS` | agent, admin | `agent_*` + `admin_system_status` |
+
+Two rules:
+
+1. **A registered tool name must match the MCP tool name** for the same capability.
+   `get_widget_name_for_tool()` (`app/mcp/chatgpt/__init__.py`) and both clients'
+   tool-chip label maps (`tool_call_indicator.dart`, `ToolChip.jsx`) are keyed on it.
+   A name only the agent knows renders an unlabelled chip and no widget.
+2. **Property discovery must stay available to every role.** Scoping it to guests
+   left signed-in users with no search tool at all, so the model answered "find me a
+   flat" with `owner_properties_list` — the only property tool it had. Mirror any
+   change here in `USER_TOOLS_SECTION` of `app/services/ai_agent/system_prompt.py`;
+   the prompt is what actually steers tool choice.
+
+The agent still exposes fewer tools than `/mcp` (no swipe/shortlist, no `visits_*`,
+no owner lease/rent/maintenance). Implement shared logic in `app/mcp/tool_ops/`
+first, then wire it through both surfaces.
+
 ## MCP Server
 
 360Ghar exposes Model Context Protocol (MCP) servers compatible with **any MCP client** — ChatGPT Apps, Claude Desktop, Cursor, VS Code Copilot, Gemini, MCPJam, and all MCP-compliant hosts. Authentication uses OAuth 2.1 with PKCE.
@@ -564,13 +601,13 @@ When running locally:
 | `/mcp` | User MCP (`ghar360-user`) | End-user tools for owners, tenants, property seekers, and guests |
 | `/mcp-admin` | Admin MCP (`ghar360-admin`) | Administrative tools for agents and platform admins |
 
-Both servers use `AppsSDKFastMCP` (extends FastMCP 3.0.1) with OAuth 2.1 + PKCE and share authorization endpoints at `/mcp/oauth/*`.
+Both servers use `AppsSDKFastMCP` (extends FastMCP 3.2.4) with OAuth 2.1 + PKCE and share authorization endpoints at `/mcp/oauth/*`.
 
 ### Protocol and Transport
 
 - **MCP protocol version**: `2025-11-25`
 - **Transport**: Streamable HTTP (stateless, binary JSON-RPC over HTTP) — not SSE
-- **Framework**: FastMCP 3.0.1 via `AppsSDKFastMCP` (`app/mcp/apps_sdk.py`)
+- **Framework**: FastMCP 3.2.4 via `AppsSDKFastMCP` (`app/mcp/apps_sdk.py`)
 - **Experimental capability**: `io.modelcontextprotocol/ui` advertised in initialization options — signals support for interactive HTML widget resources to all MCP hosts
 
 ### Universal Client Support
@@ -767,7 +804,7 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 
 | Purpose | Location |
 |---------|----------|
-| User MCP server | `app/mcp/user_server.py` |
+| User MCP server | `app/mcp/user/server.py` |
 | Admin MCP server | `app/mcp/admin/server.py` |
 | Apps SDK helpers | `app/mcp/apps_sdk.py` |
 | Shared tool business logic | `app/mcp/tool_ops/` |
@@ -784,7 +821,7 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 | OAuth endpoints | `app/api/api_v1/endpoints/oauth.py` |
 | Authorization | `app/services/pm_authz.py` |
 
-> **Note on `tool_ops/`**: These modules contain the shared business logic (service calls, DB queries, authorization, serialization) used by both MCP servers and the AI agent tool bridge. When adding new MCP tools, implement the logic in `app/mcp/tool_ops/` first, then wire it through both `user_server.py`/`admin/` and `tool_bridge.py`.
+> **Note on `tool_ops/`**: These modules contain the shared business logic (service calls, DB queries, authorization, serialization) used by both MCP servers and the AI agent tool bridge. When adding new MCP tools, implement the logic in `app/mcp/tool_ops/` first, then wire it through both `user/server.py`/`admin/` and `services/ai_agent/tools/`.
 
 > **Note on PM tools split**: The former `app/mcp/chatgpt/pm_tools.py` has been decomposed into domain-specific modules (`pm_shared.py`, `pm_dashboard_tools.py`, `pm_lease_tools.py`, `pm_maintenance_tools.py`, `pm_owner_tools.py`, `pm_rent_tools.py`, `pm_tenant_tools.py`). Shared serialization helpers are in `pm_shared.py`.
 

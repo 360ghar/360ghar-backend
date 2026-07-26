@@ -37,7 +37,12 @@ WIDGET_DIR = Path(__file__).parent.parent.parent.parent / "chatgpt-widgets" / "d
 # Widget to tool mapping with metadata
 WIDGETS: dict[str, dict[str, Any]] = {
     "PropertySearchWidget": {
-        "tools": ["discovery_search", "guest_property_search", "guest_property_recommendations"],
+        "tools": [
+            "discovery_search",
+            "discovery_recommendations",
+            "guest_property_search",
+            "guest_property_recommendations",
+        ],
         "title": "Property Search Results",
         "description": "Grid view of property search results with filtering",
     },
@@ -257,30 +262,7 @@ def register_chatgpt_widgets(mcp: FastMCP) -> None:
     logger.info("Registered %s/%s ChatGPT widgets", registered_count, len(WIDGETS))
 
 
-def register_chatgpt_tools(mcp: FastMCP) -> None:
-    """Register all ChatGPT-specific tools on the MCP server.
-
-    This imports and registers:
-    - Discovery tools (search, property details, feed, swipe, etc.)
-    - Visit tools (schedule, list, get, cancel)
-    - Property Management tools (leases, rent, maintenance for owners/tenants)
-    """
-    # Import tool modules to trigger registration
-    from app.mcp.chatgpt import (
-        discovery_tools,  # noqa: F401
-        pm_dashboard_tools,  # noqa: F401
-        pm_lease_tools,  # noqa: F401
-        pm_maintenance_tools,  # noqa: F401
-        pm_rent_tools,  # noqa: F401
-        pm_tenant_tools,  # noqa: F401
-        visit_tools,  # noqa: F401
-    )
-
-    logger.info("Registered ChatGPT tools (discovery, visits, property management)")
-
-
 __all__ = [
-    "register_chatgpt_tools",
     "register_chatgpt_widgets",
     "get_widget_for_tool",
     "get_widget_name_for_tool",

@@ -38,6 +38,10 @@ interface Counts {
 
 interface VisitListOutput {
   visits?: Visit[];
+  // bookings_list / agent_bookings_list_all return the rows under `bookings`;
+  // serialize_booking now emits the same id/status/scheduled_date/property
+  // fields the rows below read, so they render through the same path.
+  bookings?: Visit[];
   total?: number;
   next_cursor?: string | null;
   has_more?: boolean;
@@ -98,7 +102,10 @@ function VisitListWidget() {
   const appendingRef = React.useRef(false);
 
   React.useEffect(() => {
-    const incoming = data?.visits;
+    // This widget renders both visits (visits_list) and bookings
+    // (bookings_list / agent_bookings_list_all); the two tools use different
+    // list keys, so accept either.
+    const incoming = data?.visits ?? data?.bookings;
     if (!incoming) return;
     setAllVisits(prev => {
       if (!appendingRef.current) {

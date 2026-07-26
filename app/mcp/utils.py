@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from mcp.server.auth.middleware.auth_context import get_access_token as get_auth_access_token
+from sqlalchemy import inspect
 
 from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
@@ -249,10 +250,26 @@ def serialize_booking(booking: Booking) -> dict:
     cancellation_date = getattr(booking, "cancellation_date", None)
     created_at = getattr(booking, "created_at", None)
 
+    # Nested property is only present when the caller eager-loaded the
+    # relationship (e.g. via selectinload). Check the unloaded set so a bare
+    # Booking never triggers an async lazy-load (MissingGreenlet). raiseerr=False
+    # returns None for non-mapped objects (e.g. test doubles) instead of raising.
+    property_data = None
+    state = inspect(booking, raiseerr=False)
+    if state is not None and "property" not in state.unloaded:
+        loaded_property = booking.property
+        if loaded_property is not None:
+            property_data = serialize_property_basic(loaded_property)
+
     return {
         "id": booking.id,
         "booking_reference": getattr(booking, "booking_reference", None),
         "property_id": booking.property_id,
+        "property": property_data,
+        # Aliases so the shared VisitList/VisitScheduler widgets (which read
+        # `status` / `scheduled_date`) can render bookings and visits alike.
+        "status": booking_status.value if booking_status else None,
+        "scheduled_date": booking.check_in_date.isoformat() if booking.check_in_date else None,
         "user_id": booking.user_id,
         "check_in_date": booking.check_in_date.isoformat() if booking.check_in_date else None,
         "check_out_date": booking.check_out_date.isoformat() if booking.check_out_date else None,

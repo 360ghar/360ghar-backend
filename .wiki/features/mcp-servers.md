@@ -59,7 +59,7 @@ chatgpt-widgets/
 
 | Abstraction | File | Role |
 |---|---|---|
-| `AppsSDKFastMCP` | `app/mcp/apps_sdk.py` | FastMCP 3.0.1 subclass advertising `io.modelcontextprotocol/ui` capability and mapping `AuthRequiredError` to OAuth challenge |
+| `AppsSDKFastMCP` | `app/mcp/apps_sdk.py` | FastMCP 3.2.4 subclass advertising `io.modelcontextprotocol/ui` capability and mapping `AuthRequiredError` to OAuth challenge |
 | `AppsSDKToolResult` | `app/mcp/apps_sdk.py` | ToolResult subclass propagating `isError` and `_meta` to wire format |
 | `build_widget_tool_meta` | `app/mcp/apps_sdk.py` | Emits both `ui.*` (standard) and `openai/*` (alias) keys per tool |
 | `raise_auth_required` | `app/mcp/apps_sdk.py` | Raises `AuthRequiredError` with `WWW-Authenticate` challenge including `resource_metadata` URL |
@@ -110,7 +110,9 @@ Auth uses OAuth 2.1 with PKCE. `SupabaseTokenVerifier` in `auth_provider.py` acc
 
 The widget system is the other large piece. Eleven React widgets are built as standalone HTML bundles in `chatgpt-widgets/dist/` and registered as MCP resources with `RESOURCE_MIME_TYPE = "text/html;profile=mcp-app"`. The `WIDGETS` dict in `app/mcp/chatgpt/__init__.py` maps each widget name to its linked tool list, title, and description; `get_widget_for_tool()` does the reverse lookup. Each widget is readable at its stable URI (`ui://widget/<name>.html`) because tool metadata advertises those URIs, and at a content-hashed alias (`?v=<hash>`) for cache-busted result-level hints. The bridge in `chatgpt-widgets/src/utils/bridge.ts` detects the host at module load — `window.openai` present means OpenAI host, `window.parent !== window` means MCP Apps host (JSON-RPC 2.0 over postMessage, MCP Apps protocol `2026-01-26`), else standalone. The exported hooks (`useToolOutput`, `useCallTool`, `useSendMessage`, `useTheme`, `useWidgetState`) have identical signatures across all three runtimes, so widgets work without per-widget changes. Light/dark theme propagates from the host on all runtimes.
 
-The shared logic layer in `app/mcp/tool_ops/` is critical. Six modules (properties, leases, rent, maintenance, bookings, dashboard) contain the service calls, DB queries, authorisation, and serialization used by both MCP servers and the [AI agent](ai-agent.md) tool bridge. Per the layering rules in [AGENTS.md](../../AGENTS.md), new MCP tools must implement logic in `tool_ops/` first, then wire it through both `user_server.py`/`admin/` and `tool_bridge.py` — no duplication.
+`useToolOutput()` normalises the payload shape before handing it to a widget. The `app/mcp/user/*` tools return an `MCPResponse` envelope (`{ok: true, data: {...}}`) while the `app/mcp/chatgpt/*` tools return the payload flat, and widgets read their fields off the top level. `unwrapToolOutput()` in `bridge.ts` unwraps a successful envelope so every widget accepts either shape on every host — without it, a widget fed the envelope renders as permanently empty. Error envelopes (`ok: false`) pass through untouched because widgets read their `error`/`message` keys. When adding a tool, prefer flat `structuredContent`; the unwrap is a safety net, not a licence to nest.
+
+The shared logic layer in `app/mcp/tool_ops/` is critical. Six modules (properties, leases, rent, maintenance, bookings, dashboard) contain the service calls, DB queries, authorisation, and serialization used by both MCP servers and the [AI agent](ai-agent.md) tool bridge. Per the layering rules in [AGENTS.md](../../AGENTS.md), new MCP tools must implement logic in `tool_ops/` first, then wire it through both `user/server.py`/`admin/` and `services/ai_agent/tools/` — no duplication.
 
 ## Integration points
 
@@ -133,7 +135,6 @@ Add a new user tool by writing the business logic in `app/mcp/tool_ops/`, regist
 | `app/mcp/utils.py` | DB session, user resolution, serializers (15.6 KB) |
 | `app/mcp/errors.py` | MCPResponse / MCPError envelope |
 | `app/mcp/user/server.py` | User MCP instance + tool registration |
-| `app/mcp/user/discovery.py` | Discovery tool implementations |
 | `app/mcp/user/owner.py` | Owner tool implementations (13.7 KB) |
 | `app/mcp/user/tenant.py` | Tenant tool implementations |
 | `app/mcp/user/booking.py` | Booking tool implementations (11 KB) |

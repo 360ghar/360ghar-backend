@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from app.services.ai_agent.tools import (  # noqa: F401 — re-exports
     ADMIN_TOOLS,
-    GUEST_TOOLS,
+    DISCOVERY_TOOLS,
     USER_TOOLS,
     AgentDeps,
     _user_schema,

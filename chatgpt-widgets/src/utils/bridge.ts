@@ -50,6 +50,26 @@ let store: BridgeStore = {
   widgetState: null,
 };
 
+/**
+ * Widgets read their fields off the top level of `structuredContent`.
+ *
+ * Not every tool ships them there: the `app/mcp/user/*` tools return an
+ * `MCPResponse` envelope — `{ok: true, data: {...}}` — while the
+ * `app/mcp/chatgpt/*` tools return the payload flat. Unwrapping here rather
+ * than in each widget means every widget accepts either shape, on every host,
+ * and a new tool cannot silently render an empty widget by picking the
+ * envelope. An error envelope (`ok: false`) is left alone, since widgets read
+ * its `error`/`message` keys.
+ */
+function unwrapToolOutput(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  if (obj.ok === true && obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)) {
+    return obj.data as Record<string, unknown>;
+  }
+  return obj;
+}
+
 const listeners = new Set<() => void>();
 function emitChange() { listeners.forEach((fn) => fn()); }
 function subscribe(listener: () => void): () => void {
@@ -122,7 +142,7 @@ function handleMcpMessage(event: MessageEvent): void {
         const p = data.params ?? {};
         store = {
           ...store,
-          toolOutput: (p.structuredContent ?? null) as Record<string, unknown> | null,
+          toolOutput: unwrapToolOutput(p.structuredContent),
           toolMeta: (p._meta ?? null) as Record<string, unknown> | null,
         };
         emitChange();
@@ -278,7 +298,7 @@ function useOpenAiGlobal<K extends keyof OpenAiGlobals>(key: K): OpenAiGlobals[K
  */
 export function useToolOutput<T = Record<string, unknown>>(): T | null {
   if (HOST === 'openai') {
-    return useOpenAiGlobal('toolOutput') as T | null;
+    return unwrapToolOutput(useOpenAiGlobal('toolOutput')) as T | null;
   }
   return useSyncExternalStore(subscribe, () => getStore().toolOutput as T | null);
 }

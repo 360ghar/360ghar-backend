@@ -17,18 +17,20 @@ from app.schemas.pagination import CursorParams, offset_payload
 
 
 class _FakeService:
+    """Yields ``(event_name, data)`` pairs, matching ``stream_events``."""
+
     def __init__(self, events):
         self._events = events
 
-    async def stream_response(self, **_kwargs):
-        for event in self._events:
-            yield event
+    async def stream_events(self, **_kwargs):
+        for name, data in self._events:
+            yield (name, data)
 
 
 class _ErrorService:
-    async def stream_response(self, **_kwargs):
+    async def stream_events(self, **_kwargs):
         if False:
-            yield ""
+            yield ("", {})
         raise RuntimeError("stream exploded")
 
 
@@ -75,8 +77,14 @@ async def test_agent_chat_persists_widget_and_assistant_messages():
             "app.api.api_v1.endpoints.agent_chat.get_agent_service",
             return_value=_FakeService(
                 [
-                    'event: widget\ndata: {"widget_name":"OwnerDashboardWidget","structured_content":{"cards":1}}\n\n',
-                    'event: done\ndata: {"response_text":"Here is your summary"}\n\n',
+                    (
+                        "widget",
+                        {
+                            "widget_name": "OwnerDashboardWidget",
+                            "structured_content": {"cards": 1},
+                        },
+                    ),
+                    ("done", {"response_text": "Here is your summary"}),
                 ]
             ),
         ),
@@ -118,7 +126,15 @@ async def test_agent_chat_persists_empty_assistant_when_only_widget_event():
         patch(
             "app.api.api_v1.endpoints.agent_chat.get_agent_service",
             return_value=_FakeService(
-                ['event: widget\ndata: {"widget_name":"RentCollectionWidget","structured_content":{"total_due":5000}}\n\n']
+                [
+                    (
+                        "widget",
+                        {
+                            "widget_name": "RentCollectionWidget",
+                            "structured_content": {"total_due": 5000},
+                        },
+                    )
+                ]
             ),
         ),
     ):
@@ -135,7 +151,13 @@ async def test_agent_chat_persists_empty_assistant_when_only_widget_event():
 
 
 @pytest.mark.asyncio
-async def test_agent_chat_ignores_malformed_widget_event():
+async def test_agent_chat_text_chunk_cannot_clobber_persisted_response():
+    """A text_chunk mentioning the ``done`` field names must not be mistaken for it.
+
+    The endpoint used to recover ``response_text`` by substring-sniffing the
+    serialized SSE frame, so streamed prose containing those literals overwrote
+    the real answer. It now reads the typed event payloads.
+    """
     db = AsyncMock()
     db.commit = AsyncMock()
     current_user = SimpleNamespace(id=1)
@@ -157,14 +179,15 @@ async def test_agent_chat_ignores_malformed_widget_event():
             "app.api.api_v1.endpoints.agent_chat.get_agent_service",
             return_value=_FakeService(
                 [
-                    'event: widget\ndata: {"widget_name":\n\n',
-                    'event: done\ndata: {"response_text":"fallback"}\n\n',
+                    ("text_chunk", {"text": 'the key is "response_text" and '}),
+                    ("text_chunk", {"text": 'also "widget_name" here'}),
+                    ("done", {"response_text": "the real answer"}),
                 ]
             ),
         ),
     ):
         response = await agent_chat(
-            body=AgentChatRequest(message="test malformed"),
+            body=AgentChatRequest(message="explain the sse contract"),
             current_user=current_user,
             db=db,
         )
@@ -172,7 +195,7 @@ async def test_agent_chat_ignores_malformed_widget_event():
 
     roles = [c.kwargs.get("role") for c in mock_add_message.await_args_list]
     assert roles == ["user", "assistant"]
-    assert mock_add_message.await_args_list[1].kwargs["content"] == "fallback"
+    assert mock_add_message.await_args_list[1].kwargs["content"] == "the real answer"
 
 
 @pytest.mark.asyncio

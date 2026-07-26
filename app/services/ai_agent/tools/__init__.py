@@ -6,7 +6,7 @@ so that existing callers can import from ``app.services.ai_agent.tools``
 instead of the individual sub-modules.
 
 Tool registration constants (``USER_TOOLS``, ``ADMIN_TOOLS``,
-``GUEST_TOOLS``) and the ``get_tools_for_role`` helper are also
+``DISCOVERY_TOOLS``) and the ``get_tools_for_role`` helper are also
 re-exported here for backward compatibility.
 """
 from __future__ import annotations
@@ -106,21 +106,25 @@ ADMIN_TOOLS: list[tuple[str, Any, str]] = [
 ]
 
 
-GUEST_TOOLS: list[tuple[str, Any, str]] = [
-    ("guest_property_search", guest_property_search,
+# Property discovery — available to EVERY role, signed in or not. The registered
+# names match the MCP tool names in ``app.mcp.chatgpt.WIDGETS`` so widget lookup
+# and the clients' tool-chip label maps resolve for both surfaces.
+DISCOVERY_TOOLS: list[tuple[str, Any, str]] = [
+    ("discovery_search", guest_property_search,
      "Search properties by city, type, purpose, price, bedrooms, or text query"),
-    ("guest_property_details", guest_property_details,
+    ("discovery_property_get", guest_property_details,
      "Get full details for a specific property by ID"),
-    ("guest_property_recommendations", guest_property_recommendations,
+    ("discovery_recommendations", guest_property_recommendations,
      "Get a list of recommended properties to browse"),
 ]
 
 
 def get_tools_for_role(role: str) -> list[tuple[str, Any, str]]:
     """Return the list of tools available for a given user role."""
+    tools = list(DISCOVERY_TOOLS)
     if role == "guest":
-        return list(GUEST_TOOLS)
-    tools = list(USER_TOOLS)
+        return tools
+    tools.extend(USER_TOOLS)
     if role in ("agent", "admin"):
         tools.extend(ADMIN_TOOLS)
     return tools
@@ -171,6 +175,6 @@ __all__ = [
     # Registration
     "USER_TOOLS",
     "ADMIN_TOOLS",
-    "GUEST_TOOLS",
+    "DISCOVERY_TOOLS",
     "get_tools_for_role",
 ]

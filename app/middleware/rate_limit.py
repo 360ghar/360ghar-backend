@@ -114,6 +114,8 @@ class RateLimitMiddleware:
         # by an accidental ``/sse`` suffix match.
         sse_paths = {
             "/api/v1/notifications/sse",
+            "/api/v1/agent/chat",
+            "/api/v1/agent/chat-public",
         }
         if path in sse_paths:
             return True

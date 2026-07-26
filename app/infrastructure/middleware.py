@@ -30,12 +30,18 @@ ALLOWED_CORS_HEADERS = [
     "Expires",
     "X-Process-Time",
     "X-Performance-Tier",
+    # Streamable-HTTP MCP transport headers — required for browser-hosted MCP
+    # clients to reach /mcp and /mcp-admin.
+    "Mcp-Session-Id",
+    "MCP-Protocol-Version",
+    "Last-Event-ID",
 ]
 EXPOSED_CORS_HEADERS = [
     "Content-Length",
     "Content-Range",
     "X-Process-Time",
     "X-Performance-Tier",
+    "Mcp-Session-Id",
 ]
 CORS_MAX_AGE_SECONDS = 86400
 

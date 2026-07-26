@@ -31,6 +31,9 @@ interface VisitData {
 
 interface SchedulerOutput {
   visit?: VisitData;
+  // bookings_get returns the record under `booking`; it carries the same
+  // `property` + `scheduled_date` fields the detail view reads.
+  booking?: VisitData;
   property?: PropertyData;
   error?: boolean;
   code?: string;
@@ -60,6 +63,12 @@ function VisitSchedulerWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
   const data = useToolOutput<SchedulerOutput>();
+  // The detail view renders either a freshly scheduled visit (data.visit) or an
+  // existing booking fetched via bookings_get (data.booking).
+  const detail = data?.visit ?? data?.booking;
+  // bookings_get returns the property as a sibling (data.property); a scheduled
+  // visit nests it (data.visit.property). Prefer nested, fall back to sibling.
+  const propertyInfo = detail?.property ?? data?.property;
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
   const requestClose = useRequestClose();
@@ -139,8 +148,9 @@ function VisitSchedulerWidget() {
     );
   }
 
-  // Show success confirmation
-  if (success && data.visit) {
+  // Show the detail view: a freshly scheduled visit (after form success) or an
+  // existing booking supplied directly via bookings_get.
+  if (detail && (success || data?.booking)) {
     return (
       <div style={{
         backgroundColor: colors.background,
@@ -150,9 +160,13 @@ function VisitSchedulerWidget() {
       }}>
         <Card padding="lg">
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>✅</div>
-            <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>Visit Scheduled!</h2>
-            <p style={{ color: colors.textSecondary }}>Your property visit has been confirmed.</p>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>{data?.booking ? '🎫' : '✅'}</div>
+            <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>
+              {data?.booking ? 'Booking Details' : 'Visit Scheduled!'}
+            </h2>
+            <p style={{ color: colors.textSecondary }}>
+              {data?.booking ? 'Here are your booking details.' : 'Your property visit has been confirmed.'}
+            </p>
           </div>
 
           <div style={{
@@ -161,13 +175,13 @@ function VisitSchedulerWidget() {
             padding: 16,
             marginBottom: 20,
           }}>
-            {data.visit.property && (
+            {propertyInfo && (
               <div style={{ marginBottom: 16 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-                  {data.visit.property.title}
+                  {propertyInfo.title}
                 </h3>
                 <p style={{ fontSize: 14, color: colors.textSecondary }}>
-                  {[data.visit.property.locality, data.visit.property.city].filter(Boolean).join(', ')}
+                  {[propertyInfo.locality, propertyInfo.city].filter(Boolean).join(', ')}
                 </p>
               </div>
             )}
@@ -175,13 +189,13 @@ function VisitSchedulerWidget() {
               <div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Date</div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  {formatDate(data.visit.scheduled_date)}
+                  {formatDate(detail.scheduled_date)}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Time</div>
                 <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  {formatTime(data.visit.scheduled_date)}
+                  {formatTime(detail.scheduled_date)}
                 </div>
               </div>
             </div>
