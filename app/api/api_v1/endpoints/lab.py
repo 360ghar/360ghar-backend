@@ -1,12 +1,13 @@
 import uuid
-from typing import Any, List
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import Any, cast
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.api_v1.dependencies.auth import get_current_user
-from app.models.users import User
 from app.core.auth import get_supabase_service_client
 from app.core.utils import is_valid_uuid
+from app.models.users import User
 from app.services.modal_worker import train_splat
 
 router = APIRouter()
@@ -15,7 +16,7 @@ class JobCreate(BaseModel):
     title: str
     is_360_video: bool = False
     quality_preset: str = "balanced" # fast, balanced, quality
-    filenames: List[str] = ["video.mp4"]
+    filenames: list[str] = ["video.mp4"]
 
 
 def _require_uuid_user_id(user: User) -> str:
@@ -43,13 +44,13 @@ async def create_job(
     """
     user_id = _require_uuid_user_id(current_user)
     job_id = str(uuid.uuid4())
-    
+
     # Generate an upload path for the video
     storage_path = f"{user_id}/{job_id}"
-    
+
     # Create the record in Supabase
     video_paths = ",".join([f"{storage_path}/{f}" for f in job_in.filenames])
-    job_data = {
+    job_data: dict[str, Any] = {
         "id": job_id,
         "user_id": user_id,
         "title": job_in.title,
@@ -60,13 +61,13 @@ async def create_job(
         "quality_preset": job_in.quality_preset,
         "video_path": video_paths
     }
-    
+
     # We assume you have a splat_jobs table in supabase
     try:
         res = get_supabase_service_client().table("splat_jobs").insert(job_data).execute()
         return res.data[0]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}") from None
 
 @router.post("/jobs/{job_id}/start", response_model=Any)
 async def start_job(
@@ -83,9 +84,9 @@ async def start_job(
     job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", user_id).execute()
     if not job_res.data:
         raise HTTPException(status_code=404, detail="Job not found")
-        
-    job = job_res.data[0]
-    
+
+    job = cast("dict[str, Any]", job_res.data[0])
+
     # Spawn the Modal function asynchronously so we don't block the API.
     # force_360 from job flag — multi-yaw unwrap is required for indoor GS quality.
     force_360 = bool(job.get("is_360_video", True))
@@ -96,7 +97,7 @@ async def start_job(
         "stage_message": "Starting cloud GPU pipeline (multi-view 360 SfM)...",
         "progress": 5
     }).eq("id", job_id).execute()
-    
+
     return job
 
 @router.post("/jobs/{job_id}/upload-video", response_model=Any)
@@ -112,22 +113,22 @@ async def get_upload_url(
     job_res = get_supabase_service_client().table("splat_jobs").select("*").eq("id", job_id).eq("user_id", user_id).execute()
     if not job_res.data:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     storage_path = f"{user_id}/{job_id}/{filename}"
-    
+
     # Generate signed upload URL from Supabase
     res = get_supabase_service_client().storage.from_("splat-jobs").create_signed_upload_url(storage_path)
-    
+
     # The return format of create_signed_upload_url is a dict with signedUrl, etc.
     # But usually it's {"signedUrl": ...}
     # Wait, in the supabase python client, it returns a dict. Let's just return what the frontend expects.
     # The frontend expects { "upload_url": string, "storage_path": string }
     upload_url = res.get("signedUrl", res.get("signed_url"))
-    # The SDK usually returns signed_url or signedUrl or just a string. 
+    # The SDK usually returns signed_url or signedUrl or just a string.
     # Actually, the python sdk create_signed_upload_url returns a dictionary with 'signedUrl'.
     # I should construct the full URL if it's relative. It usually returns a path! Wait.
     # Let me just check how python supabase create_signed_upload_url works, but for now:
-    
+
     return {
         "upload_url": upload_url,
         "storage_path": storage_path

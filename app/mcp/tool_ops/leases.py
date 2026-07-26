@@ -12,6 +12,7 @@ from app.mcp.utils import serialize_lease
 from app.models.enums import LeaseStatus
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.models.users import User as UserModel
 from app.schemas.pagination import encode_cursor, offset_payload, read_offset
 from app.schemas.user import User as UserSchema
 from app.services.pm_authz import assert_can_access_lease, assert_can_access_property
@@ -20,7 +21,7 @@ from app.services.user import get_user_by_id
 logger = get_logger(__name__)
 
 
-def _user_schema(user) -> UserSchema:
+def _user_schema(user: UserModel | UserSchema) -> UserSchema:
     return UserSchema.model_validate(user)
 
 
@@ -188,7 +189,7 @@ async def create_lease(
 async def terminate_lease(
     db: AsyncSession,
     *,
-    actor,
+    actor: UserModel | UserSchema,
     lease_id: int,
     reason: str,
     termination_date: str | None = None,

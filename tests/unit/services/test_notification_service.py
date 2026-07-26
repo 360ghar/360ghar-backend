@@ -362,7 +362,7 @@ class TestSendToUser:
             side_effect=RuntimeError("supabase down"),
         ):
             result = await send_to_user(
-                user_id="user_123",
+                user_id="11111111-1111-1111-1111-111111111123",
                 title="Test",
                 body="Test Body",
             )
@@ -387,7 +387,7 @@ class TestSendToUser:
                 side_effect=RuntimeError("device_tokens unavailable"),
             ):
                 result = await send_to_user(
-                    user_id="user_123",
+                    user_id="11111111-1111-1111-1111-111111111123",
                     title="Test",
                     body="Test Body",
                 )

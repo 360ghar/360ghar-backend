@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 
 from app.config import settings
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
@@ -123,7 +123,13 @@ async def get_user_bookings(
 ) -> tuple[list, dict | None, int | None]:
     """Get all bookings for a user (keyset-paginated)."""
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-    stmt = select(Booking).where(Booking.user_id == user_id)
+    # Eager-load the property so serialize_booking can embed it without an
+    # async lazy-load (MissingGreenlet) when rendering the visit/booking widgets.
+    stmt = (
+        select(Booking)
+        .options(selectinload(Booking.property))
+        .where(Booking.user_id == user_id)
+    )
     count_total = None
     if with_total:
         count_stmt = select(func.count()).select_from(stmt.subquery())

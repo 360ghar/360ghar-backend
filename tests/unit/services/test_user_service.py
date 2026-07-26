@@ -1015,8 +1015,10 @@ class TestCompleteAppOnboarding:
     async def test_sets_correct_column_and_returns_user(self, app, column):
         from app.services.user import complete_app_onboarding
 
-        db = AsyncMock(spec=AsyncSession)
         user = self._make_user()
+        db = AsyncMock(spec=AsyncSession)
+        # complete_app_onboarding re-binds via db.get(...) and returns that row.
+        db.get = AsyncMock(return_value=user)
 
         result = await complete_app_onboarding(db, user, app=app)
 
@@ -1072,14 +1074,16 @@ class TestComputeAuthGateState:
         from app.services.user import compute_auth_gate_state
 
         user = self._make_profiled_user()
+        db = AsyncMock(spec=AsyncSession)
+        # compute_auth_gate_state re-binds the user via db.get; return the real
+        # user so its (incomplete) onboarding column is what gets inspected.
+        db.get = AsyncMock(return_value=user)
         with patch(
             "app.services.user._check_user_has_password",
             new_callable=AsyncMock,
             return_value=True,
         ):
-            result = await compute_auth_gate_state(
-                AsyncMock(spec=AsyncSession), user, app="flatmates"
-            )
+            result = await compute_auth_gate_state(db, user, app="flatmates")
 
         assert result["stage"] == "app_onboarding"
         assert result["next_action"] == "complete_onboarding"
@@ -1133,6 +1137,10 @@ class TestComputeAuthGateState:
         from app.services.user import _APP_PROFILE_FIELDS, compute_auth_gate_state
 
         user = self._make_profiled_user()
+        db = AsyncMock(spec=AsyncSession)
+        # Re-bind via db.get must return the real user, else its all-truthy mock
+        # attributes make every profile field look present.
+        db.get = AsyncMock(return_value=user)
         # estate requires a company_name the profiled user lacks.
         monkeypatch.setitem(_APP_PROFILE_FIELDS, "estate", ("full_name", "company_name"))
 
@@ -1141,9 +1149,7 @@ class TestComputeAuthGateState:
             new_callable=AsyncMock,
             return_value=True,
         ):
-            result = await compute_auth_gate_state(
-                AsyncMock(spec=AsyncSession), user, app="estate"
-            )
+            result = await compute_auth_gate_state(db, user, app="estate")
 
         assert result["stage"] == "profile_completion"
         assert "company_name" in result["missing_fields"]

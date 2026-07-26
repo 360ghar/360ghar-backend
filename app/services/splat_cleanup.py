@@ -21,7 +21,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -40,8 +39,8 @@ class CleanupReport:
     input_count: int
     output_count: int
     steps: list[str]
-    cuboid_min: Optional[list[float]] = None
-    cuboid_max: Optional[list[float]] = None
+    cuboid_min: list[float] | None = None
+    cuboid_max: list[float] | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -80,14 +79,14 @@ def filter_opacity_scale(
     a = data["color"][:, 3]
     smax = data["scale"].max(axis=1)
     keep = (a >= min_alpha) & (smax <= max_scale) & (smax >= min_scale)
-    return data[keep]
+    return data[keep]  # type: ignore[no-any-return]  # numpy boolean-index returns Any in stubs
 
 
 def filter_isolation_knn(
     data: np.ndarray,
     *,
     k: int = 12,
-    max_median_nn: Optional[float] = None,
+    max_median_nn: float | None = None,
     sample_cap: int = 25_000,
 ) -> np.ndarray:
     """
@@ -121,7 +120,7 @@ def filter_isolation_knn(
 def keep_largest_dense_core(
     data: np.ndarray,
     *,
-    voxel: Optional[float] = None,
+    voxel: float | None = None,
     min_voxel_count: int = 3,
 ) -> np.ndarray:
     """
@@ -150,7 +149,6 @@ def keep_largest_dense_core(
     # hash
     keys = qx.astype(np.int64) * 73856093 ^ qy.astype(np.int64) * 19349663 ^ qz.astype(np.int64) * 83492791
     uniq, inv, counts = np.unique(keys, return_inverse=True, return_counts=True)
-    dense_voxel = counts[inv] >= min_voxel_count
 
     # Build adjacency of dense voxels via dict
     dense_ids = np.where(counts >= min_voxel_count)[0]
@@ -185,7 +183,7 @@ def keep_largest_dense_core(
     # index coords -> key for neighbors
     coord_to_key = {v: k for k, v in first.items()}
 
-    for start_key, start_coord in first.items():
+    for start_key, _start_coord in first.items():
         if start_key in visited:
             continue
         dq = deque([start_key])
@@ -206,12 +204,12 @@ def keep_largest_dense_core(
 
     if not comp_sizes:
         return data
-    best = max(comp_sizes, key=comp_sizes.get)
+    best = max(comp_sizes, key=lambda k: comp_sizes[k])
     keep_keys = {k for k, c in visited.items() if c == best}
     keep = np.array([int(k) in keep_keys for k in keys], dtype=bool)
     # also keep non-dense points that fall inside dense voxels of best component? already only dense
     # include borderline: points whose voxel is in best component
-    return data[keep]
+    return data[keep]  # type: ignore[no-any-return]  # numpy boolean-index returns Any in stubs
 
 
 def fit_floor_plane_ransac(
@@ -267,7 +265,7 @@ def fit_floor_plane_ransac(
     return best_n.astype(np.float64), float(best_d)
 
 
-def rotation_align_up(normal: np.ndarray, target_up: np.ndarray = None) -> np.ndarray:
+def rotation_align_up(normal: np.ndarray, target_up: np.ndarray | None = None) -> np.ndarray:
     """3x3 rotation taking `normal` → +Y (viewer/nerfstudio up)."""
     if target_up is None:
         target_up = np.array([0.0, 1.0, 0.0])
@@ -404,7 +402,7 @@ def filter_strokes(
     if keep.sum() < max(500, int(0.15 * len(data))):
         # fall back to milder aspect cut
         keep = (aspect <= max_aspect * 2.5) & (smax <= max_scale * 2.0)
-    return data[keep]
+    return data[keep]  # type: ignore[no-any-return]  # numpy boolean-index returns Any in stubs
 
 
 def densify_cuboid_shell(
@@ -484,12 +482,12 @@ def densify_cuboid_shell(
     base_s = float(np.clip(base_s, 0.008, 0.05))
     scales = np.full((len(shell_pos), 3), base_s, dtype=np.float32)
     offset = 0
-    for pts, axis, is_hi in faces:
+    for pts, axis, _is_hi in faces:
         n = len(pts)
         scales[offset : offset + n, axis] = base_s * 0.15  # thin along face normal
         offset += n
     shell["scale"] = scales
-    shell["rot"] = np.uint8([128, 128, 128, 255])
+    shell["rot"] = np.array([128, 128, 128, 255], dtype=np.uint8)
     return np.concatenate([data, shell])
 
 
@@ -522,14 +520,14 @@ def detect_up_axis(pos: np.ndarray) -> int:
         if len(low) < 30 or len(high) < 30:
             continue
         # planarity of each slab: variance on the other two axes should dominate;
-        # variance on `ax` inside slab should be tiny
-        def slab_planarity(slab: np.ndarray) -> float:
+        # variance on `ax` inside slab should be tiny. Bind `ax` as a default arg
+        # so each closure captures this iteration's value, not the loop variable.
+        def slab_planarity(slab: np.ndarray, ax: int = ax) -> float:
             v = slab.var(axis=0)
             return float(v.sum() - v[ax]) / (float(v[ax]) + 1e-6)
 
         # also prefer axes where extremes are relatively empty of "volume"
         # (true floors often under-sampled → lower count at extremes vs mid)
-        mid = pos[(c > lo_p + 0.3 * span) & (c < hi_p - 0.3 * span)]
         empty_poles = 1.0 - (len(low) + len(high)) / (len(pos) + 1e-6)
 
         score = slab_planarity(low) + slab_planarity(high) + 2.0 * empty_poles + 0.1 * span
@@ -546,7 +544,7 @@ def fill_floor_ceiling_disks(
     *,
     n_floor: int = 12000,
     n_ceil: int = 8000,
-    up_axis: Optional[int] = None,
+    up_axis: int | None = None,
     grid_res: int = 96,
 ) -> np.ndarray:
     """

@@ -2,7 +2,7 @@ import re
 from datetime import date
 from typing import Any
 
-import bleach  # type: ignore
+import bleach  # type: ignore[import-untyped]  # bleach ships no type stubs
 
 from app.core.exceptions import ValidationException
 from app.core.logging import get_logger

@@ -11,7 +11,7 @@ import asyncio
 from collections import OrderedDict
 from urllib.parse import parse_qs, urlparse
 
-import bleach  # type: ignore
+import bleach  # type: ignore[import-untyped]  # bleach ships no type stubs
 
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.models.enums import HotspotType

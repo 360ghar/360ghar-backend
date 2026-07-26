@@ -7,6 +7,7 @@ including CRUD operations, publishing, duplication, and analytics.
 from __future__ import annotations
 
 from datetime import date
+from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -309,8 +310,15 @@ async def reorder_scenes(
     return scenes
 
 
+class _TourQRSource(Protocol):
+    """Anything exposing ``id`` + ``short_code`` — the ORM model or response schema."""
+
+    id: str
+    short_code: str | None
+
+
 def _build_tour_qr_url(
-    tour: Tour,
+    tour: _TourQRSource,
     *,
     public_base_url: str | None,
     public_app_url: str | None,

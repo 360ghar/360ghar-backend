@@ -28,7 +28,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 import modal
 
@@ -76,7 +75,7 @@ DEFAULT_H_FOV = 90
 DEFAULT_V_FOV = 70
 
 
-def _run(cmd: list[str], *, check: bool = True, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
+def _run(cmd: list[str], *, check: bool = True, cwd: str | None = None) -> subprocess.CompletedProcess:
     print("+", " ".join(str(c) for c in cmd), flush=True)
     return subprocess.run(cmd, check=check, cwd=cwd, text=True, capture_output=False)
 
@@ -294,7 +293,7 @@ def extract_multiview_frames(
                 small_b = cv2.resize(img, (320, 160))
                 flow = cv2.calcOpticalFlowFarneback(
                     small_a, small_b, None, 0.5, 3, 15, 3, 5, 1.2, 0
-                )
+                )  # type: ignore[call-overload]  # cv2 stubs reject the None flow arg
                 mag = np.sqrt(flow[..., 0] ** 2 + flow[..., 1] ** 2)
                 shake = float(np.median(mag))
             prev_gray = img
@@ -650,8 +649,8 @@ def train_splat(
     job_id: str,
     storage_path: str,
     quality_preset: str = "balanced",
-    local_vol_path: Optional[str] = None,
-    force_360: Optional[bool] = None,
+    local_vol_path: str | None = None,
+    force_360: bool | None = None,
     recipe: str = "default",
 ):
     """
@@ -664,8 +663,9 @@ def train_splat(
         real-estate 360 masters (e.g. HouseTour-class capture).
       - "default": multi-pitch + light masks + optional cuboid polish.
     """
-    from supabase import create_client
     import httpx
+
+    from supabase import create_client
 
     recipe_l = (recipe or "default").lower()
     simple = recipe_l in ("simple", "raw", "old")
@@ -770,8 +770,8 @@ def train_splat(
         # 214s tour → ~55 eq frames × 6 yaws ≈ 330 views (COLMAP-friendly)
         target_frames_total = 55
         max_steps = 15000 if quality_preset != "fast" else 8000
-        pitches = (0,)  # proven safer than multi-pitch overload
-        yaws = DEFAULT_YAWS  # 6 × 60°
+        pitches: tuple[int, ...] = (0,)  # proven safer than multi-pitch overload
+        yaws: tuple[int, ...] = DEFAULT_YAWS  # 6 × 60°
         apply_masks = False  # pro tours rarely need person wipe
         raw_only = True
         face_w, face_h = 1024, 768
@@ -833,7 +833,7 @@ def train_splat(
     total_dur = sum(durations) or 1.0
     start_index = 0
     total_images = 0
-    for i, (vpath, dur) in enumerate(zip(video_paths, durations)):
+    for i, (vpath, dur) in enumerate(zip(video_paths, durations, strict=True)):
         share = max(8 if simple else 10, int(target_frames_total * (dur / total_dur)))
         n = extract_multiview_frames(
             vpath,

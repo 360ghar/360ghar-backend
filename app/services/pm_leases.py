@@ -11,9 +11,9 @@ from app.core.exceptions import BadRequestException, InsufficientPermissionsErro
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property
-from app.models.users import User
 from app.schemas.pagination import keyset_filter, trim_keyset_lookahead
 from app.services.pm_authz import (
+    Actor,
     assert_can_access_lease,
     assert_can_access_property,
     assert_can_manage_owner_portfolio,
@@ -23,7 +23,7 @@ from app.services.pm_authz import (
 async def create_lease(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: Actor,
     owner_id: int,
     property_id: int,
     tenant_user_id: int | None,
@@ -104,7 +104,7 @@ async def create_lease(
 async def list_leases(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: Actor,
     owner_id: int | None = None,
     property_id: int | None = None,
     tenant_user_id: int | None = None,
@@ -156,14 +156,14 @@ async def list_leases(
     return rows, next_payload, count_total
 
 
-async def get_lease(db: AsyncSession, *, actor: User, lease_id: int) -> Lease:
+async def get_lease(db: AsyncSession, *, actor: Actor, lease_id: int) -> Lease:
     return await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
 
 
 async def upload_signed_lease(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: Actor,
     lease_id: int,
     lease_document_id: int,
     signed_by_owner: bool = True,
@@ -186,7 +186,7 @@ async def upload_signed_lease(
 async def terminate_lease(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: Actor,
     lease_id: int,
     termination_date: date | None = None,
     reason: str | None = None,
@@ -226,7 +226,7 @@ async def terminate_lease(
 async def renew_lease(
     db: AsyncSession,
     *,
-    actor: User,
+    actor: Actor,
     lease_id: int,
     start_date: date,
     end_date: date,

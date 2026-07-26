@@ -219,7 +219,6 @@
     "flatmates/realtime.py",
     "flatmates/visits.py",
     "image_processing.py",
-    "lab_pipeline.py",
     "media/integrity_sweep.py",
     "media/url_verifier.py",
     "modal_worker.py",
@@ -253,8 +252,6 @@
     "push_notification.py",
     "sms.py",
     "splat_cleanup.py",
-    "splat_segmentation.py",
-    "splat_view_augment.py",
     "storage/helpers.py",
     "storage/paths.py",
     "storage/processing.py",
@@ -316,8 +313,6 @@
     "user/tenant.py",
     "user/booking.py",
     "user/system.py",
-    "user/discovery.py",
-    "user/visits.py",
     "utils.py"
   ]
 }
