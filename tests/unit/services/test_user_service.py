@@ -898,6 +898,7 @@ class TestUpdateUser:
 
         db = AsyncMock(spec=AsyncSession)
         db.flush = AsyncMock()
+        db.commit = AsyncMock()
         db.refresh = AsyncMock()
 
         with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
@@ -908,6 +909,40 @@ class TestUpdateUser:
 
         assert updated is target
         assert target.full_name == "Renamed"
+        db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_self_update_coerces_date_of_birth_to_utc_datetime(self):
+        """Client sends ISO date; ORM column is DateTime(timezone=True).
+
+        Without coercion, assigning a bare ``date`` can leave profile_completion
+        stuck after PUT /users/me appears to succeed.
+        """
+        from datetime import date, datetime, timezone
+
+        from app.schemas.user import UserUpdate
+        from app.services.user import update_user
+
+        target = self._make_existing_user(user_id=42, role=UserRole.user.value)
+        actor = self._make_actor(user_id=42, role=UserRole.user.value)
+        db = AsyncMock(spec=AsyncSession)
+        db.flush = AsyncMock()
+        db.commit = AsyncMock()
+        db.refresh = AsyncMock()
+
+        with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = target
+            await update_user(
+                db,
+                target.id,
+                UserUpdate(full_name="Gate User", date_of_birth=date(2000, 1, 15)),
+                actor=actor,
+            )
+
+        assert target.full_name == "Gate User"
+        assert isinstance(target.date_of_birth, datetime)
+        assert target.date_of_birth == datetime(2000, 1, 15, tzinfo=timezone.utc)
+        db.commit.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_admin_can_update_any_user(self):

@@ -16,12 +16,20 @@ from fastapi.exceptions import RequestValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-def _fake_session(*, pending: bool = False) -> MagicMock:
-    """Session mock for get_db / get_bg_db dependency tests."""
+def _fake_session(*, pending: bool = False, flushed: bool = False) -> MagicMock:
+    """Session mock for get_db / get_bg_db dependency tests.
+
+    ``pending`` simulates unflushed UoW entries (new/dirty/deleted).
+    ``flushed`` simulates post-flush uncommitted DML via session.info flag
+    (the real bug: flatmate create flushes then looked "clean").
+    """
     fake_session = MagicMock(spec=AsyncSession)
     fake_session.new = {object()} if pending else set()
     fake_session.dirty = set()
     fake_session.deleted = set()
+    fake_session.info = {"needs_commit": True} if flushed else {}
+    # AsyncSession exposes sync_session; _session_needs_commit prefers it.
+    fake_session.sync_session = fake_session
     fake_session.commit = AsyncMock()
     fake_session.rollback = AsyncMock()
     fake_session.close = AsyncMock()
@@ -95,6 +103,30 @@ async def test_get_db_commits_when_session_has_pending_changes():
     from app.core import database as db_module
 
     fake_session = _fake_session(pending=True)
+    factory = _session_factory(fake_session)
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(db_module, "AsyncSessionLocal", factory)
+
+        gen = db_module.get_db()
+        await gen.__anext__()
+        with pytest.raises(StopAsyncIteration):
+            await gen.__anext__()
+
+    fake_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_db_commits_after_flush_even_when_uow_looks_clean():
+    """Flushed-but-uncommitted writes (flatmate create) must still commit.
+
+    After flush(), session.new/dirty/deleted are empty. Without tracking
+    needs_commit, get_db skipped commit and rolled back on close — listings
+    disappeared from GET /properties/me after the create response.
+    """
+    from app.core import database as db_module
+
+    fake_session = _fake_session(pending=False, flushed=True)
     factory = _session_factory(fake_session)
 
     with pytest.MonkeyPatch().context() as mp:

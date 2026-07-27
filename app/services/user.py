@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select, text
@@ -26,6 +27,26 @@ from app.services.auth_user_cache import invalidate_auth_user
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
+
+
+def _coerce_date_of_birth_for_storage(value: Any) -> Any:
+    """Normalize profile DOB for the User.date_of_birth DateTime column.
+
+    ``UserUpdate.date_of_birth`` is a ``date`` (ISO ``YYYY-MM-DD`` from clients),
+    but the ORM column is ``DateTime(timezone=True)``. Assigning a bare ``date``
+    can fail or bind inconsistently under async SQLAlchemy / PostgreSQL, which
+    leaves the profile_completion gate stuck after an apparently successful
+    ``PUT /users/me``. Store midnight-UTC instead.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+    if isinstance(value, date):
+        return datetime.combine(value, time.min, tzinfo=timezone.utc)
+    return value
 
 
 def _normalize_phone(phone: str | None) -> str | None:
@@ -986,9 +1007,16 @@ async def update_user(
                 raise BadRequestException(
                     detail="profile_image_url must be an absolute http(s) URL"
                 )
+            if field == "date_of_birth":
+                value = _coerce_date_of_birth_for_storage(value)
             setattr(user, field, value)
 
         await db.flush()
+        # Commit before the HTTP response is returned. FastAPI runs `get_db`
+        # cleanup *after* the response is sent, so a follow-up
+        # GET /users/me/auth-state from the client can race an uncommitted
+        # flush and still report profile_completion (missing full_name/DOB).
+        await db.commit()
         await db.refresh(user)
         logger.info("User %s updated successfully", user_id)
 

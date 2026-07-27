@@ -282,6 +282,12 @@ async def create_property(
         if image_urls:
             _schedule_async_image_verification(db_property.id, image_urls)
 
+        # Explicit commit so create cannot rely solely on get_db's dirty-check.
+        # Flatmate path flushes prescreen metadata which clears UoW collections;
+        # without a commit here (and the needs_commit session flag in get_db),
+        # the request returned 200 then rolled back — listings vanished on reload.
+        await db.commit()
+
         logger.info("Property created successfully with ID %s", db_property.id)
         return PropertySchema.model_validate(property_with_relations)
     except Exception as e:

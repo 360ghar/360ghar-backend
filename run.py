@@ -1,11 +1,16 @@
-import os
+import asyncio
 import logging
+import os
+import sys
 import warnings
 
 import uvicorn
-
 from dotenv import load_dotenv
+
 load_dotenv()
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Suppress noisy third-party deprecation warnings (uvicorn/websockets)
 warnings.filterwarnings(
@@ -67,7 +72,6 @@ if __name__ == "__main__":
     if reload:
         uvicorn_kwargs["reload_dirs"] = ["app"]
 
-    # Prefer uvloop when available and not on Windows
     if os.name != "nt":
         try:
             import uvloop  # noqa: F401
@@ -88,5 +92,13 @@ if __name__ == "__main__":
 
     logger.info(f"Starting uvicorn with log_level={log_level}, debug={debug}")
 
-    # Configure uvicorn with better reload settings
-    uvicorn.run("app.main:app", **uvicorn_kwargs)
+    if sys.platform == "win32":
+        import selectors
+        selector = selectors.SelectSelector()
+        loop = asyncio.SelectorEventLoop(selector)
+        asyncio.set_event_loop(loop)
+        config = uvicorn.Config("app.main:app", **uvicorn_kwargs)
+        server = uvicorn.Server(config)
+        loop.run_until_complete(server.serve())
+    else:
+        uvicorn.run("app.main:app", **uvicorn_kwargs)

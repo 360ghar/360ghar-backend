@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import sentry_sdk
 import sentry_sdk.integrations.fastapi

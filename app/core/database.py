@@ -13,7 +13,7 @@ from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SATimeoutError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, Session
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
@@ -276,6 +276,37 @@ AsyncSessionLocalBG = async_sessionmaker(
     autocommit=False,
 )
 
+# After ``flush()``, SQLAlchemy clears ``session.new`` / ``dirty`` / ``deleted``
+# even though the transaction still has uncommitted DML. Relying only on those
+# collections caused flatmate property creates (which always flush after
+# prescreen) to return HTTP 200 and then **roll back** on session close — the
+# listing vanished from GET /properties/me after restart.
+_SESSION_NEEDS_COMMIT_KEY = "needs_commit"
+
+
+@event.listens_for(Session, "after_flush")
+def _mark_session_needs_commit(session: Session, _flush_context) -> None:
+    session.info[_SESSION_NEEDS_COMMIT_KEY] = True
+
+
+@event.listens_for(Session, "after_commit")
+def _clear_session_needs_commit_on_commit(session: Session) -> None:
+    session.info.pop(_SESSION_NEEDS_COMMIT_KEY, None)
+
+
+@event.listens_for(Session, "after_rollback")
+def _clear_session_needs_commit_on_rollback(session: Session) -> None:
+    session.info.pop(_SESSION_NEEDS_COMMIT_KEY, None)
+
+
+def _session_needs_commit(session: AsyncSession | Session) -> bool:
+    """True when this request mutated DB state that still needs a commit."""
+    sync = getattr(session, "sync_session", session)
+    if bool(getattr(sync, "new", None) or getattr(sync, "dirty", None) or getattr(sync, "deleted", None)):
+        return True
+    info = getattr(sync, "info", None) or {}
+    return bool(info.get(_SESSION_NEEDS_COMMIT_KEY))
+
 
 # ── FastAPI dependencies ───────────────────────────────────────────────────────
 def _db_unavailable(exc: BaseException, *, error_code: str) -> ServiceUnavailableException:
@@ -351,13 +382,9 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
         await session.rollback()
         raise
     else:
-        # Commit only if the session actually has pending changes.
-        # Read-only requests (GETs, detail views) should not force a
-        # write transaction against the database / PgBouncer. Services
-        # that explicitly call ``await session.commit()`` are unaffected
-        # because by the time we reach this branch those changes have
-        # already been committed and the session is clean.
-        if session.new or session.dirty or session.deleted:
+        # Commit only if the request mutated state. Must account for flushes
+        # (see ``_session_needs_commit``) — not just UoW collections.
+        if _session_needs_commit(session):
             await session.commit()
     finally:
         hold_time = time.monotonic() - session_start
@@ -391,7 +418,7 @@ async def get_bg_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         else:
             # Only commit if the background task actually mutated state.
-            if session.new or session.dirty or session.deleted:
+            if _session_needs_commit(session):
                 await session.commit()
 
 
