@@ -209,6 +209,25 @@ async def test_get_bg_db_does_not_commit_when_session_is_clean():
     fake_session.commit.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_get_bg_db_commits_after_flush_even_when_uow_looks_clean():
+    """Background dependency must commit flushed-but-uncommitted writes."""
+    from app.core import database as db_module
+
+    fake_session = _fake_session(pending=False, flushed=True)
+    factory = _session_factory(fake_session)
+
+    with pytest.MonkeyPatch().context() as mp:
+        mp.setattr(db_module, "AsyncSessionLocalBG", factory)
+
+        gen = db_module.get_bg_db()
+        await gen.__anext__()
+        with pytest.raises(StopAsyncIteration):
+            await gen.__anext__()
+
+    fake_session.commit.assert_awaited_once()
+
+
 def test_get_db_signature_is_unchanged_async_generator():
     """Regression guard: get_db must remain an async generator dependency."""
     from app.core import database as db_module

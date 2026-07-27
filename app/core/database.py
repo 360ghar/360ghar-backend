@@ -285,7 +285,7 @@ _SESSION_NEEDS_COMMIT_KEY = "needs_commit"
 
 
 @event.listens_for(Session, "after_flush")
-def _mark_session_needs_commit(session: Session, _flush_context) -> None:
+def _mark_session_needs_commit(session: Session, _flush_context: object) -> None:
     session.info[_SESSION_NEEDS_COMMIT_KEY] = True
 
 

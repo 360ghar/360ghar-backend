@@ -92,7 +92,7 @@ if __name__ == "__main__":
 
     logger.info(f"Starting uvicorn with log_level={log_level}, debug={debug}")
 
-    if sys.platform == "win32":
+    if sys.platform == "win32" and not reload:
         import selectors
         selector = selectors.SelectSelector()
         loop = asyncio.SelectorEventLoop(selector)
