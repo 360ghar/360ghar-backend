@@ -190,6 +190,8 @@ async def get_discoverable_profiles(
         default=None,
         description="Move-in timeline: immediate, this_month, next_month, flexible",
     ),
+    age_min: int | None = Query(default=None, ge=18, le=100, description="Minimum age"),
+    age_max: int | None = Query(default=None, ge=18, le=100, description="Maximum age"),
     lat: float | None = Query(default=None, description="Latitude for geo filtering"),
     lng: float | None = Query(default=None, description="Longitude for geo filtering"),
     radius: float | None = Query(default=None, description="Radius in km for geo filtering"),
@@ -202,6 +204,11 @@ async def get_discoverable_profiles(
     db: AsyncSession = Depends(get_db),
 ):
     """Discover flatmate profiles."""
+    if age_min is not None and age_max is not None and age_max < age_min:
+        raise BadRequestException(
+            detail="age_max must be greater than or equal to age_min",
+            error_code="INVALID_AGE_RANGE",
+        )
     parsed_non_neg: list[str] | None = None
     if non_negotiables:
         parsed_non_neg = [n.strip() for n in non_negotiables.split(",") if n.strip()]
@@ -212,6 +219,8 @@ async def get_discoverable_profiles(
         budget_min=budget_min,
         budget_max=budget_max,
         move_in=move_in,
+        age_min=age_min,
+        age_max=age_max,
         lat=lat,
         lng=lng,
         radius=radius,

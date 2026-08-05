@@ -2191,6 +2191,106 @@
             }
           },
           {
+            "name": "furnishing",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Furnishing levels: furnished, semi_furnished, unfurnished",
+              "title": "Furnishing"
+            },
+            "description": "Furnishing levels: furnished, semi_furnished, unfurnished"
+          },
+          {
+            "name": "kitchen_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Kitchen types: vegetarian, non_vegetarian, eggetarian, any",
+              "title": "Kitchen Type"
+            },
+            "description": "Kitchen types: vegetarian, non_vegetarian, eggetarian, any"
+          },
+          {
+            "name": "ventilation_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ventilation: good, average, poor",
+              "title": "Ventilation Type"
+            },
+            "description": "Ventilation: good, average, poor"
+          },
+          {
+            "name": "windows_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Minimum window count",
+              "title": "Windows Min"
+            },
+            "description": "Minimum window count"
+          },
+          {
+            "name": "has_lift",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Require a lift amenity",
+              "title": "Has Lift"
+            },
+            "description": "Require a lift amenity"
+          },
+          {
             "name": "gender_preference",
             "in": "query",
             "required": false,
@@ -2948,6 +3048,106 @@
               ],
               "title": "Features"
             }
+          },
+          {
+            "name": "furnishing",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Furnishing levels: furnished, semi_furnished, unfurnished",
+              "title": "Furnishing"
+            },
+            "description": "Furnishing levels: furnished, semi_furnished, unfurnished"
+          },
+          {
+            "name": "kitchen_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Kitchen types: vegetarian, non_vegetarian, eggetarian, any",
+              "title": "Kitchen Type"
+            },
+            "description": "Kitchen types: vegetarian, non_vegetarian, eggetarian, any"
+          },
+          {
+            "name": "ventilation_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Ventilation: good, average, poor",
+              "title": "Ventilation Type"
+            },
+            "description": "Ventilation: good, average, poor"
+          },
+          {
+            "name": "windows_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Minimum window count",
+              "title": "Windows Min"
+            },
+            "description": "Minimum window count"
+          },
+          {
+            "name": "has_lift",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Require a lift amenity",
+              "title": "Has Lift"
+            },
+            "description": "Require a lift amenity"
           },
           {
             "name": "gender_preference",
@@ -11835,6 +12035,46 @@
               "title": "Move In"
             },
             "description": "Move-in timeline: immediate, this_month, next_month, flexible"
+          },
+          {
+            "name": "age_min",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100,
+                  "minimum": 18
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Minimum age",
+              "title": "Age Min"
+            },
+            "description": "Minimum age"
+          },
+          {
+            "name": "age_max",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 100,
+                  "minimum": 18
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Maximum age",
+              "title": "Age Max"
+            },
+            "description": "Maximum age"
           },
           {
             "name": "lat",
@@ -21968,9 +22208,32 @@
           "lab"
         ],
         "summary": "List Jobs",
-        "description": "List user's splat jobs.",
+        "description": "List user's splat jobs (paginated, newest first).",
         "operationId": "list_jobs_api_v1_lab_jobs_get",
         "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
           {
             "name": "authorization",
             "in": "header",
@@ -30995,7 +31258,7 @@
             ],
             "title": "Provider",
             "description": "AI provider: gemini or glm",
-            "default": "glm"
+            "default": "gemini"
           }
         },
         "type": "object",
@@ -37166,6 +37429,15 @@
         ],
         "title": "FlatmatesBootstrap"
       },
+      "FlatmatesDrinkingType": {
+        "type": "string",
+        "enum": [
+          "never",
+          "occasionally",
+          "regularly"
+        ],
+        "title": "FlatmatesDrinkingType"
+      },
       "FlatmatesMode": {
         "type": "string",
         "enum": [
@@ -37336,6 +37608,17 @@
             ],
             "title": "Age"
           },
+          "age_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Bucket"
+          },
           "profession": {
             "anyOf": [
               {
@@ -37424,7 +37707,7 @@
             ],
             "title": "Food Habits"
           },
-          "smoking_drinking": {
+          "smoking": {
             "anyOf": [
               {
                 "type": "string"
@@ -37433,7 +37716,40 @@
                 "type": "null"
               }
             ],
-            "title": "Smoking Drinking"
+            "title": "Smoking"
+          },
+          "drinking": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drinking"
+          },
+          "native_place": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Place"
+          },
+          "linkedin_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin Url"
           },
           "guests_policy": {
             "anyOf": [
@@ -37725,15 +38041,58 @@
               }
             ]
           },
-          "smoking_drinking": {
+          "smoking": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SmokingDrinking"
+                "$ref": "#/components/schemas/FlatmatesSmokingType"
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "drinking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlatmatesDrinkingType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "native_place": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Place"
+          },
+          "linkedin_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin Url"
+          },
+          "age_bucket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Bucket"
           },
           "guests_policy": {
             "anyOf": [
@@ -37989,15 +38348,49 @@
               }
             ]
           },
-          "smoking_drinking": {
+          "smoking": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SmokingDrinking"
+                "$ref": "#/components/schemas/FlatmatesSmokingType"
               },
               {
                 "type": "null"
               }
             ]
+          },
+          "drinking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlatmatesDrinkingType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "native_place": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Native Place"
+          },
+          "linkedin_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linkedin Url"
           },
           "guests_policy": {
             "anyOf": [
@@ -38110,6 +38503,15 @@
           "events"
         ],
         "title": "FlatmatesRealtimeConfig"
+      },
+      "FlatmatesSmokingType": {
+        "type": "string",
+        "enum": [
+          "never",
+          "occasionally",
+          "regularly"
+        ],
+        "title": "FlatmatesSmokingType"
       },
       "FloorPlan": {
         "properties": {
@@ -39889,6 +40291,11 @@
           },
           "quality_preset": {
             "type": "string",
+            "enum": [
+              "fast",
+              "balanced",
+              "quality"
+            ],
             "title": "Quality Preset",
             "default": "balanced"
           },
@@ -39908,6 +40315,16 @@
           "title"
         ],
         "title": "JobCreate"
+      },
+      "KitchenType": {
+        "type": "string",
+        "enum": [
+          "vegetarian",
+          "non_vegetarian",
+          "eggetarian",
+          "any"
+        ],
+        "title": "KitchenType"
       },
       "LastMethodRequest": {
         "properties": {
@@ -43524,6 +43941,104 @@
             ],
             "title": "Video Tour Url"
           },
+          "kitchen_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KitchenType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ventilation_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VentilationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windows_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Windows Count"
+          },
+          "ventilation_shafts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ventilation Shafts"
+          },
+          "setup_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Cost"
+          },
+          "other_charges": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges"
+          },
+          "other_charges_description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges Description"
+          },
+          "furnishing_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "furnished",
+                  "semi_furnished",
+                  "unfurnished"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Furnishing Level"
+          },
           "id": {
             "type": "integer",
             "title": "Id"
@@ -44324,6 +44839,104 @@
             ],
             "title": "Video Tour Url"
           },
+          "kitchen_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KitchenType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ventilation_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VentilationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windows_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Windows Count"
+          },
+          "ventilation_shafts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ventilation Shafts"
+          },
+          "setup_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Cost"
+          },
+          "other_charges": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges"
+          },
+          "other_charges_description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges Description"
+          },
+          "furnishing_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "furnished",
+                  "semi_furnished",
+                  "unfurnished"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Furnishing Level"
+          },
           "price_per_sqft": {
             "anyOf": [
               {
@@ -44923,6 +45536,338 @@
               }
             ],
             "title": "Google Street View Url"
+          },
+          "latitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latitude"
+          },
+          "longitude": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Longitude"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "State"
+          },
+          "country": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Country"
+          },
+          "pincode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pincode"
+          },
+          "locality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locality"
+          },
+          "sub_locality": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sub Locality"
+          },
+          "landmark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landmark"
+          },
+          "full_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Address"
+          },
+          "area_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Type"
+          },
+          "area_sqft": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Area Sqft"
+          },
+          "bedrooms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bedrooms"
+          },
+          "bathrooms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bathrooms"
+          },
+          "floor_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Floor Number"
+          },
+          "total_floors": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Floors"
+          },
+          "monthly_rent": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Rent"
+          },
+          "security_deposit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Security Deposit"
+          },
+          "maintenance_charges": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Charges"
+          },
+          "kitchen_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KitchenType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ventilation_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VentilationType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "windows_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Windows Count"
+          },
+          "ventilation_shafts": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 50.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ventilation Shafts"
+          },
+          "setup_cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Setup Cost"
+          },
+          "other_charges": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges"
+          },
+          "other_charges_description": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 300
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Charges Description"
+          },
+          "furnishing_level": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "furnished",
+                  "semi_furnished",
+                  "unfurnished"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Furnishing Level"
+          },
+          "available_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available From"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
           }
         },
         "type": "object",
@@ -47388,16 +48333,6 @@
         ],
         "title": "SleepSchedule"
       },
-      "SmokingDrinking": {
-        "type": "string",
-        "enum": [
-          "neither",
-          "smoke_outside",
-          "drink_occasionally",
-          "both_fine"
-        ],
-        "title": "SmokingDrinking"
-      },
       "SocietyTagVoteCreate": {
         "properties": {
           "tag": {
@@ -48684,6 +49619,18 @@
               }
             ],
             "title": "Floor Plans"
+          },
+          "world_3d": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "World 3D"
           }
         },
         "type": "object",
@@ -49864,6 +50811,15 @@
         ],
         "title": "VastuStatus",
         "description": "Status rating for Vastu compliance."
+      },
+      "VentilationType": {
+        "type": "string",
+        "enum": [
+          "good",
+          "average",
+          "poor"
+        ],
+        "title": "VentilationType"
       },
       "Visit": {
         "properties": {

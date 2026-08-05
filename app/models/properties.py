@@ -27,10 +27,12 @@ from sqlalchemy.types import Enum as SQLEnum
 from app.core.database import Base
 from app.models.enums import (
     ImageCategory,
+    KitchenType,
     ManagedPropertyStatus,
     PropertyPurpose,
     PropertyStatus,
     PropertyType,
+    VentilationType,
     VisitStatus,
 )
 
@@ -132,6 +134,16 @@ class Property(Base):
     # Features
     features: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     listing_preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Flatmates listing enhancements
+    kitchen_type: Mapped[KitchenType | None] = mapped_column(SQLEnum(KitchenType, name="property_kitchen_type"), nullable=True)
+    ventilation_type: Mapped[VentilationType | None] = mapped_column(SQLEnum(VentilationType, name="property_ventilation_type"), nullable=True)
+    windows_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ventilation_shafts: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    setup_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    other_charges: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    other_charges_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    furnishing_level: Mapped[str | None] = mapped_column(String(32), nullable=True)
     main_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     virtual_tour_url: Mapped[str | None] = mapped_column(String, nullable=True)
     google_street_view_url: Mapped[str | None] = mapped_column(String, nullable=True)

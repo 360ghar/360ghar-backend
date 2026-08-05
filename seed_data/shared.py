@@ -223,7 +223,17 @@ FLATMATES_MODES = ["seeker", "room_poster", "co_hunter", "open_to_both"]
 SLEEP_SCHEDULES = ["early_bird", "night_owl", "flexible"]
 CLEANLINESS = ["minimal", "tidy", "spotless"]
 FOOD_HABITS = ["vegetarian", "vegan", "non_vegetarian", "eggetarian", "no_preference"]
-SMOKING_DRINKING = ["neither", "smoke_outside", "drink_occasionally", "both_fine"]
+SMOKING_LEVELS = ["never", "occasionally", "regularly"]
+DRINKING_LEVELS = ["never", "occasionally", "regularly"]
+MOVE_IN_TIMELINES = [
+    "immediately",
+    "within_1_week",
+    "within_2_weeks",
+    "within_1_month",
+    "within_2_months",
+    "within_3_months",
+    "flexible",
+]
 GUESTS_POLICIES = ["no_overnight_guests", "occasional_ok", "open_house"]
 WORK_STYLES = ["wfh", "office", "hybrid"]
 

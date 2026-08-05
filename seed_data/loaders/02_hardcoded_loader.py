@@ -133,6 +133,25 @@ HC_RENT_BUCKETS: tuple[str, ...] = (
 )
 
 
+def _normalize_furnishing_level(raw: Any) -> str | None:
+    """Map display-grade furnishing strings to the canonical column enum.
+
+    Source files mix ``semi-furnished`` / ``Semi-Furnished`` /
+    ``fully-furnished`` / ``Fully Furnished``; the column contract is
+    ``furnished`` / ``semi_furnished`` / ``unfurnished``.
+    """
+    if raw is None:
+        return None
+    value = str(raw).strip().lower().replace("-", "_").replace(" ", "_")
+    if value in {"fully_furnished", "full_furnished", "furnished"}:
+        return "furnished"
+    if value in {"semi_furnished", "partially_furnished"}:
+        return "semi_furnished"
+    if value in {"unfurnished", "none"}:
+        return "unfurnished"
+    return None
+
+
 def _classify_rent_property(rent_index: int) -> str:
     """Return the bucket label for a property whose original purpose is rent.
 
@@ -580,6 +599,9 @@ def _build_hc_property_payload(
     for field in HC_PROPERTY_EXTRA_FIELDS:
         if field in prop_data:
             extras[field] = prop_data[field]
+    # Normalize the display-grade furnishing string onto the real column so
+    # hardcoded properties are filterable by `furnishing[]` like any other row.
+    furnishing_level = _normalize_furnishing_level(prop_data.get("furnishing_level"))
     # Override slug with the directory slug (unique per file). The source's
     # ``slug`` field collides across many files (e.g. 22 files share
     # ``ompee-drona-floors-palam-vihar-3bhk-builder-floor``); the directory
@@ -634,6 +656,7 @@ def _build_hc_property_payload(
             else prop_data.get("minimum_stay_days", 1)
         ),
         "features": extras,
+        "furnishing_level": furnishing_level,
         "virtual_tour_url": None,
         "video_tour_url": None,
         "tags": prop_data.get("tags"),

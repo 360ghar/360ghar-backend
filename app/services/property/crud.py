@@ -464,6 +464,19 @@ async def update_property(
             else None
         )
 
+        # The web edit form sends preference fields top-level, but the model
+        # stores them inside listing_preferences JSONB — pop and route them.
+        top_level_prefs: dict = {}
+        for pref_key in (
+            "gender_preference",
+            "sharing_type",
+            "society_type",
+            "society_amenities",
+            "society_vibe_tags",
+        ):
+            if pref_key in update_data:
+                top_level_prefs[pref_key] = update_data.pop(pref_key)
+
         if final_property_type in PG_FLATMATE_TYPES and actor_role != UserRole.admin:
             existing_preferences = (
                 dict(property_obj.listing_preferences)
@@ -486,6 +499,19 @@ async def update_property(
                 existing_preferences["moderation_status"] = "pending_review"
                 update_data["is_available"] = False
             update_data["listing_preferences"] = existing_preferences
+
+        # Route top-level preference fields into listing_preferences for every
+        # actor/type (admin edits included) so they are never silently dropped.
+        if top_level_prefs:
+            prefs = update_data.get("listing_preferences")
+            if not isinstance(prefs, dict):
+                prefs = (
+                    dict(property_obj.listing_preferences)
+                    if isinstance(property_obj.listing_preferences, dict)
+                    else {}
+                )
+            prefs.update(top_level_prefs)
+            update_data["listing_preferences"] = prefs
 
         # Handle location update
         if "latitude" in update_data or "longitude" in update_data:

@@ -3,19 +3,20 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import (
     Cleanliness,
     ConversationSource,
     ConversationStatus,
+    FlatmatesDrinkingType,
     FlatmatesMode,
     FlatmatesProfileStatus,
+    FlatmatesSmokingType,
     FoodHabits,
     GuestsPolicy,
     MessageType,
     SleepSchedule,
-    SmokingDrinking,
     SwipeAction,
     SwipeTargetType,
     UserMatchStatus,
@@ -25,6 +26,7 @@ from app.models.enums import (
     WorkStyle,
 )
 from app.schemas.property import Property as PropertySchema
+from app.utils.validators import ValidationUtils
 
 
 class DiscoverProfilesQuery(BaseModel):
@@ -34,8 +36,20 @@ class DiscoverProfilesQuery(BaseModel):
     budget_min: int | None = Field(default=None, ge=0)
     budget_max: int | None = Field(default=None, ge=0)
     move_in: str | None = None
+    age_min: int | None = Field(default=None, ge=18, le=100)
+    age_max: int | None = Field(default=None, ge=18, le=100)
     limit: int = Field(default=20, ge=1, le=100)
     offset: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_age_range(self):
+        if (
+            self.age_min is not None
+            and self.age_max is not None
+            and self.age_max < self.age_min
+        ):
+            raise ValueError("age_max must be greater than or equal to age_min")
+        return self
 
 
 class FlatmatesProfileUpdate(BaseModel):
@@ -55,7 +69,10 @@ class FlatmatesProfileUpdate(BaseModel):
     sleep_schedule: SleepSchedule | None = None
     cleanliness: Cleanliness | None = None
     food_habits: FoodHabits | None = None
-    smoking_drinking: SmokingDrinking | None = None
+    smoking: FlatmatesSmokingType | None = None
+    drinking: FlatmatesDrinkingType | None = None
+    native_place: str | None = Field(default=None, max_length=120)
+    linkedin_url: str | None = Field(default=None, max_length=255)
     guests_policy: GuestsPolicy | None = None
     email: str | None = None
     phone: str | None = None
@@ -63,6 +80,31 @@ class FlatmatesProfileUpdate(BaseModel):
     gender: str | None = None
     gender_preference: str | None = None
     preferences: dict[str, Any] | None = None
+
+    @field_validator("native_place", mode="before")
+    @classmethod
+    def normalize_native_place(cls, v: object) -> str | None:
+        if isinstance(v, str):
+            value = v.strip()
+            return value or None
+        return v  # type: ignore[return-value]
+
+    @field_validator("linkedin_url", mode="before")
+    @classmethod
+    def validate_linkedin_url(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("linkedin_url must be a string")
+        value = v.strip()
+        if not value:
+            # Empty string clears the field.
+            return None
+        if len(value) > 255:
+            raise ValueError("linkedin_url must be at most 255 characters")
+        if not ValidationUtils.is_absolute_url(value):
+            raise ValueError("linkedin_url must be a valid http(s) URL")
+        return value
 
     @model_validator(mode="after")
     def validate_budget_range(self):
@@ -95,7 +137,11 @@ class FlatmatesProfile(BaseModel):
     sleep_schedule: SleepSchedule | None = None
     cleanliness: Cleanliness | None = None
     food_habits: FoodHabits | None = None
-    smoking_drinking: SmokingDrinking | None = None
+    smoking: FlatmatesSmokingType | None = None
+    drinking: FlatmatesDrinkingType | None = None
+    native_place: str | None = None
+    linkedin_url: str | None = None
+    age_bucket: str | None = None
     guests_policy: GuestsPolicy | None = None
     work_style: WorkStyle | None = None
     gender: str | None = None
@@ -137,7 +183,10 @@ class FlatmatesPeer(BaseModel):
     mode: FlatmatesMode | None = None
     city: str | None = None
     locality: str | None = None
+    # Exact age is never exposed on peer payloads (privacy bucket only); the
+    # field is retained as always-null for backward compatibility.
     age: int | None = None
+    age_bucket: str | None = None
     profession: str | None = None
     bio: str | None = None
     budget_min: float | None = None
@@ -146,7 +195,10 @@ class FlatmatesPeer(BaseModel):
     sleep_schedule: str | None = None
     cleanliness: str | None = None
     food_habits: str | None = None
-    smoking_drinking: str | None = None
+    smoking: str | None = None
+    drinking: str | None = None
+    native_place: str | None = None
+    linkedin_url: str | None = None
     guests_policy: str | None = None
     work_style: str | None = None
     gender: str | None = None

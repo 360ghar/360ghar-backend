@@ -71,14 +71,15 @@ class TestUserModel:
         assert "privacy_settings" in columns
 
     def test_flatmates_lifestyle_columns_are_strict_enums(self):
-        # The 6 lifestyle columns must be SQLAlchemy Enums backed by the strict
+        # The lifestyle columns must be SQLAlchemy Enums backed by the strict
         # PostgreSQL enum types (not loose String columns). Guards against
         # regression to the old `mapped_column(String, ...)` form.
         expected = {
             "flatmates_sleep_schedule": "flatmates_sleep_schedule_type",
             "flatmates_cleanliness": "flatmates_cleanliness_type",
             "flatmates_food_habits": "flatmates_food_habits_type",
-            "flatmates_smoking_drinking": "flatmates_smoking_drinking_type",
+            "flatmates_smoking": "flatmates_smoking_type",
+            "flatmates_drinking": "flatmates_drinking_type",
             "flatmates_guests_policy": "flatmates_guests_policy_type",
             "flatmates_work_style": "flatmates_work_style_type",
         }

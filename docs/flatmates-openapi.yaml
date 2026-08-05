@@ -274,6 +274,20 @@ paths:
             type: string
             enum: [immediate, this_month, next_month, flexible]
           description: Move-in timeline filter
+        - name: age_min
+          in: query
+          schema:
+            type: integer
+            minimum: 18
+            maximum: 100
+          description: Minimum age for peer profiles (unknown ages pass)
+        - name: age_max
+          in: query
+          schema:
+            type: integer
+            minimum: 18
+            maximum: 100
+          description: Maximum age for peer profiles (unknown ages pass)
         - name: limit
           in: query
           schema:
@@ -2045,9 +2059,21 @@ components:
         food_habits:
           type: string
           enum: [vegetarian, non_vegetarian, eggetarian, no_preference]
-        smoking_drinking:
+        smoking:
           type: string
-          enum: [neither, smoke_outside, no_preference]
+          enum: [never, occasionally, regularly]
+        drinking:
+          type: string
+          enum: [never, occasionally, regularly]
+        native_place:
+          type: string
+          maxLength: 120
+        linkedin_url:
+          type: string
+          maxLength: 255
+        age_bucket:
+          type: string
+          description: Privacy-bucketed age range (18-24, 25-30, 31-35, 36-40, 41-45, 46+)
         guests_policy:
           type: string
           enum: [no_overnight, occasional_ok, open_house]
@@ -2112,9 +2138,18 @@ components:
         food_habits:
           type: string
           enum: [vegetarian, non_vegetarian, eggetarian, no_preference]
-        smoking_drinking:
+        smoking:
           type: string
-          enum: [neither, smoke_outside, no_preference]
+          enum: [never, occasionally, regularly]
+        drinking:
+          type: string
+          enum: [never, occasionally, regularly]
+        native_place:
+          type: string
+          maxLength: 120
+        linkedin_url:
+          type: string
+          maxLength: 255
         guests_policy:
           type: string
           enum: [no_overnight, occasional_ok, open_house]
@@ -2164,8 +2199,17 @@ components:
           type: string
         food_habits:
           type: string
-        smoking_drinking:
+        smoking:
           type: string
+        drinking:
+          type: string
+        native_place:
+          type: string
+        linkedin_url:
+          type: string
+        age_bucket:
+          type: string
+          description: Privacy-bucketed age range; exact age is not exposed on peer payloads
         guests_policy:
           type: string
         work_style:
@@ -2666,6 +2710,30 @@ components:
         maintenance_charges:
           type: number
           minimum: 0
+        kitchen_type:
+          $ref: '#/components/schemas/KitchenType'
+        ventilation_type:
+          $ref: '#/components/schemas/VentilationType'
+        windows_count:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ventilation_shafts:
+          type: integer
+          minimum: 0
+          maximum: 50
+        setup_cost:
+          type: number
+          minimum: 0
+        other_charges:
+          type: number
+          minimum: 0
+        other_charges_description:
+          type: string
+          maxLength: 300
+        furnishing_level:
+          type: string
+          enum: [furnished, semi_furnished, unfurnished]
         area_sqft:
           type: number
           minimum: 0
@@ -2742,12 +2810,52 @@ components:
         maintenance_charges:
           type: number
           minimum: 0
+        kitchen_type:
+          $ref: '#/components/schemas/KitchenType'
+        ventilation_type:
+          $ref: '#/components/schemas/VentilationType'
+        windows_count:
+          type: integer
+          minimum: 0
+          maximum: 100
+        ventilation_shafts:
+          type: integer
+          minimum: 0
+          maximum: 50
+        setup_cost:
+          type: number
+          minimum: 0
+        other_charges:
+          type: number
+          minimum: 0
+        other_charges_description:
+          type: string
+          maxLength: 300
+        furnishing_level:
+          type: string
+          enum: [furnished, semi_furnished, unfurnished]
         area_sqft:
           type: number
         bedrooms:
           type: integer
         bathrooms:
           type: integer
+        floor_number:
+          type: integer
+        total_floors:
+          type: integer
+        latitude:
+          type: number
+          format: float
+        longitude:
+          type: number
+          format: float
+        state:
+          type: string
+        pincode:
+          type: string
+        full_address:
+          type: string
         features:
           type: array
           items:
@@ -2860,6 +2968,22 @@ components:
           type: number
         maintenance_charges:
           type: number
+        kitchen_type:
+          $ref: '#/components/schemas/KitchenType'
+        ventilation_type:
+          $ref: '#/components/schemas/VentilationType'
+        windows_count:
+          type: integer
+        ventilation_shafts:
+          type: integer
+        setup_cost:
+          type: number
+        other_charges:
+          type: number
+        other_charges_description:
+          type: string
+        furnishing_level:
+          type: string
         interest_count:
           type: integer
         view_count:
@@ -3276,6 +3400,14 @@ components:
     PropertyPurpose:
       type: string
       enum: [rent]
+
+    KitchenType:
+      type: string
+      enum: [vegetarian, non_vegetarian, eggetarian, any]
+
+    VentilationType:
+      type: string
+      enum: [good, average, poor]
 
     ListingSharingType:
       type: string

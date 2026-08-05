@@ -2,7 +2,7 @@
 
 The algorithm mirrors the web engine in
 ``src/lib/compatibility/dimensions.ts`` so the backend, web, and mobile
-surfaces return consistent scores. It compares six lifestyle dimensions with
+surfaces return consistent scores. It compares seven lifestyle dimensions with
 weighted per-dimension scoring and produces an overall percentage, a per-dimension
 breakdown, and top-match chips.
 """
@@ -18,7 +18,8 @@ DIMENSION_WEIGHTS = {
     "sleep_schedule": 0.2,
     "cleanliness": 0.2,
     "food_habits": 0.15,
-    "smoking_drinking": 0.2,
+    "smoking": 0.1,
+    "drinking": 0.1,
     "guests_policy": 0.15,
     "work_style": 0.1,
 }
@@ -27,7 +28,8 @@ DIMENSION_LABELS = {
     "sleep_schedule": "Sleep Schedule",
     "cleanliness": "Cleanliness",
     "food_habits": "Food Habits",
-    "smoking_drinking": "Smoking/Drinking",
+    "smoking": "Smoking",
+    "drinking": "Drinking",
     "guests_policy": "Guests Policy",
     "work_style": "Work Style",
 }
@@ -38,6 +40,8 @@ ORDERED_SCALES: dict[str, list[str]] = {
     "sleep_schedule": ["early_bird", "flexible", "night_owl"],
     "cleanliness": ["minimal", "tidy", "spotless"],
     "guests_policy": ["no_overnight_guests", "occasional_ok", "open_house"],
+    "smoking": ["never", "occasionally", "regularly"],
+    "drinking": ["never", "occasionally", "regularly"],
 }
 
 
@@ -97,17 +101,33 @@ def _score_food_habits(a: str | None, b: str | None) -> float:
     return 80.0
 
 
-def _score_smoking_drinking(a: str | None, b: str | None) -> float:
+def _score_lifestyle_level(a: str | None, b: str | None, values: list[str]) -> float:
+    """Score two values on a 3-level lifestyle scale (never/occasionally/regularly).
+
+    Same value = 100, adjacent levels = 70, extremes (never vs regularly) = 40.
+    Missing values score 0 (renormalized away by the caller).
+    """
     if a is None or b is None:
         return 0.0
-    if a == b:
+    try:
+        a_idx = values.index(a)
+        b_idx = values.index(b)
+    except ValueError:
+        return 0.0
+    distance = abs(a_idx - b_idx)
+    if distance == 0:
         return 100.0
-    if a == "both_fine" or b == "both_fine":
+    if distance == 1:
         return 70.0
-    non_smoker = {"neither", "drink_occasionally"}
-    if a in non_smoker and b in non_smoker:
-        return 80.0
-    return 30.0
+    return 40.0
+
+
+def _score_smoking(a: str | None, b: str | None) -> float:
+    return _score_lifestyle_level(a, b, ORDERED_SCALES["smoking"])
+
+
+def _score_drinking(a: str | None, b: str | None) -> float:
+    return _score_lifestyle_level(a, b, ORDERED_SCALES["drinking"])
 
 
 def _score_guests_policy(a: str | None, b: str | None) -> float:
@@ -139,7 +159,8 @@ _SCORERS = {
     "sleep_schedule": _score_sleep_schedule,
     "cleanliness": _score_cleanliness,
     "food_habits": _score_food_habits,
-    "smoking_drinking": _score_smoking_drinking,
+    "smoking": _score_smoking,
+    "drinking": _score_drinking,
     "guests_policy": _score_guests_policy,
     "work_style": _score_work_style,
 }

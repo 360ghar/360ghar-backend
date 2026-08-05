@@ -214,6 +214,68 @@ class TestPropertyCreate:
         )
         assert data.listing_preferences is not None
 
+    def test_flatmates_enhancement_fields_accepted(self):
+        data = PropertyCreate(
+            title="Flatmate Listing",
+            property_type=PropertyType.flatmate,
+            purpose=PropertyPurpose.rent,
+            base_price=15000,
+            monthly_rent=15000,
+            city="Bengaluru",
+            kitchen_type="vegetarian",
+            ventilation_type="good",
+            windows_count=3,
+            ventilation_shafts=1,
+            setup_cost=5000,
+            other_charges=2000,
+            other_charges_description="WiFi + maid",
+            furnishing_level="furnished",
+        )
+        assert data.kitchen_type == "vegetarian"
+        assert data.ventilation_type == "good"
+        assert data.windows_count == 3
+        assert data.ventilation_shafts == 1
+        assert data.setup_cost == 5000
+        assert data.other_charges == 2000
+        assert data.other_charges_description == "WiFi + maid"
+        assert data.furnishing_level == "furnished"
+
+    def test_negative_setup_cost_rejected(self):
+        with pytest.raises((ValidationError, ValidationException)):
+            PropertyCreate(
+                title="Bad Listing",
+                property_type=PropertyType.apartment,
+                purpose=PropertyPurpose.rent,
+                base_price=20000,
+                monthly_rent=20000,
+                city="Mumbai",
+                setup_cost=-100,
+            )
+
+    def test_negative_other_charges_rejected(self):
+        with pytest.raises((ValidationError, ValidationException)):
+            PropertyCreate(
+                title="Bad Listing",
+                property_type=PropertyType.apartment,
+                purpose=PropertyPurpose.rent,
+                base_price=20000,
+                monthly_rent=20000,
+                city="Mumbai",
+                other_charges=-50,
+            )
+
+    def test_negative_windows_count_rejected(self):
+        with pytest.raises(ValidationError, match="windows_count"):
+            PropertyCreate(
+                title="Bad Listing",
+                property_type=PropertyType.apartment,
+                purpose=PropertyPurpose.rent,
+                base_price=20000,
+                monthly_rent=20000,
+                city="Mumbai",
+                windows_count=-1,
+            )
+
 
 class TestPropertyUpdate:
     """Tests for PropertyUpdate schema validation."""

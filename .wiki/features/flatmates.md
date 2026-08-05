@@ -17,7 +17,7 @@ app/services/flatmates/
 ├── conversations.py       # _ensure_conversation, messages, QnA, mark_read
 ├── interactions.py        # profile_view_event, society_tag_vote
 ├── moderation.py          # prescreen, reports, blocks, stale-listing pause
-├── compatibility.py       # 6-dimension lifestyle compatibility engine
+├── compatibility.py       # 7-dimension lifestyle compatibility engine
 ├── visits.py              # update_visit_status + realtime event queue
 ├── realtime.py            # Supabase Broadcast publisher + after-commit queue
 └── helpers.py             # canonical pair, payload builders, geocoding
@@ -34,7 +34,7 @@ app/models/enums.py        # SwipeAction, SwipeTargetType, ConversationStatus, e
 | `_ensure_conversation` | `app/services/flatmates/conversations.py` | Canonical-pair upsert of `UserConversation` |
 | `_canonical_pair` | `app/services/flatmates/helpers.py` | Sorts `(user_one_id, user_two_id)` so pairs are stable |
 | `list_discoverable_profiles` | `app/services/flatmates/profiles.py` | Cursor-paginated feed of swipable peers |
-| `calculate_compatibility` | `app/services/flatmates/compatibility.py` | 6-dimension lifestyle compatibility engine; powers `match_percentage` and `compatibility_score` |
+| `calculate_compatibility` | `app/services/flatmates/compatibility.py` | 7-dimension lifestyle compatibility engine; powers `match_percentage` and `compatibility_score` |
 | `prescreen_flatmate_listing` | `app/services/flatmates/moderation.py` | Auto prescreen: photo count, suspicious rent, spam patterns |
 | `pause_stale_flatmate_listings` | `app/services/flatmates/moderation.py` | Pauses flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS (default 60) |
 | `EnumStringType` | `app/models/social.py` | TypeDecorator storing enums as strings with DB CHECK constraints |
@@ -89,7 +89,7 @@ Add new realtime event types by extending `app/services/flatmates/realtime.py`, 
 | `app/services/flatmates/conversations.py` | Conversation + message CRUD (545 lines) |
 | `app/services/flatmates/moderation.py` | Prescreen, reports, blocks (568 lines) |
 | `app/services/flatmates/profiles.py` | Profile CRUD + catalogs (516 lines) |
-| `app/services/flatmates/compatibility.py` | 6-dimension lifestyle compatibility engine |
+| `app/services/flatmates/compatibility.py` | 7-dimension lifestyle compatibility engine |
 | `app/services/flatmates/helpers.py` | Canonical pair, payload builders, geocoding |
 | `app/services/flatmates/interactions.py` | Profile views, society tag votes |
 | `app/services/flatmates/visits.py` | Visit status updates + realtime event queue |

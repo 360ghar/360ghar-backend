@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
@@ -10,12 +10,14 @@ from app.core.exceptions import ValidationException
 from app.models.enums import (
     PG_FLATMATE_TYPES,
     ImageCategory,
+    KitchenType,
     ListingGenderPreference,
     ListingSharingType,
     ManagedPropertyStatus,
     PropertyPurpose,
     PropertyStatus,
     PropertyType,
+    VentilationType,
 )
 from app.schemas.amenity import PropertyAmenityResponse
 from app.utils.validators import ValidationUtils
@@ -121,6 +123,16 @@ class PropertyBase(BaseModel):
     floor_plan_url: str | None = None
     video_tour_url: str | None = None
 
+    # Flatmates listing enhancements
+    kitchen_type: KitchenType | None = None
+    ventilation_type: VentilationType | None = None
+    windows_count: int | None = Field(default=None, ge=0, le=100)
+    ventilation_shafts: int | None = Field(default=None, ge=0, le=50)
+    setup_cost: float | None = Field(default=None, ge=0)
+    other_charges: float | None = Field(default=None, ge=0)
+    other_charges_description: str | None = Field(default=None, max_length=300)
+    furnishing_level: Literal["furnished", "semi_furnished", "unfurnished"] | None = None
+
 
 class PropertyCreate(PropertyBase):
     price_per_sqft: float | None = None
@@ -165,7 +177,7 @@ class PropertyCreate(PropertyBase):
     def validate_base_price(cls, v: float) -> float:
         return ValidationUtils.validate_price(v, min_price=0, max_price=1e8)
 
-    @field_validator("monthly_rent", "daily_rate", "security_deposit", "maintenance_charges", "price_per_sqft")
+    @field_validator("monthly_rent", "daily_rate", "security_deposit", "maintenance_charges", "price_per_sqft", "setup_cost", "other_charges")
     @classmethod
     def validate_positive_price(cls, v: float | None) -> float | None:
         if v is not None and v < 0:
@@ -257,6 +269,52 @@ class PropertyUpdate(BaseModel):
     video_urls: list[str] | None = None
     google_street_view_url: str | None = None
 
+    # Location fields (mirror PropertyBase so edits persist)
+    latitude: float | None = None
+    longitude: float | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    pincode: str | None = None
+    locality: str | None = None
+    sub_locality: str | None = None
+    landmark: str | None = None
+    full_address: str | None = None
+    area_type: str | None = None
+
+    # Details
+    area_sqft: float | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    floor_number: int | None = None
+    total_floors: int | None = None
+
+    # Pricing
+    monthly_rent: float | None = None
+    security_deposit: float | None = None
+    maintenance_charges: float | None = None
+
+    # Flatmates listing enhancements
+    kitchen_type: KitchenType | None = None
+    ventilation_type: VentilationType | None = None
+    windows_count: int | None = Field(default=None, ge=0, le=100)
+    ventilation_shafts: int | None = Field(default=None, ge=0, le=50)
+    setup_cost: float | None = Field(default=None, ge=0)
+    other_charges: float | None = Field(default=None, ge=0)
+    other_charges_description: str | None = Field(default=None, max_length=300)
+    furnishing_level: Literal["furnished", "semi_furnished", "unfurnished"] | None = None
+
+    available_from: str | None = None
+    tags: list[str] | None = None
+
+    # Flatmate listing preference fields: the web edit form sends these
+    # top-level; update_property routes them into listing_preferences JSONB.
+    gender_preference: ListingGenderPreference | None = None
+    sharing_type: ListingSharingType | None = None
+    society_type: str | None = None
+    society_amenities: list[str] | None = None
+    society_vibe_tags: list[str] | None = None
+
     @field_validator("title")
     @classmethod
     def validate_title(cls, v: str | None) -> str | None:
@@ -269,6 +327,20 @@ class PropertyUpdate(BaseModel):
     def validate_description(cls, v: str | None) -> str | None:
         if v:
             return ValidationUtils.sanitize_html(v)
+        return v
+
+    @field_validator("monthly_rent", "security_deposit", "maintenance_charges", "setup_cost", "other_charges")
+    @classmethod
+    def validate_positive_price(cls, v: float | None) -> float | None:
+        if v is not None and v < 0:
+            raise ValidationException("Price values must be non-negative")
+        return v
+
+    @field_validator("pincode")
+    @classmethod
+    def validate_pincode(cls, v: str | None) -> str | None:
+        if v:
+            return ValidationUtils.validate_pincode(v)
         return v
 
     @field_validator("video_urls", "image_urls")
@@ -399,6 +471,8 @@ class PropertyInDB(PropertyBase):
         "daily_rate",
         "security_deposit",
         "maintenance_charges",
+        "setup_cost",
+        "other_charges",
         mode="before",
     )
     @classmethod
@@ -499,6 +573,11 @@ class UnifiedPropertyFilter(BaseModel):
     pincode: str | None = None
     amenities: list[str] | None = None
     features: list[str] | None = None
+    furnishing: list[str] | None = None
+    kitchen_type: list[str] | None = None
+    ventilation_type: list[str] | None = None
+    windows_min: int | None = Field(default=None, ge=0)
+    has_lift: bool | None = None
     gender_preference: ListingGenderPreference | None = None
     sharing_type: ListingSharingType | None = None
 

@@ -16,7 +16,9 @@ from app.core.logging import get_logger
 from app.models.conversations import Conversation, ConversationParticipant, Message
 from app.models.enums import (
     ConversationApp,
+    FlatmatesDrinkingType,
     FlatmatesProfileStatus,
+    FlatmatesSmokingType,
     PropertyPurpose,
     PropertyType,
     SwipeTargetType,
@@ -47,13 +49,28 @@ def _move_in_profile_values(move_in: str | None) -> set[str]:
         return set()
     if value in {"immediate", "immediately", "now"}:
         return {"immediate", "immediately", "now"}
+    if value in {"within_1_week", "one_week"}:
+        return {"within_1_week", "one_week"}
     if value in {"this_month", "within_1_month", "within_a_month"}:
         return {"this_month", "within_1_month", "within_a_month"}
+    if value in {"within_2_months", "two_months"}:
+        return {"within_2_months", "two_months"}
+    if value in {"within_3_months", "three_months"}:
+        return {"within_3_months", "three_months"}
     if value == "next_month":
         return {"next_month"}
     if value in {"within_2_weeks", "two_weeks"}:
         return {"within_2_weeks", "two_weeks"}
     return set()
+
+
+def _age_from_dob(user: User) -> int | None:
+    """Derive the flatmates age from the user's date_of_birth, if present."""
+    if user.date_of_birth is None:
+        return None
+    today = datetime.now(timezone.utc).date()
+    born = user.date_of_birth.date() if hasattr(user.date_of_birth, "date") else user.date_of_birth
+    return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
 
 async def get_flatmates_profile(db: AsyncSession, user_id: int) -> dict[str, Any]:
@@ -110,6 +127,8 @@ async def list_discoverable_profiles(
     budget_min: int | None = None,
     budget_max: int | None = None,
     move_in: str | None = None,
+    age_min: int | None = None,
+    age_max: int | None = None,
     lat: float | None = None,
     lng: float | None = None,
     radius: float | None = None,
@@ -175,13 +194,23 @@ async def list_discoverable_profiles(
         elif nn == "food_vegan_only":
             filters.append(User.flatmates_food_habits.in_(["vegan"]))
         elif nn == "no_smoking":
-            filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "drink_occasionally"]
-            ))
+            # Deal-breaker: exclude users who smoke occasionally/regularly.
+            # Unknown (NULL) is allowed to pass — we cannot prove they violate.
+            filters.append(
+                or_(
+                    User.flatmates_smoking.is_(None),
+                    User.flatmates_smoking == FlatmatesSmokingType.never,
+                )
+            )
         elif nn == "no_drinking":
-            filters.append(User.flatmates_smoking_drinking.in_(
-                ["neither", "smoke_outside"]
-            ))
+            # Deal-breaker: exclude users who drink occasionally/regularly.
+            # Unknown (NULL) is allowed to pass — we cannot prove they violate.
+            filters.append(
+                or_(
+                    User.flatmates_drinking.is_(None),
+                    User.flatmates_drinking == FlatmatesDrinkingType.never,
+                )
+            )
         elif nn == "no_overnight_guests":
             filters.append(User.flatmates_guests_policy.in_(
                 ["no_overnight_guests"]
@@ -247,6 +276,23 @@ async def list_discoverable_profiles(
     move_in_values = _move_in_profile_values(move_in)
     if move_in_values:
         filters.append(User.flatmates_move_in_timeline.in_(move_in_values))
+
+    # --- Age filtering (denormalized flatmates_age; mirrors the budget
+    # behavior where unknown values are allowed to pass) ---
+    if age_min is not None:
+        filters.append(
+            or_(
+                User.flatmates_age >= int(age_min),
+                User.flatmates_age.is_(None),
+            )
+        )
+    if age_max is not None:
+        filters.append(
+            or_(
+                User.flatmates_age <= int(age_max),
+                User.flatmates_age.is_(None),
+            )
+        )
 
     # --- Geolocation filtering ---
     if lat is not None and lng is not None and radius is not None:
@@ -343,6 +389,7 @@ async def update_flatmates_profile(
         user.phone = update_data.pop("phone")
 
     preference_fields = ("age", "profession", "gender", "gender_preference")
+    age_was_updated = "age" in update_data
     current_preferences = user.preferences if isinstance(user.preferences, dict) else {}
     flatmates_preferences = current_preferences.get("flatmates")
     if not isinstance(flatmates_preferences, dict):
@@ -368,7 +415,10 @@ async def update_flatmates_profile(
         "sleep_schedule": "flatmates_sleep_schedule",
         "cleanliness": "flatmates_cleanliness",
         "food_habits": "flatmates_food_habits",
-        "smoking_drinking": "flatmates_smoking_drinking",
+        "smoking": "flatmates_smoking",
+        "drinking": "flatmates_drinking",
+        "native_place": "native_place",
+        "linkedin_url": "linkedin_url",
         "guests_policy": "flatmates_guests_policy",
         "work_style": "flatmates_work_style",
     }
@@ -379,6 +429,24 @@ async def update_flatmates_profile(
 
     if preference_patch is not None:
         flatmates_preferences.update(preference_patch)
+
+    # Age bookkeeping: preferences.flatmates.age stays the canonical
+    # display-age store, and the denormalized flatmates_age column mirrors it
+    # for filtering. When the payload updates age (directly or via
+    # preferences), resync the column; a cleared/invalid age falls back to a
+    # DOB-derived value when a date_of_birth exists.
+    if age_was_updated or (preference_patch is not None and "age" in preference_patch):
+        display_age = flatmates_preferences.get("age")
+        if isinstance(display_age, bool):
+            user.flatmates_age = None
+        elif isinstance(display_age, int) or isinstance(display_age, float):
+            user.flatmates_age = int(display_age)
+        elif isinstance(display_age, str) and display_age.isdigit():
+            user.flatmates_age = int(display_age)
+        else:
+            user.flatmates_age = _age_from_dob(user)
+    elif user.flatmates_age is None and user.date_of_birth is not None:
+        user.flatmates_age = _age_from_dob(user)
 
     user.preferences = {
         **current_preferences,

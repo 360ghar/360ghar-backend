@@ -5,7 +5,15 @@ Tests for app.schemas.flatmates module — FlatmatesProfileUpdate, SwipeRequest,
 import pytest
 from pydantic import ValidationError
 
-from app.models.enums import FlatmatesMode, FoodHabits, MessageType, SwipeAction, SwipeTargetType
+from app.models.enums import (
+    FlatmatesDrinkingType,
+    FlatmatesMode,
+    FlatmatesSmokingType,
+    FoodHabits,
+    MessageType,
+    SwipeAction,
+    SwipeTargetType,
+)
 from app.schemas.flatmates import (
     FlatmatesPeer,
     FlatmatesProfileUpdate,
@@ -76,6 +84,44 @@ class TestFlatmatesProfileUpdate:
         with pytest.raises(ValidationError):
             FlatmatesProfileUpdate(cleanliness="balanced")
 
+    def test_smoking_drinking_enums_accepted(self):
+        data = FlatmatesProfileUpdate(smoking="never", drinking="regularly")
+        assert data.smoking == FlatmatesSmokingType.never
+        assert data.drinking == FlatmatesDrinkingType.regularly
+
+    def test_smoking_drinking_all_canonical_values_accepted(self):
+        for value in ("never", "occasionally", "regularly"):
+            assert FlatmatesProfileUpdate(smoking=value).smoking.value == value
+            assert FlatmatesProfileUpdate(drinking=value).drinking.value == value
+
+    def test_smoking_legacy_value_rejected(self):
+        # "neither" was the combined legacy column value, not a split enum member.
+        with pytest.raises(ValidationError):
+            FlatmatesProfileUpdate(smoking="neither")
+        with pytest.raises(ValidationError):
+            FlatmatesProfileUpdate(drinking="both_fine")
+
+    def test_native_place_whitespace_normalized_to_none(self):
+        assert FlatmatesProfileUpdate(native_place="   ").native_place is None
+        assert FlatmatesProfileUpdate(native_place="").native_place is None
+        assert FlatmatesProfileUpdate(native_place="  Pune  ").native_place == "Pune"
+
+    def test_linkedin_url_invalid_rejected(self):
+        with pytest.raises(ValidationError, match="linkedin_url"):
+            FlatmatesProfileUpdate(linkedin_url="not-a-url")
+
+    def test_linkedin_url_empty_string_normalized_to_none(self):
+        assert FlatmatesProfileUpdate(linkedin_url="").linkedin_url is None
+        assert FlatmatesProfileUpdate(linkedin_url="   ").linkedin_url is None
+
+    def test_linkedin_url_too_long_rejected(self):
+        with pytest.raises(ValidationError, match="linkedin_url"):
+            FlatmatesProfileUpdate(linkedin_url="https://linkedin.com/in/" + "a" * 250)
+
+    def test_linkedin_url_valid_accepted(self):
+        url = "https://www.linkedin.com/in/someone"
+        assert FlatmatesProfileUpdate(linkedin_url=url).linkedin_url == url
+
 
 class TestFlatmatesPeer:
     """Tests for the peer response used by the Flutter swipe deck."""
@@ -91,7 +137,8 @@ class TestFlatmatesPeer:
             sleep_schedule="night_owl",
             cleanliness="tidy",
             food_habits="vegetarian",
-            smoking_drinking="neither",
+            smoking="never",
+            drinking="never",
             guests_policy="occasional_ok",
             work_style="hybrid",
             gender="female",
@@ -106,6 +153,44 @@ class TestFlatmatesPeer:
         assert data["sleep_schedule"] == "night_owl"
         assert data["non_negotiables"] == ["no_smoking"]
         assert data["has_pets"] is True
+
+    def test_peer_carries_age_bucket_and_new_profile_fields(self):
+        peer = FlatmatesPeer(
+            id=2,
+            full_name="Peer User",
+            age_bucket="25-30",
+            smoking="never",
+            drinking="occasionally",
+            native_place="Pune",
+            linkedin_url="https://linkedin.com/in/peer",
+        )
+
+        data = peer.model_dump()
+        assert data["age_bucket"] == "25-30"
+        assert data["smoking"] == "never"
+        assert data["drinking"] == "occasionally"
+        assert data["native_place"] == "Pune"
+        assert data["linkedin_url"] == "https://linkedin.com/in/peer"
+
+    def test_peer_validates_from_builder_payload_without_age_key(self):
+        # _build_peer_payload never emits an "age" key; the model must accept
+        # the payload as-is (age stays None for backward compatibility).
+        payload = {
+            "id": 3,
+            "full_name": "Peer",
+            "profile_image_url": None,
+            "mode": "seeker",
+            "city": "Mumbai",
+            "locality": "Bandra",
+            "age_bucket": "31-35",
+            "smoking": "never",
+            "drinking": "never",
+            "native_place": "Delhi",
+            "linkedin_url": None,
+        }
+        peer = FlatmatesPeer.model_validate(payload)
+        assert peer.age_bucket == "31-35"
+        assert peer.age is None
 
 
 class TestIncomingLikeSummary:

@@ -35,8 +35,35 @@ def _flatmates_preferences(user: User) -> dict[str, Any]:
 # Profile and Peer Builders
 # ---------------------------------------------------------------------------
 
+# Privacy buckets for flatmates age. Exact ages are never exposed on peer
+# payloads; clients only receive the bucket (see age_bucket_for_age).
+AGE_BUCKETS = ("18-24", "25-30", "31-35", "36-40", "41-45", "46+")
 
-def _profile_age(user: User, prefs: dict[str, Any]) -> int | None:
+
+def age_bucket_for_age(age: int | None) -> str | None:
+    """Map an exact age to a privacy bucket, or None when the age is unknown."""
+    if age is None:
+        return None
+    if age <= 24:
+        return "18-24"
+    if age <= 30:
+        return "25-30"
+    if age <= 35:
+        return "31-35"
+    if age <= 40:
+        return "36-40"
+    if age <= 45:
+        return "41-45"
+    return "46+"
+
+
+def resolve_profile_age(user: User) -> int | None:
+    """Resolve the user's flatmates age for filtering and bucketing.
+
+    Resolution order: preferences.flatmates.age (the display-age store) →
+    the denormalized flatmates_age column → age derived from date_of_birth.
+    """
+    prefs = _flatmates_preferences(user)
     raw_age = prefs.get("age")
     if isinstance(raw_age, int):
         return raw_age
@@ -44,6 +71,8 @@ def _profile_age(user: User, prefs: dict[str, Any]) -> int | None:
         return int(raw_age)
     if isinstance(raw_age, str) and raw_age.isdigit():
         return int(raw_age)
+    if user.flatmates_age is not None:
+        return user.flatmates_age
     if user.date_of_birth is None:
         return None
     today = date.today()
@@ -82,6 +111,7 @@ def _compatibility_result(current_user: User | None, peer: User) -> dict[str, An
 
 def _build_profile_payload(user: User) -> dict[str, Any]:
     prefs = _flatmates_preferences(user)
+    profile_age = resolve_profile_age(user)
     return {
         "id": user.id,
         "full_name": user.full_name,
@@ -92,7 +122,7 @@ def _build_profile_payload(user: User) -> dict[str, Any]:
         "profile_status": user.flatmates_profile_status or FlatmatesProfileStatus.draft,
         "onboarding_completed": user.flatmates_onboarding_completed,
         "bio": user.flatmates_bio,
-        "age": _profile_age(user, prefs),
+        "age": profile_age,
         "profession": _profile_profession(prefs),
         "budget_min": user.flatmates_budget_min,
         "budget_max": user.flatmates_budget_max,
@@ -102,7 +132,11 @@ def _build_profile_payload(user: User) -> dict[str, Any]:
         "sleep_schedule": user.flatmates_sleep_schedule,
         "cleanliness": user.flatmates_cleanliness,
         "food_habits": user.flatmates_food_habits,
-        "smoking_drinking": user.flatmates_smoking_drinking,
+        "smoking": user.flatmates_smoking,
+        "drinking": user.flatmates_drinking,
+        "native_place": user.native_place,
+        "linkedin_url": user.linkedin_url,
+        "age_bucket": age_bucket_for_age(profile_age),
         "guests_policy": user.flatmates_guests_policy,
         "work_style": user.flatmates_work_style,
         "gender": _profile_gender(prefs),
@@ -125,7 +159,9 @@ def _build_peer_payload(
         "mode": user.flatmates_mode,
         "city": user.flatmates_city,
         "locality": user.flatmates_locality,
-        "age": _profile_age(user, prefs),
+        # Exact age is intentionally NOT exposed on peer payloads (privacy
+        # decision) — clients get the derived age_bucket instead.
+        "age_bucket": age_bucket_for_age(resolve_profile_age(user)),
         "profession": _profile_profession(prefs),
         "bio": user.flatmates_bio,
         "budget_min": user.flatmates_budget_min,
@@ -134,7 +170,10 @@ def _build_peer_payload(
         "sleep_schedule": user.flatmates_sleep_schedule,
         "cleanliness": user.flatmates_cleanliness,
         "food_habits": user.flatmates_food_habits,
-        "smoking_drinking": user.flatmates_smoking_drinking,
+        "smoking": user.flatmates_smoking,
+        "drinking": user.flatmates_drinking,
+        "native_place": user.native_place,
+        "linkedin_url": user.linkedin_url,
         "guests_policy": user.flatmates_guests_policy,
         "work_style": user.flatmates_work_style,
         "gender": _profile_gender(prefs),

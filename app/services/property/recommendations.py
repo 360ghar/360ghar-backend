@@ -28,7 +28,8 @@ _OWNER_COMPAT_LOAD_ONLY = (
     User.flatmates_sleep_schedule,
     User.flatmates_cleanliness,
     User.flatmates_food_habits,
-    User.flatmates_smoking_drinking,
+    User.flatmates_smoking,
+    User.flatmates_drinking,
     User.flatmates_guests_policy,
     User.flatmates_work_style,
 )

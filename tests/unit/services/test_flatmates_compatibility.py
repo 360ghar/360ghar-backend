@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from app.services.flatmates.compatibility import (
+    DIMENSION_WEIGHTS,
     calculate_compatibility,
     calculate_compatibility_score,
     calculate_property_compatibility_score,
@@ -20,7 +21,8 @@ def _user(**kwargs: object) -> SimpleNamespace:
         "flatmates_sleep_schedule": None,
         "flatmates_cleanliness": None,
         "flatmates_food_habits": None,
-        "flatmates_smoking_drinking": None,
+        "flatmates_smoking": None,
+        "flatmates_drinking": None,
         "flatmates_guests_policy": None,
         "flatmates_work_style": None,
     }
@@ -180,3 +182,77 @@ class TestSnapshotUserForCompat:
             )
             is None
         )
+
+
+class TestSmokingDrinkingDimensions:
+    """Smoking/drinking are now split lifestyle dimensions with their own weights."""
+
+    def test_dimension_weights_total_one_and_split(self):
+        assert abs(sum(DIMENSION_WEIGHTS.values()) - 1.0) < 1e-9
+        assert DIMENSION_WEIGHTS["smoking"] == 0.1
+        assert DIMENSION_WEIGHTS["drinking"] == 0.1
+        assert "smoking_drinking" not in DIMENSION_WEIGHTS
+        assert "smoking" in DIMENSION_WEIGHTS
+        assert "drinking" in DIMENSION_WEIGHTS
+
+    @staticmethod
+    def _dimension(result: dict, name: str) -> dict:
+        return next(d for d in result["dimensions"] if d["name"] == name)
+
+    def test_same_smoking_value_scores_100(self):
+        a = _user(id=1, flatmates_smoking="never")
+        b = _user(id=2, flatmates_smoking="never")
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        assert self._dimension(result, "smoking")["score"] == 100.0
+
+    def test_never_vs_occasionally_scores_70(self):
+        a = _user(id=1, flatmates_smoking="never")
+        b = _user(id=2, flatmates_smoking="occasionally")
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        assert self._dimension(result, "smoking")["score"] == 70.0
+
+    def test_never_vs_regularly_scores_40(self):
+        a = _user(id=1, flatmates_smoking="never")
+        b = _user(id=2, flatmates_smoking="regularly")
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        assert self._dimension(result, "smoking")["score"] == 40.0
+
+    def test_missing_side_contributes_zero_and_is_renormalized(self):
+        a = _user(
+            id=1,
+            flatmates_smoking="never",
+            flatmates_drinking="never",
+            flatmates_sleep_schedule="early_bird",
+        )
+        b = _user(
+            id=2,
+            flatmates_smoking="never",
+            flatmates_drinking=None,  # missing on peer — must not drag overall down
+            flatmates_sleep_schedule="night_owl",
+        )
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        drinking = self._dimension(result, "drinking")
+        assert drinking["score"] == 0.0
+        assert "not enough data" in drinking["summary"]
+        # Only smoking (0.1) + sleep (0.2) comparable: (100*0.1 + 0*0.2) / 0.3
+        assert result["percentage"] == int(round(10.0 / 0.3))
+
+    def test_both_never_scores_full_100_on_both_dims(self):
+        a = _user(id=1, flatmates_smoking="never", flatmates_drinking="never")
+        b = _user(id=2, flatmates_smoking="never", flatmates_drinking="never")
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        assert self._dimension(result, "smoking")["score"] == 100.0
+        assert self._dimension(result, "drinking")["score"] == 100.0
+        assert result["percentage"] == 100
+
+    def test_breakdown_uses_smoking_drinking_labels(self):
+        a = _user(id=1, flatmates_smoking="never", flatmates_drinking="never")
+        b = _user(id=2, flatmates_smoking="never", flatmates_drinking="never")
+        result = calculate_compatibility(a, b)  # type: ignore[arg-type]
+        names = [d["name"] for d in result["dimensions"]]
+        assert "smoking" in names
+        assert "drinking" in names
+        assert "Smoking: strong match" in result["summary"]
+        assert "Drinking: strong match" in result["summary"]
+        assert "Smoking" in result["top_match_chips"]
+        assert "Drinking" in result["top_match_chips"]

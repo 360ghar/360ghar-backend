@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 from sqlalchemy import (
@@ -48,7 +48,8 @@ _OWNER_COMPAT_LOAD_ONLY = (
     User.flatmates_sleep_schedule,
     User.flatmates_cleanliness,
     User.flatmates_food_habits,
-    User.flatmates_smoking_drinking,
+    User.flatmates_smoking,
+    User.flatmates_drinking,
     User.flatmates_guests_policy,
     User.flatmates_work_style,
 )
@@ -94,11 +95,18 @@ def __dir__() -> list[str]:
     return sorted({*globals().keys(), "property_embeddings_table"})
 
 
-def _utc_day_start(value: datetime) -> datetime:
+# All users are in India; day boundaries for move-in windows must be
+# computed in IST (UTC+5:30), not UTC, so the server matches the client's
+# local-day semantics (e.g. 00:30 IST is still "today" locally).
+IST_TZ = timezone(timedelta(hours=5, minutes=30), name="Asia/Kolkata")
+
+
+def _day_start(value: datetime, tz: tzinfo = IST_TZ) -> datetime:
+    """Midnight in [tz] for the instant [value]."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
-    value = value.astimezone(timezone.utc)
-    return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    value = value.astimezone(tz)
+    return datetime(value.year, value.month, value.day, tzinfo=tz)
 
 
 def _next_month_start(value: datetime) -> datetime:
@@ -107,7 +115,14 @@ def _next_month_start(value: datetime) -> datetime:
     if month == 13:
         month = 1
         year += 1
-    return datetime(year, month, 1, tzinfo=timezone.utc)
+    return datetime(year, month, 1, tzinfo=value.tzinfo or timezone.utc)
+
+
+def _months_ahead_start(value: datetime, months: int) -> datetime:
+    """First day of the month [months] months after [value] (calendar-based)."""
+    total = value.month - 1 + months
+    year = value.year + total // 12
+    return datetime(year, total % 12 + 1, 1, tzinfo=value.tzinfo or timezone.utc)
 
 
 def _normalize_move_in_filter(move_in: str | None) -> str | None:
@@ -118,12 +133,20 @@ def _normalize_move_in_filter(move_in: str | None) -> str | None:
         return None
     if value in {"immediate", "immediately", "now"}:
         return "immediate"
-    if value in {"this_month", "within_1_month", "within_a_month"}:
-        return "this_month"
-    if value == "next_month":
-        return "next_month"
+    if value in {"within_1_week", "one_week", "within_a_week"}:
+        return "within_1_week"
     if value in {"within_2_weeks", "two_weeks"}:
         return "within_2_weeks"
+    if value == "this_month":
+        return "this_month"
+    if value in {"within_1_month", "within_a_month"}:
+        return "within_1_month"
+    if value == "next_month":
+        return "next_month"
+    if value in {"within_2_months", "two_months"}:
+        return "within_2_months"
+    if value in {"within_3_months", "three_months"}:
+        return "within_3_months"
     return None
 
 
@@ -136,11 +159,22 @@ def _move_in_window(
     if normalized is None:
         return None
 
-    today = _utc_day_start(now or datetime.now(timezone.utc))
+    today = _day_start(now or datetime.now(timezone.utc))
     if normalized == "immediate":
+        return None, today + timedelta(days=8)
+    if normalized == "within_1_week":
         return None, today + timedelta(days=8)
     if normalized == "within_2_weeks":
         return None, today + timedelta(days=15)
+    # Rolling windows ("within N months" = next N*30 days), matching the
+    # client-side matcher. Calendar month-start boundaries collapsed to a few
+    # days late in the month, so they are no longer used for these values.
+    if normalized == "within_1_month":
+        return None, today + timedelta(days=30)
+    if normalized == "within_2_months":
+        return None, today + timedelta(days=60)
+    if normalized == "within_3_months":
+        return None, today + timedelta(days=90)
     if normalized == "this_month":
         return None, _next_month_start(today)
     if normalized == "next_month":
@@ -153,7 +187,7 @@ def _available_from_minimum(available_from: str | None) -> datetime | None:
     if available_from is None or not available_from.strip():
         return None
     try:
-        return _utc_day_start(datetime.fromisoformat(available_from.strip()))
+        return _day_start(datetime.fromisoformat(available_from.strip()))
     except ValueError:
         return None
 
@@ -474,6 +508,49 @@ async def get_unified_properties_optimized(
                 # amenity that doesn't exist. Match nothing instead of silently
                 # dropping the filter and returning all properties.
                 logger.warning("No amenities found for names: %s", amenity_names)
+                conditions.append(false)
+
+        # Flatmates listing enhancement filters
+        if filters.furnishing:
+            logger.debug("Adding furnishing filter: %s", filters.furnishing)
+            conditions.append(Property.furnishing_level.in_(filters.furnishing))
+        if filters.kitchen_type:
+            logger.debug("Adding kitchen type filter: %s", filters.kitchen_type)
+            # 'any' is a client-side sentinel meaning "no kitchen constraint";
+            # no listing stores it, so filtering on it would empty the results.
+            kitchen_values = [v for v in filters.kitchen_type if v != "any"]
+            if kitchen_values:
+                conditions.append(Property.kitchen_type.in_(kitchen_values))
+        if filters.ventilation_type:
+            logger.debug("Adding ventilation type filter: %s", filters.ventilation_type)
+            conditions.append(Property.ventilation_type.in_(filters.ventilation_type))
+        if filters.windows_min is not None:
+            logger.debug("Adding min windows filter: %s", filters.windows_min)
+            conditions.append(Property.windows_count >= filters.windows_min)
+        if filters.has_lift:
+            logger.debug("Adding lift amenity filter")
+            # The seed ships both a 'Lift' and an 'Elevator' amenity row (same
+            # icon); listings tagged with either are lift-equipped.
+            lift_amenity_stmt = (
+                select(Amenity.id)
+                .where(func.lower(Amenity.title).in_(["lift", "elevator"]))
+                .limit(1)
+            )
+            lift_result = await execute_with_transient_retry(
+                db,
+                lambda: db.execute(lift_amenity_stmt),
+                operation_name="property_search_lift_lookup",
+            )
+            lift_amenity_id = lift_result.scalar_one_or_none()
+            if lift_amenity_id is not None:
+                lift_subquery = select(PropertyAmenity.property_id).where(
+                    PropertyAmenity.amenity_id == lift_amenity_id
+                )
+                conditions.append(Property.id.in_(lift_subquery))
+            else:
+                # 'Lift' amenity not seeded: match nothing rather than silently
+                # dropping the filter.
+                logger.warning("Lift amenity not found; has_lift matches nothing")
                 conditions.append(false)
 
         # Listing preference filters for PG / flatmate use cases

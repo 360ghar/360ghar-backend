@@ -525,7 +525,13 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     user.flatmates_sleep_schedule = None
     user.flatmates_cleanliness = None
     user.flatmates_food_habits = None
+    user.flatmates_smoking = None
+    user.flatmates_drinking = None
+    # Legacy combined column: older app builds still write it, so scrub it too.
     user.flatmates_smoking_drinking = None
+    user.native_place = None
+    user.linkedin_url = None
+    user.flatmates_age = None
     user.flatmates_guests_policy = None
     user.flatmates_work_style = None
     # Verification & status fields

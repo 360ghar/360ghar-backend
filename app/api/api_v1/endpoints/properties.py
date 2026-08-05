@@ -123,6 +123,17 @@ def build_property_filters(
     # Additional filters
     amenities: list[str] | None = Query(None),
     features: list[str] | None = Query(None),
+    furnishing: list[str] | None = Query(
+        None, description="Furnishing levels: furnished, semi_furnished, unfurnished"
+    ),
+    kitchen_type: list[str] | None = Query(
+        None, description="Kitchen types: vegetarian, non_vegetarian, eggetarian, any"
+    ),
+    ventilation_type: list[str] | None = Query(
+        None, description="Ventilation: good, average, poor"
+    ),
+    windows_min: int | None = Query(None, ge=0, description="Minimum window count"),
+    has_lift: bool | None = Query(None, description="Require a lift amenity"),
     gender_preference: ListingGenderPreference | None = Query(None),
     sharing_type: ListingSharingType | None = Query(None),
     available_from: str | None = Query(None, description="Minimum availability date (YYYY-MM-DD)"),
@@ -171,6 +182,11 @@ def build_property_filters(
         pincode=pincode,
         amenities=amenities,
         features=features,
+        furnishing=furnishing,
+        kitchen_type=kitchen_type,
+        ventilation_type=ventilation_type,
+        windows_min=windows_min,
+        has_lift=has_lift,
         gender_preference=gender_preference,
         sharing_type=sharing_type,
         available_from=available_from,

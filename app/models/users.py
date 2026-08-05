@@ -24,8 +24,10 @@ from app.core.database import Base
 from app.models.enums import (
     AuthMethod,
     Cleanliness,
+    FlatmatesDrinkingType,
     FlatmatesMode,
     FlatmatesProfileStatus,
+    FlatmatesSmokingType,
     FoodHabits,
     GuestsPolicy,
     SleepSchedule,
@@ -96,6 +98,13 @@ class User(Base):
     flatmates_cleanliness: Mapped[Cleanliness | None] = mapped_column(SQLEnum(Cleanliness, name="flatmates_cleanliness_type"), nullable=True)
     flatmates_food_habits: Mapped[FoodHabits | None] = mapped_column(SQLEnum(FoodHabits, name="flatmates_food_habits_type"), nullable=True)
     flatmates_smoking_drinking: Mapped[SmokingDrinking | None] = mapped_column(SQLEnum(SmokingDrinking, name="flatmates_smoking_drinking_type"), nullable=True)
+    flatmates_smoking: Mapped[FlatmatesSmokingType | None] = mapped_column(SQLEnum(FlatmatesSmokingType, name="flatmates_smoking_type"), nullable=True)
+    flatmates_drinking: Mapped[FlatmatesDrinkingType | None] = mapped_column(SQLEnum(FlatmatesDrinkingType, name="flatmates_drinking_type"), nullable=True)
+    native_place: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    linkedin_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Denormalized age for filtering; clients only ever see a privacy bucket
+    # derived from this server-side (bucket logic in a later change).
+    flatmates_age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     flatmates_guests_policy: Mapped[GuestsPolicy | None] = mapped_column(SQLEnum(GuestsPolicy, name="flatmates_guests_policy_type"), nullable=True)
     flatmates_work_style: Mapped[WorkStyle | None] = mapped_column(SQLEnum(WorkStyle, name="flatmates_work_style_type"), nullable=True)
     flatmates_last_active_at: Mapped[datetime | None] = mapped_column(

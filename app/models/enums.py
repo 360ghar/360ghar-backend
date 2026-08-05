@@ -114,10 +114,38 @@ class FoodHabits(str, Enum):
 
 
 class SmokingDrinking(str, Enum):
+    # Kept for backward compatibility with already-shipped app builds that
+    # still write/read the combined flatmates_smoking_drinking column. New
+    # code uses FlatmatesSmokingType + FlatmatesDrinkingType instead.
     neither = "neither"
     smoke_outside = "smoke_outside"
     drink_occasionally = "drink_occasionally"
     both_fine = "both_fine"
+
+
+class FlatmatesSmokingType(str, Enum):
+    never = "never"
+    occasionally = "occasionally"
+    regularly = "regularly"
+
+
+class FlatmatesDrinkingType(str, Enum):
+    never = "never"
+    occasionally = "occasionally"
+    regularly = "regularly"
+
+
+class KitchenType(str, Enum):
+    vegetarian = "vegetarian"
+    non_vegetarian = "non_vegetarian"
+    eggetarian = "eggetarian"
+    any = "any"
+
+
+class VentilationType(str, Enum):
+    good = "good"
+    average = "average"
+    poor = "poor"
 
 
 class GuestsPolicy(str, Enum):

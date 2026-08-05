@@ -184,7 +184,14 @@ class TestDeleteUserService:
         assert test_user.flatmates_sleep_schedule is None
         assert test_user.flatmates_cleanliness is None
         assert test_user.flatmates_food_habits is None
+        assert test_user.flatmates_smoking is None
+        assert test_user.flatmates_drinking is None
+        # Legacy combined column is kept (old app builds still write it) and
+        # must be scrubbed on deletion too.
         assert test_user.flatmates_smoking_drinking is None
+        assert test_user.native_place is None
+        assert test_user.linkedin_url is None
+        assert test_user.flatmates_age is None
         assert test_user.flatmates_guests_policy is None
         assert test_user.flatmates_work_style is None
 
