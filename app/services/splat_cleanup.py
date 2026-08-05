@@ -608,23 +608,34 @@ def fill_floor_ceiling_disks(
             ref_s = ref
             col_s = data["color"]
 
-        # chunked NN
+        # Use cKDTree for O(n log n) nearest-neighbor; fall back to brute-force
+        # if scipy is unavailable.
+        try:
+            from scipy.spatial import cKDTree
+
+            tree = cKDTree(ref_s)
+            dist, nn = tree.query(query, k=1)
+        except Exception:
+            # Brute-force fallback (original implementation)
+            dist = np.empty(len(query))
+            nn = np.empty(len(query), dtype=np.int64)
+            batch = 2000
+            for i in range(0, len(query), batch):
+                q = query[i : i + batch]
+                d2 = ((q[:, None, :] - ref_s[None, :, :]) ** 2).sum(axis=2)
+                nn[i : i + batch] = d2.argmin(axis=1)
+                dist[i : i + batch] = np.sqrt(d2.min(axis=1))
+
         colors = np.zeros((len(pts), 4), dtype=np.uint8)
-        batch = 2000
-        for i in range(0, len(pts), batch):
-            q = query[i : i + batch]
-            d2 = ((q[:, None, :] - ref_s[None, :, :]) ** 2).sum(axis=2)
-            nn = d2.argmin(axis=1)
-            colors[i : i + batch] = col_s[nn]
-            # blend toward pool median for empty regions far from any point
-            med = np.median(color_pool[:, :3].astype(np.float32), axis=0)
-            far = np.sqrt(d2.min(axis=1)) > 0.25 * float(np.linalg.norm(hi - lo))
-            for j, is_far in enumerate(far):
-                if is_far:
-                    colors[i + j, :3] = (
-                        0.4 * colors[i + j, :3].astype(np.float32) + 0.6 * med
-                    ).astype(np.uint8)
-            colors[i : i + batch, 3] = 230
+        colors[:, :4] = col_s[nn]
+
+        # blend toward pool median for empty regions far from any point
+        med = np.median(color_pool[:, :3].astype(np.float32), axis=0)
+        far = dist > 0.25 * float(np.linalg.norm(hi - lo))
+        colors[far, :3] = (
+            0.4 * colors[far, :3].astype(np.float32) + 0.6 * med
+        ).astype(np.uint8)
+        colors[:, 3] = 230
 
         # gentle spatial blur of colors on the grid (refine "not dots")
         grid_c = colors[:, :3].reshape(res, res, 3).astype(np.float32)

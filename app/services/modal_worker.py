@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import modal
@@ -408,7 +409,8 @@ def run_colmap_ns(images_dir: Path, workspace: Path) -> None:
     ]
     # Prefer GPU SIFT when available
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise RuntimeError("Failed to capture ns-process-data output")
     last: list[str] = []
     for line in process.stdout:
         print(line, end="", flush=True)
@@ -434,7 +436,8 @@ def run_colmap_ns(images_dir: Path, workspace: Path) -> None:
             "0",
         ]
         process2 = subprocess.Popen(cmd_ex, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-        assert process2.stdout is not None
+        if process2.stdout is None:
+            raise RuntimeError("Failed to capture ns-process-data (exhaustive) output")
         for line in process2.stdout:
             print(line, end="", flush=True)
         process2.wait()
@@ -463,7 +466,8 @@ def train_splatfacto(workspace: Path, output_dir: Path, max_steps: int) -> Path:
         "nerfstudio-data",
     ]
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    assert process.stdout is not None
+    if process.stdout is None:
+        raise RuntimeError("Failed to capture ns-train output")
     for line in process.stdout:
         print(line, end="", flush=True)
     process.wait()
@@ -631,10 +635,25 @@ def _inline_cuboid_cleanup(data, aggressive: bool = False):
 def _update_job(sb, job_id: str, **fields) -> None:
     if not job_id or job_id.startswith("local-"):
         return
-    try:
-        sb.table("splat_jobs").update(fields).eq("id", job_id).execute()
-    except Exception as e:
-        print(f"job update skipped: {e}", flush=True)
+    if sb is None:
+        print(f"job update skipped (no supabase client): {job_id} {fields}", flush=True)
+        return
+    # Progress updates are best-effort, but status updates (especially the
+    # terminal 'failed' one) must not be silently lost or the job stays
+    # stuck in a non-retryable state forever — retry those with backoff.
+    is_status_update = "status" in fields
+    attempts = 3 if is_status_update else 1
+    last_error: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            sb.table("splat_jobs").update(fields).eq("id", job_id).execute()
+            return
+        except Exception as e:
+            last_error = e
+            if attempt < attempts - 1:
+                time.sleep(0.5 * (attempt + 1))
+    prefix = "CRITICAL" if is_status_update else "WARNING"
+    print(f"[{prefix}] job update failed for {job_id}: {last_error} (fields={list(fields)})", flush=True)
 
 
 @app.function(
