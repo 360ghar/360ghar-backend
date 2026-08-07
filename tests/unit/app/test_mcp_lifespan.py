@@ -363,6 +363,7 @@ async def test_production_startup_migration_failure_does_not_abort(
     monkeypatch.setattr(lifespan_module, "_validate_deeplink_config", lambda: None)
     monkeypatch.setattr(lifespan_module, "_verify_database_ready", pass_database_ready)
     monkeypatch.setattr(lifespan_module, "_apply_pending_migrations", fail_migrations)
+    monkeypatch.setattr(lifespan_module, "_verify_schema_columns", noop_async)
     monkeypatch.setattr(lifespan_module, "_initialize_cache", noop_async)
     monkeypatch.setattr(lifespan_module, "_prewarm_supabase_dns", noop_async)
     monkeypatch.setattr(lifespan_module, "_start_scheduler_jobs", noop_async)
@@ -515,3 +516,144 @@ async def test_is_transient_readiness_failure_classifies_pooler_errors() -> None
         is False
     )
     assert lifespan_module._is_transient_readiness_failure(TimeoutError()) is True
+
+
+class _FakeSchemaRowsEngine:
+    """Minimal async engine stand-in returning canned information_schema rows."""
+
+    def __init__(self, rows: list[tuple[str, str]]) -> None:
+        self._rows = rows
+
+    def begin(self) -> Any:
+        @asynccontextmanager
+        async def _cm() -> Any:
+            yield _FakeSchemaRowsConnection(self._rows)
+
+        return _cm()
+
+
+class _FakeSchemaRowsConnection:
+    def __init__(self, rows: list[tuple[str, str]]) -> None:
+        self._rows = rows
+
+    async def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return SimpleNamespace(fetchall=lambda: self._rows)
+
+
+@pytest.mark.asyncio
+async def test_verify_schema_columns_detects_missing_model_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A model column absent from the DB raises so startup degrades loudly."""
+    from sqlalchemy import Column, Integer, MetaData, Table
+
+    from app.core import database as database_module
+
+    metadata = MetaData()
+    Table("users", metadata, Column("id", Integer), Column("flatmates_smoking", Integer))
+    monkeypatch.setattr(database_module, "Base", SimpleNamespace(metadata=metadata))
+    monkeypatch.setattr(
+        lifespan_module,
+        "engine",
+        _FakeSchemaRowsEngine([("users", "id")]),
+    )
+
+    with pytest.raises(RuntimeError, match=r"users: flatmates_smoking"):
+        await lifespan_module._verify_schema_columns()
+
+
+@pytest.mark.asyncio
+async def test_verify_schema_columns_passes_when_in_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No drift -> no error."""
+    from sqlalchemy import Column, Integer, MetaData, Table
+
+    from app.core import database as database_module
+
+    metadata = MetaData()
+    Table("users", metadata, Column("id", Integer), Column("flatmates_smoking", Integer))
+    monkeypatch.setattr(database_module, "Base", SimpleNamespace(metadata=metadata))
+    monkeypatch.setattr(
+        lifespan_module,
+        "engine",
+        _FakeSchemaRowsEngine(
+            [("users", "id"), ("users", "flatmates_smoking")]
+        ),
+    )
+
+    await lifespan_module._verify_schema_columns()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_verify_schema_columns_warns_on_missing_table(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A table with no DDL in the DB is a warning, not a failure."""
+    from sqlalchemy import Column, Integer, MetaData, Table
+
+    from app.core import database as database_module
+
+    metadata = MetaData()
+    Table("user_sessions", metadata, Column("id", Integer))
+    monkeypatch.setattr(database_module, "Base", SimpleNamespace(metadata=metadata))
+    monkeypatch.setattr(
+        lifespan_module,
+        "engine",
+        _FakeSchemaRowsEngine([("other_table", "id")]),
+    )
+
+    await lifespan_module._verify_schema_columns()  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_production_schema_drift_records_startup_degradation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Schema drift must degrade (not abort) startup and surface on /health."""
+    events: list[str] = []
+
+    async def pass_database_ready() -> None:
+        events.append("required:db")
+
+    async def noop_async(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def fail_schema_verify() -> None:
+        events.append("optional:schema_verify")
+        raise RuntimeError(
+            "Schema drift detected — model columns missing from database: "
+            "users: flatmates_smoking"
+        )
+
+    monkeypatch.setattr(lifespan_module.settings, "ENVIRONMENT", "production")
+    monkeypatch.setattr(lifespan_module, "_validate_deeplink_config", lambda: None)
+    monkeypatch.setattr(lifespan_module, "_verify_database_ready", pass_database_ready)
+    monkeypatch.setattr(lifespan_module, "_apply_pending_migrations", noop_async)
+    monkeypatch.setattr(lifespan_module, "_verify_schema_columns", fail_schema_verify)
+    monkeypatch.setattr(lifespan_module, "_initialize_cache", noop_async)
+    monkeypatch.setattr(lifespan_module, "_prewarm_supabase_dns", noop_async)
+    monkeypatch.setattr(lifespan_module, "_start_scheduler_jobs", noop_async)
+    _patch_shutdown_hooks(monkeypatch, events)
+
+    app = FastAPI()
+    app_lifespan = create_lifespan(
+        testing=False,
+        user_mcp_app=_RouterOnlyMCPApp(events, "user"),
+        admin_mcp_app=_RouterOnlyMCPApp(events, "admin"),
+    )
+
+    async with app_lifespan(app):
+        events.append("yield")
+
+    assert "yield" in events
+    assert app.state.startup_degraded is True
+    assert app.state.startup_errors == [
+        {
+            "phase": "schema_verify",
+            "error": (
+                "Schema drift detected — model columns missing from database: "
+                "users: flatmates_smoking"
+            ),
+        }
+    ]

@@ -146,6 +146,10 @@ async def _run_optional_startup(app: FastAPI) -> None:
     startup_steps: list[tuple[str, Callable[[], Any]]] = []
     if db_ready:
         startup_steps.append(("startup_migrations", _apply_pending_migrations))
+        # Detect model-vs-DB column drift early: when it happens, /health
+        # reports degraded and the log names the exact missing columns
+        # instead of every request 500ing with UndefinedColumn.
+        startup_steps.append(("schema_verify", _verify_schema_columns))
     startup_steps.extend(
         (
             ("cache", _initialize_cache),
@@ -259,6 +263,65 @@ async def _apply_pending_migrations() -> None:
             except Exception as exc:
                 logger.warning("Startup migration skipped (%s): %s", label, exc)
                 raise RuntimeError(f"Startup migration failed ({label})") from exc
+
+
+async def _verify_schema_columns() -> None:
+    """Detect SQLAlchemy-model vs live-DB column drift at startup.
+
+    One information_schema query is compared against the mapped tables. A
+    column present on a model but missing from an existing table is the
+    failure class that took production down in Aug 2026 (model columns
+    shipped without the matching supabase/migrations SQL being applied);
+    it is recorded as a startup degradation and surfaced on /health. A
+    table missing entirely is only a warning: a few model tables are
+    created outside the migration tree (user_sessions, search_index,
+    cache, video_metadata).
+    """
+    from sqlalchemy import text
+
+    import app.models  # noqa: F401  (registers every mapped table on Base.metadata)
+    from app.core.database import Base
+
+    metadata = Base.metadata
+    table_names = sorted(metadata.tables)
+
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = ANY(:names)"
+            ),
+            {"names": table_names},
+        )
+        rows = result.fetchall()
+
+    db_columns: dict[str, set[str]] = {}
+    for table_name, column_name in rows:
+        db_columns.setdefault(table_name, set()).add(column_name)
+
+    missing: list[str] = []
+    for table_name in table_names:
+        if table_name not in db_columns:
+            logger.warning(
+                "Schema verify: table %r exists in models but not in the "
+                "database; skipping its column check",
+                table_name,
+            )
+            continue
+        model_columns = {col.name for col in metadata.tables[table_name].columns}
+        table_missing = sorted(model_columns - db_columns[table_name])
+        if table_missing:
+            missing.append(f"{table_name}: {', '.join(table_missing)}")
+
+    if missing:
+        detail = "; ".join(missing)
+        logger.error(
+            "Schema drift detected — model columns missing from database: %s",
+            detail,
+        )
+        raise RuntimeError(
+            "Schema drift detected — model columns missing from database: " + detail
+        )
 
 
 async def _initialize_cache() -> None:

@@ -120,13 +120,17 @@ CREATE INDEX IF NOT EXISTS idx_properties_furnishing_level
 -- 'Nearby Parks' is new; the rest already exist from migration 01 but are
 -- re-inserted defensively (ON CONFLICT DO NOTHING) in case they were ever
 -- removed on an environment.
-INSERT INTO amenities (title, icon, category) VALUES
-('Nearby Parks', 'tree-pine', 'recreation'),
-('Air Conditioning', 'ac', 'convenience'),
-('Parking', 'car', 'convenience'),
-('Lift', 'elevator', 'convenience'),
-('Power Backup', 'battery', 'utilities'),
-('Garden', 'tree', 'recreation')
+-- is_active is passed explicitly: the production amenities table predates the
+-- consolidated schema and declares is_active NOT NULL without a default, so
+-- omitting it fails with 23502 on prod (while repo/test DDL happen to default
+-- it). Explicit TRUE is correct on every schema variant.
+INSERT INTO amenities (title, icon, category, is_active) VALUES
+('Nearby Parks', 'tree-pine', 'recreation', TRUE),
+('Air Conditioning', 'ac', 'convenience', TRUE),
+('Parking', 'car', 'convenience', TRUE),
+('Lift', 'elevator', 'convenience', TRUE),
+('Power Backup', 'battery', 'utilities', TRUE),
+('Garden', 'tree', 'recreation', TRUE)
 ON CONFLICT (title) DO NOTHING;
 
 -- ============================================================
