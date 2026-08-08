@@ -85,8 +85,15 @@ def run_migrations(*, dry_run: bool = False, target_file: str | None = None, env
 
     env_path = Path(env_file) if env_file else None
     if env_path and not env_path.is_file():
-        print(f"ERROR: Env file not found: {env_path}", file=sys.stderr)
-        sys.exit(1)
+        if env_file == ".env.dev":
+            # Auto-discovery default: CI and env-var-driven runs have no .env
+            # files in the checkout — fall back to the process environment
+            # (DATABASE_URL) instead of failing before connecting.
+            print("note: .env.dev not found; using process environment", file=sys.stderr)
+            env_path = None
+        else:
+            print(f"ERROR: Env file not found: {env_path}", file=sys.stderr)
+            sys.exit(1)
     load_dotenv(env_path)
 
     database_url = os.environ.get("DATABASE_URL")
