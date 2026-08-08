@@ -20,6 +20,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -107,8 +108,11 @@ def run_migrations(*, dry_run: bool = False, target_file: str | None = None, env
 
     database_url = _normalise_database_url(database_url)
 
-    # Supabase pooler requires SSL — append sslmode if not already present
-    if "sslmode=" not in database_url:
+    # Supabase pooler requires SSL — append sslmode if not already present.
+    # Local Postgres (CI drift DB, local dev) usually has SSL disabled, so only
+    # enforce SSL for remote hosts.
+    host = urlparse(database_url).hostname or ""
+    if "sslmode=" not in database_url and host not in {"localhost", "127.0.0.1", "::1"}:
         separator = "&" if "?" in database_url else "?"
         database_url = f"{database_url}{separator}sslmode=require"
 
