@@ -8,7 +8,7 @@ from app.core.exceptions import NotFoundException, ValidationException
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.models.core import FAQ, AppVersion, BugReport, Page
-from app.models.enums import BugStatus, BugType
+from app.models.enums import BugSeverity, BugStatus, BugType
 from app.schemas.core import (
     AppVersionCheckRequest,
     AppVersionCheckResponse,
@@ -60,6 +60,7 @@ class CoreService:
         user_id: int | None = None,
         status: BugStatus | None = None,
         bug_type: BugType | None = None,
+        severity: BugSeverity | None = None,
         cursor_payload: dict | None = None,
         limit: int = 20,
         with_total: bool = False,
@@ -81,6 +82,9 @@ class CoreService:
 
         if bug_type:
             stmt = stmt.where(BugReport.bug_type == bug_type)
+
+        if severity:
+            stmt = stmt.where(BugReport.severity == severity)
 
         count_total: int | None = None
         if with_total:

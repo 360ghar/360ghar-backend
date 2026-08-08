@@ -119,3 +119,11 @@ class AgentSystemStats(BaseModel):
     system_satisfaction_score: float
     agents_by_type: dict[str, int]
     load_distribution: list[AgentWorkload]
+    # Platform-wide aggregates consumed by the admin dashboard / analytics
+    # (see services/agent/analytics.py get_system_stats for exact semantics).
+    active_users: int
+    properties_listed: int
+    occupancy_rate: float
+    total_bookings: int
+    total_visits: int
+    total_revenue: float

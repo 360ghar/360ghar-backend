@@ -30,6 +30,7 @@ from app.mcp.chatgpt.response_formatter import (
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
 from app.mcp.utils import get_user_from_mcp_context
+from app.models.enums import VisitStatus
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.schemas.visit import VisitCreate
 from app.services.visit import get_user_visits
@@ -229,21 +230,22 @@ async def visits_list(
                     message="To view your property visits, please log in to your 360Ghar account.",
                 )
 
-            # Get user's visits (paginated via cursor). Status filtering is applied
-            # client-side because get_user_visits does not accept a status filter;
-            # counts may therefore be approximate when a status filter is applied.
+            # Get user's visits (paginated via cursor). Status filtering is
+            # applied server-side by get_user_visits, so the page and the
+            # reported total are accurate for the requested status.
+            status_enum = None
+            if status:
+                try:
+                    status_enum = VisitStatus(status)
+                except ValueError:
+                    # Invalid status — treat as no filter (MCP tools are lenient).
+                    status_enum = None
             rows, next_payload, total_count = await get_user_visits(
                 db, user.id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+                status=status_enum,
             )
 
-            # Filter by status if provided (applied after pagination).
-            # When a status filter is active, `total` still reflects the
-            # DB-level count across all statuses because get_user_visits does
-            # not accept a status filter server-side.
-            if status:
-                all_visits = [v for v in rows if (v.status.value if hasattr(v.status, "value") else v.status) == status]
-            else:
-                all_visits = rows
+            all_visits = rows
 
             # Compute per-status counts from the fetched page. These are
             # approximate when paginating (they reflect only the current page,

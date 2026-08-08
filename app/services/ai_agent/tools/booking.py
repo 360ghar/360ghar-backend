@@ -113,13 +113,20 @@ async def bookings_list(
     db, user = ctx.deps.db, ctx.deps.user
     assert db is not None
     limit = min(max(1, limit), 100)
-    rows, _next, _total = await booking_svc.get_user_bookings(db, user.id, cursor_payload={}, limit=limit)
-    bookings = rows
+    status_enum = None
     if status:
-        bookings = [b for b in bookings if b.booking_status == status]
-    items = [serialize_booking(b) for b in bookings]
+        try:
+            # Case-insensitive, matching the MCP bookings tool behavior.
+            status_enum = BookingStatus(status.lower())
+        except ValueError:
+            # Invalid status — treat as no filter (the tool bridge is lenient).
+            status_enum = None
+    rows, _next, _total = await booking_svc.get_user_bookings(
+        db, user.id, cursor_payload={}, limit=limit, status=status_enum
+    )
+    items = [serialize_booking(b) for b in rows]
     return {
-        "total": len(bookings), "upcoming": 0,
+        "total": len(items), "upcoming": 0,
         "completed": 0, "cancelled": 0,
         "bookings": items, "page": page,
     }

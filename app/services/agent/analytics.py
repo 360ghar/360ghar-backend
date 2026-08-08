@@ -5,6 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.agents import Agent
+from app.models.bookings import Booking
+from app.models.enums import BookingStatus
+from app.models.properties import Property, Visit
 from app.models.users import User
 from app.schemas.agent import (
     Agent as AgentSchema,
@@ -17,6 +20,7 @@ from app.schemas.agent import (
 )
 from app.schemas.pagination import offset_payload, read_offset
 from app.services.agent.interactions import get_daily_interactions, get_weekly_interactions
+from app.services.pm_reports import active_lease_exists
 
 logger = get_logger(__name__)
 
@@ -178,13 +182,49 @@ async def get_system_stats(db: AsyncSession) -> AgentSystemStats:
     # Get workload distribution
     workload = await get_workload_distribution(db)
 
+    # Occupancy rate: properties with an active lease / all properties.
+    # Shares the "occupied" definition with the PM occupancy report
+    # (services/pm_reports.py).
+    occupancy_stmt = select(
+        func.count(Property.id),
+        func.count(Property.id).filter(active_lease_exists()),
+    )
+    result = await db.execute(occupancy_stmt)
+    total_props, occupied_props = result.one()
+    occupancy_rate = (
+        round((occupied_props / total_props) * 100, 2) if total_props else 0.0
+    )
+
+    # Bookings / visits / revenue (platform-wide), fetched in a single round
+    # trip via scalar subqueries. Revenue excludes cancelled bookings — a
+    # cancelled booking is not revenue.
+    platform_stmt = select(
+        (select(func.count(User.id)).where(User.is_active)).scalar_subquery(),
+        (select(func.count(Booking.id))).scalar_subquery(),
+        (select(func.count(Visit.id))).scalar_subquery(),
+        (
+            select(func.sum(Booking.total_amount)).where(
+                Booking.booking_status != BookingStatus.cancelled
+            )
+        ).scalar_subquery(),
+    )
+    active_users, total_bookings, total_visits, total_revenue = (
+        await db.execute(platform_stmt)
+    ).one()
+
     return AgentSystemStats(
         total_agents=total_agents,
         active_agents=active_agents,
         total_users_served=int(total_users_served),
         system_satisfaction_score=float(avg_satisfaction or 0),
         agents_by_type=agents_by_type,
-        load_distribution=workload
+        load_distribution=workload,
+        active_users=int(active_users or 0),
+        properties_listed=int(total_props or 0),
+        occupancy_rate=occupancy_rate,
+        total_bookings=int(total_bookings or 0),
+        total_visits=int(total_visits or 0),
+        total_revenue=float(total_revenue or 0.0),
     )
 
 

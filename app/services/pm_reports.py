@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,20 @@ from app.models.properties import Property
 from app.models.users import User
 from app.schemas.pagination import offset_payload, read_offset
 from app.services.pm_dashboard import _resolve_owner_scope
+
+if TYPE_CHECKING:
+    from sqlalchemy import Exists
+
+
+def active_lease_exists() -> Exists:
+    """Correlated EXISTS: Property has an active lease.
+
+    Shared "occupied" definition for occupancy reports (pm_reports and the
+    platform-wide system stats in services/agent/analytics.py).
+    """
+    return exists(
+        select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
+    )
 
 
 async def rent_roll_report(
@@ -214,12 +228,9 @@ async def occupancy_report(
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    active_lease_exists = exists(
-        select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
-    )
     occupancy_stmt = select(
         func.count(Property.id),
-        func.count(Property.id).filter(active_lease_exists),
+        func.count(Property.id).filter(active_lease_exists()),
     ).where(Property.is_managed)
     if owner_ids is not None:
         occupancy_stmt = occupancy_stmt.where(Property.owner_id.in_(owner_ids))

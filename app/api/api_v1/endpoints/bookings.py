@@ -9,7 +9,7 @@ from app.api.api_v1.dependencies.auth import (
 )
 from app.core.database import get_db
 from app.core.db_resilience import raise_read_service_unavailable
-from app.models.enums import UserRole
+from app.models.enums import BookingStatus, UserRole
 from app.models.users import User
 from app.schemas.booking import (
     Booking,
@@ -80,6 +80,7 @@ async def create_new_booking(
 @router.get("", response_model=CursorPage[Booking], summary="List my bookings")
 async def get_my_bookings(
     page: CursorParams = Depends(),
+    status: BookingStatus | None = Query(None, description="Filter by booking status"),
     current_user: AuthUserSnapshot = Depends(get_current_cached_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -88,6 +89,7 @@ async def get_my_bookings(
         rows, next_payload, total = await get_user_bookings(
             db, current_user.id,
             cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
+            status=status,
         )
         return build_cursor_page(
             [Booking.model_validate(r, from_attributes=True) for r in rows],

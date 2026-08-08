@@ -9,7 +9,7 @@ from app.api.api_v1.dependencies.auth import (
 )
 from app.core.database import get_db
 from app.core.db_resilience import raise_read_service_unavailable
-from app.models.enums import UserRole
+from app.models.enums import UserRole, VisitStatus
 from app.models.users import User
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.visit import (
@@ -71,6 +71,7 @@ async def schedule_visit(
 @router.get("", response_model=CursorPage[Visit], summary="List my visits")
 async def get_my_visits(
     page: CursorParams = Depends(),
+    status: VisitStatus | None = Query(None, description="Filter by visit status"),
     current_user: AuthUserSnapshot = Depends(get_current_cached_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -79,6 +80,7 @@ async def get_my_visits(
         rows, next_payload, total = await get_user_visits(
             db, current_user.id,
             cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
+            status=status,
         )
         return build_cursor_page(
             [Visit.model_validate(r, from_attributes=True) for r in rows],

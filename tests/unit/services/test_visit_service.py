@@ -108,6 +108,34 @@ class TestGetUserVisits:
         assert isinstance(rows, list)
         assert len(rows) == len(test_visits)
 
+    @pytest.mark.asyncio
+    async def test_get_user_visits_status_filter(
+        self,
+        db_session: AsyncSession,
+        test_user,
+        test_visits,
+    ):
+        """Test filtering a user's visits by status."""
+        from app.models.enums import VisitStatus
+        from app.services.visit import get_user_visits
+
+        scheduled, _next, _total = await get_user_visits(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.scheduled
+        )
+        assert len(scheduled) == 1
+        assert all(v.status == VisitStatus.scheduled for v in scheduled)
+
+        completed, _next, _total = await get_user_visits(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.completed
+        )
+        assert len(completed) == 1
+        assert all(v.status == VisitStatus.completed for v in completed)
+
+        cancelled, _next, _total = await get_user_visits(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.cancelled
+        )
+        assert cancelled == []
+
 
 class TestGetUserUpcomingVisits:
     """Tests for get_user_upcoming_visits function."""

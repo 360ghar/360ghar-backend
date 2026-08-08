@@ -163,6 +163,40 @@ class TestGetUserBookings:
         assert len(rows) == len(test_bookings)
 
     @pytest.mark.asyncio
+    async def test_get_user_bookings_status_filter(
+        self,
+        db_session: AsyncSession,
+        test_user,
+        test_bookings,
+    ):
+        """Test filtering a user's bookings by status."""
+        from app.models.enums import BookingStatus
+        from app.services.booking import get_user_bookings
+
+        pending, _next, _total = await get_user_bookings(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=BookingStatus.pending
+        )
+        assert len(pending) == 1
+        assert all(b.booking_status == BookingStatus.pending for b in pending)
+
+        completed, _next, _total = await get_user_bookings(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=BookingStatus.completed
+        )
+        assert len(completed) == 1
+        assert all(b.booking_status == BookingStatus.completed for b in completed)
+
+        checked_in, _next, _total = await get_user_bookings(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=BookingStatus.checked_in
+        )
+        assert checked_in == []
+
+        cancelled, _next, _total = await get_user_bookings(
+            db_session, test_user.id, cursor_payload={}, limit=100, status=BookingStatus.cancelled
+        )
+        assert len(cancelled) == 1
+        assert all(b.booking_status == BookingStatus.cancelled for b in cancelled)
+
+    @pytest.mark.asyncio
     async def test_get_user_bookings_empty(self, db_session: AsyncSession, test_user_2):
         """Test getting bookings for user with no bookings."""
         from app.services.booking import get_user_bookings

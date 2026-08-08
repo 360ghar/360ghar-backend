@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.mcp.apps_sdk import AuthRequiredError
+from app.models.enums import VisitStatus
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -325,13 +326,12 @@ class TestVisitsList:
     async def test_list_filter_by_status(self):
         db = AsyncMock()
         user = _make_user()
-        # Service returns all rows; the wrapper filters client-side by status.
+        # Status filtering is delegated to get_user_visits server-side; the
+        # wrapper coerces the string to the enum and trusts the result.
         visits = [
-            _make_visit(visit_id=1, user_id=user.id, status_value="confirmed"),
             _make_visit(visit_id=2, user_id=user.id, status_value="completed"),
-            _make_visit(visit_id=3, user_id=user.id, status_value="cancelled"),
         ]
-        mock_get = AsyncMock(return_value=(visits, None, 3))
+        mock_get = AsyncMock(return_value=(visits, None, 1))
 
         with (
             _patch_session(db),
@@ -343,10 +343,30 @@ class TestVisitsList:
 
             result = await visits_list(status="completed")
 
+        assert mock_get.await_args.kwargs["status"] == VisitStatus.completed
         returned = result.structured_content["visits"]
         assert len(returned) == 1
         assert returned[0]["id"] == 2
         assert result.structured_content["total"] == 1
+
+    @pytest.mark.asyncio
+    async def test_list_invalid_status_no_filter(self):
+        db = AsyncMock()
+        user = _make_user()
+        mock_get = AsyncMock(return_value=([], None, 0))
+
+        with (
+            _patch_session(db),
+            _patch_user(user),
+            _patch_widget(),
+            patch(f"{_VISIT_TOOLS}.get_user_visits", new=mock_get),
+        ):
+            from app.mcp.chatgpt.visit_tools import visits_list
+
+            await visits_list(status="not_a_status")
+
+        # Invalid statuses are treated leniently as "no filter".
+        assert mock_get.await_args.kwargs["status"] is None
 
 
 # ===========================================================================

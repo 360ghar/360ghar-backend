@@ -891,12 +891,21 @@ async def get_all_users(
     with_total: bool = False,
     search_query: str | None = None,
     filter_agent_id: int | None = None,
+    filter_unassigned: bool = False,
+    filter_is_active: bool | None = None,
+    filter_phone_verified: bool | None = None,
 ) -> tuple[list[User], dict | None, int | None]:
-    """Return users with optional agent filter and search, keyset-paginated."""
+    """Return users with optional agent/search/status filters, keyset-paginated."""
     try:
         conditions = []
         if filter_agent_id is not None:
             conditions.append(User.agent_id == filter_agent_id)
+        if filter_unassigned:
+            conditions.append(User.agent_id.is_(None))
+        if filter_is_active is not None:
+            conditions.append(User.is_active == filter_is_active)
+        if filter_phone_verified is not None:
+            conditions.append(User.phone_verified == filter_phone_verified)
         if search_query:
             q = f"%{search_query}%"
             conditions.append(

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.mcp.utils import serialize_booking, serialize_property_basic
+from app.models.enums import BookingStatus
 from app.models.properties import Property
 from app.schemas.booking import BookingCreate
 from app.schemas.pagination import encode_cursor
@@ -174,19 +175,27 @@ async def list_user_bookings(
     if cursor_payload is None:
         cursor_payload = {}
 
-    rows, next_payload, _total = await booking_svc.get_user_bookings(
+    status_enum = None
+    if status:
+        try:
+            # Case-insensitive, matching the tool's historical behavior.
+            status_enum = BookingStatus(status.lower())
+        except ValueError:
+            # Invalid status — treat as no filter (MCP tools are lenient).
+            status_enum = None
+
+    rows, next_payload, total_count = await booking_svc.get_user_bookings(
         db, user_id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+        status=status_enum,
     )
 
     bookings = rows
 
-    if status:
-        status_norm = status.lower()
-        bookings = [b for b in bookings if getattr(b, "booking_status", "") == status_norm]
-
     items = [serialize_booking(b) for b in bookings]
 
-    total = len(bookings)
+    # Service-level filtered total (accurate across pages), falling back to the
+    # page size when the count was not requested.
+    total = total_count if total_count is not None else len(bookings)
     upcoming = sum(1 for b in bookings if getattr(b, "booking_status", "") == "confirmed")
     completed = sum(1 for b in bookings if getattr(b, "booking_status", "") == "completed")
     cancelled = sum(1 for b in bookings if getattr(b, "booking_status", "") == "cancelled")

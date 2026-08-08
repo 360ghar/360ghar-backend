@@ -1439,6 +1439,60 @@
             "description": "Filter by agent id (admin only)"
           },
           {
+            "name": "unassigned",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Admin only: only users with no assigned agent",
+              "title": "Unassigned"
+            },
+            "description": "Admin only: only users with no assigned agent"
+          },
+          {
+            "name": "is_active",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by active status",
+              "title": "Is Active"
+            },
+            "description": "Filter by active status"
+          },
+          {
+            "name": "phone_verified",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by phone verification status",
+              "title": "Phone Verified"
+            },
+            "description": "Filter by phone verification status"
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -3808,6 +3862,24 @@
         "operationId": "get_my_visits_api_v1_visits_get",
         "parameters": [
           {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/VisitStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by visit status",
+              "title": "Status"
+            },
+            "description": "Filter by visit status"
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -4660,6 +4732,24 @@
         "description": "List my bookings.",
         "operationId": "get_my_bookings_api_v1_bookings_get",
         "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BookingStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by booking status",
+              "title": "Status"
+            },
+            "description": "Filter by booking status"
+          },
           {
             "name": "cursor",
             "in": "query",
@@ -8698,7 +8788,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BugStatus"
                 },
                 {
                   "type": "null"
@@ -8716,7 +8806,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/BugType"
                 },
                 {
                   "type": "null"
@@ -8726,6 +8816,24 @@
               "title": "Bug Type"
             },
             "description": "Filter by bug type"
+          },
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BugSeverity"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by bug severity",
+              "title": "Severity"
+            },
+            "description": "Filter by bug severity"
           },
           {
             "name": "cursor",
@@ -28258,6 +28366,30 @@
             },
             "type": "array",
             "title": "Load Distribution"
+          },
+          "active_users": {
+            "type": "integer",
+            "title": "Active Users"
+          },
+          "properties_listed": {
+            "type": "integer",
+            "title": "Properties Listed"
+          },
+          "occupancy_rate": {
+            "type": "number",
+            "title": "Occupancy Rate"
+          },
+          "total_bookings": {
+            "type": "integer",
+            "title": "Total Bookings"
+          },
+          "total_visits": {
+            "type": "integer",
+            "title": "Total Visits"
+          },
+          "total_revenue": {
+            "type": "number",
+            "title": "Total Revenue"
           }
         },
         "type": "object",
@@ -28267,7 +28399,13 @@
           "total_users_served",
           "system_satisfaction_score",
           "agents_by_type",
-          "load_distribution"
+          "load_distribution",
+          "active_users",
+          "properties_listed",
+          "occupancy_rate",
+          "total_bookings",
+          "total_visits",
+          "total_revenue"
         ],
         "title": "AgentSystemStats"
       },
@@ -45868,6 +46006,65 @@
               }
             ],
             "title": "Tags"
+          },
+          "gender_preference": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ListingGenderPreference"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sharing_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ListingSharingType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "society_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Society Type"
+          },
+          "society_amenities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Society Amenities"
+          },
+          "society_vibe_tags": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Society Vibe Tags"
           }
         },
         "type": "object",

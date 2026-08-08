@@ -294,9 +294,17 @@ class TestGetSystemStats:
     """Tests for get_system_stats function."""
 
     @pytest.mark.asyncio
-    async def test_get_system_stats(self, db_session: AsyncSession, test_agents):
+    async def test_get_system_stats(
+        self, db_session: AsyncSession, test_agents, test_agent_user
+    ):
         """Test getting system statistics."""
         from app.services.agent import get_system_stats
+        from tests.fixtures.factories import PropertyFactory
+
+        # One active user (test_agent_user) plus one property, with no leases,
+        # bookings or visits — platform aggregates can be asserted exactly
+        # rather than vacuously (>= 0).
+        await PropertyFactory.create(db_session, owner_id=test_agent_user.id)
 
         result = await get_system_stats(db_session)
 
@@ -305,6 +313,12 @@ class TestGetSystemStats:
         assert hasattr(result, "active_agents")
         assert hasattr(result, "total_users_served")
         assert hasattr(result, "system_satisfaction_score")
+        assert result.active_users == 1
+        assert result.properties_listed == 1
+        assert result.occupancy_rate == 0.0
+        assert result.total_bookings == 0
+        assert result.total_visits == 0
+        assert result.total_revenue == 0.0
 
 
 class TestAgentPagination:

@@ -120,8 +120,9 @@ async def get_user_bookings(
     cursor_payload: dict,
     limit: int = 20,
     with_total: bool = False,
+    status: BookingStatus | None = None,
 ) -> tuple[list, dict | None, int | None]:
-    """Get all bookings for a user (keyset-paginated)."""
+    """Get all bookings for a user (keyset-paginated), optionally by status."""
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     # Eager-load the property so serialize_booking can embed it without an
     # async lazy-load (MissingGreenlet) when rendering the visit/booking widgets.
@@ -130,6 +131,8 @@ async def get_user_bookings(
         .options(selectinload(Booking.property))
         .where(Booking.user_id == user_id)
     )
+    if status is not None:
+        stmt = stmt.where(Booking.booking_status == status)
     count_total = None
     if with_total:
         count_stmt = select(func.count()).select_from(stmt.subquery())

@@ -257,6 +257,24 @@ async def test_bookings_include_total(
     assert r.json()["total"] >= 3
 
 
+async def test_bookings_status_filter(
+    booking_client: AsyncClient, seeded_bookings: list[Booking]
+) -> None:
+    """GET /api/v1/bookings?status=... filters by status and combines with include_total."""
+    r = await booking_client.get("/api/v1/bookings/?status=pending&include_total=true&limit=50")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 3  # seeded_bookings are all pending
+    assert all(item["booking_status"] == "pending" for item in body["items"])
+
+    r2 = await booking_client.get("/api/v1/bookings/?status=confirmed&include_total=true&limit=50")
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["total"] == 0
+
+    r3 = await booking_client.get("/api/v1/bookings/?status=not_a_status&limit=1")
+    assert r3.status_code == 422  # invalid enum value rejected by FastAPI
+
+
 async def test_bookings_invalid_cursor_400(booking_client: AsyncClient) -> None:
     r = await booking_client.get("/api/v1/bookings/?cursor=garbage!!!")
     assert r.status_code == 400, r.text
@@ -379,6 +397,25 @@ async def test_visits_include_total(
     r = await booking_client.get("/api/v1/visits/?limit=2&include_total=true")
     assert r.status_code == 200, r.text
     assert r.json()["total"] >= 3
+
+
+async def test_visits_status_filter(
+    booking_client: AsyncClient, seeded_visits: list[Visit]
+) -> None:
+    """GET /api/v1/visits?status=... filters by status and combines with include_total."""
+    r = await booking_client.get("/api/v1/visits/?status=confirmed&include_total=true&limit=50")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 0  # seeded visits are all scheduled
+    assert body["items"] == []
+
+    r2 = await booking_client.get("/api/v1/visits/?status=requested&include_total=true&limit=50")
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["total"] == 3  # seeded_visits are all scheduled
+    assert all(item["status"] == "requested" for item in r2.json()["items"])
+
+    r3 = await booking_client.get("/api/v1/visits/?status=not_a_status&limit=1")
+    assert r3.status_code == 422  # invalid enum value rejected by FastAPI
 
 
 async def test_visits_invalid_cursor_400(booking_client: AsyncClient) -> None:

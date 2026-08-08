@@ -315,6 +315,81 @@ async def test_users_list_invalid_cursor(admin_client: AsyncClient) -> None:
     assert r.json()["error"]["code"] == "INVALID_CURSOR"
 
 
+@pytest_asyncio.fixture
+async def mixed_users(db_session, three_agents) -> list[User]:
+    """Seed users covering the is_active / phone_verified / unassigned axes."""
+    users = []
+    specs = [
+        # (unassigned, active, phone_verified)
+        (True, True, True),
+        (True, True, False),
+        (False, True, True),
+        (True, False, False),
+    ]
+    for i, (unassigned, active, phone_verified) in enumerate(specs):
+        user = User(
+            supabase_user_id=str(uuid.uuid4()),
+            email=f"pg_mixed_{i}@example.com",
+            phone=f"+9197700000{i}",
+            full_name=f"PG Mixed User {i}",
+            role=UserRole.user.value,
+            is_active=active,
+            is_verified=True,
+            phone_verified=phone_verified,
+            agent_id=None if unassigned else three_agents[0].id,
+        )
+        db_session.add(user)
+        await db_session.flush()
+        await db_session.refresh(user)
+        users.append(user)
+    return users
+
+
+async def test_users_list_filter_unassigned(admin_client: AsyncClient, mixed_users: list[User]) -> None:
+    """?unassigned=true must only return users with no assigned agent."""
+    r = await admin_client.get("/api/v1/users?unassigned=true&limit=50")
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert all(item["agent_id"] is None for item in items)
+    unassigned_ids = {u.id for u in mixed_users if u.agent_id is None}
+    returned_ids = {item["id"] for item in items}
+    assert unassigned_ids <= returned_ids
+
+
+async def test_users_list_filter_is_active(admin_client: AsyncClient, mixed_users: list[User]) -> None:
+    """?is_active=true must only return active users."""
+    r = await admin_client.get("/api/v1/users?is_active=true&limit=50")
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert all(item["is_active"] is True for item in items)
+    inactive = next(u for u in mixed_users if not u.is_active)
+    assert inactive.id not in {item["id"] for item in items}
+
+
+async def test_users_list_filter_phone_verified(admin_client: AsyncClient, mixed_users: list[User]) -> None:
+    """?phone_verified=true must only return phone-verified users."""
+    r = await admin_client.get("/api/v1/users?phone_verified=true&limit=50")
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    assert all(item["phone_verified"] is True for item in items)
+    verified_ids = {u.id for u in mixed_users if u.phone_verified}
+    returned_ids = {item["id"] for item in items}
+    assert verified_ids <= returned_ids
+
+
+async def test_users_list_filter_combined(admin_client: AsyncClient, mixed_users: list[User]) -> None:
+    """Filters combine with include_total for exact counts."""
+    r = await admin_client.get(
+        "/api/v1/users?unassigned=true&is_active=true&phone_verified=true&include_total=true&limit=1"
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Exactly one seeded user matches all three filters (the admin fixture
+    # user is active+unassigned but not phone_verified).
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == next(u for u in mixed_users if u.agent_id is None and u.is_active and u.phone_verified).id
+
+
 # ---------------------------------------------------------------------------
 # Tests: GET /api/v1/agents/{agent_id}/visits
 # ---------------------------------------------------------------------------

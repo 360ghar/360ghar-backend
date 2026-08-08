@@ -186,6 +186,37 @@ async def test_bugs_invalid_cursor_400(admin_client: AsyncClient) -> None:
     assert r.json()["error"]["code"] == "INVALID_CURSOR"
 
 
+async def test_bugs_filter_severity(admin_client: AsyncClient, db_session, _admin_user) -> None:
+    """?severity=critical filters by severity and combines with include_total."""
+    for i, severity in enumerate([BugSeverity.low, BugSeverity.critical, BugSeverity.high]):
+        bug = BugReport(
+            user_id=_admin_user.id,
+            source="web",
+            bug_type=BugType.ui_bug,
+            severity=severity,
+            title=f"Severity Bug {i}",
+            description=f"Description {i}",
+        )
+        db_session.add(bug)
+        await db_session.flush()
+        await db_session.refresh(bug)
+
+    r = await admin_client.get("/api/v1/bugs?severity=critical&include_total=true&limit=50")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 1
+    assert all(item["severity"] == "critical" for item in body["items"])
+
+    r_all = await admin_client.get("/api/v1/bugs?include_total=true&limit=50")
+    assert r_all.status_code == 200, r_all.text
+    assert r_all.json()["total"] == 3  # exactly the three bugs created above
+
+
+async def test_bugs_invalid_severity_422(admin_client: AsyncClient) -> None:
+    r = await admin_client.get("/api/v1/bugs?severity=not_a_severity")
+    assert r.status_code == 422, r.text
+
+
 # ===========================================================================
 # Pages  —  OFFSET-FALLBACK pagination
 # ===========================================================================

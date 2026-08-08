@@ -400,17 +400,33 @@ class TestListUserBookings:
             _make_booking(booking_id=2, status=BookingStatus.cancelled),
             _make_booking(booking_id=3, status=BookingStatus.confirmed),
         ]
-        svc_mock = AsyncMock(return_value=(rows, None, 3))
+        # Status filtering is delegated to the service server-side; the wrapper
+        # coerces the string to the enum (case-insensitively, as historically),
+        # passes it through and trusts the filtered rows + accurate total.
+        svc_mock = AsyncMock(return_value=([rows[0], rows[2]], None, 2))
 
         with patch.object(bookings_tool_ops.booking_svc, "get_user_bookings", svc_mock):
             result = await bookings_tool_ops.list_user_bookings(
-                db, user_id=10, status="confirmed"
+                db, user_id=10, status="CONFIRMED"
             )
 
-        # Only confirmed bookings survive the in-memory filter
+        assert svc_mock.await_args.kwargs["status"] == BookingStatus.confirmed
         assert result["total"] == 2
         assert all(b["booking_status"] == "confirmed" for b in result["bookings"])
         assert result["upcoming"] == 2
+
+    async def test_invalid_status_passes_none(self) -> None:
+        db = AsyncMock()
+        svc_mock = AsyncMock(return_value=([], None, 0))
+
+        with patch.object(bookings_tool_ops.booking_svc, "get_user_bookings", svc_mock):
+            result = await bookings_tool_ops.list_user_bookings(
+                db, user_id=10, status="not_a_status"
+            )
+
+        # Invalid statuses are treated leniently as "no filter".
+        assert svc_mock.await_args.kwargs["status"] is None
+        assert result["total"] == 0
 
     async def test_limit_clamped_to_max(self) -> None:
         db = AsyncMock()

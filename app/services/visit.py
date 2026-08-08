@@ -246,14 +246,15 @@ async def get_user_visits(
     cursor_payload: dict,
     limit: int = 20,
     with_total: bool = False,
+    status: VisitStatus | None = None,
 ) -> tuple[list, dict | None, int | None]:
-    """Get all visits for a user (keyset-paginated)."""
+    """Get all visits for a user (keyset-paginated), optionally by status."""
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-    stmt = (
-        select(Visit)
-        .options(*_visit_load_options())
-        .where(or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id))
+    stmt = select(Visit).options(*_visit_load_options()).where(
+        or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id)
     )
+    if status is not None:
+        stmt = stmt.where(Visit.status == status)
     count_total = None
     if with_total:
         count_stmt = select(func.count()).select_from(stmt.subquery())

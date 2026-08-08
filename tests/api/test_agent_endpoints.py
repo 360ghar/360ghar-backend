@@ -89,6 +89,12 @@ def create_mock_system_stats() -> AgentSystemStats:
         system_satisfaction_score=4.2,
         agents_by_type={"general": 3, "specialist": 1, "senior": 1},
         load_distribution=[workload],
+        active_users=42,
+        properties_listed=17,
+        occupancy_rate=64.7,
+        total_bookings=120,
+        total_visits=90,
+        total_revenue=450000.0,
     )
 
 
@@ -321,6 +327,13 @@ class TestGetSystemStatsEndpoint:
             data = response.json()
             assert data["total_agents"] == 5
             assert data["active_agents"] == 4
+            # Platform aggregates surfaced for the admin dashboard / analytics
+            assert data["active_users"] == 42
+            assert data["properties_listed"] == 17
+            assert data["occupancy_rate"] == 64.7
+            assert data["total_bookings"] == 120
+            assert data["total_visits"] == 90
+            assert data["total_revenue"] == 450000.0
 
 
 class TestUpdateAgentAvailabilityEndpoint:

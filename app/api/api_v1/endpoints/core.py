@@ -15,7 +15,7 @@ from app.core.db_resilience import (
     is_transient_db_error,
 )
 from app.core.exceptions import ServiceUnavailableException
-from app.models.enums import UserRole
+from app.models.enums import BugSeverity, BugStatus, BugType, UserRole
 from app.models.users import User
 from app.schemas.common import MessageResponse
 from app.schemas.core import (
@@ -120,8 +120,6 @@ async def create_bug_report_with_media(
     """Create a bug report with media uploads"""
     import json
 
-    from app.models.enums import BugSeverity, BugType
-
     # Parse JSON fields
     device_info_parsed = json.loads(device_info) if device_info else None
     tags_parsed = json.loads(tags) if tags else None
@@ -161,24 +159,16 @@ async def create_bug_report_with_media(
 
 @router.get("/bugs", response_model=CursorPage[BugReportResponse], summary="List bug reports")
 async def get_bug_reports(
-    status: str | None = Query(None, description="Filter by bug status"),
-    bug_type: str | None = Query(None, description="Filter by bug type"),
+    status: BugStatus | None = Query(None, description="Filter by bug status"),
+    bug_type: BugType | None = Query(None, description="Filter by bug type"),
+    severity: BugSeverity | None = Query(None, description="Filter by bug severity"),
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     core_service: CoreService = Depends(get_core_service)
 ):
     """Get bug reports (filtered by current user if not admin)"""
-    from app.models.enums import BugStatus, BugType
-
-    # Validate and coerce enums, return 400 on invalid values
-    try:
-        status_enum = BugStatus(status) if status else None
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid bug status") from None
-    try:
-        bug_type_enum = BugType(bug_type) if bug_type else None
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid bug type") from None
+    # Invalid enum values are rejected by FastAPI with 422, matching the
+    # bookings/visits list filters.
 
     # If not admin, only show user's own bug reports
     if current_user.role != UserRole.admin.value:
@@ -188,8 +178,9 @@ async def get_bug_reports(
 
     rows, next_payload, total = await core_service.get_bug_reports(
         user_id=user_id,
-        status=status_enum,
-        bug_type=bug_type_enum,
+        status=status,
+        bug_type=bug_type,
+        severity=severity,
         cursor_payload=page.decoded(),
         limit=page.limit,
         with_total=page.include_total,

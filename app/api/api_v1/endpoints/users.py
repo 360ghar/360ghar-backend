@@ -388,6 +388,9 @@ async def list_users(
     page: CursorParams = Depends(),
     q: str | None = Query(None, description="Search by name/email/phone"),
     agent_id: int | None = Query(None, description="Filter by agent id (admin only)"),
+    unassigned: bool | None = Query(None, description="Admin only: only users with no assigned agent"),
+    is_active: bool | None = Query(None, description="Filter by active status"),
+    phone_verified: bool | None = Query(None, description="Filter by phone verification status"),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -404,6 +407,10 @@ async def list_users(
     else:
         raise HTTPException(status_code=403, detail="Access denied")
 
+    # Unassigned is an admin-only concept (an agent's scope only ever contains
+    # their own assigned users, so the flag is meaningless for agents).
+    filter_unassigned = unassigned is True and current_user.role == UserRole.admin.value
+
     users, next_payload, total = await get_all_users(
         db,
         cursor_payload=page.decoded(),
@@ -411,6 +418,9 @@ async def list_users(
         with_total=page.include_total,
         search_query=q,
         filter_agent_id=effective_agent_id,
+        filter_unassigned=filter_unassigned,
+        filter_is_active=is_active,
+        filter_phone_verified=phone_verified,
     )
     return build_cursor_page(
         [UserSchema.model_validate(u) for u in users],
