@@ -442,6 +442,40 @@ class TourVisibility(str, Enum):
     public = "public"
 
 
+class CaptureSessionStatus(str, Enum):
+    """Lifecycle of a mobile guided-capture session.
+
+    draft → capturing → review → uploading → processing → ready
+    Any non-terminal state may transition to failed or cancelled.
+    """
+
+    draft = "draft"
+    capturing = "capturing"
+    review = "review"
+    uploading = "uploading"
+    processing = "processing"
+    ready = "ready"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class CaptureTrackingBackend(str, Enum):
+    """How device pose was estimated for a capture frame."""
+
+    none = "none"
+    imu_pdr = "imu_pdr"
+    arkit = "arkit"
+    arcore = "arcore"
+
+
+class CaptureMode(str, Enum):
+    """How frames were captured at a waypoint."""
+
+    multi_yaw = "multi_yaw"
+    equirect = "equirect"
+    video_spin = "video_spin"
+
+
 class HotspotType(str, Enum):
     navigation = "navigation"
     info = "info"

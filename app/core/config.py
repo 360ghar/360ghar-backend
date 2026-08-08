@@ -50,6 +50,8 @@ class Settings(BaseSettings):
             "GOOGLE_API_KEY",
             "GOOGLE_APPLICATION_CREDENTIALS",
             "GROQ_API_KEY",
+            "MODAL_TOKEN_ID",
+            "MODAL_TOKEN_SECRET",
             "PERPLEXITY_API_KEY",
             "PEXELS_API_KEY",
             "PIXABAY_API_KEY",

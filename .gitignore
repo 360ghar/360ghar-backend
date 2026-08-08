@@ -207,3 +207,13 @@ data/nerfstudio_images/**/*.ckpt
 data/nerfstudio_images/**/config.yml
 data/.venv_dl/
 data/**/_hf/
+
+# Gaussian splat / 3DGS binaries anywhere in the tree
+*.splat
+*.ply
+*.spz
+*.ksplat
+
+# Research papers / large ad-hoc downloads
+*.pdf
+!docs/**/*.pdf

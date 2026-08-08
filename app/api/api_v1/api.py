@@ -12,6 +12,8 @@ from app.api.api_v1.endpoints import (
     auth,
     blog,
     bookings,
+    # Guided capture (mobile)
+    capture,
     core,
     custom_domains,
     dashboard,
@@ -22,8 +24,6 @@ from app.api.api_v1.endpoints import (
     flatmates_admin,
     floor_plans,
     hotspots,
-    # 3D Splat Lab
-    lab,
     notifications,
     oauth,
     payments,
@@ -114,9 +114,13 @@ api_router.include_router(deeplinks_api_router, prefix="/deeplinks", tags=["deep
 api_router.include_router(tours.router, prefix="/tours", tags=["tours"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
 api_router.include_router(hotspots.router, prefix="/hotspots", tags=["hotspots"])
-api_router.include_router(lab.router, prefix="/lab", tags=["lab"])
 api_router.include_router(floor_plans.router, tags=["floor-plans"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
+
+# Guided capture (mobile capture app) — additive; does not replace upload path
+api_router.include_router(
+    capture.router, prefix="/capture-sessions", tags=["capture-sessions"]
+)
 
 # 360 Virtual Tours - Public endpoints (no auth required)
 api_router.include_router(public.router, prefix="/public", tags=["public-tours"])

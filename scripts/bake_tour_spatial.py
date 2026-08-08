@@ -224,7 +224,10 @@ def main() -> None:
     p.add_argument("--transforms", type=Path, required=True)
     p.add_argument("--splat", type=Path, required=True)
     p.add_argument("--out", type=Path, required=True)
-    p.add_argument("--dataparser", type=Path, default=None)
+    # Required: an image-dataset bake without the dataparser transform would
+    # place camera nodes, spawn and walkable bounds in a different scale/origin
+    # than the supplied .splat, so navigation would be misplaced.
+    p.add_argument("--dataparser", type=Path, required=True)
     p.add_argument("--splat-url", default="/splats/kitchen.splat")
     p.add_argument("--room-id", default="kitchen")
     p.add_argument("--room-name", default="Kitchen")

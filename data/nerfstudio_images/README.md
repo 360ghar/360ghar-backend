@@ -8,7 +8,7 @@ Room-scale multi-view **images + poses** for Gaussian splat training.
 | `kitchen_ready/` | **Use this** — `images/` + scaled `transforms.json` |
 
 Source: [nerfbaselines-data](https://huggingface.co/datasets/nerfbaselines/nerfbaselines-data) `nerfstudio/kitchen.zip`  
-Docs: https://docs.nerf.studio/quickstart/existing_dataset.html
+Docs: [Splatfacto method](https://docs.nerf.studio/nerfology/methods/splat.html) (documents the `ns-train splatfacto --data` command below) · [Existing datasets](https://docs.nerf.studio/quickstart/existing_dataset.html)
 
 ```bash
 ns-train splatfacto --data data/nerfstudio_images/kitchen_ready

@@ -989,14 +989,14 @@ def train_splat(
         status="ready",
         progress=100,
         splat_url=ply_url,
-        viewer_url=supersplat_url,
+        supersplat_url=supersplat_url,
         stage_message="Complete! (cleaned cuboid room)",
     )
 
     return {
         "success": True,
         "splat_url": ply_url,
-        "viewer_url": supersplat_url,
+        "supersplat_url": supersplat_url,
         "volume_path": str(splat_vol),
         "bytes": splat_vol.stat().st_size,
         "images": total_images,

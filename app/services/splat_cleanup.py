@@ -19,6 +19,7 @@ Pure numpy — runs locally or inside Modal after export.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,10 +57,15 @@ class CleanupReport:
 def load_splat(path: Path | str) -> np.ndarray:
     path = Path(path)
     buf = path.read_bytes()
-    n = len(buf) // 32
+    if len(buf) % SPLAT_DT.itemsize != 0:
+        raise ValueError(
+            f"Truncated splat (size {len(buf)} is not a multiple of "
+            f"{SPLAT_DT.itemsize}): {path}"
+        )
+    n = len(buf) // SPLAT_DT.itemsize
     if n == 0:
         raise ValueError(f"Empty splat: {path}")
-    return np.frombuffer(buf[: n * 32], dtype=SPLAT_DT).copy()
+    return np.frombuffer(buf, dtype=SPLAT_DT).copy()
 
 
 def save_splat(path: Path | str, data: np.ndarray) -> None:
@@ -291,6 +297,67 @@ def rotation_align_up(normal: np.ndarray, target_up: np.ndarray | None = None) -
     return R
 
 
+def _rotation_to_quat_xyzw(R: np.ndarray) -> np.ndarray:
+    """Convert a 3x3 rotation matrix to a unit quaternion (x, y, z, w)."""
+    tr = float(np.trace(R))
+    if tr > 0:
+        s = math.sqrt(tr + 1.0) * 2.0
+        q = np.array(
+            [
+                (R[2, 1] - R[1, 2]) / s,
+                (R[0, 2] - R[2, 0]) / s,
+                (R[1, 0] - R[0, 1]) / s,
+                0.25 * s,
+            ]
+        )
+    elif R[0, 0] > R[1, 1] and R[0, 0] > R[2, 2]:
+        s = math.sqrt(1.0 + R[0, 0] - R[1, 1] - R[2, 2]) * 2.0
+        q = np.array(
+            [
+                0.25 * s,
+                (R[0, 1] + R[1, 0]) / s,
+                (R[0, 2] + R[2, 0]) / s,
+                (R[2, 1] - R[1, 2]) / s,
+            ]
+        )
+    elif R[1, 1] > R[2, 2]:
+        s = math.sqrt(1.0 + R[1, 1] - R[0, 0] - R[2, 2]) * 2.0
+        q = np.array(
+            [
+                (R[0, 1] + R[1, 0]) / s,
+                0.25 * s,
+                (R[1, 2] + R[2, 1]) / s,
+                (R[0, 2] - R[2, 0]) / s,
+            ]
+        )
+    else:
+        s = math.sqrt(1.0 + R[2, 2] - R[0, 0] - R[1, 1]) * 2.0
+        q = np.array(
+            [
+                (R[0, 2] + R[2, 0]) / s,
+                (R[1, 2] + R[2, 1]) / s,
+                0.25 * s,
+                (R[1, 0] - R[0, 1]) / s,
+            ]
+        )
+    q /= np.linalg.norm(q) + 1e-12
+    return q
+
+
+def _rotate_quats(rot_u8: np.ndarray, R: np.ndarray) -> np.ndarray:
+    """Apply rotation R to stored (x, y, z, w) uint8 quaternions."""
+    q = (rot_u8.astype(np.float64) - 128.0) / 128.0
+    qx, qy, qz, qw = q[:, 0], q[:, 1], q[:, 2], q[:, 3]
+    rx, ry, rz, rw = _rotation_to_quat_xyzw(R)
+    # Hamilton product r ⊗ q (scalar-last convention)
+    x2 = rw * qx + rx * qw + ry * qz - rz * qy
+    y2 = rw * qy - rx * qz + ry * qw + rz * qx
+    z2 = rw * qz + rx * qy - ry * qx + rz * qw
+    w2 = rw * qw - rx * qx - ry * qy - rz * qz
+    q2 = np.stack([x2, y2, z2, w2], axis=1)
+    return np.clip(np.round(q2 * 128.0 + 128.0), 0, 255).astype(np.uint8)
+
+
 def align_to_floor(data: np.ndarray) -> np.ndarray:
     """Rotate so floor normal → +Y; shift floor to y≈0.
 
@@ -319,6 +386,10 @@ def align_to_floor(data: np.ndarray) -> np.ndarray:
     floor_y = np.percentile(pos2[:, 1], 5)
     pos2[:, 1] -= floor_y
     data["pos"] = pos2
+    # Rotate Gaussian orientations with the same rotation R applied to the
+    # centers — otherwise anisotropic Gaussians keep their pre-rotation axes
+    # and surfaces come out elongated / misoriented.
+    data["rot"] = _rotate_quats(data["rot"], R)
     return data
 
 
@@ -336,6 +407,9 @@ def cuboid_clip(
     Returns (filtered_data, cuboid_min, cuboid_max).
     """
     pos = data["pos"]
+    if len(pos) == 0:
+        empty = np.zeros((0, 3), dtype=np.float32)
+        return data, empty, empty
     lo = np.percentile(pos, low_pct, axis=0)
     hi = np.percentile(pos, high_pct, axis=0)
     span = np.maximum(hi - lo, 1e-3)
@@ -716,6 +790,14 @@ def clean_room_splat(
         steps.append(f"dense_core→{len(data)}")
     except Exception as e:
         steps.append(f"dense_core_skip:{e}")
+
+    # A cloud whose gaussians were all filtered out must not crash the
+    # percentile-based cuboid clip — report the empty result instead.
+    if len(data) == 0:
+        steps.append("cuboid_clip→0 (empty cloud)")
+        report.output_count = 0
+        report.steps = steps
+        return data, report
 
     data, lo, hi = cuboid_clip(
         data,
