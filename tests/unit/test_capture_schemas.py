@@ -1,5 +1,10 @@
 """Unit tests for capture schemas (no DB required)."""
 
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
 from app.models.enums import CaptureMode, CaptureSessionStatus, CaptureTrackingBackend
 from app.schemas.capture import (
     CaptureFrameCreate,
@@ -56,6 +61,39 @@ def test_frame_create_requires_fields():
         image_url="https://cdn.example.com/x.jpg",
     )
     assert frame.frame_index == 0
+
+    # room_id / waypoint_id are required, not just defaulted
+    with pytest.raises(ValidationError):
+        CaptureFrameCreate(image_url="https://cdn.example.com/x.jpg")
+    with pytest.raises(ValidationError):
+        CaptureFrameCreate(room_id="r1", image_url="https://cdn.example.com/x.jpg")
+
+
+def test_frame_create_rejects_non_http_image_url():
+    with pytest.raises(ValidationError):
+        CaptureFrameCreate(
+            room_id="r1",
+            waypoint_id="w1",
+            image_url="javascript:alert(1)",
+        )
+    with pytest.raises(ValidationError):
+        CaptureFrameCreate(
+            room_id="r1",
+            waypoint_id="w1",
+            image_url="data:image/png;base64,AAAA",
+        )
+    with pytest.raises(ValidationError):
+        CaptureFrameCreate(
+            room_id="r1",
+            waypoint_id="w1",
+            image_url="not-a-url",
+        )
+    ok = CaptureFrameCreate(
+        room_id="r1",
+        waypoint_id="w1",
+        image_url="http://192.168.1.10:8080/frame.jpg",
+    )
+    assert ok.image_url == "http://192.168.1.10:8080/frame.jpg"
 
 
 def test_session_update_status_enum():

@@ -6,6 +6,8 @@ uploaded frames with pose metadata, and complete processing.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,7 +40,7 @@ async def create_capture_session(
     data: CaptureSessionCreate,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """Create a new guided-capture session (draft)."""
     return await session_service.create_session(db, current_user.id, data)
 
@@ -56,7 +58,7 @@ async def list_capture_sessions(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """List the current user's capture sessions (newest first)."""
     items, total = await session_service.list_sessions(
         db,
@@ -77,7 +79,7 @@ async def get_capture_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """Get a capture session with registered frames."""
     return await session_service.get_session_response(
         db, session_id, current_user.id, include_frames=True
@@ -94,7 +96,7 @@ async def update_capture_session(
     data: CaptureSessionUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """Update plan, status, progress, or metadata for a session."""
     return await session_service.update_session(db, session_id, current_user.id, data)
 
@@ -108,7 +110,7 @@ async def get_capture_session_status(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """Lightweight status poll for upload / processing UI."""
     return await session_service.get_status(db, session_id, current_user.id)
 
@@ -124,7 +126,7 @@ async def register_capture_frame(
     data: CaptureFrameCreate,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """
     Attach an already-uploaded image to the session.
 
@@ -143,7 +145,7 @@ async def complete_capture_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """
     Mark the session complete and enqueue processing.
 
@@ -161,6 +163,6 @@ async def cancel_capture_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> dict[str, Any]:
     """Cancel an in-progress capture session."""
     return await session_service.cancel_session(db, session_id, current_user.id)

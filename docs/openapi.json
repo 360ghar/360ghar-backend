@@ -33366,7 +33366,11 @@
           "platform": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "ios",
+                  "android"
+                ]
               },
               {
                 "type": "null"
@@ -33760,7 +33764,12 @@
           "tracking_quality": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "good",
+                  "limited",
+                  "unavailable"
+                ]
               },
               {
                 "type": "null"
@@ -33816,6 +33825,11 @@
           },
           "size": {
             "type": "string",
+            "enum": [
+              "small",
+              "medium",
+              "large"
+            ],
             "title": "Size",
             "default": "medium"
           },
@@ -34271,17 +34285,6 @@
                 "type": "null"
               }
             ]
-          },
-          "error_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Error Message"
           }
         },
         "type": "object",
@@ -34337,6 +34340,12 @@
           },
           "kind": {
             "type": "string",
+            "enum": [
+              "center",
+              "mid_wall",
+              "doorway",
+              "grid"
+            ],
             "title": "Kind",
             "default": "center"
           }

@@ -11,7 +11,7 @@ All endpoints require `Authorization: Bearer <supabase_jwt>`.
 
 ## Lifecycle
 
-```
+```text
 draft → capturing → review → uploading → processing → ready
                               ↘ failed / cancelled
 ```

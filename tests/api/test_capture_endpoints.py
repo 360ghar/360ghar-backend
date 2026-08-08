@@ -5,7 +5,122 @@ API tests for guided capture session endpoints (Phase 0).
 from __future__ import annotations
 
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+
+
+@pytest.mark.asyncio
+async def test_cross_user_access_forbidden(
+    user_client: AsyncClient,
+    test_app,
+    test_user_2,
+):
+    """Another user's session_id must 403 on every read/update path."""
+    create = await user_client.post(
+        "/api/v1/capture-sessions",
+        json={"title": "Mine"},
+    )
+    assert create.status_code == 201, create.text
+    session_id = create.json()["id"]
+
+    from app.api.api_v1.dependencies.auth import (
+        get_current_active_user,
+        get_current_cached_active_user,
+        get_current_user,
+        get_current_user_optional,
+    )
+    from app.schemas.user import User as UserSchema
+
+    user2_schema = UserSchema.model_validate(test_user_2, from_attributes=True)
+
+    async def override_current_user():
+        return user2_schema
+
+    test_app.dependency_overrides[get_current_user] = override_current_user
+    test_app.dependency_overrides[get_current_active_user] = override_current_user
+    test_app.dependency_overrides[get_current_cached_active_user] = override_current_user
+    test_app.dependency_overrides[get_current_user_optional] = override_current_user
+
+    transport = ASGITransport(app=test_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        timeout=60.0,
+    ) as other:
+        detail = await other.get(f"/api/v1/capture-sessions/{session_id}")
+        assert detail.status_code == 403
+        patch = await other.patch(
+            f"/api/v1/capture-sessions/{session_id}",
+            json={"title": "Hijack"},
+        )
+        assert patch.status_code == 403
+        frames = await other.get(f"/api/v1/capture-sessions/{session_id}/status")
+        assert frames.status_code == 403
+        complete = await other.post(f"/api/v1/capture-sessions/{session_id}/complete")
+        assert complete.status_code == 403
+        cancel = await other.post(f"/api/v1/capture-sessions/{session_id}/cancel")
+        assert cancel.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_frame_registration_is_idempotent(user_client: AsyncClient):
+    """Re-registering the same frame identity converges, not duplicates."""
+    create = await user_client.post(
+        "/api/v1/capture-sessions",
+        json={"title": "Retry me"},
+    )
+    assert create.status_code == 201, create.text
+    session_id = create.json()["id"]
+
+    payload = {
+        "room_id": "r1",
+        "waypoint_id": "w1",
+        "frame_index": 2,
+        "image_url": "https://cdn.example.com/retry.jpg",
+    }
+    first = await user_client.post(
+        f"/api/v1/capture-sessions/{session_id}/frames",
+        json=payload,
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+
+    second = await user_client.post(
+        f"/api/v1/capture-sessions/{session_id}/frames",
+        json=payload,
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first_id
+
+    detail = await user_client.get(f"/api/v1/capture-sessions/{session_id}")
+    assert detail.status_code == 200
+    assert len(detail.json()["frames"]) == 1
+
+    # A reshoot (new URL for the same identity) updates the existing row.
+    reshoot = await user_client.post(
+        f"/api/v1/capture-sessions/{session_id}/frames",
+        json={**payload, "image_url": "https://cdn.example.com/retry-v2.jpg"},
+    )
+    assert reshoot.status_code == 201, reshoot.text
+    assert reshoot.json()["id"] == first_id
+    assert reshoot.json()["image_url"].endswith("retry-v2.jpg")
+
+
+@pytest.mark.asyncio
+async def test_patch_cannot_write_error_message(user_client: AsyncClient):
+    """error_message is server-owned and must be ignored on PATCH."""
+    create = await user_client.post(
+        "/api/v1/capture-sessions",
+        json={"title": "No error writes"},
+    )
+    assert create.status_code == 201, create.text
+    session_id = create.json()["id"]
+
+    patched = await user_client.patch(
+        f"/api/v1/capture-sessions/{session_id}",
+        json={"error_message": "Hacked"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["error_message"] is None
 
 
 @pytest.mark.asyncio
@@ -87,6 +202,7 @@ async def test_update_plan_and_register_frame(user_client: AsyncClient):
         "/api/v1/capture-sessions",
         json={"title": "Frame session"},
     )
+    assert create.status_code == 201, create.text
     session_id = create.json()["id"]
 
     patched = await user_client.patch(
@@ -151,13 +267,14 @@ async def test_complete_and_cancel_session(user_client: AsyncClient):
         "/api/v1/capture-sessions",
         json={"title": "Complete me"},
     )
+    assert create.status_code == 201, create.text
     session_id = create.json()["id"]
 
     # complete with no frames should fail
     bad = await user_client.post(f"/api/v1/capture-sessions/{session_id}/complete")
     assert bad.status_code == 400
 
-    await user_client.post(
+    frame = await user_client.post(
         f"/api/v1/capture-sessions/{session_id}/frames",
         json={
             "room_id": "r1",
@@ -165,6 +282,7 @@ async def test_complete_and_cancel_session(user_client: AsyncClient):
             "image_url": "https://cdn.example.com/a.jpg",
         },
     )
+    assert frame.status_code == 201, frame.text
 
     done = await user_client.post(f"/api/v1/capture-sessions/{session_id}/complete")
     assert done.status_code == 200, done.text
@@ -176,6 +294,7 @@ async def test_complete_and_cancel_session(user_client: AsyncClient):
         "/api/v1/capture-sessions",
         json={"title": "Cancel me"},
     )
+    assert create2.status_code == 201, create2.text
     sid2 = create2.json()["id"]
     cancelled = await user_client.post(f"/api/v1/capture-sessions/{sid2}/cancel")
     assert cancelled.status_code == 200
@@ -188,6 +307,7 @@ async def test_frame_requires_url_or_media_id(user_client: AsyncClient):
         "/api/v1/capture-sessions",
         json={"title": "Missing media"},
     )
+    assert create.status_code == 201, create.text
     session_id = create.json()["id"]
     response = await user_client.post(
         f"/api/v1/capture-sessions/{session_id}/frames",
@@ -206,6 +326,7 @@ async def test_frame_rejects_unknown_or_foreign_media_file_id(user_client: Async
         "/api/v1/capture-sessions",
         json={"title": "Bad media id"},
     )
+    assert create.status_code == 201, create.text
     session_id = create.json()["id"]
 
     response = await user_client.post(
@@ -227,6 +348,7 @@ async def test_patch_cannot_jump_to_server_controlled_states(user_client: AsyncC
         "/api/v1/capture-sessions",
         json={"title": "No jumping"},
     )
+    assert create.status_code == 201, create.text
     session_id = create.json()["id"]
 
     for status in ("ready", "processing", "failed", "cancelled"):

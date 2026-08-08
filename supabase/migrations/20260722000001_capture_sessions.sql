@@ -57,7 +57,11 @@ CREATE TABLE IF NOT EXISTS capture_frames (
     media_file_id   VARCHAR(36) REFERENCES media_files(id) ON DELETE SET NULL,
     image_url       VARCHAR(500),
     frame_metadata  JSONB,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Logical frame identity: registration retries upsert on this key instead
+    -- of creating duplicate frames (service add_frame ON CONFLICT DO UPDATE).
+    CONSTRAINT uq_capture_frames_frame_identity
+        UNIQUE (session_id, room_id, waypoint_id, frame_index)
 );
 
 CREATE INDEX IF NOT EXISTS idx_capture_frames_session_id

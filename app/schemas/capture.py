@@ -7,9 +7,10 @@ Stitch / tour promotion arrives in later phases.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import CaptureMode, CaptureSessionStatus, CaptureTrackingBackend
 
@@ -28,7 +29,7 @@ class CaptureWaypointPlan(BaseModel):
     x_m: float = 0.0
     y_m: float = 0.0
     z_m: float = 0.0
-    kind: str = "center"  # center | mid_wall | doorway | grid
+    kind: Literal["center", "mid_wall", "doorway", "grid"] = "center"
 
 
 class CaptureRoomPlan(BaseModel):
@@ -36,7 +37,7 @@ class CaptureRoomPlan(BaseModel):
 
     id: str
     label: str
-    size: str = "medium"  # small | medium | large
+    size: Literal["small", "medium", "large"] = "medium"
     order_index: int = 0
     waypoints: list[CaptureWaypointPlan] = Field(default_factory=list)
 
@@ -49,7 +50,7 @@ class CapturePlan(BaseModel):
 
 
 class CaptureDeviceInfo(BaseModel):
-    platform: str | None = None  # ios | android
+    platform: Literal["ios", "android"] | None = None
     model: str | None = None
     os_version: str | None = None
     app_version: str | None = None
@@ -62,7 +63,7 @@ class CapturePose(BaseModel):
     yaw_deg: float | None = None
     pitch_deg: float | None = None
     roll_deg: float | None = None
-    tracking_quality: str | None = None  # good | limited | unavailable
+    tracking_quality: Literal["good", "limited", "unavailable"] | None = None
     tracking_backend: CaptureTrackingBackend = CaptureTrackingBackend.imu_pdr
 
 
@@ -108,7 +109,8 @@ class CaptureSessionUpdate(BaseModel):
     progress: int | None = Field(default=None, ge=0, le=100)
     plan: CapturePlan | None = None
     device_info: CaptureDeviceInfo | None = None
-    error_message: str | None = None
+    # NOTE: error_message is server-owned (completion / cancellation / stitch
+    # worker) and deliberately NOT in this schema — clients cannot write it.
 
 
 class CaptureFrameCreate(BaseModel):
@@ -122,6 +124,22 @@ class CaptureFrameCreate(BaseModel):
     media_file_id: str | None = None
     image_url: str | None = Field(default=None, max_length=500)
     metadata: CaptureFrameMetadata | None = None
+
+    @field_validator("image_url")
+    @classmethod
+    def _image_url_must_be_http(cls, value: str | None) -> str | None:
+        """Reject javascript:, data:, and arbitrary non-URL values.
+
+        http(s) is accepted so local-dev / LAN capture servers keep working;
+        every other scheme (or a string that is not a URL at all) is refused
+        before the frame is stored.
+        """
+        if value is None:
+            return None
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("image_url must be an absolute http(s) URL")
+        return value
 
 
 class CaptureFrameResponse(BaseModel):
@@ -140,7 +158,11 @@ class CaptureFrameResponse(BaseModel):
     )
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        validate_by_name=True,
+        validate_by_alias=True,
+    )
 
 
 class CaptureSessionResponse(BaseModel):

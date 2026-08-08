@@ -6,7 +6,10 @@ Processing (stitch → tour) is stubbed for later phases.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -44,8 +47,7 @@ _CLIENT_TRANSITIONS: dict[CaptureSessionStatus, frozenset[CaptureSessionStatus]]
 }
 
 
-def _session_to_dict(session: CaptureSession, frame_count: int | None = None) -> dict:
-    count = frame_count if frame_count is not None else len(session.frames or [])
+def _session_to_dict(session: CaptureSession, frame_count: int) -> dict[str, Any]:
     return {
         "id": session.id,
         "user_id": session.user_id,
@@ -57,9 +59,25 @@ def _session_to_dict(session: CaptureSession, frame_count: int | None = None) ->
         "device_info": session.device_info,
         "tour_id": session.tour_id,
         "error_message": session.error_message,
-        "frame_count": count,
+        "frame_count": frame_count,
         "created_at": session.created_at,
         "updated_at": session.updated_at,
+    }
+
+
+def _frame_to_dict(frame: CaptureFrame) -> dict[str, Any]:
+    return {
+        "id": frame.id,
+        "session_id": frame.session_id,
+        "room_id": frame.room_id,
+        "room_label": frame.room_label,
+        "waypoint_id": frame.waypoint_id,
+        "waypoint_index": frame.waypoint_index,
+        "frame_index": frame.frame_index,
+        "media_file_id": frame.media_file_id,
+        "image_url": frame.image_url,
+        "frame_metadata": frame.frame_metadata,
+        "created_at": frame.created_at,
     }
 
 
@@ -103,18 +121,17 @@ async def list_sessions(
         await db.execute(select(func.count()).select_from(base.subquery()))
     ).scalar_one()
 
-    frame_counts = (
-        select(
-            CaptureFrame.session_id.label("session_id"),
-            func.count(CaptureFrame.id).label("frame_count"),
-        )
-        .group_by(CaptureFrame.session_id)
-        .subquery()
+    # Correlated scalar subquery keeps the count work bounded to the page rows
+    # (a global GROUP BY would aggregate every frame of every user).
+    frame_count_expr = (
+        select(func.count(CaptureFrame.id))
+        .where(CaptureFrame.session_id == CaptureSession.id)
+        .correlate(CaptureSession)
+        .scalar_subquery()
     )
 
     stmt = (
-        base.outerjoin(frame_counts, frame_counts.c.session_id == CaptureSession.id)
-        .add_columns(func.coalesce(frame_counts.c.frame_count, 0).label("frame_count"))
+        base.add_columns(frame_count_expr.label("frame_count"))
         .order_by(CaptureSession.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -167,22 +184,7 @@ async def get_session_response(
         ).scalar_one()
     payload = _session_to_dict(session, frame_count=int(frame_count))
     if include_frames:
-        payload["frames"] = [
-            {
-                "id": f.id,
-                "session_id": f.session_id,
-                "room_id": f.room_id,
-                "room_label": f.room_label,
-                "waypoint_id": f.waypoint_id,
-                "waypoint_index": f.waypoint_index,
-                "frame_index": f.frame_index,
-                "media_file_id": f.media_file_id,
-                "image_url": f.image_url,
-                "frame_metadata": f.frame_metadata,
-                "created_at": f.created_at,
-            }
-            for f in (session.frames or [])
-        ]
+        payload["frames"] = [_frame_to_dict(f) for f in (session.frames or [])]
     return payload
 
 
@@ -206,6 +208,9 @@ async def update_session(
             )
 
     updates = data.model_dump(exclude_unset=True)
+    # error_message is server-owned (completion / cancellation / stitch worker);
+    # strip it defensively even if a future schema re-introduces it.
+    updates.pop("error_message", None)
     if "plan" in updates and data.plan is not None:
         updates["plan"] = data.plan.model_dump()
     if "device_info" in updates and data.device_info is not None:
@@ -287,34 +292,43 @@ async def add_frame(
         session.status = CaptureSessionStatus.capturing
 
     meta = data.metadata.model_dump(mode="json", exclude_none=True) if data.metadata else None
-    frame = CaptureFrame(
-        session_id=session.id,
-        room_id=data.room_id,
-        room_label=data.room_label,
-        waypoint_id=data.waypoint_id,
-        waypoint_index=data.waypoint_index,
-        frame_index=data.frame_index,
-        media_file_id=data.media_file_id,
-        image_url=data.image_url,
-        frame_metadata=meta,
+    # Upsert on the logical frame identity so a retry after a lost response
+    # converges on the existing row instead of duplicating the frame.
+    stmt = (
+        pg_insert(CaptureFrame)
+        .values(
+            session_id=session.id,
+            room_id=data.room_id,
+            room_label=data.room_label,
+            waypoint_id=data.waypoint_id,
+            waypoint_index=data.waypoint_index,
+            frame_index=data.frame_index,
+            media_file_id=data.media_file_id,
+            image_url=data.image_url,
+            frame_metadata=meta,
+        )
+        .on_conflict_do_update(
+            index_elements=[
+                CaptureFrame.session_id,
+                CaptureFrame.room_id,
+                CaptureFrame.waypoint_id,
+                CaptureFrame.frame_index,
+            ],
+            set_={
+                "room_label": data.room_label,
+                "waypoint_index": data.waypoint_index,
+                "media_file_id": data.media_file_id,
+                "image_url": data.image_url,
+                "frame_metadata": meta,
+            },
+        )
+        .returning(CaptureFrame)
     )
-    db.add(frame)
+    frame = (await db.execute(stmt)).scalar_one()
     await db.commit()
     await db.refresh(frame)
 
-    return {
-        "id": frame.id,
-        "session_id": frame.session_id,
-        "room_id": frame.room_id,
-        "room_label": frame.room_label,
-        "waypoint_id": frame.waypoint_id,
-        "waypoint_index": frame.waypoint_index,
-        "frame_index": frame.frame_index,
-        "media_file_id": frame.media_file_id,
-        "image_url": frame.image_url,
-        "frame_metadata": frame.frame_metadata,
-        "created_at": frame.created_at,
-    }
+    return _frame_to_dict(frame)
 
 
 async def complete_session(

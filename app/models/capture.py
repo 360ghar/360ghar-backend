@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -57,9 +57,9 @@ class CaptureSession(Base):
     )
     progress: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     # Room checklist + waypoint plan (see schemas.capture.CapturePlan)
-    plan: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    plan: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     # Device / app info from the capture client
-    device_info: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    device_info: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     # Linked tour once processing completes
     tour_id: Mapped[str | None] = mapped_column(
         String(36),
@@ -96,6 +96,15 @@ class CaptureFrame(Base):
     __table_args__ = (
         Index("idx_capture_frames_session_id", "session_id"),
         Index("idx_capture_frames_session_room", "session_id", "room_id"),
+        # Logical frame identity — retries of frame registration must not
+        # duplicate rows (service upserts on this key).
+        UniqueConstraint(
+            "session_id",
+            "room_id",
+            "waypoint_id",
+            "frame_index",
+            name="uq_capture_frames_frame_identity",
+        ),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
@@ -119,7 +128,7 @@ class CaptureFrame(Base):
     )
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Full capture metadata (pose, camera, quality) — see CaptureFrameMetadata schema
-    frame_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    frame_metadata: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
