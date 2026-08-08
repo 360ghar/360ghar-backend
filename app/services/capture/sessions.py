@@ -14,6 +14,7 @@ from app.core.exceptions import BadRequestException, ForbiddenException, NotFoun
 from app.core.logging import get_logger
 from app.models.capture import CaptureFrame, CaptureSession
 from app.models.enums import CaptureSessionStatus
+from app.models.tours import MediaFile
 from app.schemas.capture import (
     CaptureFrameCreate,
     CaptureSessionCreate,
@@ -27,6 +28,19 @@ _TERMINAL = {
     CaptureSessionStatus.ready,
     CaptureSessionStatus.failed,
     CaptureSessionStatus.cancelled,
+}
+
+# Client-driven status transitions via PATCH. `ready` / `processing` / `failed`
+# are server-controlled (complete_session and the future stitch worker), so a
+# client can never mark a session complete-looking without going through the
+# completion flow.
+_CLIENT_TRANSITIONS: dict[CaptureSessionStatus, frozenset[CaptureSessionStatus]] = {
+    CaptureSessionStatus.draft: frozenset({CaptureSessionStatus.capturing}),
+    CaptureSessionStatus.capturing: frozenset({CaptureSessionStatus.review}),
+    CaptureSessionStatus.review: frozenset(
+        {CaptureSessionStatus.capturing, CaptureSessionStatus.uploading}
+    ),
+    CaptureSessionStatus.uploading: frozenset({CaptureSessionStatus.review}),
 }
 
 
@@ -138,7 +152,20 @@ async def get_session_response(
     include_frames: bool = False,
 ) -> dict:
     session = await get_session(db, session_id, user_id, include_frames=include_frames)
-    payload = _session_to_dict(session)
+    if include_frames:
+        frame_count = len(session.frames or [])
+    else:
+        # Count explicitly instead of lazily touching session.frames — after a
+        # commit/refresh the relationship is not loaded and lazy access would
+        # raise outside an awaited ORM call.
+        frame_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(CaptureFrame)
+                .where(CaptureFrame.session_id == session.id)
+            )
+        ).scalar_one()
+    payload = _session_to_dict(session, frame_count=int(frame_count))
     if include_frames:
         payload["frames"] = [
             {
@@ -167,14 +194,15 @@ async def update_session(
 ) -> dict:
     session = await get_session(db, session_id, user_id)
 
-    if session.status in _TERMINAL and data.status not in (
-        None,
-        session.status,
-    ):
-        # Allow no-op; block leaving terminal state
-        if data.status != session.status:
+    new_status = data.status
+    if new_status is not None and new_status != session.status:
+        allowed = _CLIENT_TRANSITIONS.get(session.status)
+        if allowed is None or new_status not in allowed:
             raise BadRequestException(
-                detail=f"Cannot change status of a {session.status.value} session"
+                detail=(
+                    f"Status transition {session.status.value} → "
+                    f"{new_status.value} is not allowed via PATCH"
+                )
             )
 
     updates = data.model_dump(exclude_unset=True)
@@ -197,8 +225,13 @@ async def cancel_session(
     user_id: int,
 ) -> dict:
     session = await get_session(db, session_id, user_id)
-    if session.status == CaptureSessionStatus.ready:
-        raise BadRequestException(detail="Cannot cancel a completed session that already produced a tour")
+    if session.status in {
+        CaptureSessionStatus.ready,
+        CaptureSessionStatus.failed,
+    }:
+        raise BadRequestException(
+            detail=f"Cannot cancel a session in status {session.status.value}"
+        )
     if session.status == CaptureSessionStatus.cancelled:
         return await get_session_response(db, session_id, user_id)
 
@@ -228,6 +261,26 @@ async def add_frame(
 
     if not data.image_url and not data.media_file_id:
         raise BadRequestException(detail="Either image_url or media_file_id is required")
+
+    # Resolve the media reference so a frame can never point at a file that is
+    # not this user's (or that never finished uploading).
+    if data.media_file_id:
+        media = (
+            await db.execute(
+                select(MediaFile).where(
+                    MediaFile.id == data.media_file_id,
+                    MediaFile.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if media is None:
+            raise BadRequestException(
+                detail="media_file_id does not reference an uploaded file owned by this user"
+            )
+        if media.upload_status != "complete":
+            raise BadRequestException(
+                detail="media_file_id has not finished uploading (upload_status != complete)"
+            )
 
     # Auto-advance draft → capturing on first frame
     if session.status == CaptureSessionStatus.draft:

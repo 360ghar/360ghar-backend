@@ -109,8 +109,14 @@ class CaptureFrame(Base):
     waypoint_id: Mapped[str] = mapped_column(String(64), nullable=False)
     waypoint_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     frame_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    # Media already uploaded via /upload or presigned flow
-    media_file_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Media already uploaded via /upload or presigned flow — must reference an
+    # existing MediaFile (validated in the service) so downstream processing
+    # can always resolve the uploaded image.
+    media_file_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("media_files.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Full capture metadata (pose, camera, quality) — see CaptureFrameMetadata schema
     frame_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

@@ -197,3 +197,56 @@ async def test_frame_requires_url_or_media_id(user_client: AsyncClient):
         },
     )
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_frame_rejects_unknown_or_foreign_media_file_id(user_client: AsyncClient):
+    """A frame must reference a MediaFile owned by this user (complete upload)."""
+    create = await user_client.post(
+        "/api/v1/capture-sessions",
+        json={"title": "Bad media id"},
+    )
+    session_id = create.json()["id"]
+
+    response = await user_client.post(
+        f"/api/v1/capture-sessions/{session_id}/frames",
+        json={
+            "room_id": "r1",
+            "waypoint_id": "w1",
+            "media_file_id": "00000000-0000-0000-0000-000000000000",
+        },
+    )
+    assert response.status_code == 400
+    assert "media_file_id" in response.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_patch_cannot_jump_to_server_controlled_states(user_client: AsyncClient):
+    """Clients may not PATCH their way to ready / processing / failed / cancelled."""
+    create = await user_client.post(
+        "/api/v1/capture-sessions",
+        json={"title": "No jumping"},
+    )
+    session_id = create.json()["id"]
+
+    for status in ("ready", "processing", "failed", "cancelled"):
+        response = await user_client.patch(
+            f"/api/v1/capture-sessions/{session_id}",
+            json={"status": status},
+        )
+        assert response.status_code == 400, status
+        assert "not allowed via PATCH" in response.json()["error"]["message"]
+
+    # Forward transitions stay allowed.
+    ok = await user_client.patch(
+        f"/api/v1/capture-sessions/{session_id}",
+        json={"status": "capturing"},
+    )
+    assert ok.status_code == 200
+
+    # Skipping a step is still rejected.
+    skip = await user_client.patch(
+        f"/api/v1/capture-sessions/{session_id}",
+        json={"status": "uploading"},
+    )
+    assert skip.status_code == 400

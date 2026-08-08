@@ -102,6 +102,27 @@ is Phase 5.
 
 Either `image_url` or `media_file_id` is required.
 
+When `media_file_id` is supplied it must reference a `media_files` row owned by
+the current user with `upload_status = 'complete'` (400 otherwise), so a frame
+can never point at a file that does not exist or was not uploaded.
+
+## Status transitions
+
+Clients may only move forward through the capture states via PATCH
+(`draft → capturing → review → uploading`, with `review ⇄ capturing` and
+`uploading → review` allowed for reshoots). `processing`, `ready`, `failed`
+and `cancelled` are server-controlled — `ready` is only reachable through
+`POST /{id}/complete` (which requires at least one frame), and `cancel`
+refuses `ready`/`failed` sessions.
+
+## Row Level Security
+
+Both tables enable RLS with per-owner policies. `capture_sessions.user_id` is
+the local `users.id`, so policies resolve ownership through `users` in a
+SECURITY DEFINER helper (`capture_session_owned_by` / `capture_frame_owned_by`)
+that binds `auth.uid()` from the request JWT — same pattern as the flatmates
+realtime authorization fix. Frame ownership is derived through its session.
+
 ## Migration
 
 `supabase/migrations/20260722000001_capture_sessions.sql`
