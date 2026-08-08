@@ -112,7 +112,6 @@
     "flatmates_admin",
     "floor_plans",
     "hotspots",
-    "lab",
     "notifications",
     "oauth/authorization",
     "oauth/discovery",
