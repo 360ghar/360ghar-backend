@@ -5,6 +5,7 @@ from typing import Any
 from app.models.properties import Property
 from app.models.social import UserReport
 from app.models.users import User
+from app.services.flatmates.helpers import age_bucket_for_age, resolve_profile_age
 
 
 def serialize_user_summary(user: User | None) -> dict[str, Any] | None:
@@ -16,6 +17,11 @@ def serialize_user_summary(user: User | None) -> dict[str, Any] | None:
         "email": user.email,
         "phone": user.phone,
         "profile_image_url": user.profile_image_url,
+        "flatmates_smoking": getattr(user, "flatmates_smoking", None),
+        "flatmates_drinking": getattr(user, "flatmates_drinking", None),
+        "native_place": getattr(user, "native_place", None),
+        "linkedin_url": getattr(user, "linkedin_url", None),
+        "age_bucket": age_bucket_for_age(resolve_profile_age(user)),
     }
 
 

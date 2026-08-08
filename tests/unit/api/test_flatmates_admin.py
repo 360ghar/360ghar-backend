@@ -59,6 +59,34 @@ def _make_admin_user_schema() -> SimpleNamespace:
     return _make_user_schema(user_id=99, role="admin", is_admin=True, full_name="Admin User")
 
 
+def _make_user(
+    user_id: int = 1,
+    full_name: str = "Test User",
+    email: str = "test@example.com",
+    phone: str = "+919876543210",
+    **overrides,
+) -> SimpleNamespace:
+    """Build a User-shaped stand-in matching the model columns the admin
+    serializers read (incl. the flatmates lifestyle/age fields)."""
+    base = SimpleNamespace(
+        id=user_id,
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        profile_image_url=None,
+        preferences=None,
+        flatmates_age=None,
+        date_of_birth=None,
+        flatmates_smoking=None,
+        flatmates_drinking=None,
+        native_place=None,
+        linkedin_url=None,
+    )
+    for key, value in overrides.items():
+        setattr(base, key, value)
+    return base
+
+
 def _make_property(
     prop_id: int = 1,
     title: str = "Test Listing",
@@ -90,12 +118,11 @@ def _make_property(
         sub_locality=None,
         main_image_url=None,
         owner_id=owner_id,
-        owner=SimpleNamespace(
-            id=owner_id,
+        owner=_make_user(
+            owner_id,
             full_name="Owner",
             email="owner@example.com",
             phone="+919999999999",
-            profile_image_url=None,
         ),
         is_available=True,
         created_at=datetime.now(timezone.utc),
@@ -184,6 +211,28 @@ class TestSerializeFlatmateListing:
         assert result["moderation_status"] == "pending_review"
         assert result["city"] == "Gurugram"
         assert result["owner"]["full_name"] == "Owner"
+        assert result["owner"]["age_bucket"] is None
+
+    def test_owner_summary_includes_lifestyle_fields(self):
+        prop = _make_property(prop_id=43)
+        prop.owner = _make_user(
+            10,
+            full_name="Owner",
+            email="owner@example.com",
+            phone="+919999999999",
+            preferences={"flatmates": {"age": 27}},
+            flatmates_age=27,
+            flatmates_smoking="occasionally",
+            flatmates_drinking="never",
+            native_place="Jaipur",
+            linkedin_url="https://linkedin.com/in/owner",
+        )
+        result = _serialize_flatmate_listing(prop)
+        assert result["owner"]["age_bucket"] == "25-30"
+        assert result["owner"]["flatmates_smoking"] == "occasionally"
+        assert result["owner"]["flatmates_drinking"] == "never"
+        assert result["owner"]["native_place"] == "Jaipur"
+        assert result["owner"]["linkedin_url"] == "https://linkedin.com/in/owner"
 
     def test_handles_missing_preferences(self):
         prop = _make_property()
@@ -211,12 +260,8 @@ class TestSerializeReport:
     def test_user_map_populated(self):
         report = _make_report(reporter_user_id=10, reported_user_id=20)
         user_map = {
-            10: SimpleNamespace(
-                id=10, full_name="Reporter", email="r@x.com", phone="+91", profile_image_url=None
-            ),
-            20: SimpleNamespace(
-                id=20, full_name="Reported", email="d@x.com", phone="+92", profile_image_url=None
-            ),
+            10: _make_user(10, full_name="Reporter", email="r@x.com", phone="+91"),
+            20: _make_user(20, full_name="Reported", email="d@x.com", phone="+92"),
         }
         result = _serialize_report(report, user_map)
 
