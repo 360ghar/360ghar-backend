@@ -5,11 +5,11 @@ Train Gaussian splat from the official Nerfstudio *kitchen* image dataset.
 Uses images/ + transforms.json (poses already known) — no 360 video, no COLMAP.
 
 Data:
-  data/nerfstudio_images/kitchen_ready/
+  data/nerfstudio_images/kitchen_ready/   (override with KITCHEN_DATASET_DIR)
 
 Output:
-  ../360-tours/public/splats/kitchen.splat
-  ../Desktop/nerfstudio-image-datasets/kitchen.splat
+  data/nerfstudio_images/outputs/splats/kitchen.splat      (override with KITCHEN_SPLAT_OUT_DIR)
+  data/nerfstudio_images/outputs/gallery/kitchen.splat     (override with KITCHEN_SPLAT_GALLERY_DIR)
 """
 from __future__ import annotations
 
@@ -23,10 +23,6 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(ROOT / ".env")
-# Modal tokens from .env
-for key in ("MODAL_TOKEN_ID", "MODAL_TOKEN_SECRET"):
-    if os.getenv(key):
-        os.environ[key] = os.environ[key]
 
 sys.path.insert(0, str(ROOT))
 
@@ -37,10 +33,25 @@ from app.services.modal_worker import (  # noqa: E402
     upload_to_volume,
 )
 
-DATA = ROOT / "data" / "nerfstudio_images" / "kitchen_ready"
-OUT_DIR = Path("/Users/chiragsingh/Desktop/360-tours/public/splats")
+DATA = Path(
+    os.environ.get(
+        "KITCHEN_DATASET_DIR",
+        str(ROOT / "data" / "nerfstudio_images" / "kitchen_ready"),
+    )
+)
+OUT_DIR = Path(
+    os.environ.get(
+        "KITCHEN_SPLAT_OUT_DIR",
+        str(ROOT / "data" / "nerfstudio_images" / "outputs" / "splats"),
+    )
+)
 OUT = OUT_DIR / "kitchen.splat"
-GALLERY = Path("/Users/chiragsingh/Desktop/nerfstudio-image-datasets")
+GALLERY = Path(
+    os.environ.get(
+        "KITCHEN_SPLAT_GALLERY_DIR",
+        str(ROOT / "data" / "nerfstudio_images" / "outputs" / "gallery"),
+    )
+)
 # Balanced steps: enough for a solid kitchen, not multi-hour
 MAX_STEPS = 12000
 
@@ -73,7 +84,9 @@ def main() -> None:
     _zip_dataset(DATA, zip_path)
 
     with app.run():
-        remote = f"datasets/kitchen_ready.zip"
+        # Scope the volume archive by job_id so concurrent runs never train
+        # against another run's dataset.
+        remote = f"datasets/{job_id}/kitchen_ready.zip"
         print(f"Uploading to Modal volume as {remote} …")
         upload_to_volume.remote(remote, zip_path.read_bytes())
 
