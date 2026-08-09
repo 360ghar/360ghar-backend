@@ -42,7 +42,10 @@ app/services/
 ├── storage/                        # Storage service package
 ├── storage_paths.py                # Upload path generation + sanitization
 ├── tour/                           # Tour service package
-├── tour_ai/                        # Tour AI processing (+ stitch.py panorama stitching, world3d.py skybox-mesh GLB)
+├── tour_ai/                        # Tour AI processing (+ stitch.py panorama stitching, world3d.py skybox-mesh GLB, daytona_service.py sandbox tour generation, spatial.py navigation graph, floor_plan_ai.py)
+├── lab_pipeline.py                 # 3D Splat Lab: Daytona sandbox splat pipeline (extract → cubemap → COLMAP → GPU-gated training handoff)
+├── splat_segmentation.py           # Gemini video segmentation of 360 walkthroughs into rooms
+├── splat_view_augment.py           # Synthetic multi-view augmentation + parallax scoring for splat training
 ├── tour_reel/
 ├── vector_sync_scheduler.py        # Vector sync cron registration
 └── ai/                             # AI provider factory + providers + vastu + image_gen

@@ -42,6 +42,11 @@ def _ensure_supabase_sslmode(url: str) -> str:
 class Settings(BaseSettings):
     SECRET_FIELD_NAMES: ClassVar[frozenset[str]] = frozenset(
         {
+            "AI_AGENT_API_KEY",
+            "AI_AGENT_FALLBACK_API_KEY",
+            "AI_AGENT_FALLBACK2_API_KEY",
+            "DAYTONA_API_KEY",
+            "CUSTOM_OPENAI_API_KEY",
             "CLOUDINARY_API_KEY",
             "CLOUDINARY_API_SECRET",
             "DATABASE_URL",
@@ -259,11 +264,29 @@ class Settings(BaseSettings):
     MODAL_TOKEN_ID: str | None = None
     MODAL_TOKEN_SECRET: str | None = None
 
+    # ── Daytona Sandbox (isolated virtual tour generation) ─────────────────────
+    DAYTONA_API_KEY: str | None = None
+    DAYTONA_API_URL: str = "https://app.daytona.io/api"
+    DAYTONA_TARGET: str = "us"
+    # When True, spatial tour generation runs inside a Daytona sandbox; the job
+    # fails with a clear error if DAYTONA_API_KEY is missing.
+    USE_DAYTONA_SANDBOX: bool = False
+    DAYTONA_SANDBOX_TIMEOUT_SECONDS: int = 900
+    # Gemini model used by the agent script inside the sandbox.
+    DAYTONA_AGENT_GEMINI_MODEL: str = "gemini-2.5-flash"
+
     # ── AI Providers ─────────────────────────────────────────────────────────────
     # Gemini
     GOOGLE_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-3.1-flash-lite"
     GEMINI_EMBED_MODEL: str = "gemini-embedding-2"
+    # Legacy alias for the Gemini key (some integrations still read GEMINI_API_KEY).
+    GEMINI_API_KEY: str | None = None
+    # OpenAI / OpenRouter (via the OpenAI-compatible provider)
+    OPENAI_API_KEY: str | None = None  # legacy alias, prefer CUSTOM_OPENAI_API_KEY
+    CUSTOM_OPENAI_API_KEY: str | None = None
+    CUSTOM_OPENAI_API_URL: str = "https://api.openai.com/v1/chat/completions"
+    CUSTOM_OPENAI_DEFAULT_MODEL: str = "gpt-4o-mini"
     # GLM (ZhipuAI) — used for Vastu and other AI features
     GLM_API_KEY: str | None = None
     GLM_API_URL: str = "https://api.z.ai/api/coding/paas/v4/chat/completions"

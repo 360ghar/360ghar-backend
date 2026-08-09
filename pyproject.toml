@@ -48,6 +48,7 @@ dependencies = [
     "modal>=1.5.2",
     "opencv-python-headless>=5.0.0.93",
     "numpy>=2.4.2",
+    "daytona>=0.203.0",
 ]
 
 [project.optional-dependencies]

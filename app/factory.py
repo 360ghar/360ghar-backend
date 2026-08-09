@@ -66,6 +66,7 @@ OPENAPI_TAGS: list[dict[str, str]] = [
     {"name": "data-hub", "description": "Real-estate data hub: RERA, auctions, circle rates, registry."},
     {"name": "websocket", "description": "Realtime WebSocket streams for job/user/tour updates."},
     {"name": "share", "description": "Public tour sharing endpoints."},
+    {"name": "lab", "description": "3D Splat Lab: Gaussian Splatting pipeline for walkable 3D tours."},
 ]
 
 

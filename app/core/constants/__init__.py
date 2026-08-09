@@ -9,7 +9,7 @@ that must not drift across modules.
 from app.config import settings
 
 # Valid vision provider identifiers
-VALID_VISION_PROVIDERS: tuple[str, ...] = ("gemini", "glm")
+VALID_VISION_PROVIDERS: tuple[str, ...] = ("gemini", "glm", "openai")
 
 
 def __getattr__(name: str):

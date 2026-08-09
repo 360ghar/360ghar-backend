@@ -19,6 +19,7 @@ from tenacity import (
     wait_exponential,
 )
 
+from app.core.constants import DEFAULT_VISION_PROVIDER
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 from app.models.enums import HotspotType
@@ -34,10 +35,10 @@ from app.services.ai import (
 
 logger = get_logger(__name__)
 
-# Retry configuration
+# Retry configuration — keep short to avoid 429 cascade storms on free-tier quota.
 MAX_RETRIES = 3
 MIN_WAIT_SECONDS = 2
-MAX_WAIT_SECONDS = 30
+MAX_WAIT_SECONDS = 20
 
 # Limit concurrent background AI tasks to avoid starving PgBouncer connections.
 _AI_TASK_SEMAPHORE = asyncio.Semaphore(5)
@@ -133,6 +134,34 @@ async def _complete_json_with_retry(
             fallback.name,
         )
         return dict(await fallback.complete_json(messages, vision_input))
+
+
+@_create_retry_decorator()
+async def _call_ai_with_retry(
+    ai_provider: AIProvider,
+    messages: list[AIMessage],
+    vision_inputs: list[VisionInput] | None = None,
+) -> str:
+    """
+    Call AI provider with automatic retry on AIProviderError.
+
+    Args:
+        ai_provider: The AI provider instance
+        messages: List of AI messages
+        vision_inputs: Optional vision inputs for image analysis
+
+    Returns:
+        The AI response content
+
+    Raises:
+        AIProviderError: After all retries are exhausted
+    """
+    return str(
+        await ai_provider.complete(
+            messages=messages,
+            vision_input=vision_inputs[0] if vision_inputs else None,
+        )
+    )
 
 
 # Room type mappings for scene analysis
@@ -314,7 +343,7 @@ async def _download_image_as_base64(url: str) -> tuple[str, str]:
 async def _get_ai_provider_safe():
     """Get AI provider with error handling."""
     try:
-        return get_ai_provider()
+        return get_ai_provider(AIProviderType(DEFAULT_VISION_PROVIDER))
     except ValueError as e:
         logger.error("Failed to get AI provider: %s", e)
         raise ServiceUnavailableException(

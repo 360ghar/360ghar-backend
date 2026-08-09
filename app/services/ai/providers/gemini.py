@@ -12,6 +12,8 @@ import json
 import time
 from typing import Any
 
+import httpx
+
 from app.core.logging import get_logger
 from app.services.ai.base import (
     AIMessage,
@@ -100,6 +102,45 @@ class GeminiProvider(AIProvider):
 
         return contents
 
+    def _build_multi_vision_contents(
+        self,
+        messages: list[AIMessage],
+        vision_inputs: list[VisionInput],
+        image_labels: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Build Gemini contents with several images attached to one user turn."""
+        contents = []
+        attached = False
+
+        for msg in messages:
+            if msg.role == AIRole.SYSTEM:
+                continue
+
+            role = "user" if msg.role == AIRole.USER else "model"
+            parts: list[dict[str, Any]] = []
+
+            if msg.content:
+                parts.append({"text": msg.content})
+
+            if msg.role == AIRole.USER and not attached:
+                for index, vision in enumerate(vision_inputs):
+                    label = image_labels[index] if image_labels and index < len(image_labels) else f"image_{index + 1}"
+                    parts.append({"text": f"\n[{label}]"})
+                    parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": vision.mime_type,
+                                "data": vision.image_base64,
+                            }
+                        }
+                    )
+                attached = True
+
+            if parts:
+                contents.append({"role": role, "parts": parts})
+
+        return contents
+
     def _extract_system_instruction(self, messages: list[AIMessage]) -> str | None:
         """Extract system instruction from messages."""
         for msg in messages:
@@ -177,6 +218,55 @@ class GeminiProvider(AIProvider):
         logger.info(
             "External call completed",
             extra={"provider": self.name, "model": self.config.model, "duration_ms": round(elapsed_ms, 1), "endpoint": url, "json_mode": True},
+        )
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise AIProviderError(
+                message=f"API returned invalid JSON response body: {exc}",
+                provider=self.name,
+            ) from exc
+
+        text = self._extract_text_from_response(data)
+        return self._parse_json_response(text)
+
+    async def complete_json_multi_vision(
+        self,
+        messages: list[AIMessage],
+        vision_inputs: list[VisionInput],
+        image_labels: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Generate structured JSON from one prompt containing multiple images."""
+        url = self._build_url()
+        # Multi-image tour plans need more room than single-scene calls.
+        gen_config = self._build_generation_config(json_mode=True)
+        gen_config["maxOutputTokens"] = max(int(gen_config.get("maxOutputTokens") or 0), 24000)
+        payload: dict[str, Any] = {
+            "contents": self._build_multi_vision_contents(messages, vision_inputs, image_labels),
+            "generationConfig": gen_config,
+        }
+
+        system_instruction = self._extract_system_instruction(messages)
+        if system_instruction:
+            payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+
+        # Tour plans with many panoramas can exceed the default provider timeout.
+        client = self._get_http_client()
+        client.timeout = httpx.Timeout(max(300.0, float(self.config.timeout or 120)))
+        headers = self._build_headers()
+        t_start = time.monotonic()
+        response = await self._make_request(client, url, headers, payload)
+        elapsed_ms = (time.monotonic() - t_start) * 1000
+        logger.info(
+            "External call completed",
+            extra={
+                "provider": self.name,
+                "model": self.config.model,
+                "duration_ms": round(elapsed_ms, 1),
+                "endpoint": url,
+                "json_mode": True,
+                "image_count": len(vision_inputs),
+            },
         )
         try:
             data = response.json()

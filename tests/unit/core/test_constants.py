@@ -13,7 +13,8 @@ class TestVisionConstants:
 
         assert "gemini" in VALID_VISION_PROVIDERS
         assert "glm" in VALID_VISION_PROVIDERS
-        assert len(VALID_VISION_PROVIDERS) == 2
+        assert "openai" in VALID_VISION_PROVIDERS
+        assert len(VALID_VISION_PROVIDERS) == 3
 
     def test_default_vision_provider_is_gemini(self):
         from app.core.constants import DEFAULT_VISION_PROVIDER

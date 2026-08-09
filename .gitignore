@@ -196,6 +196,14 @@ cache/
 audit_results_*.json
 /tmp/360ghar-audit-*
 
+# Local splat lab datasets & one-off artifacts
+test_clips/
+uploads/
+*.mp4
+*.webm
+ns_help.txt
+test.zip
+
 # Local GS datasets / Modal artifacts (large; not for git)
 data/nerfstudio_images/kitchen_ready/
 data/nerfstudio_images/**/images/
@@ -204,7 +212,6 @@ data/nerfstudio_images/**/*.splat
 data/nerfstudio_images/**/*.ply
 data/nerfstudio_images/**/*.npy
 data/nerfstudio_images/**/*.ckpt
-data/nerfstudio_images/**/config.yml
 data/.venv_dl/
 data/**/_hf/
 

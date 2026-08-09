@@ -28,9 +28,15 @@ app/services/
 │   ├── scene_analysis.py  # scene analysis + description generation
 │   ├── hotspot_suggestions.py # AI hotspot placement
 │   ├── background.py      # tour generation, optimization, apply suggestions
+│   ├── daytona_service.py # sandbox-only tour plan generation (Gemini agent in Daytona)
+│   ├── spatial.py         # spatial doorway detection + navigation graph
+│   ├── floor_plan_ai.py   # AI floor plan room detection + scene matching
 │   ├── stitch.py          # cloud panorama stitching (OpenCV) for scene frames
 │   ├── world3d.py         # "Generate 3D World": equirect→cubemap + GLB skybox mesh
 │   └── helpers.py         # retry decorator, semaphore, image download
+├── lab_pipeline.py        # 3D Splat Lab: Daytona sandbox splat pipeline (frame extraction → cubemap → COLMAP → GPU-gated training)
+├── splat_segmentation.py  # Gemini video segmentation of 360 walkthroughs into rooms
+├── splat_view_augment.py  # synthetic multi-view augmentation + parallax scoring for splat training
 └── custom_domain.py       # domain creation, verification token, SSL status
 app/models/
 └── tours.py               # Tour, Scene, Hotspot, FloorPlan, AIJob, MediaFile, TourAnalyticsEvent, CustomDomain, VideoMetadata
@@ -52,6 +58,8 @@ app/models/
 | `generate_short_code` | `app/services/tour/tours.py` | Unique 6-char share code assigned on first publish (`/v/{code}`) |
 | `request_scene_stitch` | `app/services/tour_ai/stitch.py` | Cloud panorama stitch of captured frames (cv2.Stitcher, 2:1 canvas) |
 | `generate_3d_world` | `app/services/tour_ai/world3d.py` | Textured skybox-mesh GLB built from scene panoramas |
+| `generate_tour_in_sandbox` | `app/services/tour_ai/daytona_service.py` | Sandbox-only tour plan generation: panoramas + a pure-stdlib Gemini agent script are uploaded to a Daytona sandbox; the agent returns `tour.json` (scenes, room types, reciprocal navigation hotspots). No in-process fallback — fails with a clear error when `USE_DAYTONA_SANDBOX` is off or `DAYTONA_API_KEY` missing. Sandbox is always destroyed (TTL backstop). |
+| `run_pipeline` | `app/services/lab_pipeline.py` | 3D Splat Lab orchestrator: Daytona CPU sandbox does frame extraction → 360° cubemap → COLMAP SfM; stage 4 (nerfstudio splatfacto) is GPU-gated and hands off to the Modal GPU worker (`train_splat`) via a `colmap_data.zip` upload. |
 
 ## How it works
 

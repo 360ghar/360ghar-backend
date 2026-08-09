@@ -52,11 +52,16 @@ SPATIAL_SYSTEM_PROMPT = (
     "(0 = top, 1 = bottom; a doorway threshold floor is usually 0.6-0.8).\n\n"
     "Rules:\n"
     "- Classify the room from PIXELS, never assume from any filename hint.\n"
-    "- An opening is a doorway (open or closed), an open archway, a glass sliding "
-    "door to a balcony/terrace, or a passage. Do NOT report plain windows or mirrors "
-    "(a mirror reflects the SAME room; a real opening shows a DIFFERENT space).\n"
+    "- An opening is a physical doorway (open or closed), an open archway, a glass sliding "
+    "door to a balcony/terrace, or a passage. Do NOT report plain windows, mirrors, walls, "
+    "curtains, or furniture as openings. DO report stairs (specify if they go UP or DOWN).\n"
+    "- BE CONSERVATIVE: Most rooms only have 1 or 2 doorways. Do NOT hallucinate doorways.\n"
+    "- NEVER return multiple openings for the same physical doorway. Group them into one.\n"
     "- For each opening, say which room type is visible THROUGH it (leads_to_room_type) "
     "and your confidence. If the door is closed/unknown, set leads_to_room_type to null.\n"
+    "- CRITICAL for matching: Describe the VISUAL CONTEXT visible outside/through the doorway "
+    "(e.g. 'red carpet', 'hardwood floor', 'white tile', 'glass railing', 'brick wall'). "
+    "If the door is closed, describe the door itself (e.g. 'brown wooden door', 'white paneled door').\n"
     "- Respond with STRICT JSON only, no prose."
 )
 
@@ -75,11 +80,13 @@ def _build_user_prompt(filename_hint: str | None) -> str:
         "feature or the most important onward doorway),\n"
         '  "openings": [\n'
         "    {\n"
-        f'      "type": one of [{", ".join(OPENING_TYPES)}],\n'
+        f'      "type": one of [{", ".join(OPENING_TYPES)}, "stairs_up", "stairs_down"],\n'
         '      "x_fraction": 0.0-1.0,\n'
         '      "floor_y_fraction": 0.0-1.0,\n'
         '      "leads_to_room_type": one of the room types or null if unknown,\n'
         '      "leads_to_confidence": 0.0-1.0,\n'
+        '      "visual_context": "short description of what is visible through the door '
+        '(flooring, colors) or the door itself if closed",\n'
         '      "label": "short label e.g. \\"to kitchen\\""\n'
         "    }\n"
         "  ]\n"
@@ -124,9 +131,25 @@ async def analyze_panorama(
         room_type = "other"
 
     openings: list[dict[str, Any]] = []
+    # Deduplicate openings that are too close horizontally (e.g. the same doorway
+    # reported twice) — keep the higher-confidence one.
+    _raw_ops: list[dict[str, Any]] = []
     for op in raw.get("openings", []) or []:
         if not isinstance(op, dict) or "x_fraction" not in op:
             continue
+        x_frac = float(op["x_fraction"])
+        is_duplicate = False
+        for ext in _raw_ops:
+            if min(abs(ext["x_fraction"] - x_frac), 1.0 - abs(ext["x_fraction"] - x_frac)) < 0.08:
+                is_duplicate = True
+                # If this one has higher confidence, keep it instead.
+                if float(op.get("leads_to_confidence", 0)) > float(ext.get("leads_to_confidence", 0)):
+                    ext.update(op)
+                break
+        if not is_duplicate:
+            _raw_ops.append(op)
+
+    for op in _raw_ops:
         leads = op.get("leads_to_room_type")
         leads = str(leads).strip().lower().replace(" ", "_") if leads else None
         if leads not in ROOM_TYPES:
@@ -138,6 +161,7 @@ async def analyze_panorama(
                 "pitch": _frac_to_floor_pitch(op.get("floor_y_fraction")),
                 "leads_to_room_type": leads,
                 "leads_to_confidence": float(op.get("leads_to_confidence") or 0.0),
+                "visual_context": str(op.get("visual_context") or "").strip(),
                 "label": str(op.get("label") or "").strip(),
             }
         )
@@ -210,13 +234,51 @@ def _match_target(
     candidates = [s for s in scenes if s["room_type"] == leads and s["id"] != source["id"]]
     if not candidates:
         return None
+
+    # Stair logic: an opening that is stairs must connect to a scene whose own
+    # opening reports the complementary stair direction.
+    op_type = opening.get("type")
+    if op_type in ("stairs_up", "stairs_down"):
+        expected_reciprocal = "stairs_down" if op_type == "stairs_up" else "stairs_up"
+        stair_candidates = [
+            c for c in candidates
+            if any(o.get("type") == expected_reciprocal for o in c.get("openings", []))
+        ]
+        if stair_candidates:
+            candidates = stair_candidates
+        elif len(candidates) > 1:
+            # No complementary stairs found — likely hallucinated; stay conservative.
+            return None
+
     if len(candidates) == 1:
         return cast(str, candidates[0]["id"])
-    # Multiple: prefer one not already linked from this source.
+
+    # Multiple candidates: score by reciprocal opening + visual-context overlap.
+    scored_candidates: list[tuple[int, dict[str, Any]]] = []
     for c in candidates:
+        score = 0
         if c["id"] not in already_linked:
-            return cast(str, c["id"])
-    return cast(str, candidates[0]["id"])
+            score += 10  # strongly prefer unlinked rooms
+        # Look for a reciprocal opening pointing back to our room type.
+        reciprocals = [
+            o for o in c.get("openings", [])
+            if o.get("leads_to_room_type") == source["room_type"]
+        ]
+        if reciprocals:
+            score += 5
+            my_ctx = set(opening.get("visual_context", "").lower().replace(",", "").split())
+            best_overlap = max(
+                (
+                    len(my_ctx.intersection(set(o.get("visual_context", "").lower().replace(",", "").split())))
+                    for o in reciprocals
+                ),
+                default=0,
+            )
+            score += best_overlap
+        scored_candidates.append((score, c))
+
+    scored_candidates.sort(key=lambda item: item[0], reverse=True)
+    return cast(str, scored_candidates[0][1]["id"])
 
 
 def _add_hotspot(scene: dict[str, Any], target_id: str, opening: dict[str, Any], target_title: str) -> None:
@@ -279,6 +341,25 @@ def build_graph(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for i, hs in enumerate(deduped):
             hs["order_index"] = i
         s["hotspots"] = deduped
+
+    # Pass 4: compute target_view for a traveling effect — when entering a scene,
+    # face away from the doorway you came through.
+    for s in scenes:
+        for hs in s["hotspots"]:
+            target_scene = by_id.get(hs["target_scene_id"])
+            if not target_scene:
+                continue
+            # Find the reciprocal hotspot in target leading back to this scene.
+            reciprocal = next(
+                (th for th in target_scene["hotspots"] if th["target_scene_id"] == s["id"]),
+                None,
+            )
+            if reciprocal:
+                entry_yaw = reciprocal["position"]["yaw"]
+                target_yaw = (entry_yaw + 180) % 360
+                if target_yaw > 180:
+                    target_yaw -= 360
+                hs.setdefault("custom_data", {})["target_view"] = {"yaw": target_yaw, "pitch": 0}
 
     return scenes
 

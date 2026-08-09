@@ -14,10 +14,12 @@ continue to work unchanged.
 from .background import (
     _run_tour_generation,
     _run_tour_optimization,
+    analyze_floor_plan_ai,
     apply_hotspot_suggestions,
     apply_scene_analysis,
     generate_tour,
     optimize_tour,
+    spatial_connect_existing_tour,
 )
 from .helpers import (
     _AI_TASK_SEMAPHORE,
@@ -27,6 +29,7 @@ from .helpers import (
     ROOM_TYPES,
     SCENE_ANALYSIS_PROMPT,
     _build_hotspot_suggestion_prompt,
+    _call_ai_with_retry,
     _complete_json_with_retry,
     _create_retry_decorator,
     _download_image_as_base64,
@@ -87,6 +90,7 @@ __all__ = [
     "SCENE_ANALYSIS_PROMPT",
     "_AI_TASK_SEMAPHORE",
     "_build_hotspot_suggestion_prompt",
+    "_call_ai_with_retry",
     "_complete_json_with_retry",
     "_create_retry_decorator",
     "_download_image_as_base64",
@@ -120,6 +124,9 @@ __all__ = [
     "optimize_tour",
     "_run_tour_generation",
     "_run_tour_optimization",
+    # spatial plan (Daytona sandbox / graph linking)
+    "spatial_connect_existing_tour",
+    "analyze_floor_plan_ai",
     # stitch
     "request_scene_stitch",
     "_run_scene_stitch",

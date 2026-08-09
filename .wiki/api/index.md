@@ -6,7 +6,7 @@ Active contributors: Saksham, Ravi
 
 ## Router composition
 
-All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter` named `api_router`, which the app factory mounts at `/api/v1`. The file imports 41 endpoint modules (plus `app/api/deeplinks.py` mounted via `deeplinks_api_router`) and calls `include_router` 43 times, with explicit `prefix` and `tags`. Tags drive the OpenAPI grouping in Swagger UI at `/api/v1/docs`. The authoritative full OpenAPI spec is committed at `docs/openapi.json` (regenerate with `uv run python scripts/generate_openapi.py`); a curated flatmates-only subset lives at `docs/flatmates-openapi.yaml`.
+All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter` named `api_router`, which the app factory mounts at `/api/v1`. The file imports 42 endpoint modules (plus `app/api/deeplinks.py` mounted via `deeplinks_api_router`) and calls `include_router` 44 times, with explicit `prefix` and `tags`. Tags drive the OpenAPI grouping in Swagger UI at `/api/v1/docs`. The authoritative full OpenAPI spec is committed at `docs/openapi.json` (regenerate with `uv run python scripts/generate_openapi.py`); a curated flatmates-only subset lives at `docs/flatmates-openapi.yaml`.
 
 ## Route groups
 
@@ -49,6 +49,7 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/dashboard` | dashboard | `dashboard.py` | Tour analytics dashboard. |
 | `/public` | public-tours | `public.py` | Unauthenticated tour viewer. |
 | `/ai` | ai | `ai.py` | Tour AI processing endpoints. |
+| `/lab` | lab | `lab.py` | 3D Splat Lab: Gaussian splatting pipeline jobs (create/start/upload/list). `POST /jobs/{id}/start` runs the Daytona sandbox pipeline (`lab_pipeline.py`) when `DAYTONA_API_KEY` is set, else the Modal GPU worker. |
 | `/custom-domains` | custom-domains | `custom_domains.py` | Vanity domain DNS verification. |
 | `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). |
 | `/data-hub` | data-hub | `data_hub/` | Bank auctions, RERA, circle rates, gazette, jamabandi, zoning, neighbourhood. |

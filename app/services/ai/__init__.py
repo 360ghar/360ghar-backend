@@ -41,6 +41,7 @@ logger = get_logger(__name__)
 class AIProviderType(str, Enum):
     """Supported AI provider types."""
     GEMINI = "gemini"
+    OPENAI = "openai"
     GLM = "glm"
 
 
@@ -59,7 +60,7 @@ def get_ai_provider(
     leaking connection pools.
 
     Args:
-        provider_type: Type of provider to create (gemini, glm)
+        provider_type: Type of provider to create (gemini, openai)
         **config_overrides: Override default configuration values (only used
             on first call; subsequent calls return the cached instance)
 
@@ -87,11 +88,27 @@ def get_ai_provider(
         config = AIProviderConfig(
             api_key=api_key,
             model=config_overrides.pop("model", DEFAULT_VISION_MODEL_GEMINI),
-            max_tokens=config_overrides.pop("max_tokens", 8000),
+            max_tokens=config_overrides.pop("max_tokens", 24000),
             temperature=config_overrides.pop("temperature", 0.7),
             timeout=config_overrides.pop("timeout", 120),
         )
         provider: AIProvider = GeminiProvider(config)
+
+    elif provider_type == AIProviderType.OPENAI:
+        from app.services.ai.providers.openai import OpenAIProvider
+
+        api_key = getattr(settings, "CUSTOM_OPENAI_API_KEY", None)
+        if not api_key:
+            raise ValueError("CUSTOM_OPENAI_API_KEY not configured for OpenAI provider")
+
+        config = AIProviderConfig(
+            api_key=api_key,
+            model=config_overrides.pop("model", getattr(settings, "CUSTOM_OPENAI_DEFAULT_MODEL", "gpt-4o-mini")),
+            max_tokens=config_overrides.pop("max_tokens", 4000),
+            temperature=config_overrides.pop("temperature", 0.7),
+            timeout=config_overrides.pop("timeout", 120),
+        )
+        provider = OpenAIProvider(config)
 
     elif provider_type == AIProviderType.GLM:
         from app.services.ai.providers.glm import GLMProvider

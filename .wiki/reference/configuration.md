@@ -42,6 +42,19 @@ Active contributors: Saksham, Ravi
 | `AI_AGENT_MODEL`, `AI_AGENT_API_BASE` | Primary AI agent model (GLM); API key from `GLM_API_KEY`. |
 | `AI_AGENT_FALLBACK_MODEL`, `..._API_BASE` | First fallback (Gemini); API key from `GOOGLE_API_KEY`. |
 | `AI_AGENT_FALLBACK2_MODEL` | Second fallback (Groq); model + key from `GROQ_MODEL` / `GROQ_API_KEY`. |
+| `CUSTOM_OPENAI_API_KEY`, `CUSTOM_OPENAI_API_URL`, `CUSTOM_OPENAI_DEFAULT_MODEL` | OpenAI-compatible provider (also exposed as `openai` vision provider). URL defaults to `https://api.openai.com/v1/chat/completions`, model to `gpt-4o-mini`. Legacy alias: `OPENAI_API_KEY`. |
+
+## Daytona sandbox (virtual tour generation + splat lab)
+
+| Variable | Purpose |
+|---|---|
+| `DAYTONA_API_KEY` | Daytona API key. When set, `/lab` splat jobs run the sandbox pipeline (`app/services/lab_pipeline.py`). Required (hard error) for sandbox tour generation when `USE_DAYTONA_SANDBOX=true`. |
+| `DAYTONA_API_URL` | Daytona API base (default `https://app.daytona.io/api`). |
+| `DAYTONA_TARGET` | Daytona region target (default `us`). |
+| `USE_DAYTONA_SANDBOX` | When `true`, spatial tour plan generation runs inside an isolated Daytona sandbox (Gemini agent). When `false`, spatial mode falls back to the in-process navigation hotspot pipeline. |
+| `DAYTONA_SANDBOX_TIMEOUT_SECONDS` | Per-job sandbox timeout (default `900`). |
+| `DAYTONA_AGENT_GEMINI_MODEL` | Gemini model used by the agent script inside the sandbox (default `gemini-2.5-flash`). |
+| `GEMINI_API_KEY` | Legacy alias for the Gemini key; also injected into the sandbox agent for tour generation. |
 
 ## Notifications
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.api_v1.api import api_router
 from app.api.api_v1.endpoints.oauth import oauth_mcp_router, oauth_wellknown_router
@@ -32,4 +34,9 @@ def register_routes(app: FastAPI, *, user_mcp_app: Any, admin_mcp_app: Any) -> N
     app.include_router(deeplink_redirect_router, tags=["deeplinks"])
     app.mount("/mcp", user_mcp_app)
     app.mount("/mcp-admin", admin_mcp_app)
+    # Local disk storage fallback (used when Cloudinary credentials are not
+    # configured) serves uploaded files through this static route.
+    _uploads_dir = Path(__file__).resolve().parents[2] / "uploads"
+    _uploads_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
     logger.info("MCP servers mounted", extra={"paths": ["/mcp", "/mcp-admin"]})

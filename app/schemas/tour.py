@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from app.models.enums import HotspotType, TourStatus, TourVisibility
 
@@ -207,7 +207,7 @@ class SceneBase(BaseModel):
     metadata: SceneMetadata | None = Field(
         default=None,
         alias="scene_metadata",
-        validation_alias=AliasChoices("metadata", "scene_metadata"),
+        validation_alias=AliasChoices("scene_metadata", "metadata"),
         serialization_alias="metadata",
     )
 
@@ -296,6 +296,19 @@ class Tour(TourBase):
     deleted_at: datetime | None = None
     scenes: list[Scene] | None = None
     scene_count: int | None = None
+
+    @computed_field
+    def share_url(self) -> str | None:
+        from app.config import settings
+        base = settings.PUBLIC_APP_URL or "https://360viewer.360ghar.com"
+        return f"{base}/view/{self.id}"
+
+    @computed_field
+    def embed_code(self) -> str | None:
+        from app.config import settings
+        base = settings.PUBLIC_APP_URL or "https://360viewer.360ghar.com"
+        url = f"{base}/embed/{self.id}?autoplay=true&navbar=true&fullscreen=true&vr=true"
+        return f'<iframe src="{url}" width="100%" height="500px" frameborder="0" allow="fullscreen; xr-spatial-tracking; accelerometer; gyroscope" allowfullscreen loading="lazy" style="border: none; border-radius: 8px;"></iframe>'
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -492,7 +505,7 @@ class TourGenerationSceneInput(BaseModel):
     metadata: SceneMetadata | None = Field(
         default=None,
         alias="scene_metadata",
-        validation_alias=AliasChoices("metadata", "scene_metadata"),
+        validation_alias=AliasChoices("scene_metadata", "metadata"),
         serialization_alias="metadata",
     )
 

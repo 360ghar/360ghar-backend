@@ -12,8 +12,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.core.database import get_db
+from app.api.api_v1.dependencies.auth import (
+    get_current_active_user,
+    get_current_active_user_short_session,
+)
+from app.core.database import get_bg_session_factory, get_db
 from app.core.logging import get_logger
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
@@ -72,8 +75,8 @@ async def generate_tour(
     auto_detect_rooms: bool = Form(True, description="Automatically detect room types"),
     auto_place_hotspots: bool = Form(False, description="Automatically suggest hotspot placements"),
     auto_generate_descriptions: bool = Form(True, description="Generate AI descriptions for scenes"),
-    db: AsyncSession = Depends(get_db),
-    current_user: UserSchema = Depends(get_current_active_user),
+    spatial: bool = Form(True, description="Use spatial doorway detection for hotspot placement"),
+    current_user: UserSchema = Depends(get_current_active_user_short_session),
 ):
     """
     Generate a new tour from uploaded 360 images using AI.
@@ -82,7 +85,7 @@ async def generate_tour(
     Images are uploaded to storage and then processed by AI to:
     - Detect room types
     - Generate scene titles and descriptions
-    - Optionally suggest hotspot placements
+    - Optionally suggest hotspot placements using spatial doorway detection
     """
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required")
@@ -99,7 +102,7 @@ async def generate_tour(
     # Upload images to storage
     upload_results = await storage_service.upload_batch(
         images,
-        db=db,
+        db=None,
         user_id=current_user.id,
         folder="scenes",
         visibility="private",
@@ -120,22 +123,27 @@ async def generate_tour(
     # Generate a default title if not provided
     tour_title = title if title else f"AI Generated Tour ({len(images)} scenes)"
 
-    # Create TourGenerationRequest with uploaded image URLs
+    # Create TourGenerationRequest with uploaded image URLs.
+    # spatial=True uses vision-based doorway detection; when spatial is off, the
+    # naive suggest_hotspots fallback is used only if auto_place_hotspots is set.
     payload = TourGenerationRequest(
         title=tour_title,
         description=description,
         image_urls=image_urls,
         generate_titles=auto_detect_rooms,
         generate_descriptions=auto_generate_descriptions,
-        suggest_hotspots=auto_place_hotspots,
+        suggest_hotspots=auto_place_hotspots and not spatial,
+        spatial=spatial,
     )
 
-    job, tour, scene_ids = await tour_ai.generate_tour(
-        db=db,
-        user_id=current_user.id,
-        data=payload,
-    )
-    return {"job": job, "tour_id": tour.id, "scene_ids": scene_ids}
+    session_factory = get_bg_session_factory()
+    async with session_factory() as db:
+        job, tour, scene_ids = await tour_ai.generate_tour(
+            db=db,
+            user_id=current_user.id,
+            data=payload,
+        )
+        return {"job": job, "tour_id": tour.id, "scene_ids": scene_ids}
 
 
 @router.post("/tours/{tour_id}/optimize", response_model=TourOptimizationResponse, summary="Optimize tour")
@@ -153,6 +161,50 @@ async def optimize_tour(
         tour_id=tour_id,
         user_id=current_user.id,
         options=payload.model_dump(exclude_unset=True) if payload else None,
+    )
+    return {"job": job}
+
+
+@router.post("/tours/{tour_id}/spatial-connect", response_model=TourOptimizationResponse, summary="Spatial connect tour scenes")
+async def spatial_connect_tour(
+    tour_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Run the spatial AI pipeline on an existing tour to auto-connect scenes.
+
+    Analyzes every panorama in the tour to detect doorways and room types,
+    then places navigation hotspots at the detected doorway positions.
+    Existing auto-generated spatial hotspots are replaced.
+    First deletes all hotspots with custom_data.spatial=true, then re-runs.
+    """
+    job = await tour_ai.spatial_connect_existing_tour(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+    )
+    return {"job": job}
+
+
+@router.post("/tours/{tour_id}/floor-plans/{floor_plan_id}/analyze", response_model=AIJobResponse, summary="AI analyze floor plan")
+async def analyze_floor_plan(
+    tour_id: str,
+    floor_plan_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Analyze a floor plan image using AI to auto-detect rooms and place markers.
+
+    Uses vision AI to identify room labels and positions in the floor plan,
+    then matches them to the tour's 360° scenes by room type.
+    """
+    job = await tour_ai.analyze_floor_plan_ai(
+        db=db,
+        tour_id=tour_id,
+        floor_plan_id=floor_plan_id,
+        user_id=current_user.id,
     )
     return {"job": job}
 

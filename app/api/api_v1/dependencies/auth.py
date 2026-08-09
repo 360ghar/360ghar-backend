@@ -494,6 +494,32 @@ async def get_current_user_sse(
     return db_user
 
 
+async def get_current_user_short_session(
+    request: Request,
+    authorization: str | None = Header(None),
+) -> User:
+    """Resolve the current user without holding a request DB session open.
+
+    Shares the short-lived background-pool resolution used by the SSE
+    dependency (token verify -> bg session user sync -> expunge), so endpoints
+    that open their own session (e.g. tour generation) do not hold the main
+    connection pool for the whole request.
+    """
+    return await get_current_user_sse(request, authorization=authorization)
+
+
+async def get_current_active_user_short_session(
+    current_user: User = Depends(get_current_user_short_session),
+) -> User:
+    """Return the current user only if active, without a long request DB session."""
+    if not getattr(current_user, "is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "USER_INACTIVE", "message": "Inactive user"},
+        )
+    return current_user
+
+
 async def get_current_user_optional(
     request: Request,
     authorization: str | None = Header(None),
