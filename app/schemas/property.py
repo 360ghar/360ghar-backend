@@ -28,6 +28,37 @@ def _validate_listing_contract(property_type: PropertyType, purpose: PropertyPur
         raise ValueError("PG and flatmate listings must use purpose 'rent'")
 
 
+def _normalize_furnishing_level(v: object) -> str | None:
+    """Coerce legacy furnishing strings to the canonical column contract.
+
+    The DB column is free-form ``VARCHAR(32)`` and holds legacy values such
+    as ``fully-furnished`` / ``Fully Furnished`` / ``semi-furnished``. The
+    response schema is a strict ``Literal`` so one legacy row 422s the whole
+    ``CursorPage[Property]``. Normalize known variants to the canonical
+    ``furnished`` / ``semi_furnished`` / ``unfurnished`` values and coerce
+    empty/unknown input to ``None`` so a single dirty row never breaks search.
+    """
+    if v is None:
+        return None
+    if not isinstance(v, str):
+        return v  # type: ignore[return-value]
+    normalized = v.strip().lower().replace("-", "_").replace(" ", "_")
+    if not normalized:
+        return None
+    if normalized in {"furnished", "fully_furnished", "fullyfurnished", "full_furnished"}:
+        return "furnished"
+    if normalized in {
+        "semi_furnished",
+        "semifurnished",
+        "partially_furnished",
+        "partly_furnished",
+    }:
+        return "semi_furnished"
+    if normalized in {"unfurnished", "none"}:
+        return "unfurnished"
+    return None
+
+
 class ListingPreferences(BaseModel):
     gender_preference: ListingGenderPreference | None = None
     sharing_type: ListingSharingType | None = None
@@ -132,6 +163,11 @@ class PropertyBase(BaseModel):
     other_charges: float | None = Field(default=None, ge=0)
     other_charges_description: str | None = Field(default=None, max_length=300)
     furnishing_level: Literal["furnished", "semi_furnished", "unfurnished"] | None = None
+
+    @field_validator("furnishing_level", mode="before")
+    @classmethod
+    def normalize_furnishing_level(cls, v: object) -> object:
+        return _normalize_furnishing_level(v)
 
 
 class PropertyCreate(PropertyBase):
@@ -303,6 +339,11 @@ class PropertyUpdate(BaseModel):
     other_charges: float | None = Field(default=None, ge=0)
     other_charges_description: str | None = Field(default=None, max_length=300)
     furnishing_level: Literal["furnished", "semi_furnished", "unfurnished"] | None = None
+
+    @field_validator("furnishing_level", mode="before")
+    @classmethod
+    def normalize_furnishing_level(cls, v: object) -> object:
+        return _normalize_furnishing_level(v)
 
     available_from: str | None = None
     tags: list[str] | None = None
