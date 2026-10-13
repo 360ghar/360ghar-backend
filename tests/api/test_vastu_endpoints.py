@@ -67,7 +67,7 @@ def create_mock_vastu_response(
             has_warnings=False,
             warning_count=0,
             critical_warnings=False,
-            provider_used="gemini",
+            provider_used="agnes",
             analyzed_at=utc_now_iso(),
         )
     else:
@@ -79,7 +79,7 @@ def create_mock_vastu_response(
             has_warnings=False,
             warning_count=0,
             critical_warnings=False,
-            provider_used="gemini",
+            provider_used="agnes",
             analyzed_at=utc_now_iso(),
         )
 
@@ -254,30 +254,6 @@ class TestVastuAnalyzeEndpoint:
 
             assert response.status_code == 200
 
-    @pytest.mark.asyncio
-    async def test_analyze_with_glm_provider(self, client: AsyncClient):
-        """Test analysis with GLM provider."""
-        with patch(
-            "app.api.api_v1.endpoints.vastu.analyze_vastu",
-            new_callable=AsyncMock,
-        ) as mock_analyze:
-            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=7)
-
-            image_content = make_test_image_bytes("PNG")
-            files = {"image": ("floor_plan.png", BytesIO(image_content), "image/png")}
-            data = {
-                "north_direction": "up",
-                "provider": "glm",
-            }
-
-            response = await client.post(
-                "/api/v1/vastu/analyze",
-                files=files,
-                data=data,
-            )
-
-            assert response.status_code == 200
-
 
 class TestVastuHealthEndpoint:
     """Tests for GET /api/v1/vastu/health endpoint."""
@@ -292,3 +268,13 @@ class TestVastuHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["service"] == "vastu-analyzer"
         assert "providers" in data
+
+
+@pytest.fixture(autouse=True)
+def _no_vastu_rate_limit(test_app):
+    """The 5/min limiter would trip across this file when CI uses a shared cache."""
+    from app.api.api_v1.endpoints import vastu
+
+    test_app.dependency_overrides[vastu._check_analyze_rate_limit] = lambda: None
+    yield
+    test_app.dependency_overrides.pop(vastu._check_analyze_rate_limit, None)

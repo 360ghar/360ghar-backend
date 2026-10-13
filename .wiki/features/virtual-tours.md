@@ -2,7 +2,7 @@
 
 Active contributors: Saksham, Ravi
 
-360 Virtual Tours is the immersive tour platform: users build tours from 360° scene images, attach navigation and info hotspots, generate floor plans, and publish branded experiences under custom domains. An AI layer powered by Gemini and GLM vision providers analyses scenes, suggests hotspot placements, and generates descriptions, with all AI work tracked as background `AIJob` rows.
+360 Virtual Tours is the immersive tour platform: users build tours from 360° scene images, attach navigation and info hotspots, generate floor plans, and publish branded experiences under custom domains. An AI layer powered by the Agnes AI vision provider analyses scenes, suggests hotspot placements, and generates descriptions, with all AI work tracked as background `AIJob` rows.
 
 ## Directory layout
 
@@ -57,7 +57,7 @@ app/models/
 
 Tour CRUD is straightforward keyset pagination on `(created_at, id)`. Scenes belong to tours and carry `order_index`; `reorder_scenes` updates positions atomically. Hotspots carry a `HotspotType` and arbitrary content that is sanitised through `_sanitize_hotspot_html` using `_HOTSPOT_HTML_ALLOWED_TAGS`, `_HOTSPOT_HTML_ALLOWED_ATTRIBUTES`, and `_HOTSPOT_HTML_ALLOWED_PROTOCOLS`. Floor plans accept marker updates for navigation overlay.
 
-The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries with exponential backoff and appends a corrective nudge on parse failure; if the primary vision provider (Gemini) exhausts its retries, it transparently falls back to the other configured provider (GLM, or vice-versa) once via `_resolve_fallback_provider` before giving up.
+The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries unparseable JSON responses with exponential backoff. Transient HTTP errors (429, 500, 502, 503, 504) and network failures are retried inside the provider (up to 5 attempts, 2-30 s); other HTTP errors are not retried. There is no fallback model.
 
 ```mermaid
 graph TD
@@ -67,9 +67,8 @@ graph TD
     AS --> BG[_track_background_task _run_with_semaphore]
     BG --> DL[_download_image_as_base64]
     DL --> AI[AIProvider.complete_json]
-    AI -->|JSON parse fail + retry| JSON[_complete_json_with_retry + nudge]
-    JSON -->|primary exhausted| FB[_resolve_fallback_provider GLM<->Gemini]
-    JSON & FB --> UPD[update_job_status completed]
+    AI -->|JSON parse fail + retry| JSON[_complete_json_with_retry]
+    JSON --> UPD[update_job_status completed]
     UPD --> Client2[SSE/ws job status]
     Client -->|POST /tours/.../ai/suggest-hotspots| SH[suggest_scene_hotspots]
     SH --> BG2[background _run_hotspot_suggestions]
@@ -92,7 +91,7 @@ Analytics is split between owner-facing dashboards (`get_dashboard_stats`, `get_
 
 ## Integration points
 
-- **AI providers**: scene analysis and hotspot suggestions use `get_ai_provider` from `app/services/ai/` with Gemini and GLM providers, falling back per `VASTU_FALLBACK_PROVIDER` pattern (see [Vastu](vastu.md)).
+- **AI providers**: scene analysis and hotspot suggestions use `get_ai_provider` from `app/services/ai/` with the Agnes AI provider (see [Vastu](vastu.md)).
 - **Storage**: scene and floor plan images upload to Cloudinary under `TOUR_*` / `SCENE_*` storage folders via the shared [storage](../systems/services-layer.md) service.
 - **MCP servers**: tour tools are not currently exposed through [MCP servers](mcp-servers.md); the [AI agent](ai-agent.md) does not register tour tools either.
 - **WebSocket**: AI job status updates can be pushed through the WebSocket manager at `ws://localhost:3600/ws/jobs/{job_id}`.

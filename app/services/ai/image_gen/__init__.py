@@ -1,7 +1,7 @@
 """
 AI Image Generation Service.
 
-Wraps Gemini 3 Pro Image Preview for text-to-image and image-to-image generation.
+Wraps Agnes AI image generation for text-to-image and image-to-image generation.
 """
 
 from __future__ import annotations

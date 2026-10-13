@@ -5,7 +5,7 @@ gets navigation hotspots placed on the actual doorway/opening that leads to the
 correct adjacent room. Panorama-only — no floor plan is used.
 
 This is the automated implementation of the manual procedure documented in
-``360-viewer/docs/spatial-tour-sop.md``. It reuses the existing Gemini provider
+``360-viewer/docs/spatial-tour-sop.md``. It reuses the existing Agnes AI provider
 (``app.services.ai``) for vision + structured JSON output.
 
 Pipeline:
@@ -446,7 +446,7 @@ async def analyze_and_build_scenes(
 
     Args:
         panoramas: list of {key, image_base64, mime_type, image_url, filename_hint?}
-        provider: an AIProvider (Gemini). Reused via complete_json.
+        provider: an AIProvider (Agnes AI). Reused via complete_json.
     """
     import asyncio
 

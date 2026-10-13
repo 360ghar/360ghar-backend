@@ -1,19 +1,12 @@
 # Dockerfile for CI testing - PostgreSQL with PostGIS and pgvector
-FROM postgis/postgis:15-3.4
+# postgis/postgis images are Debian bullseye, which apt.postgresql.org no longer
+# serves. The official bookworm image already has the PGDG repo configured, so
+# both extensions install as packages (no compile step).
+FROM postgres:15-bookworm
 
-# Install pgvector extension
-# PostgreSQL 15 was compiled with clang-13 for JIT, so we need that specific version
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        git \
-        clang-13 \
-        llvm-13 \
-        postgresql-server-dev-15 && \
-    git clone --branch v0.7.0 https://github.com/pgvector/pgvector.git /tmp/pgvector && \
-    cd /tmp/pgvector && \
-    make && \
-    make install && \
-    apt-get remove -y build-essential git clang-13 llvm-13 postgresql-server-dev-15 && \
-    apt-get autoremove -y && \
-    rm -rf /var/lib/apt/lists/* /tmp/pgvector
+        postgresql-15-postgis-3 \
+        postgresql-15-postgis-3-scripts \
+        postgresql-15-pgvector && \
+    rm -rf /var/lib/apt/lists/*

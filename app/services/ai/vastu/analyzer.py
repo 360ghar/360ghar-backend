@@ -6,7 +6,6 @@ to analyze floor plan images for Vastu Shastra compliance.
 
 Robustness features:
 - Automatic retries at the HTTP layer via ``AIProvider._make_request`` (tenacity)
-- Provider fallback: if the primary provider fails, the secondary provider is tried
 - JSON parse retry: if the LLM returns unparseable JSON, one retry with a corrective nudge
 """
 
@@ -14,17 +13,12 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from app.core.constants import (
-    DEFAULT_VISION_PROVIDER,
-    VALID_VISION_PROVIDERS,
-    VASTU_FALLBACK_PROVIDER,
-)
+from app.core.constants import DEFAULT_VISION_PROVIDER
 from app.core.logging import get_logger
 from app.core.utils import utc_now_iso
 from app.services.ai import (
     AIMessage,
     AIProviderError,
-    AIProviderType,
     AIRole,
     VisionInput,
     get_ai_provider,
@@ -65,19 +59,6 @@ _JSON_RETRY_NUDGE = (
     "Do not include any text before or after the JSON object. "
     "Do not wrap it in markdown code fences."
 )
-
-
-def _get_fallback_provider(primary: str) -> str | None:
-    """Return the fallback provider name given the primary, or None if unavailable."""
-    # Explicitly configured fallback takes priority
-    if VASTU_FALLBACK_PROVIDER and VASTU_FALLBACK_PROVIDER != primary:
-        return str(VASTU_FALLBACK_PROVIDER)
-
-    # Default logic: swap between the two supported providers
-    for candidate in VALID_VISION_PROVIDERS:
-        if candidate != primary:
-            return str(candidate)
-    return None
 
 
 async def _call_provider_with_json_retry(
@@ -127,34 +108,19 @@ async def analyze_vastu(
     """
     Analyze a floor plan image for Vastu compliance.
 
-    Uses the primary AI provider with automatic retries and provider fallback
-    to ensure analysis completes successfully whenever possible.
+    Uses the Agnes AI provider with automatic HTTP retries.
 
     Args:
         image_base64: Base64-encoded floor plan image
         mime_type: Image MIME type (image/jpeg, image/png, image/webp)
-        request: Analysis request with north direction, notes, and provider preference
+        request: Analysis request with north direction and notes
 
     Returns:
         VastuAnalyzeResponse with structured analysis and markdown report
     """
-    primary_name = request.provider or DEFAULT_VISION_PROVIDER
+    provider_used = DEFAULT_VISION_PROVIDER
     analyzed_at = utc_now_iso()
 
-    try:
-        provider_type = AIProviderType(primary_name.lower())
-    except ValueError:
-        logger.warning(
-            "Unknown provider '%s', falling back to %s",
-            primary_name, DEFAULT_VISION_PROVIDER,
-        )
-        provider_type = AIProviderType(DEFAULT_VISION_PROVIDER)
-        primary_name = DEFAULT_VISION_PROVIDER
-
-    # Resolve fallback provider once
-    fallback_name = _get_fallback_provider(primary_name)
-
-    # Build messages and vision input (shared across attempts)
     messages = [
         AIMessage(role=AIRole.SYSTEM, content=VASTU_VISION_SYSTEM_PROMPT),
         AIMessage(
@@ -167,45 +133,15 @@ async def analyze_vastu(
         mime_type=mime_type,
     )
 
-    # --- Attempt with primary provider ---
-    result_json = await _attempt_analysis(
-        primary_name, provider_type, messages, vision_input, analyzed_at,
-    )
+    result_json = await _attempt_analysis(messages, vision_input)
 
-    # --- Fallback to secondary provider if primary failed ---
-    if result_json is None and fallback_name:
-        logger.warning(
-            "Primary provider '%s' failed; falling back to '%s'",
-            primary_name, fallback_name,
-        )
-        try:
-            fallback_type = AIProviderType(fallback_name.lower())
-        except ValueError:
-            logger.error("Fallback provider '%s' is invalid", fallback_name)
-            return VastuAnalyzeResponse(
-                success=False,
-                error=f"Primary provider '{primary_name}' failed and fallback '{fallback_name}' is invalid",
-                provider_used=primary_name,
-                analyzed_at=analyzed_at,
-            )
-
-        result_json = await _attempt_analysis(
-            fallback_name, fallback_type, messages, vision_input, analyzed_at,
-            provider_used_label=f"{primary_name} -> {fallback_name}",
-        )
-
-    # --- Both providers failed ---
     if result_json is None:
         return VastuAnalyzeResponse(
             success=False,
-            error=f"Analysis failed with primary provider '{primary_name}'"
-                  + (f" and fallback provider '{fallback_name}'" if fallback_name else ""),
-            provider_used=primary_name,
+            error=f"Analysis failed with provider '{provider_used}'",
+            provider_used=provider_used,
             analyzed_at=analyzed_at,
         )
-
-    # --- Build success response ---
-    provider_used_label = result_json.pop("_provider_used", primary_name)
 
     # Normalize string-list fields so markdown + pydantic both see list[str]
     result_json["improvements"] = coerce_string_list(result_json.get("improvements"))
@@ -218,7 +154,7 @@ async def analyze_vastu(
         return VastuAnalyzeResponse(
             success=False,
             error="Analysis returned an unexpected format. Please try again.",
-            provider_used=provider_used_label,
+            provider_used=provider_used,
             analyzed_at=analyzed_at,
         )
 
@@ -238,50 +174,27 @@ async def analyze_vastu(
         has_warnings=has_warnings,
         warning_count=warning_count,
         critical_warnings=critical_warnings,
-        provider_used=provider_used_label,
+        provider_used=provider_used,
         analyzed_at=analyzed_at,
     )
 
 
 async def _attempt_analysis(
-    provider_name: str,
-    provider_type: AIProviderType,
     messages: list[AIMessage],
     vision_input: VisionInput,
-    analyzed_at: str,
-    provider_used_label: str | None = None,
 ) -> dict | None:
-    """
-    Try to get a Vastu analysis from a single provider.
-
-    Returns the raw JSON dict on success (with ``_provider_used`` key injected),
-    or None on failure.
-    """
+    """Get a raw Vastu analysis JSON dict from Agnes AI, or None on failure."""
     try:
-        provider = get_ai_provider(provider_type)
-
-        if not provider.supports_vision:
-            logger.warning("Provider %s does not support vision; skipping", provider_name)
-            return None
-
-        logger.info("Starting Vastu analysis with provider: %s", provider_name)
-
-        result_json = await _call_provider_with_json_retry(
-            provider, messages, vision_input,
-        )
-
-        logger.info("Vastu analysis completed successfully with provider: %s", provider_name)
-        result_json["_provider_used"] = provider_used_label or provider_name
-        return result_json
-
+        provider = get_ai_provider()
+        return await _call_provider_with_json_retry(provider, messages, vision_input)
     except AIProviderError as e:
-        logger.error("AI provider error with %s: %s", provider_name, e)
+        logger.error("AI provider error with %s: %s", DEFAULT_VISION_PROVIDER, e)
         return None
     except ValueError as e:
-        logger.error("Validation error with %s: %s", provider_name, e)
+        logger.error("Validation error with %s: %s", DEFAULT_VISION_PROVIDER, e)
         return None
     except Exception as e:
-        logger.exception("Unexpected error with provider %s: %s", provider_name, e)
+        logger.exception("Unexpected error with provider %s: %s", DEFAULT_VISION_PROVIDER, e)
         return None
 
 

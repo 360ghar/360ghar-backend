@@ -7,10 +7,11 @@ No authentication required.
 
 import base64
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 
 from app.core.constants import DEFAULT_VISION_PROVIDER, VALID_VISION_PROVIDERS
 from app.core.logging import get_logger
+from app.middleware.rate_limit import EndpointRateLimiter
 from app.services.ai.vastu import (
     NorthDirection,
     VastuAnalyzeRequest,
@@ -23,6 +24,20 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+_analyze_limiter = EndpointRateLimiter(calls=5, period=60)
+
+
+async def _check_analyze_rate_limit(request: Request) -> None:
+    """FastAPI dependency: rate-limits the analyze endpoint (5 req/60s per IP)."""
+    client_id = _analyze_limiter.get_client_id(request)
+    allowed = await _analyze_limiter.check_rate_limit(client_id, "POST:/vastu/analyze")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": "60"},
+        )
+
 # Allowed image types
 ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"]
 
@@ -32,10 +47,11 @@ MAX_FILE_SIZE = 5 * 1024 * 1024
 
 @router.post("/analyze", response_model=VastuAnalyzeResponse, summary="Analyze floor plan vastu")
 async def analyze_floor_plan(
+    request: Request,
     image: UploadFile = File(..., description="Floor plan image (JPEG, PNG, or WebP)"),
     north_direction: str = Form(default="up", description="Direction of North in the image: up, down, left, right, unknown"),
     notes: str | None = Form(default=None, description="Additional notes about the property (max 1000 chars)"),
-    provider: str | None = Form(default=DEFAULT_VISION_PROVIDER, description="AI provider: gemini or glm"),
+    _rate_limit: None = Depends(_check_analyze_rate_limit),
 ):
     """
     Analyze a floor plan image for Vastu Shastra compliance.
@@ -58,9 +74,9 @@ async def analyze_floor_plan(
     - `right`: North is to the right
     - `unknown`: Not sure (AI will attempt to detect)
 
-    **AI Provider Options:**
-    - `gemini`: Google Gemini (default)
-    - `glm`: ZhipuAI GLM-5V-Turbo (fallback)
+    **AI Provider:** Agnes AI (`agnes-3.0-flash`).
+
+    **Rate limit:** 5 requests per minute per IP address.
     """
     # Validate file type
     content_type = image.content_type or ""
@@ -111,32 +127,22 @@ async def analyze_floor_plan(
             detail="Notes too long. Maximum 1000 characters."
         )
 
-    # Validate provider
-    valid_providers = list(VALID_VISION_PROVIDERS)
-    provider_clean = (provider or DEFAULT_VISION_PROVIDER).lower().strip()
-    if provider_clean not in valid_providers:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid provider '{provider}'. Valid options: {valid_providers}"
-        )
-
     # Convert to base64
     image_base64 = base64.b64encode(content).decode("utf-8")
 
     # Build request
-    request = VastuAnalyzeRequest(
+    analyze_request = VastuAnalyzeRequest(
         north_direction=north_dir,
         notes=notes,
-        provider=provider_clean,
     )
 
-    logger.info("Starting Vastu analysis: provider=%s, north=%s, file_size=%s", provider_clean, north_dir.value, len(content))
+    logger.info("Starting Vastu analysis: provider=%s, north=%s, file_size=%s", DEFAULT_VISION_PROVIDER, north_dir.value, len(content))
 
     # Analyze
     result = await analyze_vastu(
         image_base64=image_base64,
         mime_type=content_type,
-        request=request,
+        request=analyze_request,
     )
 
     if not result.success:

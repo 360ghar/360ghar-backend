@@ -595,7 +595,10 @@ async def _shutdown_ai_providers() -> None:
     """Close cached AI provider HTTP clients."""
     try:
         from app.services.ai import close_all_providers
+        from app.services.ai_agent.agent_service import close_agnes_client
+
         await close_all_providers()
+        await close_agnes_client()
     except Exception as e:
         logger.warning("Failed to close AI providers: %s", e)
 

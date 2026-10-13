@@ -15,9 +15,9 @@ from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.middleware.rate_limit import get_client_ip
 from app.models.enums import TourStatus, TourVisibility
 from app.models.tours import FloorPlan, Scene, Tour
 from app.schemas.tour import TourEventPayload, TourWithScenes
@@ -119,32 +119,6 @@ def get_device_type(user_agent: str) -> str:
         return "mobile"
     else:
         return "desktop"
-
-
-def get_client_ip(request: Request) -> str:
-    """Extract the real client IP, trusting only ``settings.TRUSTED_PROXY_HOPS``
-    proxies in front of us.
-
-    X-Forwarded-For is a comma-separated chain APPENDED-TO by each proxy:
-    ``client, proxy1, proxy2``. The right-most entry that we DON'T trust is
-    the real client. With ``TRUSTED_PROXY_HOPS=1`` (Railway default) we trust
-    one hop, so the rightmost untrusted hop = the second-from-right entry
-    (the real client, with the trusted proxy's IP tacked on at the right).
-    """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
-        # Index from the right: 0 = closest trusted proxy, 1 = the real client
-        # when we trust 1 hop. Clamp to the leftmost entry if the client chain
-        # is shorter than the configured hop count (e.g. direct connection).
-        idx = max(0, len(hops) - 1 - settings.TRUSTED_PROXY_HOPS)
-        return hops[idx]
-
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-
-    return request.client.host if request.client else "unknown"
 
 
 def normalize_event_type(event_type: str, event_data: dict) -> str:

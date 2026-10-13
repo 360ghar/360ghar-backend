@@ -1,8 +1,8 @@
 """
-ZhipuAI GLM Provider with Vision support.
+Agnes AI Provider with Vision support.
 
-This module implements the AIProvider interface for ZhipuAI's GLM models,
-supporting both text and vision (image) inputs via the GLM-5V-Turbo model.
+Implements the AIProvider interface for Agnes AI's OpenAI-compatible
+chat completions API (text and vision inputs, default model agnes-3.0-flash).
 All HTTP requests use the retry-enabled ``_make_request`` from the base class.
 """
 
@@ -25,36 +25,24 @@ from app.services.ai.base import (
 logger = get_logger(__name__)
 
 
-class GLMProvider(AIProvider):
-    """
-    ZhipuAI GLM provider with vision support.
-
-    Supports models like:
-    - glm-5v-turbo (vision + coding model, recommended)
-    - glm-4.6v-flash (vision model, free tier)
-    - glm-4.6v (vision model)
-    - glm-4.1v-thinking (vision + reasoning)
-    - glm-4.5 (text only)
-    - glm-4.6 (text only)
-    - glm-4.7 (text only)
-    """
+class AgnesProvider(AIProvider):
+    """Agnes AI provider (OpenAI-compatible chat completions, vision supported)."""
 
     @property
     def name(self) -> str:
-        return "ZhipuAI GLM"
+        return "Agnes AI"
 
     @property
     def supports_vision(self) -> bool:
-        m = self.config.model.lower()
-        return "4.6v" in m or "5v" in m or "4v" in m or "4.1v" in m
+        return True
 
     @property
     def supports_json_mode(self) -> bool:
         return True
 
     def _get_api_url(self) -> str:
-        """Get the API URL from settings or use default."""
-        return getattr(settings, "GLM_API_URL", "https://api.z.ai/api/coding/paas/v4/chat/completions")
+        """Chat completions endpoint under the configured Agnes base URL."""
+        return f"{settings.AGNES_API_BASE}/chat/completions"
 
     def _build_headers(self) -> dict[str, str]:
         """Build common request headers."""
@@ -69,9 +57,9 @@ class GLMProvider(AIProvider):
         vision_input: VisionInput | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Build the messages array for GLM API.
+        Build the messages array for the Agnes API.
 
-        GLM uses OpenAI-compatible message format with vision support.
+        Agnes uses the OpenAI-compatible message format with vision support.
         Vision input is attached only to the first user message to avoid
         duplicating the large base64 string.
         """
@@ -103,7 +91,7 @@ class GLMProvider(AIProvider):
         messages: list[AIMessage],
         vision_input: VisionInput | None = None,
     ) -> str:
-        """Generate a text completion from GLM (with automatic retries)."""
+        """Generate a text completion from Agnes AI (with automatic retries)."""
         url = self._get_api_url()
         headers = self._build_headers()
         payload = {
@@ -137,7 +125,7 @@ class GLMProvider(AIProvider):
         vision_input: VisionInput | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Generate a structured JSON completion from GLM (with automatic retries)."""
+        """Generate a structured JSON completion from Agnes AI (with automatic retries)."""
         url = self._get_api_url()
         headers = self._build_headers()
         payload: dict[str, Any] = {
@@ -177,7 +165,7 @@ class GLMProvider(AIProvider):
         return self._parse_json_response(text)
 
     def _extract_text_from_response(self, data: dict[str, Any]) -> str:
-        """Extract text content from GLM API response (OpenAI-compatible format)."""
+        """Extract text content from Agnes API response (OpenAI-compatible format)."""
         try:
             choices = data.get("choices", [])
             if not choices:
@@ -192,7 +180,7 @@ class GLMProvider(AIProvider):
             if not content:
                 finish_reason = choices[0].get("finish_reason")
                 logger.warning(
-                    "GLM returned empty content (finish_reason=%s)",
+                    "Agnes returned empty content (finish_reason=%s)",
                     finish_reason,
                     extra={"provider": self.name, "finish_reason": finish_reason},
                 )
@@ -204,7 +192,7 @@ class GLMProvider(AIProvider):
             return str(content)
 
         except (KeyError, IndexError) as e:
-            logger.error("Failed to extract text from GLM response: %s", e)
+            logger.error("Failed to extract text from Agnes response: %s", e)
             raise AIProviderError(
                 message=f"Invalid response structure: {e}",
                 provider=self.name,

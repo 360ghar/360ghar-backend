@@ -1,7 +1,7 @@
 """
 Abstract base classes for AI provider integration.
 
-This module provides a unified interface for different AI providers (Gemini, GLM, OpenAI, etc.)
+This module provides a unified interface for different AI providers (Agnes AI, OpenAI, etc.)
 enabling easy switching between providers and reuse across different AI-powered features.
 """
 
@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-import time
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
 
@@ -28,21 +28,16 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-# Retry configuration for AI provider HTTP requests
-AI_MAX_RETRIES = 3
+# Retry configuration for AI provider HTTP requests (exponential backoff,
+# waits capped at AI_RETRY_MAX_WAIT; Retry-After is honoured within the cap)
+AI_MAX_RETRIES = 5
 AI_RETRY_MIN_WAIT = 2  # seconds
-AI_RETRY_MAX_WAIT = 8  # seconds
+AI_RETRY_MAX_WAIT = 30  # seconds
 
-# Delays at or above this are treated as hard quota windows: fail fast to
-# the next provider instead of burning short retries.
-_HARD_QUOTA_THRESHOLD_SECONDS = 60.0
-
-# HTTP status codes that are transient and worth retrying (when not hard-quota)
+# HTTP status codes that are transient and worth retrying
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
-# Process-local cooldown after hard quota so concurrent requests skip the
-# exhausted provider instead of spamming logs for the rest of the window.
-_provider_cooldown_until: dict[str, float] = {}
+_BACKOFF = wait_exponential(multiplier=1, min=AI_RETRY_MIN_WAIT, max=AI_RETRY_MAX_WAIT)
 
 _RETRY_IN_SECONDS_RE = re.compile(
     r"(?:please\s+)?retry\s+in\s+(\d+(?:\.\d+)?)\s*s",
@@ -95,6 +90,11 @@ def _parse_retry_after_seconds(headers: httpx.Headers | dict[str, str], body: st
             return max(0.0, float(raw_header))
         except (TypeError, ValueError):
             pass
+        try:  # HTTP-date form, e.g. "Wed, 21 Oct 2026 07:28:00 GMT"
+            when = parsedate_to_datetime(raw_header)
+            return max(0.0, (when - datetime.now(UTC)).total_seconds())
+        except (TypeError, ValueError):
+            pass
 
     match = _RETRY_IN_SECONDS_RE.search(body or "")
     if match:
@@ -119,13 +119,13 @@ def _parse_retry_after_seconds(headers: httpx.Headers | dict[str, str], body: st
     if _body_signals_quota_exhaustion(body_lower):
         # Known long-window signals without a parseable duration.
         if "hour" in body_lower or "free_tier" in body_lower or "resource_exhausted" in body_lower:
-            return _HARD_QUOTA_THRESHOLD_SECONDS
+            return float(AI_RETRY_MAX_WAIT)
 
     return None
 
 
 def _body_signals_quota_exhaustion(body_lower: str) -> bool:
-    """Match Gemini/GLM phrasing for quota / usage exhaustion."""
+    """Match provider phrasing for quota / usage exhaustion."""
     return (
         "usage limit reached" in body_lower
         or "quota exceeded" in body_lower
@@ -135,56 +135,13 @@ def _body_signals_quota_exhaustion(body_lower: str) -> bool:
     )
 
 
-def _is_hard_quota(status_code: int, retry_after: float | None, body: str) -> bool:
-    """True when the provider is in a long quota window — do not short-retry."""
-    if status_code != 429:
-        return False
-    if retry_after is not None and retry_after >= _HARD_QUOTA_THRESHOLD_SECONDS:
-        return True
-    body_lower = (body or "").lower()
-    if "usage limit reached" in body_lower:
-        return True
-    if _body_signals_quota_exhaustion(body_lower):
-        # Free-tier / RESOURCE_EXHAUSTED: fail over instead of thrashing short
-        # retries (Gemini often asks for 11–46s which exceeds our soft window).
-        return True
-    return False
-
-
-def _set_provider_cooldown(provider_name: str, retry_after: float | None) -> None:
-    """Record a process-local cooldown for an exhausted provider."""
-    seconds = retry_after if retry_after is not None else _HARD_QUOTA_THRESHOLD_SECONDS
-    # Cap cooldown bookkeeping so a bad parse cannot cool down for days.
-    seconds = min(max(seconds, _HARD_QUOTA_THRESHOLD_SECONDS), 6 * 3600.0)
-    _provider_cooldown_until[provider_name] = time.monotonic() + seconds
-    logger.warning(
-        "AI provider '%s' entering cooldown for %.0fs after hard quota",
-        provider_name,
-        seconds,
-    )
-
-
-def _check_provider_cooldown(provider_name: str) -> None:
-    """Raise immediately if this provider is still in hard-quota cooldown."""
-    until = _provider_cooldown_until.get(provider_name)
-    if until is None:
-        return
-    remaining = until - time.monotonic()
-    if remaining <= 0:
-        _provider_cooldown_until.pop(provider_name, None)
-        return
-    raise AIProviderError(
-        message=f"Provider in hard-quota cooldown; retry after {remaining:.0f}s",
-        provider=provider_name,
-        status_code=429,
-        retryable=False,
-        retry_after_seconds=remaining,
-    )
-
-
-def clear_provider_cooldowns() -> None:
-    """Clear process-local cooldowns (for tests)."""
-    _provider_cooldown_until.clear()
+def _retry_wait(retry_state) -> float:
+    """Exponential backoff, or the provider's Retry-After when it is given."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    retry_after = getattr(exc, "retry_after_seconds", None)
+    if retry_after is not None:
+        return min(max(float(retry_after), AI_RETRY_MIN_WAIT), AI_RETRY_MAX_WAIT)
+    return _BACKOFF(retry_state)
 
 
 def _is_retryable_error(exc: BaseException) -> bool:
@@ -233,11 +190,11 @@ class AIProvider(ABC):
     """
     Abstract base class for AI providers.
 
-    All AI providers (Gemini, GLM, OpenAI, Anthropic, etc.) should implement this interface
+    All AI providers (Agnes AI, OpenAI, Anthropic, etc.) should implement this interface
     to ensure consistent behavior across the application.
 
     Example usage:
-        provider = get_ai_provider(AIProviderType.GEMINI)
+        provider = get_ai_provider(AIProviderType.AGNES)
         response = await provider.complete(messages, vision_input)
     """
 
@@ -284,25 +241,17 @@ class AIProvider(ABC):
         Uses tenacity with exponential backoff. Retries on:
         - Network errors (timeout, connect, send, receive)
         - HTTP 500, 502, 503, 504
-        - Short-lived HTTP 429 (rate spikes within the retry window)
+        - HTTP 429 (rate limit or quota; the wait is capped at 30s)
 
         Does NOT retry on:
         - Auth errors (401, 403) or client errors (400)
-        - Hard quota 429s (multi-hour usage limits / free-tier exhaustion)
-          so callers can fail over to another provider immediately
 
         All exceptions are normalised to ``AIProviderError`` before
         propagating so callers only need to handle that single type.
         """
-        _check_provider_cooldown(self.name)
-
         @retry(
             stop=stop_after_attempt(AI_MAX_RETRIES),
-            wait=wait_exponential(
-                multiplier=1,
-                min=AI_RETRY_MIN_WAIT,
-                max=AI_RETRY_MAX_WAIT,
-            ),
+            wait=_retry_wait,
             retry=retry_if_exception(_is_retryable_error),
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
@@ -313,17 +262,6 @@ class AIProvider(ABC):
             if response.status_code in _RETRYABLE_STATUS_CODES:
                 body = response.text[:1000]
                 retry_after = _parse_retry_after_seconds(response.headers, body)
-                hard = _is_hard_quota(response.status_code, retry_after, body)
-                if hard:
-                    _set_provider_cooldown(self.name, retry_after)
-                    raise AIProviderError(
-                        message=f"Hard quota HTTP {response.status_code}: {body[:500]}",
-                        provider=self.name,
-                        status_code=response.status_code,
-                        response_body=body,
-                        retryable=False,
-                        retry_after_seconds=retry_after,
-                    )
                 raise AIProviderError(
                     message=f"Retryable HTTP {response.status_code}: {body[:500]}",
                     provider=self.name,
@@ -352,11 +290,13 @@ class AIProvider(ABC):
             raise AIProviderError(
                 message=f"Request timed out after {AI_MAX_RETRIES} attempts: {exc}",
                 provider=self.name,
+                retryable=False,
             ) from exc
         except httpx.RequestError as exc:
             raise AIProviderError(
                 message=f"Request failed after {AI_MAX_RETRIES} attempts: {exc}",
                 provider=self.name,
+                retryable=False,
             ) from exc
 
     def _extract_balanced_json_object(self, text: str) -> str | None:

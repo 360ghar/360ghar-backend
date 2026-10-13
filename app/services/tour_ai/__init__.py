@@ -2,7 +2,7 @@
 AI Services for 360 Virtual Tour Operations.
 
 This package provides AI-powered features for scene analysis,
-hotspot suggestions, and description generation using the Gemini AI provider.
+hotspot suggestions, and description generation using the Agnes AI provider.
 
 All public functions are re-exported here for backward compatibility.
 Existing imports like ``from app.services.tour_ai import process_ai_job``

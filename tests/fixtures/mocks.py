@@ -6,7 +6,7 @@ Provides fixtures that mock external API calls to:
 - Cloudinary Storage
 - Perplexity AI (blog generation)
 - SerpAPI (image search)
-- Gemini/GLM (Vastu analysis)
+- Agnes AI (Vastu analysis)
 - Redis cache
 - Email/SMS services
 - MCP context
@@ -133,13 +133,13 @@ def mock_cloudinary_storage():
 
 
 # =============================================================================
-# AI Services (Gemini, GLM, Perplexity)
+# AI Services (Agnes AI, Perplexity)
 # =============================================================================
 
 @pytest.fixture
 def mock_gemini_api():
     """
-    Mock Google Gemini API for Vastu analysis tests.
+    Mock the Agnes AI provider for Vastu analysis tests.
 
     Returns a mock that simulates successful Vastu analysis results.
     """
