@@ -25,9 +25,7 @@ from app.models.enums import HotspotType
 from app.models.tours import Hotspot, Tour
 from app.services.ai import (
     AIMessage,
-    AIProvider,
     AIProviderError,
-    AIProviderType,
     VisionInput,
     get_ai_provider,
 )
@@ -83,21 +81,6 @@ def _create_retry_decorator():
     )
 
 
-def _resolve_fallback_provider(primary: AIProvider) -> AIProvider | None:
-    """Return the *other* configured vision provider to use as a fallback.
-
-    Tour AI's primary is Gemini (via ``get_ai_provider()``); GLM is the
-    fallback. Returns ``None`` if the fallback provider's API key is not
-    configured, so the caller can re-raise the original error.
-    """
-    is_gemini = "gemini" in primary.name.lower()
-    fallback_type = AIProviderType.GLM if is_gemini else AIProviderType.GEMINI
-    try:
-        return get_ai_provider(fallback_type)
-    except ValueError:
-        return None
-
-
 @_create_retry_decorator()
 async def _complete_json_with_retry(
     ai_provider,
@@ -106,9 +89,6 @@ async def _complete_json_with_retry(
 ) -> dict[str, Any]:
     """
     Call AI provider's complete_json with automatic retry on AIProviderError.
-
-    On exhaustion, transparently retries once with the fallback vision
-    provider (Gemini -> GLM, or vice versa) before giving up.
 
     Args:
         ai_provider: The primary AI provider instance
@@ -119,20 +99,9 @@ async def _complete_json_with_retry(
         The parsed JSON response
 
     Raises:
-        AIProviderError: After all retries (incl. fallback) are exhausted
+        AIProviderError: After all retries are exhausted
     """
-    try:
-        return dict(await ai_provider.complete_json(messages, vision_input))
-    except AIProviderError:
-        fallback = _resolve_fallback_provider(ai_provider)
-        if fallback is None:
-            raise
-        logger.warning(
-            "Tour AI primary provider '%s' failed; trying fallback '%s'",
-            ai_provider.name,
-            fallback.name,
-        )
-        return dict(await fallback.complete_json(messages, vision_input))
+    return dict(await ai_provider.complete_json(messages, vision_input))
 
 
 # Room type mappings for scene analysis
@@ -318,5 +287,5 @@ async def _get_ai_provider_safe():
     except ValueError as e:
         logger.error("Failed to get AI provider: %s", e)
         raise ServiceUnavailableException(
-            detail="AI service is not configured. Please set GOOGLE_API_KEY."
+            detail="AI service is not configured. Please set AGNES_AI_API_KEY."
         ) from e

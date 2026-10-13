@@ -2,7 +2,7 @@
 
 Active contributors: Saksham, Ravi
 
-The Vastu analyzer is a public, AI-powered floor plan compliance checker. Users upload a floor plan image (JPEG, PNG, or WebP up to 5MB), indicate where North points, and receive a comprehensive Vastu Shastra report: an overall score, room-by-room analysis, identified defects with severity, practical remedies, and a markdown report. The analyzer uses the shared AI provider abstraction with automatic JSON-parse retry and provider fallback between Gemini and GLM vision models.
+The Vastu analyzer is a public, AI-powered floor plan compliance checker. Users upload a floor plan image (JPEG, PNG, or WebP up to 5MB), indicate where North points, and receive a comprehensive Vastu Shastra report: an overall score, room-by-room analysis, identified defects with severity, practical remedies, and a markdown report. The analyzer uses the shared AI provider abstraction with automatic JSON-parse retry. The only provider is Agnes AI (`agnes-3.0-flash`), with exponential-backoff retries and no fallback model. The endpoint is rate limited to 5 requests per minute per IP.
 
 ## Directory layout
 
@@ -16,7 +16,7 @@ app/services/ai/vastu/
 └── schemas.py             # VastuAnalyzeRequest, VastuAnalyzeResponse, VastuDefect, VastuRemedy, RoomVastuAnalysis
 app/services/ai/
 ├── base.py                # AIProvider ABC, AIMessage, VisionInput
-└── providers/             # GeminiProvider, GLMProvider
+└── providers/             # AgnesProvider
 app/core/constants.py      # DEFAULT_VISION_PROVIDER, VALID_VISION_PROVIDERS, VASTU_FALLBACK_PROVIDER
 ```
 
@@ -34,11 +34,11 @@ app/core/constants.py      # DEFAULT_VISION_PROVIDER, VALID_VISION_PROVIDERS, VA
 | `VastuAnalyzeResponse` | `app/services/ai/vastu/schemas.py` | Full response: score, status, rooms, defects, remedies, warnings, markdown report |
 | `NorthDirection` | `app/services/ai/vastu/schemas.py` | Enum: `up, down, left, right, unknown` |
 | `VastuStatus` | `app/services/ai/vastu/schemas.py` | Enum: `excellent, good, neutral, concerning, problematic` |
-| `get_ai_provider` | `app/services/ai/__init__.py` | Factory returning Gemini or GLM provider with tenacity retries |
+| `get_ai_provider` | `app/services/ai/__init__.py` | Factory returning the Agnes AI provider with tenacity retries |
 
 ## How it works
 
-The `/vastu/analyze` endpoint accepts a multipart upload: an image file, a `north_direction` form field (default `up`), optional `notes`, and an optional `provider` form field (`gemini` or `glm`, defaulting to `DEFAULT_VISION_PROVIDER`). It validates the content type against `ALLOWED_TYPES` (`image/jpeg`, `image/png`, `image/webp`) and enforces a 5MB max size. The image bytes are base64-encoded and passed to the AI provider as `VisionInput`.
+The `/vastu/analyze` endpoint accepts a multipart upload: an image file, a `north_direction` form field (default `up`), optional `notes`. It validates the content type against `ALLOWED_TYPES` (`image/jpeg`, `image/png`, `image/webp`) and enforces a 5MB max size. The image bytes are base64-encoded and passed to the AI provider as `VisionInput`.
 
 ```mermaid
 graph TD
@@ -69,7 +69,7 @@ The response is a `VastuAnalyzeResponse` containing an overall `score` (1-10), `
 
 ## Integration points
 
-- **AI providers**: vastu uses `get_ai_provider` from `app/services/ai/` with the Gemini and GLM vision providers, sharing the same abstraction as [tour AI](virtual-tours.md) and other vision features.
+- **AI providers**: vastu uses `get_ai_provider` from `app/services/ai/` with the Agnes AI provider, sharing the same abstraction as [tour AI](virtual-tours.md) and other vision features.
 - **Constants**: `DEFAULT_VISION_PROVIDER`, `VALID_VISION_PROVIDERS`, and `VASTU_FALLBACK_PROVIDER` in `app/core/constants.py` control provider selection.
 - **Auth**: the endpoint is public — no `get_current_user` dependency. Rate limiting is handled by the global 500 req/min per-IP sliding window.
 - **Storage**: vastu does not persist uploaded images or analysis results; it is a stateless request-response service.
@@ -87,5 +87,5 @@ Vastu rules and prompt engineering live in `app/services/ai/vastu/prompts.py` �
 | `app/services/ai/vastu/prompts.py` | System prompt + knowledge base + markdown report (330 lines) |
 | `app/services/ai/vastu/schemas.py` | Request/response Pydantic schemas (230 lines) |
 | `app/services/ai/base.py` | AIProvider ABC, AIMessage, VisionInput |
-| `app/services/ai/providers/` | GeminiProvider, GLMProvider |
+| `app/services/ai/providers/` | AgnesProvider |
 | `app/core/constants.py` | Vision provider defaults and fallback config |

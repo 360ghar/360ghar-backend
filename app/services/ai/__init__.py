@@ -11,7 +11,7 @@ Usage:
     from app.services.ai import get_ai_provider, AIProviderType, AIMessage, VisionInput
 
     # Get a provider
-    provider = get_ai_provider(AIProviderType.GEMINI)
+    provider = get_ai_provider(AIProviderType.AGNES)
 
     # Use it
     response = await provider.complete(messages, vision_input)
@@ -20,11 +20,7 @@ Usage:
 from enum import Enum
 
 from app.config import settings
-from app.core.constants import (
-    DEFAULT_VISION_MODEL_GEMINI,
-    DEFAULT_VISION_MODEL_GLM,
-    DEFAULT_VISION_PROVIDER,
-)
+from app.core.constants import DEFAULT_VISION_PROVIDER
 from app.core.logging import get_logger
 from app.services.ai.base import (
     AIMessage,
@@ -40,8 +36,7 @@ logger = get_logger(__name__)
 
 class AIProviderType(str, Enum):
     """Supported AI provider types."""
-    GEMINI = "gemini"
-    GLM = "glm"
+    AGNES = "agnes"
 
 
 # Singleton provider cache — one httpx client pool per provider type.
@@ -49,7 +44,7 @@ _provider_cache: dict[AIProviderType, AIProvider] = {}
 
 
 def get_ai_provider(
-    provider_type: AIProviderType = AIProviderType.GEMINI,
+    provider_type: AIProviderType = AIProviderType.AGNES,
     **config_overrides,
 ) -> AIProvider:
     """
@@ -59,7 +54,7 @@ def get_ai_provider(
     leaking connection pools.
 
     Args:
-        provider_type: Type of provider to create (gemini, glm)
+        provider_type: Provider type (only ``agnes`` is supported)
         **config_overrides: Override default configuration values (only used
             on first call; subsequent calls return the cached instance)
 
@@ -67,7 +62,7 @@ def get_ai_provider(
         AIProvider instance configured for the specified provider
 
     Raises:
-        ValueError: If provider type is unknown or API key is not configured
+        ValueError: If the API key is not configured
     """
     if provider_type in _provider_cache:
         if config_overrides:
@@ -77,40 +72,20 @@ def get_ai_provider(
             )
         return _provider_cache[provider_type]
 
-    if provider_type == AIProviderType.GEMINI:
-        from app.services.ai.providers.gemini import GeminiProvider
+    from app.services.ai.providers.agnes import AgnesProvider
 
-        api_key = settings.GOOGLE_API_KEY
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY not configured for Gemini provider")
+    api_key = settings.AGNES_AI_API_KEY
+    if not api_key:
+        raise ValueError("AGNES_AI_API_KEY not configured for Agnes AI provider")
 
-        config = AIProviderConfig(
-            api_key=api_key,
-            model=config_overrides.pop("model", DEFAULT_VISION_MODEL_GEMINI),
-            max_tokens=config_overrides.pop("max_tokens", 8000),
-            temperature=config_overrides.pop("temperature", 0.7),
-            timeout=config_overrides.pop("timeout", 120),
-        )
-        provider: AIProvider = GeminiProvider(config)
-
-    elif provider_type == AIProviderType.GLM:
-        from app.services.ai.providers.glm import GLMProvider
-
-        api_key = getattr(settings, "GLM_API_KEY", None)
-        if not api_key:
-            raise ValueError("GLM_API_KEY not configured for GLM provider")
-
-        config = AIProviderConfig(
-            api_key=api_key,
-            model=config_overrides.pop("model", DEFAULT_VISION_MODEL_GLM),
-            max_tokens=config_overrides.pop("max_tokens", 4000),
-            temperature=config_overrides.pop("temperature", 0.7),
-            timeout=config_overrides.pop("timeout", 120),
-        )
-        provider = GLMProvider(config)
-
-    else:
-        raise ValueError(f"Unknown AI provider type: {provider_type}")
+    config = AIProviderConfig(
+        api_key=api_key,
+        model=config_overrides.pop("model", settings.AGNES_TEXT_MODEL),
+        max_tokens=config_overrides.pop("max_tokens", 8000),
+        temperature=config_overrides.pop("temperature", 0.7),
+        timeout=config_overrides.pop("timeout", 120),
+    )
+    provider: AIProvider = AgnesProvider(config)
 
     _provider_cache[provider_type] = provider
     return provider
@@ -124,17 +99,8 @@ async def close_all_providers() -> None:
 
 
 def get_default_provider() -> AIProvider:
-    """
-    Get the default AI provider based on configuration.
-
-    Falls back to Gemini if no preference is set.
-    """
-    default_type = DEFAULT_VISION_PROVIDER
-    try:
-        provider_type = AIProviderType(default_type.lower())
-    except ValueError:
-        provider_type = AIProviderType.GEMINI
-    return get_ai_provider(provider_type)
+    """Return the Agnes AI provider (the only supported provider)."""
+    return get_ai_provider(AIProviderType(DEFAULT_VISION_PROVIDER))
 
 
 # Re-export commonly used types

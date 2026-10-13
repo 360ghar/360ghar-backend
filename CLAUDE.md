@@ -115,7 +115,7 @@ docker-compose up -d db redis  # Start only database services for local dev
 Copy `.env.example` to `.env` and configure. Key variable groups:
 - **Database/Supabase**: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_*_KEY`
 - **Redis/Cache**: `REDIS_URL`
-- **AI Providers**: `PERPLEXITY_API_KEY`, `GLM_API_KEY`, `GOOGLE_API_KEY`
+- **AI Providers**: `AGNES_AI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_API_KEY` (embeddings only)
 - **Notifications**: `EMAIL_*`, `SMS_*`, `ENABLE_NOTIF_SCHEDULER`
 - **Vector Search**: `VECTOR_SYNC_ENABLED`, `GEMINI_EMBED_MODEL`
 - **Blog Auto-Publish**: `AUTO_BLOG_ENABLED`, `AUTO_BLOG_CRON`
@@ -141,8 +141,8 @@ app/
 │   ├── api_v1/dependencies/ # Shared auth dependencies (get_current_user, get_current_agent, etc.)
 │   └── share.py            # Social share preview endpoints
 ├── services/               # Async business logic (main logic layer)
-│   ├── ai/                 # AI provider factory (gemini, glm) + vastu analyzer
-│   │   ├── providers/      # GeminiProvider, GLMProvider (httpx + tenacity retries)
+│   ├── ai/                 # AI provider factory (Agnes AI) + vastu analyzer
+│   │   ├── providers/      # AgnesProvider (httpx + tenacity retries)
 │   │   └── vastu/          # Vastu analyzer, prompts, schemas
 │   ├── ai_agent/           # Pydantic AI agent (agent_service, tool_bridge, conversation_store, system_prompt)
 │   ├── blog_service/       # Blog content generation (generator.py)

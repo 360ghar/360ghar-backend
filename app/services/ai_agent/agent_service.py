@@ -14,9 +14,11 @@ from collections.abc import AsyncIterator
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from typing import Any
 from uuid import UUID
 
+from openai import AsyncOpenAI
 from pydantic_ai import (
     Agent,
     FunctionToolCallEvent,
@@ -36,9 +38,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 from pydantic_ai.models import Model
-from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
-from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,8 +55,7 @@ logger = get_logger(__name__)
 def _jsonable(value: Any) -> Any:
     """Coerce ORM/Pydantic types to JSON-safe primitives.
 
-    Gemini's native serializer is stricter than the OpenAI client's encoder;
-    tool returns often carry ``datetime``/``Decimal``/``UUID`` values from ORM
+    Tool returns often carry ``datetime``/``Decimal``/``UUID`` values from ORM
     models. This guarantees every model adapter can encode them.
     """
     if value is None or isinstance(value, (str, int, float, bool)):
@@ -109,7 +108,7 @@ def _jsonable_tool(func: Any) -> Any:
 
 
 class _AgentRunError(Exception):
-    """Internal error raised when an agent run fails, for fallback handling."""
+    """Internal error raised when an agent run fails."""
 
     def __init__(self, message: str):
         super().__init__(message)
@@ -189,57 +188,25 @@ def _build_message_history(
     return history
 
 
-class PydanticAIAgentService:
-    """Manages a Pydantic AI Agent instance per model configuration.
+@lru_cache(maxsize=1)
+def _agnes_client() -> AsyncOpenAI:
+    """One Agnes client per process, so its connection pool is reused.
 
-    Fallback chain: Gemini (primary) -> GLM -> Groq.
-    If the primary provider fails, the next provider in the chain is tried.
+    The OpenAI SDK retries 429, 5xx and network errors with exponential
+    backoff and honours Retry-After.
     """
+    return AsyncOpenAI(base_url=settings.AGNES_API_BASE, api_key=settings.AGNES_AI_API_KEY, max_retries=5)
+
+
+class PydanticAIAgentService:
+    """Manages a Pydantic AI Agent backed by Agnes AI (OpenAI-compatible API)."""
 
     def __init__(self, model: str | None = None):
-        self.model_name = model or settings.AI_AGENT_MODEL
+        self.model_name = model or settings.AGNES_TEXT_MODEL
 
-    @staticmethod
-    def _create_model(cfg: dict[str, str]) -> Model:
-        """Create a model from a provider config dict.
-
-        Gemini uses Pydantic AI's native ``GoogleModel`` (not the OpenAI-
-        compatible shim) so multi-turn tool calls work — thinking Gemini models
-        attach a ``thought_signature`` to function calls that the OpenAI shim
-        drops, causing HTTP 400. GLM and Groq use the OpenAI-compatible client.
-        """
-        if cfg.get("backend") == "gemini":
-            return GoogleModel(
-                cfg["model"],
-                provider=GoogleProvider(api_key=cfg["api_key"]),
-            )
-        return OpenAIChatModel(
-            cfg["model"],
-            provider=OpenAIProvider(
-                base_url=cfg["api_base"],
-                api_key=cfg["api_key"],
-            ),
-        )
-
-    def _build_providers(self) -> list[tuple[str, Model]]:
-        """Build ordered (label, model) pairs from the provider map.
-
-        The first entry is the primary model. If ``self.model_name`` was
-        overridden in ``__init__``, it replaces the primary provider's model.
-        """
-        configs = list(settings.AI_AGENT_PROVIDERS)
-        if not configs:
-            logger.warning("No AI providers configured")
-            return []
-
-        # Apply model override (from __init__) to the primary provider
-        if self.model_name and configs:
-            configs[0] = {**configs[0], "model": self.model_name}
-
-        return [
-            (cfg["label"], self._create_model(cfg))
-            for cfg in configs
-        ]
+    def _create_model(self) -> Model:
+        """Create the Agnes chat model on the shared client."""
+        return OpenAIChatModel(self.model_name, provider=OpenAIProvider(openai_client=_agnes_client()))
 
     def _build_agent(self, user_role: str, model: Model) -> Agent[AgentDeps, str]:
         """Build an Agent with the given model and role-specific tools."""
@@ -260,11 +227,9 @@ class PydanticAIAgentService:
         deps: AgentDeps,
         message_history: list[ModelMessage],
         conversation_id: int | None,
-        *,
-        emit_conversation_info: bool = True,
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         """Core agent streaming logic. Yields (event_name, data) tuples."""
-        if emit_conversation_info and conversation_id is not None:
+        if conversation_id is not None:
             yield ("conversation_info", {"conversation_id": conversation_id})
 
         full_text = ""
@@ -398,9 +363,6 @@ class PydanticAIAgentService:
         Uses agent.iter() for node-by-node streaming so tool call events
         are interleaved with text chunks in real time.
 
-        Fallback chain: GLM (primary) -> Gemini -> Groq.
-        If the primary provider fails, the next in chain is tried.
-
         Pass user_role="guest" with user=None for unauthenticated requests.
         conversation_id=None is allowed for stateless (guest) sessions.
 
@@ -413,9 +375,8 @@ class PydanticAIAgentService:
             tool_call_start    — agent is invoking a tool
             tool_call_end      — tool returned a result
             widget             — a tool result that has a linked UI widget
-            fallback           — primary failed, switching to fallback provider
             done               — stream finished
-            error              — all providers failed
+            error              — agent run failed
         """
         role = str(user_role or getattr(user, "role", "user"))
         if session_factory is None and db is None:
@@ -430,40 +391,20 @@ class PydanticAIAgentService:
         )
         message_history = _build_message_history(conversation_history)
 
-        # Build the fallback chain of (label, agent) pairs from the provider map
-        candidates: list[tuple[str, Agent[AgentDeps, str]]] = [
-            (label, self._build_agent(role, model))
-            for label, model in self._build_providers()
-        ]
+        agent = self._build_agent(role, self._create_model())
 
-        last_error: str | None = None
-
-        for idx, (label, agent) in enumerate(candidates):
-            if idx > 0:
-                logger.warning("Primary agent failed; falling back to %s", label)
-                yield ("fallback", {
-                    "provider": label,
-                    "reason": last_error or "unknown",
-                })
-
-            try:
-                async for event_name, event_data in self._run_agent_stream(
-                    agent, user_message, deps, message_history, conversation_id,
-                    emit_conversation_info=(idx == 0),
-                ):
-                    yield (event_name, event_data)
-                return  # Success — stop trying fallbacks
-            except _AgentRunError as exc:
-                last_error = exc.message
-                logger.error("Agent run error with %s: %s", label, exc.message)
-                continue
-
-        # All providers failed
-        yield ("error", {
-            "code": "AGENT_ERROR",
-            "message": f"All providers failed. Last error: {last_error}"[:200],
-            "recoverable": False,
-        })
+        try:
+            async for event_name, event_data in self._run_agent_stream(
+                agent, user_message, deps, message_history, conversation_id,
+            ):
+                yield (event_name, event_data)
+        except _AgentRunError as exc:
+            logger.error("Agent run error: %s", exc.message)
+            yield ("error", {
+                "code": "AGENT_ERROR",
+                "message": f"Agent run failed: {exc.message}"[:200],
+                "recoverable": False,
+            })
 
 
 def _summarize_result(content: Any, max_len: int = 100) -> str:

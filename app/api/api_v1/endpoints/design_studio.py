@@ -1,17 +1,16 @@
 """
 AI Design Studio Image Generation Endpoint.
 
-Authenticated endpoint for generating AI images using Gemini 3 Pro Image Preview.
+Public endpoint for generating AI images with Agnes AI.
 Supports text-to-image and image-to-image (reimagine) modes.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.logging import get_logger
-from app.schemas.user import User as UserSchema
+from app.middleware.rate_limit import EndpointRateLimiter
 from app.services.ai.image_gen.schemas import (
     ImageGenMode,
     ImageGenRequest,
@@ -22,16 +21,30 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
+_generate_limiter = EndpointRateLimiter(calls=10, period=60)
+
+
+async def _check_generate_rate_limit(request: Request) -> None:
+    """FastAPI dependency: rate-limits image generation (10 req/60s per IP)."""
+    client_id = _generate_limiter.get_client_id(request)
+    allowed = await _generate_limiter.check_rate_limit(client_id, "POST:/design-studio/generate")
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please try again later.",
+            headers={"Retry-After": "60"},
+        )
+
 
 @router.post("/generate", response_model=ImageGenResponse, summary="Generate design image")
 async def generate_design_image(
     request: ImageGenRequest,
-    current_user: UserSchema = Depends(get_current_active_user),
+    _rate_limit: None = Depends(_check_generate_rate_limit),
 ) -> ImageGenResponse:
     """
-    Generate an AI design image using Gemini 3 Pro Image Preview.
+    Generate an AI design image. Free, no login required. Powered by Agnes AI.
 
-    **Requires authentication** (Supabase Bearer token).
+    **Rate limit:** 10 requests per minute per IP address.
 
     **Modes:**
     - `text-to-image`: Generate from a text prompt
@@ -42,6 +55,7 @@ async def generate_design_image(
     - `prompt`: Text description (3-4000 chars)
     - `image`: Base64-encoded source image (required for image-to-image)
     - `mimeType`: MIME type of source image (e.g., image/jpeg)
+    - `ratio`: Output aspect ratio (`1:1`, `3:4`, `4:3`, `16:9`, `9:16`, `2:3`, `3:2`, `21:9`). Default `1:1`
 
     **Response:**
     - `success`: Whether generation succeeded
@@ -61,9 +75,9 @@ async def generate_design_image(
             request.mimeType = "image/jpeg"
 
     logger.info(
-        "AI image generation request: mode=%s, user=%s, prompt_len=%d",
+        "AI image generation request: mode=%s, ratio=%s, prompt_len=%d",
         request.mode.value,
-        current_user.id,
+        request.ratio,
         len(request.prompt),
     )
 
@@ -89,8 +103,7 @@ async def generate_design_image(
         )
 
     logger.info(
-        "AI image generation succeeded: user=%s, image_len=%d",
-        current_user.id,
+        "AI image generation succeeded: image_len=%d",
         len(result.image) if result.image else 0,
     )
 

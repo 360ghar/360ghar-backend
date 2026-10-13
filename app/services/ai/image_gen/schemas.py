@@ -6,7 +6,9 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+ALLOWED_RATIOS = ("1:1", "3:4", "4:3", "16:9", "9:16", "2:3", "3:2", "21:9")
 
 
 class ImageGenMode(str, Enum):
@@ -19,6 +21,14 @@ class ImageGenRequest(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=4000, description="Text prompt")
     image: str | None = Field(None, description="Base64-encoded source image (image-to-image only)")
     mimeType: str | None = Field(None, description="MIME type of source image")
+    ratio: str = Field("1:1", description="Output aspect ratio: " + ", ".join(ALLOWED_RATIOS))
+
+    @field_validator("ratio")
+    @classmethod
+    def _check_ratio(cls, value: str) -> str:
+        if value not in ALLOWED_RATIOS:
+            raise ValueError(f"ratio must be one of {', '.join(ALLOWED_RATIOS)}")
+        return value
 
 
 class ImageGenResponse(BaseModel):

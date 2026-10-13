@@ -298,7 +298,9 @@ class TestSettings:
 
             settings = config.Settings()
 
-            assert settings.VASTU_DEFAULT_PROVIDER == "gemini"
+            assert settings.AGNES_API_BASE == "https://apihub.agnes-ai.com/v1"
+            assert settings.AGNES_TEXT_MODEL == "agnes-3.0-flash"
+            assert settings.AGNES_IMAGE_MODEL == "agnes-image-2.5-flash"
 
     def test_supabase_client_key_returns_publishable_key(self):
         """Test SUPABASE_CLIENT_KEY returns publishable key."""
