@@ -186,6 +186,8 @@ async def _extract_image(result: dict[str, Any]) -> str | None:
     except (KeyError, IndexError, TypeError):
         return None
 
+    if not isinstance(item, dict):
+        return None
     b64 = item.get("b64_json")
     if b64:
         return f"data:image/png;base64,{b64}"

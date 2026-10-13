@@ -141,3 +141,8 @@ async def test_missing_key_returns_service_unavailable(client):
 def test_invalid_ratio_is_rejected():
     with pytest.raises(ValidationError):
         ImageGenRequest(mode=ImageGenMode.TEXT_TO_IMAGE, prompt="abc", ratio="5:4")
+
+
+@pytest.mark.asyncio
+async def test_non_object_data_item_returns_no_image():
+    assert await service._extract_image({"data": ["not-an-object"]}) is None
