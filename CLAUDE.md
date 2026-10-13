@@ -558,7 +558,7 @@ When running locally:
 The in-app assistants (Flutter `360-ghar-app`, web `360ghar-web-ui`) do **not** speak
 MCP. They POST to `/api/v1/agent/chat` and consume an SSE stream of
 `conversation_info`, `text_chunk`, `tool_call_start`, `tool_call_end`, `widget`,
-`fallback`, `done`, `error` frames. Frames are produced by
+`done`, `error` frames. Frames are produced by
 `PydanticAIAgentService.stream_events()` (typed `(name, data)` pairs) and serialized
 with `sse_event()`. **Consumers that need the payloads must iterate `stream_events`
 — never re-parse the serialized frames.**
