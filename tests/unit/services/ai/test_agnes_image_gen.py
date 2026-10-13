@@ -31,8 +31,7 @@ def client():
     with (
         patch.object(service.settings, "AGNES_AI_API_KEY", "test-key"),
         patch.object(service, "get_general_client", return_value=mock),
-        patch.object(service, "_RETRY_MIN_WAIT", 0),
-        patch.object(service, "_RETRY_MAX_WAIT", 0),
+        patch.object(service, "_retry_wait", lambda _state: 0),
     ):
         yield mock
 

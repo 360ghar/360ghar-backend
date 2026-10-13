@@ -72,6 +72,9 @@ def get_ai_provider(
             )
         return _provider_cache[provider_type]
 
+    if provider_type != AIProviderType.AGNES:
+        raise ValueError(f"Unknown AI provider type: {provider_type}")
+
     from app.services.ai.providers.agnes import AgnesProvider
 
     api_key = settings.AGNES_AI_API_KEY

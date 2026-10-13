@@ -291,12 +291,14 @@ class TestSettings:
             "SUPABASE_SECRET_KEY": "test_secret",
             "SENTRY_DSN": "https://test@sentry.io/123",
         }, clear=False):
+            for name in ("AGNES_API_BASE", "AGNES_TEXT_MODEL", "AGNES_IMAGE_MODEL"):
+                os.environ.pop(name, None)
             from importlib import reload
 
             from app.core import config
             reload(config)
 
-            settings = config.Settings()
+            settings = config.Settings(_env_file=None)
 
             assert settings.AGNES_API_BASE == "https://apihub.agnes-ai.com/v1"
             assert settings.AGNES_TEXT_MODEL == "agnes-3.0-flash"

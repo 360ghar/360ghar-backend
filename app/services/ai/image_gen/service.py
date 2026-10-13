@@ -21,12 +21,12 @@ from tenacity import (
     retry,
     retry_if_exception,
     stop_after_attempt,
-    wait_exponential,
 )
 
 from app.config import settings
 from app.core.http import get_general_client
 from app.core.logging import get_logger
+from app.services.ai.base import _parse_retry_after_seconds, _retry_wait
 from app.services.ai.image_gen.schemas import (
     ImageGenMode,
     ImageGenRequest,
@@ -39,8 +39,6 @@ logger = get_logger(__name__)
 _IMAGE_SIZE = "1K"
 
 _MAX_RETRIES = 5
-_RETRY_MIN_WAIT = 2
-_RETRY_MAX_WAIT = 30
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 _TIMEOUT = 300.0
@@ -62,10 +60,11 @@ _IMG2IMG_INSTRUCTION = (
 class _AgnesImageError(Exception):
     """Non-2xx response from the Agnes images API."""
 
-    def __init__(self, status_code: int, body: str):
+    def __init__(self, status_code: int, body: str, retry_after_seconds: float | None = None):
         super().__init__(f"Agnes image API error {status_code}: {body}")
         self.status_code = status_code
         self.body = body
+        self.retry_after_seconds = retry_after_seconds  # read by _retry_wait
 
 
 def _is_retryable(exc: BaseException) -> bool:
@@ -150,7 +149,7 @@ async def _call_agnes(payload: dict[str, Any]) -> dict[str, Any]:
 
     @retry(
         stop=stop_after_attempt(_MAX_RETRIES),
-        wait=wait_exponential(multiplier=1, min=_RETRY_MIN_WAIT, max=_RETRY_MAX_WAIT),
+        wait=_retry_wait,
         retry=retry_if_exception(_is_retryable),
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
@@ -172,7 +171,8 @@ async def _call_agnes(payload: dict[str, Any]) -> dict[str, Any]:
             extra={"duration_ms": round((time.monotonic() - t_start) * 1000, 1), "status": resp.status_code},
         )
         if resp.status_code >= 400:
-            raise _AgnesImageError(resp.status_code, resp.text[:1000])
+            body = resp.text[:1000]
+            raise _AgnesImageError(resp.status_code, body, _parse_retry_after_seconds(resp.headers, body))
         data: dict[str, Any] = resp.json()
         return data
 

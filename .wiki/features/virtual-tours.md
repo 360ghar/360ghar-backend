@@ -57,7 +57,7 @@ app/models/
 
 Tour CRUD is straightforward keyset pagination on `(created_at, id)`. Scenes belong to tours and carry `order_index`; `reorder_scenes` updates positions atomically. Hotspots carry a `HotspotType` and arbitrary content that is sanitised through `_sanitize_hotspot_html` using `_HOTSPOT_HTML_ALLOWED_TAGS`, `_HOTSPOT_HTML_ALLOWED_ATTRIBUTES`, and `_HOTSPOT_HTML_ALLOWED_PROTOCOLS`. Floor plans accept marker updates for navigation overlay.
 
-The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries with exponential backoff and appends a corrective nudge on parse failure and gives up when the Agnes retries are exhausted. There is no fallback model.
+The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries unparseable JSON responses with exponential backoff. HTTP errors are retried inside the provider (5 attempts, 2-30 s). There is no fallback model.
 
 ```mermaid
 graph TD
@@ -67,7 +67,7 @@ graph TD
     AS --> BG[_track_background_task _run_with_semaphore]
     BG --> DL[_download_image_as_base64]
     DL --> AI[AIProvider.complete_json]
-    AI -->|JSON parse fail + retry| JSON[_complete_json_with_retry + nudge]
+    AI -->|JSON parse fail + retry| JSON[_complete_json_with_retry]
     JSON --> UPD[update_job_status completed]
     UPD --> Client2[SSE/ws job status]
     Client -->|POST /tours/.../ai/suggest-hotspots| SH[suggest_scene_hotspots]

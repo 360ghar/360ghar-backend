@@ -123,13 +123,30 @@ def test_retry_wait_honours_retry_after_within_cap():
     assert _retry_wait(state) == 30.0
 
 
+def test_retry_wait_uses_retry_after_below_cap():
+    state = MagicMock()
+    state.outcome.exception.return_value = AIProviderError(
+        message="429", provider="agnes", status_code=429, retry_after_seconds=10.0,
+    )
+    assert _retry_wait(state) == 10.0
+
+
+def test_retry_after_http_date_is_parsed():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+
+    when = format_datetime(datetime.now(UTC) + timedelta(seconds=20), usegmt=True)
+    delay = _parse_retry_after_seconds(httpx.Headers({"Retry-After": when}), "")
+    assert delay is not None and 15 <= delay <= 20
+
+
 @pytest.mark.asyncio
 async def test_make_request_retries_429_until_success():
     provider = _DummyProvider(AIProviderConfig(api_key="test", model="dummy"))
 
     limited = MagicMock(spec=httpx.Response)
     limited.status_code = 429
-    limited.text = "Usage limit reached for 5 hour."
+    limited.text = "rate limited"
     limited.headers = httpx.Headers({})
 
     ok = MagicMock(spec=httpx.Response)

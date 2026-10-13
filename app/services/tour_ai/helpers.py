@@ -60,14 +60,12 @@ async def _run_with_semaphore(coro):
 
 
 def _is_retryable_ai_provider_error(exc: BaseException) -> bool:
-    """Retry soft provider failures; skip hard quota (fail-over already handled)."""
-    if not isinstance(exc, AIProviderError):
-        return False
-    # Hard quota / cooldown errors set retryable=False so we fail over once
-    # instead of re-thrashing the exhausted provider.
-    if exc.retryable is False:
-        return False
-    return True
+    """Retry only failures without an HTTP status (e.g. unparseable JSON).
+
+    HTTP errors (429/5xx/network) are already retried with backoff inside
+    ``AIProvider._make_request``; retrying them again here would multiply attempts.
+    """
+    return isinstance(exc, AIProviderError) and exc.status_code is None and exc.retryable is not False
 
 
 def _create_retry_decorator():

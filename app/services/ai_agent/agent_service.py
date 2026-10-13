@@ -195,7 +195,16 @@ def _agnes_client() -> AsyncOpenAI:
     The OpenAI SDK retries 429, 5xx and network errors with exponential
     backoff and honours Retry-After.
     """
+    if not settings.AGNES_AI_API_KEY:
+        raise _AgentRunError("AGNES_AI_API_KEY not configured for the AI agent")
     return AsyncOpenAI(base_url=settings.AGNES_API_BASE, api_key=settings.AGNES_AI_API_KEY, max_retries=5)
+
+
+async def close_agnes_client() -> None:
+    """Close the shared Agnes client on app shutdown (no-op if never created)."""
+    if _agnes_client.cache_info().currsize:
+        await _agnes_client().close()
+        _agnes_client.cache_clear()
 
 
 class PydanticAIAgentService:
@@ -391,9 +400,8 @@ class PydanticAIAgentService:
         )
         message_history = _build_message_history(conversation_history)
 
-        agent = self._build_agent(role, self._create_model())
-
         try:
+            agent = self._build_agent(role, self._create_model())
             async for event_name, event_data in self._run_agent_stream(
                 agent, user_message, deps, message_history, conversation_id,
             ):

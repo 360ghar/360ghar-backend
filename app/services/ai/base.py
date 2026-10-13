@@ -11,7 +11,8 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from enum import Enum
 from typing import Any
 
@@ -87,6 +88,11 @@ def _parse_retry_after_seconds(headers: httpx.Headers | dict[str, str], body: st
     if raw_header:
         try:
             return max(0.0, float(raw_header))
+        except (TypeError, ValueError):
+            pass
+        try:  # HTTP-date form, e.g. "Wed, 21 Oct 2026 07:28:00 GMT"
+            when = parsedate_to_datetime(raw_header)
+            return max(0.0, (when - datetime.now(UTC)).total_seconds())
         except (TypeError, ValueError):
             pass
 
@@ -284,11 +290,13 @@ class AIProvider(ABC):
             raise AIProviderError(
                 message=f"Request timed out after {AI_MAX_RETRIES} attempts: {exc}",
                 provider=self.name,
+                retryable=False,
             ) from exc
         except httpx.RequestError as exc:
             raise AIProviderError(
                 message=f"Request failed after {AI_MAX_RETRIES} attempts: {exc}",
                 provider=self.name,
+                retryable=False,
             ) from exc
 
     def _extract_balanced_json_object(self, text: str) -> str | None:

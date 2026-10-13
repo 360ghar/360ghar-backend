@@ -19,7 +19,8 @@ class ImageGenMode(str, Enum):
 class ImageGenRequest(BaseModel):
     mode: ImageGenMode = Field(..., description="Generation mode")
     prompt: str = Field(..., min_length=3, max_length=4000, description="Text prompt")
-    image: str | None = Field(None, description="Base64-encoded source image (image-to-image only)")
+    # 7,000,000 base64 chars is about a 5 MB image, the same cap the web upload uses.
+    image: str | None = Field(None, max_length=7_000_000, description="Base64-encoded source image (image-to-image only, max ~5 MB)")
     mimeType: str | None = Field(None, description="MIME type of source image")
     ratio: str = Field("1:1", description="Output aspect ratio: " + ", ".join(ALLOWED_RATIOS))
 
