@@ -268,3 +268,13 @@ class TestVastuHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["service"] == "vastu-analyzer"
         assert "providers" in data
+
+
+@pytest.fixture(autouse=True)
+def _no_vastu_rate_limit(test_app):
+    """The 5/min limiter would trip across this file when CI uses a shared cache."""
+    from app.api.api_v1.endpoints import vastu
+
+    test_app.dependency_overrides[vastu._check_analyze_rate_limit] = lambda: None
+    yield
+    test_app.dependency_overrides.pop(vastu._check_analyze_rate_limit, None)

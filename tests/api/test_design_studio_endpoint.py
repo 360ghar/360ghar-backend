@@ -48,5 +48,10 @@ async def test_generate_is_rate_limited_per_ip(client: AsyncClient):
             for _ in range(11)
         ]
 
+        other_ip = await client.post(
+            "/api/v1/design-studio/generate", json=body, headers={"X-Forwarded-For": "198.51.100.9"}
+        )
+
     assert codes[:10] == [200] * 10
     assert codes[10] == 429
+    assert other_ip.status_code == 200

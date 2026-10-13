@@ -131,16 +131,8 @@ class RateLimitMiddleware:
         if "user_id" in state:
             return f"user:{state['user_id']}"
 
-        # Extract headers from scope
-        headers = dict(scope.get("headers", []))
-        forwarded = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="ignore")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            client = scope.get("client")
-            ip = client[0] if client else "unknown"
-
-        return f"ip:{ip}"
+        # Same trusted-hop rule as the endpoint limiters (headers only, no body read).
+        return f"ip:{get_client_ip(Request(scope))}"
 
     def get_client_id(self, request: Request) -> str:
         """Get unique client identifier from Request (for EndpointRateLimiter)."""
