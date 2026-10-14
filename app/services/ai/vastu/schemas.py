@@ -8,7 +8,6 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.core.constants import DEFAULT_VISION_PROVIDER
 from app.core.logging import get_logger
 from app.core.utils import utc_now_iso
 
@@ -80,10 +79,6 @@ class VastuAnalyzeRequest(BaseModel):
         default=None,
         max_length=1000,
         description="Additional notes or concerns about the property"
-    )
-    provider: str | None = Field(
-        default=DEFAULT_VISION_PROVIDER,
-        description="AI provider to use: 'gemini' or 'glm'"
     )
 
 
@@ -292,7 +287,7 @@ class VastuAnalyzeResponse(BaseModel):
                     "disclaimer": "This analysis is for informational purposes only."
                 },
                 "report_markdown": "# Vastu Analysis Report\n\n...",
-                "provider_used": "gemini",
+                "provider_used": "agnes",
                 "analyzed_at": "2025-12-30T10:00:00+00:00"
             }
         }

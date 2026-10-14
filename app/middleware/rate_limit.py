@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Callable
@@ -8,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.config import settings
 from app.core.cache import get_cache_manager
 from app.core.logging import get_logger
 
@@ -129,29 +131,15 @@ class RateLimitMiddleware:
         if "user_id" in state:
             return f"user:{state['user_id']}"
 
-        # Extract headers from scope
-        headers = dict(scope.get("headers", []))
-        forwarded = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="ignore")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            client = scope.get("client")
-            ip = client[0] if client else "unknown"
-
-        return f"ip:{ip}"
+        # Same trusted-hop rule as the endpoint limiters (headers only, no body read).
+        return f"ip:{get_client_ip(Request(scope))}"
 
     def get_client_id(self, request: Request) -> str:
         """Get unique client identifier from Request (for EndpointRateLimiter)."""
         if hasattr(request.state, "user_id"):
             return f"user:{request.state.user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0]
-        else:
-            ip = request.client.host if request.client else "unknown"
-
-        return f"ip:{ip}"
+        return f"ip:{get_client_ip(request)}"
 
     async def check_rate_limit(self, client_id: str, path: str) -> bool:
         """Check rate limit using fixed-window counter approach.
@@ -190,12 +178,42 @@ class RateLimitMiddleware:
 
         return True
 
+
+def get_client_ip(request: Request) -> str:
+    """Extract the real client IP, trusting only ``settings.TRUSTED_PROXY_HOPS``
+    proxies in front of us.
+
+    X-Forwarded-For is a comma-separated chain APPENDED-TO by each proxy:
+    ``client, proxy1, proxy2``. The right-most entry that we DON'T trust is
+    the real client. With ``TRUSTED_PROXY_HOPS=1`` (Railway default) we trust
+    one hop, so the rightmost untrusted hop = the second-from-right entry
+    (the real client, with the trusted proxy's IP tacked on at the right).
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        # Index from the right: 0 = closest trusted proxy, 1 = the real client
+        # when we trust 1 hop. Clamp to the leftmost entry if the client chain
+        # is shorter than the configured hop count (e.g. direct connection).
+        idx = max(0, len(hops) - 1 - settings.TRUSTED_PROXY_HOPS)
+        return hops[idx]
+
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip
+
+    return request.client.host if request.client else "unknown"
+
+
 class EndpointRateLimiter:
     """Decorator for endpoint-specific rate limiting"""
 
     def __init__(self, calls: int = 10, period: int = 60):
         self.calls = calls
         self.period = period
+        # ponytail: per-process lock makes get+set atomic within one worker;
+        # move to an atomic cache INCR if the API runs several instances.
+        self._lock = asyncio.Lock()
 
     def __call__(self, func: Callable) -> Callable:
         async def wrapper(request: Request, *args, **kwargs):
@@ -218,23 +236,16 @@ class EndpointRateLimiter:
         if hasattr(request.state, "user_id") and request.state.user_id:
             return f"user:{request.state.user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0]
-        else:
-            ip = request.client.host if request.client else "unknown"
-
-        return f"ip:{ip}"
+        return f"ip:{get_client_ip(request)}"
 
     async def check_rate_limit(self, client_id: str, endpoint: str) -> bool:
         """Check rate limit for specific endpoint"""
         cache = get_cache_manager()
         key = f"endpoint_limit:{endpoint}:{client_id}"
 
-        count = await cache.get(key) or 0
-
-        if count >= self.calls:
-            return False
-
-        await cache.set(key, count + 1, ttl=self.period)
+        async with self._lock:
+            count = await cache.get(key) or 0
+            if count >= self.calls:
+                return False
+            await cache.set(key, count + 1, ttl=self.period)
         return True

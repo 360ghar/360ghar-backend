@@ -16,7 +16,7 @@ import pytest
 from app.models.enums import TourStatus, TourVisibility
 from app.models.tours import Scene, Tour
 
-FRAME_URLS = ["https://cdn.example.com/f1.jpg", "https://cdn.example.com/f2.jpg"]
+FRAME_URLS = ["https://res.cloudinary.com/demo/f1.jpg", "https://res.cloudinary.com/demo/f2.jpg"]
 
 
 async def _make_scene(db_session, user) -> Scene:

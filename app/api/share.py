@@ -86,7 +86,7 @@ def _render_tour_share(tour: Tour, request: Request, redirect: str | None) -> HT
     redirect_url = (
         redirect if redirect and _is_safe_absolute_url(redirect, request) else viewer_url
     )
-    share_url = str(request.url)
+    share_url = str(request.url.replace(query=""))  # never echo ?redirect= into og:url
 
     title_esc = html.escape(title)
     desc_esc = html.escape(description)

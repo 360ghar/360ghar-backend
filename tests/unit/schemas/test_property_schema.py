@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from app.core.exceptions import ValidationException
 from app.models.enums import PropertyPurpose, PropertyType
-from app.schemas.property import PropertyCreate, PropertyUpdate
+from app.schemas.property import Property, PropertyCreate, PropertyUpdate
 
 # Custom validators raise ValidationException (HTTPException subclass), not pydantic ValidationError.
 # Pydantic model_validator raises ValidationError for cross-field checks (like PG+buy).
@@ -298,3 +298,68 @@ class TestPropertyUpdate:
         urls = [f"https://example.com/v{i}" for i in range(51)]
         with pytest.raises((ValidationError, ValidationException)):
             PropertyUpdate(video_urls=urls)
+
+
+class TestFurnishingLevelNormalization:
+    """Legacy DB values must never 422 response validation (homepage 422)."""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("furnished", "furnished"),
+            ("fully-furnished", "furnished"),
+            ("Fully Furnished", "furnished"),
+            ("fully_furnished", "furnished"),
+            ("semi-furnished", "semi_furnished"),
+            ("Semi-Furnished", "semi_furnished"),
+            ("partially_furnished", "semi_furnished"),
+            ("unfurnished", "unfurnished"),
+            ("none", "unfurnished"),
+            (None, None),
+            ("", None),
+            ("luxury-plus", None),
+        ],
+    )
+    def test_create_normalizes_legacy_values(self, raw, expected):
+        data = PropertyCreate(
+            title="Furnishing",
+            property_type=PropertyType.apartment,
+            purpose=PropertyPurpose.buy,
+            base_price=5000000,
+            furnishing_level=raw,
+        )
+        assert data.furnishing_level == expected
+
+    def test_update_normalizes_legacy_values(self):
+        assert (
+            PropertyUpdate(furnishing_level="fully-furnished").furnishing_level
+            == "furnished"
+        )
+        assert (
+            PropertyUpdate(furnishing_level="semi-furnished").furnishing_level
+            == "semi_furnished"
+        )
+        assert PropertyUpdate(furnishing_level="unknown-thing").furnishing_level is None
+
+    def test_response_model_accepts_legacy_db_value(self):
+        """Exact homepage-422 scenario: a DB row with fully-furnished validates."""
+        prop = Property.model_validate(
+            {
+                "id": 1,
+                "owner_id": 1,
+                "status": "available",
+                "title": "Flatmate room",
+                "property_type": "flatmate",
+                "purpose": "rent",
+                "base_price": 15000,
+                "monthly_rent": 15000,
+                "city": "Gurugram",
+                "furnishing_level": "fully-furnished",
+                "is_available": True,
+                "view_count": 0,
+                "like_count": 0,
+                "interest_count": 0,
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+        )
+        assert prop.furnishing_level == "furnished"

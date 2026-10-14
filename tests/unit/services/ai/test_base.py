@@ -1,28 +1,19 @@
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
 from app.services.ai.base import (
+    AI_MAX_RETRIES,
+    AI_RETRY_MAX_WAIT,
     AIProvider,
     AIProviderConfig,
     AIProviderError,
-    _is_hard_quota,
     _is_retryable_error,
     _parse_retry_after_seconds,
-    clear_provider_cooldowns,
+    _retry_wait,
 )
-
-
-@pytest.fixture(autouse=True)
-def _clear_cooldowns():
-    """Prevent hard-quota cooldown state from leaking across tests, even on failure."""
-    clear_provider_cooldowns()
-    try:
-        yield
-    finally:
-        clear_provider_cooldowns()
 
 
 class _DummyProvider(AIProvider):
@@ -95,41 +86,15 @@ class TestRetryAfterParsing:
         assert delay == pytest.approx(5 * 3600.0)
 
 
-class TestHardQuotaClassification:
-    def test_glm_usage_limit_is_hard(self):
-        body = "Usage limit reached for 5 hour. Your limit will reset at 2026-07-11 04:46:29"
-        assert _is_hard_quota(429, 5 * 3600, body) is True
-
-    def test_gemini_free_tier_is_hard(self):
-        body = (
-            "You exceeded your current quota... free_tier_requests "
-            "RESOURCE_EXHAUSTED Please retry in 11.29s."
-        )
-        assert _is_hard_quota(429, 11.29, body) is True
-
-    def test_503_is_not_hard_quota(self):
-        body = "This model is currently experiencing high demand."
-        assert _is_hard_quota(503, None, body) is False
-
-    def test_short_429_without_quota_signals_not_hard(self):
-        # Generic rate limit with short delay stays soft/retryable.
-        assert _is_hard_quota(429, 5.0, "Too many requests, slow down") is False
-
-
 class TestIsRetryableError:
-    def test_hard_quota_error_not_retryable(self):
-        exc = AIProviderError(
-            message="Hard quota",
-            provider="glm",
-            status_code=429,
-            retryable=False,
-        )
+    def test_non_retryable_flag_wins(self):
+        exc = AIProviderError(message="bad", provider="agnes", status_code=429, retryable=False)
         assert _is_retryable_error(exc) is False
 
     def test_soft_429_is_retryable(self):
         exc = AIProviderError(
             message="Retryable HTTP 429",
-            provider="gemini",
+            provider="agnes",
             status_code=429,
             retryable=True,
         )
@@ -138,43 +103,65 @@ class TestIsRetryableError:
     def test_503_is_retryable(self):
         exc = AIProviderError(
             message="Retryable HTTP 503",
-            provider="gemini",
+            provider="agnes",
             status_code=503,
             retryable=True,
         )
         assert _is_retryable_error(exc) is True
 
 
+def test_retry_policy_is_five_attempts_capped_at_30s():
+    assert AI_MAX_RETRIES == 5
+    assert AI_RETRY_MAX_WAIT == 30
+
+
+def test_retry_wait_honours_retry_after_within_cap():
+    state = MagicMock()
+    state.outcome.exception.return_value = AIProviderError(
+        message="429", provider="agnes", status_code=429, retry_after_seconds=600.0,
+    )
+    assert _retry_wait(state) == 30.0
+
+
+def test_retry_wait_uses_retry_after_below_cap():
+    state = MagicMock()
+    state.outcome.exception.return_value = AIProviderError(
+        message="429", provider="agnes", status_code=429, retry_after_seconds=10.0,
+    )
+    assert _retry_wait(state) == 10.0
+
+
+def test_retry_after_http_date_is_parsed():
+    from datetime import UTC, datetime, timedelta
+    from email.utils import format_datetime
+
+    when = format_datetime(datetime.now(UTC) + timedelta(seconds=20), usegmt=True)
+    delay = _parse_retry_after_seconds(httpx.Headers({"Retry-After": when}), "")
+    assert delay is not None and 15 <= delay <= 20
+
+
 @pytest.mark.asyncio
-async def test_make_request_fail_fast_on_hard_quota():
+async def test_make_request_retries_429_until_success():
     provider = _DummyProvider(AIProviderConfig(api_key="test", model="dummy"))
 
-    glm_body = (
-        '{"error":{"code":"1308","message":'
-        '"Usage limit reached for 5 hour. Your limit will reset at 2026-07-11 20:04:36"}}'
-    )
-    response = MagicMock(spec=httpx.Response)
-    response.status_code = 429
-    response.text = glm_body
-    response.headers = httpx.Headers({})
+    limited = MagicMock(spec=httpx.Response)
+    limited.status_code = 429
+    limited.text = "rate limited"
+    limited.headers = httpx.Headers({})
+
+    ok = MagicMock(spec=httpx.Response)
+    ok.status_code = 200
+    ok.text = "{}"
+    ok.headers = httpx.Headers({})
 
     client = AsyncMock(spec=httpx.AsyncClient)
-    client.post = AsyncMock(return_value=response)
+    client.post = AsyncMock(side_effect=[limited, limited, ok])
 
-    with pytest.raises(AIProviderError) as exc_info:
-        await provider._make_request(client, "https://example.com", {}, {})
+    with patch("app.services.ai.base._BACKOFF", MagicMock(return_value=0.0)):
+        result = await provider._make_request(client, "https://example.com", {}, {})
 
-    assert exc_info.value.status_code == 429
-    assert exc_info.value.retryable is False
-    # Fail-fast: only one HTTP call (no tenacity thrash)
-    assert client.post.await_count == 1
-
-    # Cooldown blocks subsequent calls without hitting the network
-    client.post.reset_mock()
-    with pytest.raises(AIProviderError) as cooled:
-        await provider._make_request(client, "https://example.com", {}, {})
-    assert cooled.value.retryable is False
-    assert client.post.await_count == 0
+    assert result.status_code == 200
+    assert client.post.await_count == 3
 
 
 @pytest.mark.asyncio
@@ -194,6 +181,7 @@ async def test_make_request_retries_soft_503():
     client = AsyncMock(spec=httpx.AsyncClient)
     client.post = AsyncMock(side_effect=[fail, ok])
 
-    result = await provider._make_request(client, "https://example.com", {}, {})
+    with patch("app.services.ai.base._BACKOFF", MagicMock(return_value=0.0)):
+        result = await provider._make_request(client, "https://example.com", {}, {})
     assert result.status_code == 200
     assert client.post.await_count == 2

@@ -34,21 +34,16 @@ Active contributors: Saksham, Ravi
 |---|---|
 | `PERPLEXITY_API_KEY`, `PERPLEXITY_MODEL` | Perplexity Sonar for blog generation. |
 | `SERPAPI_API_KEY`, `SERPAPI_SEARCH_ENDPOINT` | SerpAPI for blog cover image search. |
-| `GOOGLE_API_KEY` | Google API key for Gemini and embeddings. |
-| `GEMINI_MODEL`, `GEMINI_EMBED_MODEL` | Gemini chat/vision model and embedding model for pgvector sync. |
-| `GLM_API_KEY`, `GLM_API_URL`, `GLM_MODEL` | ZhipuAI GLM for vastu and AI agent. |
-| `VASTU_DEFAULT_PROVIDER` | Default vastu provider (`glm`). |
-| `GROQ_API_KEY`, `GROQ_MODEL` | Groq for the AI agent fallback chain. |
-| `AI_AGENT_MODEL`, `AI_AGENT_API_BASE` | Primary AI agent model (GLM); API key from `GLM_API_KEY`. |
-| `AI_AGENT_FALLBACK_MODEL`, `..._API_BASE` | First fallback (Gemini); API key from `GOOGLE_API_KEY`. |
-| `AI_AGENT_FALLBACK2_MODEL` | Second fallback (Groq); model + key from `GROQ_MODEL` / `GROQ_API_KEY`. |
-| `CUSTOM_OPENAI_API_KEY`, `CUSTOM_OPENAI_API_URL`, `CUSTOM_OPENAI_DEFAULT_MODEL` | OpenAI-compatible provider (also exposed as `openai` vision provider). URL defaults to `https://api.openai.com/v1/chat/completions`, model to `gpt-4o-mini`. Legacy alias: `OPENAI_API_KEY`. |
+| `GOOGLE_API_KEY` | Google API key for Gemini embeddings only. |
+| `AGNES_AI_API_KEY` | Agnes AI key. Required for vastu, tour AI, the AI agent and design-studio image generation. |
+| `AGNES_API_BASE`, `AGNES_TEXT_MODEL`, `AGNES_IMAGE_MODEL` | Optional. Defaults: `https://apihub.agnes-ai.com/v1`, `agnes-3.0-flash`, `agnes-image-2.5-flash`. |
+| `GEMINI_EMBED_MODEL` | Gemini embedding model for pgvector sync (key: `GOOGLE_API_KEY`). |
 
-## Daytona sandbox (virtual tour generation + splat lab)
+## Daytona sandbox (virtual tour generation)
 
 | Variable | Purpose |
 |---|---|
-| `DAYTONA_API_KEY` | Daytona API key. When set, `/lab` splat jobs run the sandbox pipeline (`app/services/lab_pipeline.py`). Required (hard error) for sandbox tour generation when `USE_DAYTONA_SANDBOX=true`. |
+| `DAYTONA_API_KEY` | Daytona API key. Required (hard error) for sandbox tour generation when `USE_DAYTONA_SANDBOX=true`. |
 | `DAYTONA_API_URL` | Daytona API base (default `https://app.daytona.io/api`). |
 | `DAYTONA_TARGET` | Daytona region target (default `us`). |
 | `USE_DAYTONA_SANDBOX` | When `true`, spatial tour plan generation runs inside an isolated Daytona sandbox (Gemini agent). When `false`, spatial mode falls back to the in-process navigation hotspot pipeline. |
