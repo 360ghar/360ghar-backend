@@ -55,8 +55,6 @@ class Settings(BaseSettings):
             "GOOGLE_API_KEY",
             "GOOGLE_APPLICATION_CREDENTIALS",
             "GROQ_API_KEY",
-            "MODAL_TOKEN_ID",
-            "MODAL_TOKEN_SECRET",
             "PERPLEXITY_API_KEY",
             "PEXELS_API_KEY",
             "PIXABAY_API_KEY",
@@ -258,11 +256,6 @@ class Settings(BaseSettings):
     # ── Flatmates Realtime ────────────────────────────────────────────────────
     FLATMATES_REALTIME_ENABLED: bool = True
     SUPABASE_REALTIME_BROADCAST_TIMEOUT_SECONDS: float = 2.0
-
-    # ── 3D Splat Lab – Gaussian Splatting Pipeline ──────────────────────────────
-    SPLAT_BUCKET_NAME: str = "splat-jobs"
-    MODAL_TOKEN_ID: str | None = None
-    MODAL_TOKEN_SECRET: str | None = None
 
     # ── Daytona Sandbox (isolated virtual tour generation) ─────────────────────
     DAYTONA_API_KEY: str | None = None

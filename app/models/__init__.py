@@ -76,6 +76,7 @@ from .enums import (
     VisitStatus,
     WorkOrderStatus,
 )
+from .leads import Lead
 from .payments import PaymentMethod
 from .pm_documents import Document
 from .pm_finance import Expense, RentCharge, RentPayment
@@ -119,6 +120,8 @@ __all__ = [
     # Agents
     "Agent",
     "AgentInteraction",
+    # Leads
+    "Lead",
     # Bookings
     "Booking",
     # Payments

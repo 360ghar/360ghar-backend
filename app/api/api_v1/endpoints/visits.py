@@ -22,6 +22,7 @@ from app.schemas.visit import (
 )
 from app.services.auth_user_cache import AuthUserSnapshot
 from app.services.pm_authz import can_access_visit
+from app.services.property.privacy import hide_visit_contacts, hide_visits_contacts
 from app.services.visit import (
     cancel_visit,
     create_visit,
@@ -36,6 +37,11 @@ from app.services.visit import (
 )
 
 router = APIRouter()
+
+
+def _visit_out(visit, viewer) -> Visit:
+    """Serialize a visit, hiding contact details the viewer may not see."""
+    return hide_visit_contacts(Visit.model_validate(visit, from_attributes=True), viewer)
 
 
 @router.post(
@@ -66,7 +72,7 @@ async def schedule_visit(
     db: AsyncSession = Depends(get_db)
 ):
     """Schedule a visit."""
-    return await create_visit(db, current_user.id, visit)
+    return _visit_out(await create_visit(db, current_user.id, visit), current_user)
 
 @router.get("", response_model=CursorPage[Visit], summary="List my visits")
 async def get_my_visits(
@@ -83,7 +89,9 @@ async def get_my_visits(
             status=status,
         )
         return build_cursor_page(
-            [Visit.model_validate(r, from_attributes=True) for r in rows],
+            hide_visits_contacts(
+                [Visit.model_validate(r, from_attributes=True) for r in rows], current_user
+            ),
             limit=page.limit, next_payload=next_payload, total=total,
         )
     except Exception as exc:
@@ -108,7 +116,9 @@ async def get_upcoming_visits(
             cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
         )
         return build_cursor_page(
-            [Visit.model_validate(r, from_attributes=True) for r in rows],
+            hide_visits_contacts(
+                [Visit.model_validate(r, from_attributes=True) for r in rows], current_user
+            ),
             limit=page.limit, next_payload=next_payload, total=total,
         )
     except Exception as exc:
@@ -133,7 +143,9 @@ async def get_past_visits(
             cursor_payload=page.decoded(), limit=page.limit, with_total=page.include_total,
         )
         return build_cursor_page(
-            [Visit.model_validate(r, from_attributes=True) for r in rows],
+            hide_visits_contacts(
+                [Visit.model_validate(r, from_attributes=True) for r in rows], current_user
+            ),
             limit=page.limit, next_payload=next_payload, total=total,
         )
     except Exception as exc:
@@ -178,7 +190,9 @@ async def list_all_visits(
             user_id=user_id,
         )
         return build_cursor_page(
-            [Visit.model_validate(r, from_attributes=True) for r in rows],
+            hide_visits_contacts(
+                [Visit.model_validate(r, from_attributes=True) for r in rows], current_user
+            ),
             limit=page.limit, next_payload=next_payload, total=total,
         )
     except Exception as exc:
@@ -204,7 +218,7 @@ async def get_visit_details(
     if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id, visit_agent_id=visit.agent_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return visit
+    return _visit_out(visit, current_user)
 
 @router.put("/{visit_id}", response_model=Visit, summary="Update visit")
 async def update_visit_details(
@@ -221,7 +235,8 @@ async def update_visit_details(
     if not await can_access_visit(db, actor=current_user, visit_user_id=visit.user_id, visit_property_id=visit.property_id, visit_counterparty_user_id=visit.counterparty_user_id, visit_agent_id=visit.agent_id):
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return await update_visit(db, visit_id, visit_update)
+    updated = await update_visit(db, visit_id, visit_update)
+    return _visit_out(updated, current_user) if updated else updated
 
 @router.post("/{visit_id}/reschedule", response_model=Visit, summary="Reschedule visit")
 async def reschedule_visit_date(
@@ -241,7 +256,7 @@ async def reschedule_visit_date(
     updated = await reschedule_visit(db, visit_id, reschedule_data.new_date, reschedule_data.reason)
     if not updated:
         raise HTTPException(status_code=400, detail="Failed to reschedule visit")
-    return updated
+    return _visit_out(updated, current_user)
 
 @router.post("/{visit_id}/cancel", response_model=Visit, summary="Cancel visit")
 async def cancel_visit_request(
@@ -261,7 +276,7 @@ async def cancel_visit_request(
     updated = await cancel_visit(db, visit_id, cancel_data.reason)
     if not updated:
         raise HTTPException(status_code=400, detail="Failed to cancel visit")
-    return updated
+    return _visit_out(updated, current_user)
 
 
 @router.post("/{visit_id}/complete", response_model=Visit, summary="Complete visit")
@@ -286,4 +301,4 @@ async def complete_visit(
         raise HTTPException(status_code=400, detail="Failed to complete visit")
 
     updated = await get_visit(db, visit_id)
-    return updated
+    return _visit_out(updated, current_user) if updated else updated

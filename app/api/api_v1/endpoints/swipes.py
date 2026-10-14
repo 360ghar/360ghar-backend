@@ -22,6 +22,7 @@ from app.schemas.property import (
 )
 from app.schemas.user import User as UserSchema
 from app.services.auth_user_cache import AuthUserSnapshot
+from app.services.property.privacy import hide_owner_contacts
 from app.services.swipe import (
     batch_unswipe,
     get_swipe_history,
@@ -181,7 +182,10 @@ async def get_user_swipe_history(
                 swipe.property.liked = swipe.is_liked
                 props.append(Property.model_validate(swipe.property))
 
-        return build_cursor_page(props, limit=page.limit, next_payload=next_payload, total=total)
+        return build_cursor_page(
+            hide_owner_contacts(props, current_user),
+            limit=page.limit, next_payload=next_payload, total=total,
+        )
     except Exception as e:
         raise_read_service_unavailable(
             e,

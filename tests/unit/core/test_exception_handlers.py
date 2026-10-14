@@ -113,3 +113,56 @@ async def test_detached_instance_returns_stable_code() -> None:
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "DETACHED_ORM_INSTANCE"
+
+
+def _header_app() -> FastAPI:
+    from fastapi import HTTPException
+
+    app = FastAPI()
+    register_exception_handlers(app)
+
+    @app.get("/limited")
+    async def limited():
+        raise HTTPException(status_code=429, detail="Slow down", headers={"Retry-After": "17"})
+
+    @app.get("/coded")
+    async def coded():
+        raise HTTPException(
+            status_code=503, detail={"code": "BUSY", "message": "Busy"}, headers={"Retry-After": "9"}
+        )
+
+    @app.post("/mcp/oauth/token")
+    async def oauth_token():
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid_grant", "error_description": "bad code"},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    return app
+
+
+@pytest.mark.asyncio
+async def test_http_exception_keeps_retry_after_and_standard_body() -> None:
+    transport = ASGITransport(app=_header_app(), raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        limited = await client.get("/limited")
+        coded = await client.get("/coded")
+
+    assert limited.status_code == 429
+    assert limited.headers["retry-after"] == "17"
+    assert limited.json() == {"error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Slow down"}}
+    assert coded.status_code == 503
+    assert coded.headers["retry-after"] == "9"
+    assert coded.json() == {"error": {"code": "BUSY", "message": "Busy"}}
+
+
+@pytest.mark.asyncio
+async def test_oauth_http_exception_is_unchanged() -> None:
+    transport = ASGITransport(app=_header_app(), raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/mcp/oauth/token")
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "invalid_grant", "error_description": "bad code"}
+    assert response.headers["cache-control"] == "no-store"

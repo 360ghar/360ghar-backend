@@ -101,7 +101,6 @@ class TourSettings(BaseModel):
     gyroscope_auto_start: bool | None = False
     branding: TourBrandingSettings | None = None
     floor_plans: list[FloorPlan] | None = None
-    world_3d: dict[str, Any] | None = None
 
 
 # ====================

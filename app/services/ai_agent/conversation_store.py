@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.ai_conversations import AIConversation, AIConversationMessage
-from app.schemas.pagination import offset_payload, read_offset
+from app.schemas.pagination import (
+    keyset_filter,
+    offset_payload,
+    read_offset,
+    trim_keyset_lookahead,
+)
 
 logger = get_logger(__name__)
 
@@ -93,6 +98,39 @@ async def get_history(
     messages = list(result.scalars().all())
     messages.reverse()  # Chronological order
     return messages
+
+
+async def get_history_page(
+    db: AsyncSession,
+    conversation_id: int,
+    *,
+    cursor_payload: dict[str, Any],
+    limit: int,
+) -> tuple[list[AIConversationMessage], dict[str, Any] | None]:
+    """Keyset page of messages, newest first; the next cursor points to older messages.
+
+    The page itself is returned in chronological order so clients can prepend it.
+    """
+    stmt = select(AIConversationMessage).where(
+        AIConversationMessage.conversation_id == conversation_id
+    )
+    predicate = keyset_filter(
+        AIConversationMessage.created_at, AIConversationMessage.id, cursor_payload, descending=True
+    )
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(
+        AIConversationMessage.created_at.desc(), AIConversationMessage.id.desc()
+    ).limit(limit + 1)
+    result = await db.execute(stmt)
+    messages, next_payload = trim_keyset_lookahead(
+        list(result.scalars().all()),
+        limit=limit,
+        sort_value=lambda m: m.created_at,
+        item_id=lambda m: m.id,
+    )
+    messages.reverse()  # Chronological order within the page
+    return messages, next_payload
 
 
 async def list_conversations(

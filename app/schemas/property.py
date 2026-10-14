@@ -4,7 +4,15 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from app.core.exceptions import ValidationException
 from app.models.enums import (
@@ -484,9 +492,24 @@ class PropertyInDB(PropertyBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PropertyAgent(BaseModel):
+    """The 360 Ghar agent who looks after the listing owner. Public fields only."""
+
+    id: int
+    name: str
+    contact_number: str | None = None
+    avatar_url: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class Property(PropertyInDB):
+    agent: PropertyAgent | None = None
     images: list[PropertyImage] | None = None
-    amenities: list[PropertyAmenityResponse] | None = Field(None, validation_alias="property_amenities")
+    # Read from the ORM relationship (`property_amenities`) and from a cached dump (`amenities`).
+    amenities: list[PropertyAmenityResponse] | None = Field(
+        None, validation_alias=AliasChoices("property_amenities", "amenities")
+    )
     distance_km: float | None = None  # For location-based searches
     liked: bool | None = None  # For swipe history - indicates if user liked this property
     vector_distance: float | None = None  # For semantic similarity scoring

@@ -120,6 +120,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": detail},
+                headers=exc.headers,
             )
 
         error_code = ERROR_CODE_BY_STATUS.get(exc.status_code, f"HTTP_{exc.status_code}")
@@ -133,6 +134,8 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "message": message,
                 }
             },
+            # Keep Retry-After and other headers the raiser set (e.g. route-level 429s).
+            headers=exc.headers,
         )
 
     @app.exception_handler(ValueError)

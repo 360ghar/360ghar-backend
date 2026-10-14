@@ -4,11 +4,12 @@ AI Agent chat endpoints.
 POST /agent/chat              — Stream a chat response via SSE
 GET  /agent/conversations     — List the user's conversations
 GET  /agent/conversations/{id}/messages — Get messages for a conversation
+GET  /agent/conversations/{id}/messages/page — Cursor-paginated messages, newest page first
 DELETE /agent/conversations/{id}       — Delete a conversation
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +23,7 @@ from app.schemas.ai_agent import (
     ConversationSummary,
     GuestChatRequest,
 )
-from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page, decode_cursor
 from app.services.ai_agent import conversation_store, get_agent_service
 from app.services.ai_agent.agent_service import sse_event
 
@@ -254,6 +255,49 @@ async def get_conversation_messages(
 
     messages = await conversation_store.get_history(db, conversation_id, limit=limit)
     return [ConversationMessageOut.model_validate(m) for m in messages]
+
+
+@router.get("/conversations/{conversation_id}/messages/page",
+            response_model=CursorPage[ConversationMessageOut],
+            summary="List conversation messages (cursor-paginated)",
+)
+async def get_conversation_messages_page(
+    conversation_id: int,
+    cursor: str | None = Query(None, description="Opaque cursor from a prior page's next_cursor; fetches older messages."),
+    limit: int = Query(30, ge=1, le=100, description="Max messages to return (1-100)."),
+    current_user=Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Newest ``limit`` messages first; ``next_cursor`` walks back in time.
+
+    Each page's ``items`` are in chronological order (oldest first), so the client can
+    prepend older pages. The unpaginated ``/messages`` route is unchanged.
+    """
+    cursor_payload = decode_cursor(cursor) if cursor else {}
+
+    # Same ownership check and 404 as GET /conversations/{id}/messages.
+    from sqlalchemy import select
+
+    from app.models.ai_conversations import AIConversation
+
+    conv = (await db.execute(
+        select(AIConversation).where(
+            AIConversation.id == conversation_id,
+            AIConversation.user_id == current_user.id,
+        )
+    )).scalar_one_or_none()
+    if not conv:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
+                            detail="Conversation not found")
+
+    messages, next_payload = await conversation_store.get_history_page(
+        db, conversation_id, cursor_payload=cursor_payload, limit=limit,
+    )
+    return build_cursor_page(
+        [ConversationMessageOut.model_validate(m) for m in messages],
+        limit=limit,
+        next_payload=next_payload,
+    )
 
 
 @router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete conversation")

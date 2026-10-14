@@ -18,6 +18,7 @@ from app.core.exceptions import (
     UserNotFoundException,
 )
 from app.core.logging import get_logger
+from app.models.agents import Agent
 from app.models.enums import (
     PG_FLATMATE_TYPES,
     ImageCategory,
@@ -32,7 +33,7 @@ from app.repositories.property_repository import PropertyRepository
 from app.schemas.amenity import Amenity as AmenitySchema
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
 from app.schemas.property import Property as PropertySchema
-from app.schemas.property import PropertyCreate, PropertyUpdate
+from app.schemas.property import PropertyAgent, PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
@@ -293,6 +294,18 @@ async def create_property(
         raise
 
 
+async def _owner_agent(db: AsyncSession, owner_id: int | None) -> Agent | None:
+    """The active agent assigned to the listing owner (users.agent_id), if any."""
+    if owner_id is None:
+        return None
+    result = await db.execute(
+        select(Agent)
+        .join(UserModel, UserModel.agent_id == Agent.id)
+        .where(UserModel.id == owner_id, Agent.is_active.is_(True))
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
     """Get a property with images and owner."""
     logger.debug("Fetching property %s", property_id)
@@ -326,6 +339,9 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
             },
         )
         schema = PropertySchema.model_validate(property_obj)
+        agent = await _owner_agent(db, property_obj.owner_id)
+        if agent is not None:
+            schema = schema.model_copy(update={"agent": PropertyAgent.model_validate(agent)})
         try:
             await get_cache_manager().set(
                 cache_key,

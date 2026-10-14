@@ -18,7 +18,6 @@ from app.core.logging import get_logger
 from app.models.enums import TourStatus
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
-    AIJobResponse,
     Scene,
     SceneCreate,
     SceneReorder,
@@ -30,7 +29,6 @@ from app.schemas.tour import (
 )
 from app.schemas.user import User as UserSchema
 from app.services import tour as tour_service
-from app.services import tour_ai
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -201,27 +199,6 @@ async def duplicate_tour(
         tour_id=tour_id,
         user_id=current_user.id,
     )
-
-
-@router.post("/{tour_id}/generate-3d", response_model=AIJobResponse, summary="Generate 3D world")
-async def generate_3d_world(
-    tour_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserSchema = Depends(get_current_active_user),
-):
-    """
-    Generate a navigable 3D world (textured skybox mesh) for a tour.
-
-    Converts each scene's panorama into a cubemap, builds a GLB of textured
-    skybox cubes (one per scene), and stores the mesh URL in the tour
-    settings. Returns a job ID for tracking progress.
-    """
-    job = await tour_ai.generate_3d_world(
-        db=db,
-        tour_id=tour_id,
-        user_id=current_user.id,
-    )
-    return {"job": job}
 
 
 @router.get("/{tour_id}/analytics", response_model=TourAnalytics, summary="Get tour analytics")

@@ -24,8 +24,7 @@ from app.api.api_v1.endpoints import (
     flatmates_admin,
     floor_plans,
     hotspots,
-    # 3D Splat Lab
-    lab,
+    leads,
     notifications,
     oauth,
     payments,
@@ -74,6 +73,7 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
+api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(swipes.router, prefix="/swipes", tags=["swipes"])
 api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
@@ -138,9 +138,6 @@ api_router.include_router(agent_chat.router, prefix="/agent", tags=["ai-agent"])
 
 # Data Hub
 api_router.include_router(data_hub.router, prefix="/data-hub", tags=["data-hub"])
-
-# 3D Splat Lab – Gaussian Splatting pipeline
-api_router.include_router(lab.router, prefix="/lab", tags=["lab"])
 
 # Webhooks (inbound integrations). The router already carries the
 # /webhooks/auth prefix, so the full path is /api/v1/webhooks/auth/...

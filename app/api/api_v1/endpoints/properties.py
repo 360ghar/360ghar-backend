@@ -47,6 +47,7 @@ from app.services.property import (
     list_user_properties,
     update_property,
 )
+from app.services.property.privacy import hide_owner_contact, hide_owner_contacts
 from app.services.property.search_orchestration import (
     build_property_search_filters,
     run_property_search,
@@ -341,7 +342,7 @@ async def get_properties_list(
         len(rows),
     )
 
-    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
+    return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
 
 
 @router.get("/semantic-search", response_model=CursorPage[Property], summary="Semantic property search")
@@ -376,7 +377,7 @@ async def semantic_property_search(
         stale_listing_context="semantic search",
         unavailable_detail="Semantic search is temporarily unavailable. Please retry shortly.",
     )
-    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
+    return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
 
 
 @router.get("/recommendations", response_model=CursorPage[Property], summary="List recommended properties")
@@ -412,7 +413,7 @@ async def get_recommendations(
             db, user_id, cursor_payload, page.limit,
             with_total=page.include_total,
         )
-        return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
+        return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
     except Exception as e:
         if is_transient_db_error(e) or is_statement_timeout(e):
             error_code = extract_db_error_code(e) or (
@@ -494,7 +495,7 @@ async def get_property_details(
             # Log and continue without blocking property details
             logger.error("Failed to enrich property %s with user context: %s", property_id, e)
 
-    return property_data
+    return hide_owner_contact(property_data, current_user)
 
 
 @router.put(

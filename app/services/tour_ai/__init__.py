@@ -73,14 +73,6 @@ from .stitch import (
     request_scene_stitch,
 )
 
-# ---- world3d (textured skybox mesh generation) ----
-from .world3d import (
-    _run_generate_3d_world,
-    build_skybox_glb,
-    equirect_to_cubemap,
-    generate_3d_world,
-)
-
 __all__ = [
     # helpers
     "MAX_RETRIES",
@@ -130,9 +122,4 @@ __all__ = [
     # stitch
     "request_scene_stitch",
     "_run_scene_stitch",
-    # world3d
-    "build_skybox_glb",
-    "equirect_to_cubemap",
-    "generate_3d_world",
-    "_run_generate_3d_world",
 ]

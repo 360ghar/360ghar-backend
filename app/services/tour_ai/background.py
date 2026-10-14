@@ -562,14 +562,28 @@ async def _apply_spatial_tour_plan(
     from .daytona_service import generate_tour_in_sandbox
 
     # Optional skill file injected into the sandbox agent (plain text prompt
-    # context, e.g. a build-360-tour SKILL.md). Defaults to the built-in prompt.
+    # context, e.g. the spatial-360-tour SKILL.md). Defaults to the built-in prompt.
     skill_path = os.path.join(
-        os.path.dirname(__file__), "../../../../.agents/skills/build-360-tour/SKILL.md"
+        os.path.dirname(__file__),
+        "../../../../360-tours/.agents/skills/spatial-360-tour/SKILL.md",
     )
     skill_content = ""
-    if os.path.exists(skill_path):
-        with open(skill_path, encoding="utf-8") as f:
-            skill_content = f.read()
+    try:
+        if os.path.exists(skill_path):
+            with open(skill_path, encoding="utf-8") as f:
+                skill_content = f.read()
+        else:
+            logger.warning(
+                "spatial: tour skill file not found at %s; using built-in prompt",
+                skill_path,
+            )
+    except OSError as exc:
+        logger.warning(
+            "spatial: could not read tour skill file %s: %s; using built-in prompt",
+            skill_path,
+            exc,
+        )
+        skill_content = ""
 
     try:
         plan = await generate_tour_in_sandbox(
@@ -599,7 +613,11 @@ async def _apply_spatial_tour_plan(
             plan_to_db[planned_scene["id"]] = image_key
 
     if not plan_to_db:
-        raise RuntimeError("spatial: generated plan did not map to uploaded scenes")
+        raise AIProviderError(
+            "spatial: generated plan did not map to uploaded scenes "
+            f"({len(plan.get('scenes', []))} planned scenes, {len(scenes)} uploaded)",
+            provider="gemini",
+        )
 
     if plan.get("title") and (tour.title == fallback_title or tour.title.startswith("AI Generated Tour")):
         tour.title = str(plan["title"])
