@@ -32,11 +32,9 @@ app/services/
 │   ├── daytona_service.py # sandbox-only tour plan generation (Gemini agent in Daytona)
 │   ├── spatial.py         # spatial doorway detection + navigation graph
 │   ├── floor_plan_ai.py   # AI floor plan room detection + scene matching
-│   ├── stitch.py          # cloud panorama stitching (OpenCV) for scene frames
+│   ├── stitch.py          # cloud panorama stitching for scene frames
+│   ├── panorama.py        # metadata-driven equirect blend + quality metrics (numpy)
 │   └── helpers.py         # retry decorator, semaphore, image download
-├── lab_pipeline.py        # 3D Splat Lab: Daytona sandbox splat pipeline (frame extraction → cubemap → COLMAP → GPU-gated training)
-├── splat_segmentation.py  # Gemini video segmentation of 360 walkthroughs into rooms
-├── splat_view_augment.py  # synthetic multi-view augmentation + parallax scoring for splat training
 └── custom_domain.py       # domain creation, verification token, SSL status
 app/models/
 └── tours.py               # Tour, Scene, Hotspot, FloorPlan, AIJob, MediaFile, TourAnalyticsEvent, CustomDomain, TourLike
@@ -56,9 +54,8 @@ app/models/
 | `create_custom_domain` | `app/services/custom_domain.py` | Domain registration with DNS TXT verification token |
 | `record_analytics_event` | `app/services/tour/analytics.py` | Public viewer event ingest |
 | `generate_short_code` | `app/services/tour/tours.py` | Unique 6-char share code assigned on first publish (`/v/{code}`) |
-| `request_scene_stitch` | `app/services/tour_ai/stitch.py` | Cloud panorama stitch of captured frames (cv2.Stitcher, 2:1 canvas) |
+| `request_scene_stitch` | `app/services/tour_ai/stitch.py` | Cloud panorama stitch of captured frames — metadata-driven equirect blend (roll-correct, exposure-normalized, quality-gated) when frame metadata is supplied; legacy OpenCV path for `frame_urls`-only requests |
 | `generate_tour_in_sandbox` | `app/services/tour_ai/daytona_service.py` | Sandbox-only tour plan generation: panoramas + a pure-stdlib Gemini agent script are uploaded to a Daytona sandbox; the agent returns `tour.json` (scenes, room types, reciprocal navigation hotspots). No in-process fallback — fails with a clear error when `USE_DAYTONA_SANDBOX` is off or `DAYTONA_API_KEY` missing. Sandbox is always destroyed (TTL backstop). |
-| `run_pipeline` | `app/services/lab_pipeline.py` | 3D Splat Lab orchestrator: Daytona CPU sandbox does frame extraction → 360° cubemap → COLMAP SfM; stage 4 (nerfstudio splatfacto) is GPU-gated and hands off to the Modal GPU worker (`train_splat`) via a `colmap_data.zip` upload. |
 
 ## How it works
 
@@ -94,7 +91,7 @@ Analytics is split between owner-facing dashboards (`get_dashboard_stats`, `get_
 
 **Short share links**: publishing a tour assigns a unique 6-character `short_code` (lowercase alphabet without 0/o/1/l/i, generated with `secrets.choice`, up to 5 collision retries against a partial unique index). `GET /v/{code}` (root-level, in `app/api/share.py`) resolves the code and renders the same OG/Twitter share preview as `GET /share/tours/{tour_id}`. Codes are never cleared on unpublish so existing links survive republish cycles.
 
-**Cloud panorama stitching** (`POST /api/v1/scenes/{scene_id}/stitch`): accepts 2–32 http(s) frame URLs, creates a `panorama_stitch` AIJob and returns 202 Accepted with the job, then in a tracked background task downloads the frames, downscales them (long side ≤ 1600px), stitches with `cv2.Stitcher` (PANORAMA mode), pads the result onto a 2:1 black canvas, uploads the JPEG to Cloudinary under the scene's `original` folder, swaps `scene.image_url`, and re-runs the standard scene-processing pipeline for the thumbnail. A module-level `Semaphore(1)` serialises stitches (memory-heavy) and the task carries a 5-minute timeout.
+**Cloud panorama stitching** (`POST /api/v1/scenes/{scene_id}/stitch`): accepts 2-32 https frame URLs, creates a `panorama_stitch` AIJob, then in a tracked background task stitches and swaps `scene.image_url`. Two paths: (a) **metadata path** - request carries `frames` (url + yaw/pitch/roll + low_quality, plus `target_index` accepted for client bookkeeping only - the blend worker reads yaw/pitch/roll/low_quality) and optionally `camera_profile`; `tour_ai/panorama.py` blends a true 2:1 equirect (roll-correct rays, bilinear sampling, coverage-aware weighted blending, per-frame exposure gains) and produces a quality report (coverage/seam/exposure/sharpness). The scene is replaced ONLY when the result passes structural + coverage validation (>=60% coverage, 2:1, encodable); otherwise the job fails with the structured quality report and the published panorama stays. (b) **legacy path** - `frame_urls` only: `cv2.Stitcher` (PANORAMA mode), padded onto a 2:1 canvas (kept for backward compatibility). A module-level `Semaphore(1)` serialises stitches (memory-heavy) and the task carries a 5-minute timeout. The mobile app polls `GET /ai/jobs/{id}` and only marks the tour refined on `completed`.
 
 ## Integration points
 
