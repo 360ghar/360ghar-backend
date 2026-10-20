@@ -360,7 +360,7 @@ def generate_properties() -> list[dict[str, Any]]:
 
 def generate_visits(property_titles: list[str] | None = None) -> list[dict[str, Any]]:
     """Generate property visit records."""
-    statuses = ["scheduled", "confirmed", "completed", "cancelled"]
+    statuses = ["requested", "confirmed", "completed", "cancelled"]
     visits = []
     if not property_titles:
         property_titles = HC_DIR_PROPERTY_TITLES
@@ -669,7 +669,7 @@ def generate_pm_data() -> dict[str, list]:
             "form_id_ref": random.choice(form_slugs),
             "property_id_ref": random.choice(HC_DIR_PROPERTY_TITLES),
             "owner_id_ref": HARDCODED_USER_EMAILS[0],
-            "status": random.choice(["applicant", "approved", "active"]),
+            "status": random.choice(["applicant", "approved"]),
             "applicant_full_name": random.choice(FIRST_NAMES_M) + " " + random.choice(LAST_NAMES),
             "applicant_phone": _gen_phone(),
             "applicant_email": f"applicant{i+1}@example.com",

@@ -34,6 +34,8 @@ os.environ.setdefault("SUPABASE_PUBLISHABLE_KEY", "mock")
 os.environ.setdefault("SUPABASE_SECRET_KEY", "mock")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("CI", "true")
+# The server entry follows PUBLIC_BASE_URL. Clear it so the file does not depend on a dev .env.
+os.environ["PUBLIC_BASE_URL"] = ""
 
 from app.factory import create_app  # noqa: E402
 

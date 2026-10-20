@@ -44,6 +44,9 @@ jobs:
       - name: Run mypy
         run: uv run mypy app/ --ignore-missing-imports --no-error-summary
 
+      - name: Check docs/openapi.json is up to date
+        run: uv run python scripts/generate_openapi.py --check
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -302,6 +305,17 @@ jobs:
           SENTRY_DSN: ""
           ENVIRONMENT: test
         run: uv run python scripts/verify_schema_drift.py
+
+      - name: Run contract tests (schema drift and enum parity)
+        env:
+          CONTRACT_DRIFT_DATABASE_URL: postgresql://test_user@localhost:5432/drift_db
+          DATABASE_URL: postgresql://test_user@localhost:5432/drift_db
+          SUPABASE_URL: https://mock.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: mock_key_for_testing
+          SUPABASE_SECRET_KEY: mock_secret_key_for_testing
+          SENTRY_DSN: ""
+          ENVIRONMENT: test
+        run: uv run pytest tests/contract -q
 
   coverage-check:
     runs-on: ubuntu-latest
