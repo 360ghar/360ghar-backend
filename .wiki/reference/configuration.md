@@ -91,6 +91,7 @@ Active contributors: Saksham, Ravi
 | `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` | App-level secret and JWT config (informational - Supabase controls actual token expiry). |
 | `PUBLIC_BASE_URL` | Public API URL for OAuth metadata, MCP resource URIs, share previews. Required in production. |
 | `PUBLIC_APP_URL` | Frontend URL for share previews. |
+| `COMPANY_CONTACT_NUMBER` | Company phone shown as a listing contact to viewers who are not the owner or an admin, when the listing has no assigned agent. Unset means no fallback contact. |
 | `SENTRY_DSN` | Sentry project DSN. When unset, error tracking is disabled. |
 | `SENTRY_ENABLE_TRACING` | Enables Sentry performance tracing. Defaults to `false` so small-tier deployments send errors only unless explicitly opted in. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Performance sample rate used only when `SENTRY_ENABLE_TRACING=true`. Defaults to `0.05` when tracing is enabled and no explicit rate is set. |

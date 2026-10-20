@@ -23,7 +23,8 @@ app/models/enums.py        # BookingStatus, PaymentStatus
 | Abstraction | File | Role |
 |---|---|---|
 | `create_booking` | `app/services/booking.py` | Validates dates, calls `check_availability` and `calculate_pricing`, persists with `pending` status |
-| `check_availability` | `app/services/booking.py` | Verifies property exists and guests fit `max_occupancy`. No date-overlap checks |
+| `check_availability` | `app/services/booking.py` | Verifies property exists and guests fit `max_occupancy`. No date-overlap checks. Delegates to `check_occupancy` |
+| `check_occupancy` | `app/services/booking.py` | Same check without dates. Behind `POST /api/v1/bookings/check-availability` |
 | `calculate_pricing` | `app/services/booking.py` | Computes nights, base, taxes, service charges, discount, total |
 | `get_user_bookings` | `app/services/booking.py` | Keyset-paginated `(created_at, id)` 3-tuple return |
 | `BookingStatus` | `app/models/enums.py` | `pending, confirmed, checked_in, checked_out, cancelled, completed` |

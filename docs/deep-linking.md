@@ -104,7 +104,7 @@ under a path prefix.
 
 | App | Android package(s) | iOS bundle id | Custom scheme | App Link host(s) | Path prefix | Shareable entities | Canonical HTTPS link |
 |-----|--------------------|---------------|---------------|------------------|-------------|--------------------|----------------------|
-| **360 Ghar** | `com.the360ghar.ghar360` | `com.the360ghar.ghar360` | `ghar360` | `the360ghar.com`, `www.`, `app.` | _(root)_ | `p`, `property`, `tour` | `https://the360ghar.com/p/{id}` |
+| **360 Ghar** | `com.the360ghar.ghar360` | `com.the360ghar.ghar360` | _(none: HTTPS links only)_ | `the360ghar.com`, `www.`, `app.` | _(root)_ | `p`, `property`, `tour` | `https://the360ghar.com/p/{id}` |
 | **360 Estate** | `com.the360ghar.estate_app` | `com.the360ghar.estateApp` | `estate360` | `the360ghar.com`, `www.`, `app.` (Android); iOS entitlements list only `the360ghar.com` + `www.` (**missing `app.`**) | `estate` | `apply`, `property`, `task`, `tenant`, `lease` | `https://the360ghar.com/estate/{entity}/{id}` |
 | **360 FlatMates** | `com.the360ghar.flatmates360` (+ legacy Android-only `com.the360ghar.flatmates`) | `com.the360ghar.flatmates360` | `com.the360ghar.flatmates360` | `the360ghar.com`, `app.` (**no `www.`**) | `flatmates` | `listing`, `chat` | `https://the360ghar.com/flatmates/{entity}/{id}` |
 | **360 Stays** | `com.the360ghar.stays_app` (Play Console confirmed; source realigned from `com.the360ghar.stays_app`) | **`com.the360ghar.stays_app`** — iOS bundle id UNVERIFIED, awaiting App Store confirmation; do not change yet | `stays360` | `the360ghar.com`, `www.`, `app.` | `stays` | `listing`, `chat` | `https://the360ghar.com/stays/{entity}/{id}` |
@@ -169,7 +169,6 @@ cacheable.
 |----------|---------|-------------|
 | `build_assetlinks()` | `list[dict]` | One Android Digital Asset Links statement per package across all apps. Packages without configured fingerprints are still emitted (with an empty fingerprint list); Android only verifies packages that have at least one real fingerprint. |
 | `build_apple_app_site_association()` | `dict` | Combined AASA payload. `appID` is `{TeamID}.{bundleId}`; paths come from `aasa_paths()`. Apps flagged `use_webcredentials` are added to the `webcredentials` block. |
-| `generate_link(app_key, entity, identifier)` | `GeneratedLink` | Canonical share link. Raises `ValueError` for unknown app/entity or empty identifier (callers map to HTTP 400). |
 | `render_fallback_page(app, entity, identifier)` | `str` (HTML) | Smart fallback page (spinner, custom-scheme launch attempt, store/website buttons). All interpolated values are HTML-escaped; values injected into inline JS are `json.dumps`-encoded to prevent `</script>` breakout. |
 
 `GeneratedLink` carries `app`, `entity`, `identifier`, `url` (canonical HTTPS
@@ -188,9 +187,7 @@ domain / Team ID come from `DEEPLINK_DOMAIN` and `DEEPLINK_APPLE_TEAM_ID`.
    - `GET /.well-known/assetlinks.json`
    - `GET /.well-known/apple-app-site-association`
    Both served as `application/json` with `Cache-Control: public, max-age=3600`.
-2. **`api_router`** — JSON link-generation API, mounted under `/api/v1/deeplinks`:
-   - `GET /apps`, `POST /generate`, `GET /{app_key}/{entity}/{identifier}`.
-3. **`redirect_router`** — root-level smart fallback/redirect pages. Rather than
+2. **`redirect_router`** — root-level smart fallback/redirect pages. Rather than
    a greedy catch-all (which would shadow the rest of the site when the backend
    shares a host with the marketing site), it registers **only** the explicit
    paths each app actually claims, derived from the registry:
@@ -321,79 +318,9 @@ with **no** file extension, per Apple's requirement.
 }
 ```
 
-### 5.3 `GET /api/v1/deeplinks/apps`
-
-Discovery: every registered app and its shareable entities.
-
-**Response** (`200`):
-
-```json
-[
-  {
-    "key": "ghar",
-    "name": "360 Ghar",
-    "path_prefix": "",
-    "custom_scheme": "ghar360",
-    "android_packages": ["com.the360ghar.ghar360"],
-    "ios_bundle_id": "com.the360ghar.ghar360",
-    "entities": [
-      { "entity": "p", "description": "Property short link", "public": true },
-      { "entity": "property", "description": "Property detail", "public": true },
-      { "entity": "tour", "description": "Virtual tour", "public": true }
-    ]
-  }
-  // … estate, flatmates, stays
-]
-```
-
-### 5.4 `POST /api/v1/deeplinks/generate`
-
-Generate the canonical share link for an entity.
-
-**Request:**
-
-```json
-{ "app": "estate", "entity": "property", "identifier": "42" }
-```
-
-**Response** (`200`):
-
-```json
-{
-  "app": "estate",
-  "entity": "property",
-  "identifier": "42",
-  "url": "https://the360ghar.com/estate/property/42",
-  "scheme_url": "estate360://property/42",
-  "web_fallback_url": "https://the360ghar.com"
-}
-```
-
-**Errors:** unknown app, unknown entity for the app, or empty identifier →
-`400 Bad Request` with the `ValueError` message in `detail`, e.g.:
-
-```json
-{ "detail": "Unknown entity 'foo' for app 'estate'. Valid entities: apply, property, task, tenant, lease" }
-```
-
-### 5.5 `GET /api/v1/deeplinks/{app_key}/{entity}/{identifier}`
-
-Convenience GET form of generation. Same response shape as `/generate`.
-
-```
-GET /api/v1/deeplinks/ghar/p/abc123
-```
-
-```json
-{
-  "app": "ghar",
-  "entity": "p",
-  "identifier": "abc123",
-  "url": "https://the360ghar.com/p/abc123",
-  "scheme_url": "ghar360://p/abc123",
-  "web_fallback_url": "https://the360ghar.com"
-}
-```
+The JSON link API (`GET /api/v1/deeplinks/apps`, `POST /api/v1/deeplinks/generate`,
+`GET /api/v1/deeplinks/{app_key}/{entity}/{identifier}`) was removed. No client called it.
+Share links are built from the registry (`AppLinkConfig.https_path`).
 
 ### 5.6 Fallback page routes
 
@@ -545,7 +472,6 @@ but requires coordinated re-releases and breaks existing shared links that use
    curl -i https://the360ghar.com/.well-known/assetlinks.json
    curl -i https://the360ghar.com/.well-known/apple-app-site-association   # expect application/json
    curl -i https://the360ghar.com/estate/property/42                       # expect 200 text/html
-   curl -s https://api.360ghar.com/api/v1/deeplinks/apps
    ```
 5. **Validate Android** with Google's
    [Statement List Tester / Digital Asset Links API](https://developers.google.com/digital-asset-links/tools/generator)
@@ -588,8 +514,8 @@ but requires coordinated re-releases and breaks existing shared links that use
 - **Apps hardcode `https://the360ghar.com`.** Each app's Dart
   `DeepLinkService` / `ShareUtils` builds share links against a hardcoded
   domain. Recommend either (a) optionally fetching canonical links from
-  `POST /api/v1/deeplinks/generate` (or `GET /api/v1/deeplinks/{app}/{entity}/{id}`)
-  so the backend stays the single source of truth, or (b) at minimum keeping the
+  a backend link endpoint (the JSON link API was removed) so the backend stays the
+  single source of truth, or (b) at minimum keeping the
   hardcoded domain in sync with `DEEPLINK_DOMAIN`.
 - **`/tour/{id}` is intentionally not a 360 Ghar deep link.** The ghar app's
   `TourView` consumes a tour URL (not an id) and the entry point is a

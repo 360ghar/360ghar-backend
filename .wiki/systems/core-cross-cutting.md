@@ -83,6 +83,10 @@ graph TD
 
 Flatmates app-wide realtime uses Supabase Realtime private Broadcast channels. Services call `queue_flatmates_realtime_event` from `app/services/flatmates/realtime.py`; events are stored on the SQLAlchemy session and published only after commit to `flatmates:user:{local_user_id}`. The Supabase migration `20260703000000_flatmates_realtime_authorization.sql` adds a `realtime.messages` RLS policy so an authenticated user can subscribe only to their own channel.
 
+### AI agent SSE frames
+
+The agent chat stream (`POST /api/v1/agent/chat`, `/agent/chat-public`) emits typed frames defined in `app/schemas/ai_agent.py`: `conversation_info`, `text_chunk`, `tool_call_start`, `tool_call_end`, `widget`, `done`, `error`. Each frame is `{event, data}`; `AgentStreamFrame` is the union. Error frames carry a fixed message and a code (`AGENT_ERROR` or `STREAM_ERROR`); exception text is logged only. The reply and its widget rows are saved before `done` or `error` is sent. `tool_call_start` and `tool_call_end` carry `call_id`; `tool_call_end.success` is false for a failed tool result. The OpenAPI document publishes the frame union as `AgentStreamEvent` with one component per frame (`ConversationInfoFrame` to `ErrorFrame`).
+
 ### SSE event bus
 
 `SSEEventBus` in `app/core/sse.py` remains available for non-flatmates streaming surfaces. It maps `user_id` to a list of `asyncio.Queue` objects (one per active SSE response). `emit` is non-blocking: when a queue is full it drops the oldest item and pushes the new one. Every 10 emits the bus reaps dead queues (full for 3 consecutive cycles, or inactive for 30 minutes). A global subscriber cap of 500 prevents unbounded growth.

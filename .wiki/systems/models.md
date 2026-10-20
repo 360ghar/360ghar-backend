@@ -14,7 +14,6 @@ app/models/
 ├── agents.py               # Agent, AgentInteraction
 ├── properties.py           # Property, PropertyImage, Amenity, PropertyAmenity, Visit
 ├── bookings.py             # Booking
-├── payments.py             # PaymentMethod
 ├── core.py                 # BugReport, Page, AppVersion, FAQ
 ├── blogs.py                # BlogPost, BlogCategory, BlogTag, BlogPostCategory, BlogPostTag
 ├── tours.py                # Tour, Scene, Hotspot, AIJob, MediaFile, ... (482 lines, largest model file)
@@ -50,6 +49,8 @@ The `properties.py` file demonstrates the geospatial pattern: a `Geography` colu
 The `User` model anchors identity: `supabase_user_id` is unique, `email` has a partial unique index (`postgresql_where=email IS NOT NULL`), and `phone` is the primary identifier. The `Tour` model is the largest (482 lines) and owns scenes, hotspots, floor plans, analytics events, AI jobs, media files, branding, custom domains, and search index entries. `Tour.short_code` (nullable `VARCHAR(12)`, partial unique index) holds the short share-link code assigned on first publish and never cleared on unpublish.
 
 Enum columns use SQLAlchemy's `Enum` type with the string enums from `enums.py`. The first 100 lines of `enums.py` show the pattern: `class PropertyType(str, Enum)`, `class PropertyPurpose(str, Enum)`, and so on. The `PG_FLATMATE_TYPES` set constant is used across the flatmates module to distinguish PG/flatmate listings from other property types.
+
+Column declarations match the migrated database, and `scripts/verify_schema_drift.py` checks this in CI. Ids are `BigInteger`. A foreign key that the database holds as `INTEGER` is declared `Integer` on purpose: SQLAlchemy takes the type of the target column when the column has no explicit type, and the target is `BigInteger`. JSON columns use `JSONB`. `EnumStringType` is `TEXT`. Coordinates and measures are `Float` (`DOUBLE PRECISION`). A column the model declares NOT NULL is NOT NULL in the database. `scripts/schema_drift_allowlist.txt` lists the differences that remain, each with a reason.
 
 ## Integration points
 

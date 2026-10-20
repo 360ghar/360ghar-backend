@@ -79,7 +79,7 @@ Transport is streamable HTTP (stateless, binary JSON-RPC), not SSE. The protocol
 
 Two realtime channels run alongside REST:
 
-- **WebSocket** (`app/core/websocket.py`) — job progress and notification streams at `ws://.../ws/jobs/{job_id}` and `ws://.../ws/notifications`.
+- **WebSocket** (`app/core/websocket.py`) — job progress and notification streams at `ws://.../ws/jobs/{job_id}` and `ws://.../ws/user`. The token is the first frame, not a query parameter.
 - **Flatmates realtime** (`app/services/flatmates/realtime.py`) — Supabase private Broadcast publisher. Services queue events on the SQLAlchemy session and publish after commit to `flatmates:user:{local_user_id}`. Event types: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`.
 
 Streaming endpoints release the main-pool DB session before streaming and use the background pool (`get_bg_db`) for any tool calls, so held-open connections don't consume request-pool slots.

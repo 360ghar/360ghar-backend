@@ -86,7 +86,7 @@ or store submissions.
 
 In the backend host (Railway → Variables), set:
 
-- [ ] `DEEPLINK_DOMAIN=the360ghar.com`
+- [ ] `DEEPLINK_DOMAIN=360ghar.com`
 - [ ] `DEEPLINK_APPLE_TEAM_ID=<your real Team ID>`
 - [ ] `DEEPLINK_ESTATE_ANDROID_SHA256=<fingerprint[,fingerprint2]>`
 - [ ] `DEEPLINK_FLATMATES_ANDROID_SHA256=<fingerprint…>`

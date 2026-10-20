@@ -21,19 +21,19 @@ The `Booking` table captures the full lifecycle of a short-stay reservation. Key
 - `actual_check_in`, `actual_check_out` - timestamps set when the guest physically arrives and leaves
 - `early_check_in`, `late_check_out` - boolean flags for flexibility requests
 - `cancellation_date`, `cancellation_reason`, `refund_amount` - cancellation audit trail
-- `guest_rating`, `guest_review`, `host_rating`, `host_review` - two-way review system
+- `guest_rating`, `guest_review` - the guest's review of the stay. The `host_rating` and `host_review` columns exist but are not in the API and nothing writes them.
 
 ## The overlapping bookings rule
 
 This is a deliberate business rule and a common source of confusion. The same property can be booked by multiple people for the same or overlapping dates. There are no double-booking guards, no date-overlap conflict checks, and no DB exclusion constraints on bookings.
 
-`check_availability` in `app/services/booking.py` only validates that the property exists and that the guest count fits `max_occupancy`. It does not check for conflicting bookings. This matches the platform's model: hosts manually confirm or decline each `pending` booking, and overlapping requests are treated as competing leads rather than conflicts.
+`check_occupancy` in `app/services/booking.py`, behind `POST /api/v1/bookings/check-availability`, only validates that the property exists and that the guest count fits `max_occupancy`. It takes no dates and returns `occupancy_ok`. It does not check for conflicting bookings. `check_availability` returns the same check as a dict for MCP and the create and update paths. This matches the platform's model: hosts manually confirm or decline each `pending` booking, and overlapping requests are treated as competing leads rather than conflicts. An unknown property gives 404 `PROPERTY_NOT_FOUND` at the route.
 
 See [background/pitfalls.md](../background/pitfalls.md) for why this matters and what not to "fix".
 
 ## Lifecycle
 
-A booking moves through `pending` -> `confirmed` -> `checked_in` -> `checked_out` -> `completed`, with `cancelled` reachable from any pre-check-in state. Payment status evolves independently: a booking can be `confirmed` while `payment_status` is still `partial`. Refunds set `payment_status = refunded` and populate `refund_amount`.
+A booking moves through `pending` -> `confirmed` -> `checked_in` -> `checked_out` -> `completed`, with `cancelled` reachable from any pre-check-in state. Payment status evolves independently: a booking can be `confirmed` while `payment_status` is still `partial`. Refunds set `payment_status = refunded` and populate `refund_amount`. `POST /api/v1/bookings/payment` gives 400 `BOOKING_NOT_PAYABLE` for a `cancelled`, `completed` or `checked_out` booking, so a cancellation and its refund record are never reversed.
 
 ## REST and MCP surfaces
 

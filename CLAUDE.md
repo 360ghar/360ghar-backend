@@ -404,7 +404,7 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - PropertyStatus: available, sold, rented, under_offer, maintenance
 - PaymentStatus: pending, partial, paid, refunded, failed
 - BookingStatus: pending, confirmed, checked_in, checked_out, cancelled, completed
-- VisitStatus: scheduled, confirmed, completed, cancelled, rescheduled
+- VisitStatus: requested, confirmed, completed, cancelled, reschedule_suggested
 - VisitContext: property_tour, flatmate_meet
 - FlatmatesMode: room_poster, seeker, co_hunter, open_to_both
 - FlatmatesProfileStatus: draft, pending_review, active, paused
@@ -420,7 +420,9 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - ListingSharingType: private_room, shared_room
 - LeaseStatus: draft, pending_signature, active, expiring_soon, expired, terminated, renewed
 - ManagedPropertyStatus: draft, active, archived
-- TenantStatus: applicant, approved, active, notice_period, vacated, rejected
+- RentalApplicationStatus: applicant, approved, rejected
+- ApplicationFieldType: text, textarea, number, date, boolean, select (custom form questions, JSON, not a DB enum)
+- TenantStatus: active, vacated (computed tenancy state)
 - RentChargeStatus: pending, partial, paid, overdue, waived
 - ExpenseCategory: maintenance, repairs, insurance, property_tax, hoa, utilities, marketing, legal, other
 - MaintenanceCategory: plumbing, electrical, hvac, appliance, structural, pest_control, cleaning, other
@@ -548,8 +550,9 @@ When running locally:
 - ReDoc: http://localhost:3600/api/v1/redoc
 - OpenAPI YAML: http://localhost:3600/api/v1/openapi.yaml
 - Health: http://localhost:3600/health
-- WebSocket (AI jobs): `ws://localhost:3600/ws/jobs/{job_id}?token=...`
-- WebSocket (notifications): `ws://localhost:3600/ws/notifications?token=...`
+- WebSocket (AI jobs): `ws://localhost:3600/ws/jobs/{job_id}`
+- WebSocket (notifications): `ws://localhost:3600/ws/user`
+- WebSocket auth: the token is never in the URL. The client sends `{"type": "auth", "token": "<JWT>"}` as the first text frame. A missing or invalid token closes the socket with 4001. An unknown job closes with 4004.
 - AI Agent chat (auth): `POST /api/v1/agent/chat`
 - AI Agent chat (guest): `POST /api/v1/agent/chat-public`
 

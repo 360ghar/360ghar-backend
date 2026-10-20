@@ -28,7 +28,7 @@ A tour contains many `Scene` records. Each scene is a single 360-degree panorama
 
 ## Analytics
 
-`TourAnalyticsEvent` records every view, hotspot click, and share. Events stream in through the public tour viewer and aggregate into the denormalized counters on `Tour`. A `UserSession` table groups events by anonymous viewer session.
+`TourAnalyticsEvent` records every view, hotspot click, and share. Events stream in through the public tour viewer and aggregate into the denormalized counters on `Tour`. Anonymous likes and view dedupe are keyed on the client IP (`tour_likes`, `viewer_key`); a client session id does not identify a viewer.
 
 ## AI jobs
 

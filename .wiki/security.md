@@ -46,9 +46,7 @@ The MCP servers at `/mcp` and `/mcp-admin` use OAuth 2.1 with PKCE, not bearer J
 
 ## API key validation
 
-File: `app/middleware/security.py` (`APIKeyMiddleware`)
-
-Selected external-facing paths require an `x-api-key` header validated against the `VALID_API_KEYS` setting - a secondary auth mechanism for service-to-service access where OAuth or JWT is impractical.
+No API key middleware is registered. The `VALID_API_KEYS` setting is not read by any request path. Service-to-service calls authenticate with OAuth or JWT.
 
 ## Request ID and tracing
 

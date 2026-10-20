@@ -1481,7 +1481,8 @@ Body: { "full_name": "...", "email": "..." }
 | POST | `/pm/rent/charges/generate` | Generate monthly charges |
 | GET | `/pm/rent/charges` | List charges |
 | POST | `/pm/rent/payments` | Record payment |
-| POST | `/pm/rent/charges/{id}/tenant-payment-intent` | Tenant marks paid |
+| POST | `/pm/rent/payments/{id}/settle` | Owner confirms a pending tenant claim |
+| DELETE | `/pm/rent/payments/{id}` | Withdraw (tenant) or reject (owner) a pending claim |
 | GET | `/pm/rent/payments` | List payments |
 
 ### 6.8 Expenses

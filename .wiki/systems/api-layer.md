@@ -32,7 +32,6 @@ app/
 │   │       ├── hotspots.py
 │   │       ├── notifications.py
 │   │       ├── oauth/                   # MCP OAuth 2.1 endpoints
-│   │       ├── payments.py
 │   │       ├── pm_*.py                  # 12 property management modules
 │   │       ├── properties.py
 │   │       ├── public.py                # Public tour viewing
@@ -58,6 +57,7 @@ app/
 | `create_app` | `app/factory.py` | App factory that builds the FastAPI instance, OpenAPI tags, lifespan, middleware, MCP apps |
 | `register_routes` | `app/infrastructure/routing.py` | Mounts `api_router` at `API_V1_STR`, plus WS, share, OAuth well-known, and the two MCP apps |
 | `OPENAPI_TAGS` | `app/factory.py` | Tag descriptions used by Swagger/Redoc grouping |
+| `install_openapi` | `app/infrastructure/openapi.py` | Post-processes the schema: error envelopes on every operation, bearer security per operation, standard bound keywords |
 | Auth dependencies | `app/api/api_v1/dependencies/auth.py` | `get_current_user`, `get_current_user_optional`, `get_current_active_user`, `get_current_cached_active_user`, `get_current_agent`, `get_current_admin` |
 
 ## How it works
@@ -96,7 +96,8 @@ The factory mounts `api_router` at `settings.API_V1_STR` (default `/api/v1`), th
 
 | File | Role |
 |---|---|
-| `app/factory.py` | App factory, OpenAPI tag definitions, lifespan wiring |
+| `app/factory.py` | App factory, OpenAPI tag definitions, OpenAPI server entry, lifespan wiring |
+| `app/infrastructure/openapi.py` | OpenAPI customization (`docs/openapi.json` comes from `scripts/generate_openapi.py`) |
 | `app/api/api_v1/api.py` | Router composition, health redirect |
 | `app/api/api_v1/dependencies/auth.py` | Auth dependencies (user, agent, admin, SSE, optional) |
 | `app/infrastructure/routing.py` | REST, WS, share, OAuth, MCP mount registration |

@@ -25,10 +25,9 @@ is Phase 5.
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/capture-sessions` | Create session |
-| GET | `/capture-sessions` | List sessions (`?status=&limit=&offset=`) |
+| GET | `/capture-sessions` | List sessions (`?status=&cursor=&limit=&include_total=`), CursorPage |
 | GET | `/capture-sessions/{id}` | Detail + frames |
 | PATCH | `/capture-sessions/{id}` | Update title/plan/status/progress |
-| GET | `/capture-sessions/{id}/status` | Lightweight poll |
 | POST | `/capture-sessions/{id}/frames` | Register uploaded frame + metadata |
 | POST | `/capture-sessions/{id}/complete` | Finish (stub processing) |
 | POST | `/capture-sessions/{id}/cancel` | Cancel in-progress session |

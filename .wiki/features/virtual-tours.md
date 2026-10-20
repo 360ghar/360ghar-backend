@@ -21,6 +21,7 @@ app/services/
 │   ├── scenes.py          # scene CRUD + background image processing
 │   ├── hotspots.py        # hotspot CRUD + position update
 │   ├── floor_plans.py     # floor plan CRUD + marker update
+│   ├── floorplan_layout.py # schematic plan from rooms + doorway links (deterministic, Pillow)
 │   ├── analytics.py       # tour + dashboard stats, heatmap, realtime
 │   └── helpers.py         # ownership checks, HTML sanitization, URL extraction
 ├── tour_ai/
@@ -32,14 +33,13 @@ app/services/
 │   ├── spatial.py         # spatial doorway detection + navigation graph
 │   ├── floor_plan_ai.py   # AI floor plan room detection + scene matching
 │   ├── stitch.py          # cloud panorama stitching (OpenCV) for scene frames
-│   ├── world3d.py         # "Generate 3D World": equirect→cubemap + GLB skybox mesh
 │   └── helpers.py         # retry decorator, semaphore, image download
 ├── lab_pipeline.py        # 3D Splat Lab: Daytona sandbox splat pipeline (frame extraction → cubemap → COLMAP → GPU-gated training)
 ├── splat_segmentation.py  # Gemini video segmentation of 360 walkthroughs into rooms
 ├── splat_view_augment.py  # synthetic multi-view augmentation + parallax scoring for splat training
 └── custom_domain.py       # domain creation, verification token, SSL status
 app/models/
-└── tours.py               # Tour, Scene, Hotspot, FloorPlan, AIJob, MediaFile, TourAnalyticsEvent, CustomDomain, VideoMetadata
+└── tours.py               # Tour, Scene, Hotspot, FloorPlan, AIJob, MediaFile, TourAnalyticsEvent, CustomDomain, TourLike
 ```
 
 ## Key abstractions
@@ -57,15 +57,16 @@ app/models/
 | `record_analytics_event` | `app/services/tour/analytics.py` | Public viewer event ingest |
 | `generate_short_code` | `app/services/tour/tours.py` | Unique 6-char share code assigned on first publish (`/v/{code}`) |
 | `request_scene_stitch` | `app/services/tour_ai/stitch.py` | Cloud panorama stitch of captured frames (cv2.Stitcher, 2:1 canvas) |
-| `generate_3d_world` | `app/services/tour_ai/world3d.py` | Textured skybox-mesh GLB built from scene panoramas |
 | `generate_tour_in_sandbox` | `app/services/tour_ai/daytona_service.py` | Sandbox-only tour plan generation: panoramas + a pure-stdlib Gemini agent script are uploaded to a Daytona sandbox; the agent returns `tour.json` (scenes, room types, reciprocal navigation hotspots). No in-process fallback — fails with a clear error when `USE_DAYTONA_SANDBOX` is off or `DAYTONA_API_KEY` missing. Sandbox is always destroyed (TTL backstop). |
 | `run_pipeline` | `app/services/lab_pipeline.py` | 3D Splat Lab orchestrator: Daytona CPU sandbox does frame extraction → 360° cubemap → COLMAP SfM; stage 4 (nerfstudio splatfacto) is GPU-gated and hands off to the Modal GPU worker (`train_splat`) via a `colmap_data.zip` upload. |
 
 ## How it works
 
 Tour CRUD is straightforward keyset pagination on `(created_at, id)`. Scenes belong to tours and carry `order_index`; `reorder_scenes` updates positions atomically. Hotspots carry a `HotspotType` and arbitrary content that is sanitised through `_sanitize_hotspot_html` using `_HOTSPOT_HTML_ALLOWED_TAGS`, `_HOTSPOT_HTML_ALLOWED_ATTRIBUTES`, and `_HOTSPOT_HTML_ALLOWED_PROTOCOLS`. Floor plans accept marker updates for navigation overlay.
+**Schematic floor plan from a tour** (`POST /tours/{tour_id}/floor-plans/generate`): no AI call — it reuses what the tour already knows. `tour/floorplan_layout.py` places each scene on a grid from the tour's navigation edges, draws walls with doorway openings, renders the PNG with Pillow (a "schematic, not to scale" footer is burned in), and returns marker rows in image percentages. `tour/floor_plans.generate_floor_plan` uploads the PNG to Cloudinary and creates the `Estimated layout (AI)` row, replacing that row's image and markers when it already exists (a user-uploaded plan is never touched). It needs at least two scenes.
+**Linking quality** (`graph_summary` in `tour_ai/spatial.py`): reports `scene_count`, `link_count`, `rooms_without_links`, `one_way_links`, `unreachable_scenes`, `unmatched_openings` (doorways whose room has no scene at all), `unlinked_openings` (a room exists but the matcher refused the link, e.g. stairs with no counterpart) and human-readable `warnings`. `generate_tour`, `optimize_tour` and `POST /ai/tours/{tour_id}/connect-spatial` return it as `spatial_summary`, so the editor can show what the AI could not connect instead of silently shipping a dead end. The summary is `null` when a run did no spatial linking, and every key is declared on `SpatialGraphSummary` in `app/schemas/tour.py` — a completed result is re-validated through `AI_RESULT_MODELS`, so an undeclared key is dropped silently and the review UI would show nothing. `tests/unit/schemas/test_tour_contract.py` pins that round trip.
 
-The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (`scene_analysis, hotspot_generation, floor_plan_processing, panorama_stitch, generate_3d_world`). The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries unparseable JSON responses with exponential backoff. Transient HTTP errors (429, 500, 502, 503, 504) and network failures are retried inside the provider (up to 5 attempts, 2-30 s); other HTTP errors are not retried. There is no fallback model.
+The AI layer is the complex part. Each AI operation creates an `AIJob` row with `status` (`pending, processing, completed, failed, cancelled`) and `job_type` (the `AIJobType` enum in `app/models/enums.py`: `analyze_scene, analyze_scenes, generate_description, generate_descriptions, generate_tour, optimize_tour, spatial_connect, analyze_floor_plan, suggest_hotspots, suggest_tour_hotspots, panorama_stitch`). Writers pass the enum member. A cancel (`POST /ai/jobs/{job_id}/cancel`) sets `cancelled`; the worker raises `AIJobCancelledError` at its next status write and stops. A job in a terminal state ignores later writes. A completed job's `result` is validated against its job type (`AI_RESULT_MODELS`). Hotspot suggestions are checked when the job completes (`HotspotSuggestionDraft`): angles are clamped, navigation targets must be another scene in the same tour, and invalid items are dropped. The job runs in the background under `_AI_TASK_SEMAPHORE` using a background-pool session (`get_bg_session_factory`). Image content is downloaded as base64 and passed to the AI provider as `VisionInput`. JSON responses go through `_complete_json_with_retry`, which retries unparseable JSON responses with exponential backoff. Transient HTTP errors (429, 500, 502, 503, 504) and network failures are retried inside the provider (up to 5 attempts, 2-30 s); other HTTP errors are not retried. There is no fallback model.
 
 ```mermaid
 graph TD
@@ -89,13 +90,11 @@ graph TD
 
 Custom domains use a DNS TXT verification flow. `create_custom_domain` generates a `360ghar-verify-{token_hex(16)}` token, stores it with `verification_status=pending` and `ssl_status=pending`, and the user adds it as a DNS TXT record. Verification status transitions through `pending → verified → failed`; SSL status through `none → pending → active → failed`. The custom domain is linked to a tour for branded URL serving.
 
-Analytics is split between owner-facing dashboards (`get_dashboard_stats`, `get_dashboard_realtime_stats`, `get_tour_heatmap`) and public-viewer event ingest (`record_analytics_event`). Public endpoints do not require auth and accept a `UserSession` identifier for funnel tracking.
+Analytics is split between owner-facing dashboards (`get_dashboard_stats`, `get_dashboard_realtime_stats`, `get_tour_heatmap`) and public-viewer event ingest (`record_analytics_event`). Public endpoints do not require auth. Viewer dedupe (views, events, likes) keys on the server-side client IP; a client session id is stored for funnel tracking only and does not change the count. `get_tour_heatmap` is owner-only. The public tour response has no `user_id`. `view` is not a valid event type on the events route; page views are counted by `GET /public/tours/{id}`.
 
 **Short share links**: publishing a tour assigns a unique 6-character `short_code` (lowercase alphabet without 0/o/1/l/i, generated with `secrets.choice`, up to 5 collision retries against a partial unique index). `GET /v/{code}` (root-level, in `app/api/share.py`) resolves the code and renders the same OG/Twitter share preview as `GET /share/tours/{tour_id}`. Codes are never cleared on unpublish so existing links survive republish cycles.
 
-**Cloud panorama stitching** (`POST /api/v1/scenes/{scene_id}/stitch`): accepts 2–32 http(s) frame URLs, creates a `panorama_stitch` AIJob, then in a tracked background task downloads the frames, downscales them (long side ≤ 1600px), stitches with `cv2.Stitcher` (PANORAMA mode), pads the result onto a 2:1 black canvas, uploads the JPEG to Cloudinary under the scene's `original` folder, swaps `scene.image_url`, and re-runs the standard scene-processing pipeline for the thumbnail. A module-level `Semaphore(1)` serialises stitches (memory-heavy) and the task carries a 5-minute timeout.
-
-**Generate 3D World** (`POST /api/v1/tours/{tour_id}/generate-3d`): creates a `generate_3d_world` AIJob that converts each scene's equirect panorama into a 6-face cubemap (numpy ray sampling), builds a GLB (glTF 2.0 binary, `KHR_materials_unlit`) of inward-facing textured cubes — one cube per scene laid out in a row (x += 3 units) — uploads the `.glb` to Cloudinary, and persists `{"mesh_url", "kind": "skybox_mesh", "scene_id", "scene_ids"}` into `tour.settings["world_3d"]` as well as the job result. Requires at least one scene (400 otherwise).
+**Cloud panorama stitching** (`POST /api/v1/scenes/{scene_id}/stitch`): accepts 2–32 http(s) frame URLs, creates a `panorama_stitch` AIJob and returns 202 Accepted with the job, then in a tracked background task downloads the frames, downscales them (long side ≤ 1600px), stitches with `cv2.Stitcher` (PANORAMA mode), pads the result onto a 2:1 black canvas, uploads the JPEG to Cloudinary under the scene's `original` folder, swaps `scene.image_url`, and re-runs the standard scene-processing pipeline for the thumbnail. A module-level `Semaphore(1)` serialises stitches (memory-heavy) and the task carries a 5-minute timeout.
 
 ## Integration points
 

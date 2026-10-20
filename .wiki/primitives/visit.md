@@ -16,9 +16,9 @@ Key columns:
 - `counterparty_user_id` - nullable. Set only for `flatmate_meet` visits, pointing to the other matched user. `ON DELETE SET NULL`.
 - `conversation_id` - nullable. Links the visit back to the `UserConversation` it was scheduled from, for flatmate meetings. `ON DELETE SET NULL`.
 - `match_id` - nullable. Links to the `UserMatch` record for flatmate meetings.
-- `visit_context` - string defaulting to `property_tour`. Matches the `VisitContext` enum (`property_tour`, `flatmate_meet`) but stored as a string for forward compatibility.
-- `scheduled_date`, `actual_date` - planned and actual visit times
-- `status` - `VisitStatus` enum (`scheduled`, `confirmed`, `completed`, `cancelled`, `rescheduled`)
+- `visit_context` - `VisitContext` Postgres enum, default `property_tour` (`property_tour`, `flatmate_meet`).
+- `scheduled_date`, `actual_date` - planned and actual visit times. `scheduled_date` and the reschedule `new_date` need a UTC offset or `Z`. A naive time gives 422 on the REST routes and 400 in the service.
+- `status` - `VisitStatus` enum (`requested`, `confirmed`, `completed`, `cancelled`, `reschedule_suggested`)
 - `special_requirements`, `visit_notes`, `visitor_feedback`, `interest_level` - freeform and structured feedback
 - `follow_up_required`, `follow_up_date` - agent follow-up tracking
 - `cancellation_reason`, `rescheduled_from` - audit fields for state transitions
