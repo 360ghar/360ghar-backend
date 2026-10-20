@@ -2836,7 +2836,7 @@
             "method": "DELETE",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/notifications/devices/unregister?token={{device_token}}",
+              "raw": "{{BASE_URL}}/api/v1/notifications/devices/unregister",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -2846,16 +2846,18 @@
                 "notifications",
                 "devices",
                 "unregister"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{device_token}}",
-                  "disabled": false
-                }
               ]
             },
-            "description": "Unregister a push notification device token."
+            "description": "Unregister a push notification device token. The token goes in the JSON body. Only the caller's own token is changed. Returns 204.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{device_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "response": []
         }
@@ -4062,7 +4064,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/agent/conversations/{{test_conversation_id}}/messages?limit=50",
+              "raw": "{{BASE_URL}}/api/v1/agent/conversations/{{test_conversation_id}}/messages/page?limit=30",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -4072,17 +4074,18 @@
                 "agent",
                 "conversations",
                 "{{test_conversation_id}}",
-                "messages"
+                "messages",
+                "page"
               ],
               "query": [
                 {
                   "key": "limit",
-                  "value": "50",
+                  "value": "30",
                   "disabled": false
                 }
               ]
             },
-            "description": "Get messages for a specific conversation."
+            "description": "Get one page of messages for a conversation, newest page first. Send next_cursor as cursor for older messages."
           },
           "response": []
         },
@@ -4381,10 +4384,10 @@
                   "description": "Multiple image/document files"
                 },
                 {
-                  "key": "folder",
-                  "value": "property_image",
+                  "key": "folder_type",
+                  "value": "generic",
                   "type": "text",
-                  "description": "Storage folder type"
+                  "description": "Storage folder type. property_image, property_video, property_document and scene return 422 on this route. Use /upload/presigned for them."
                 },
                 {
                   "key": "tour_id",
@@ -4471,7 +4474,7 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/api/v1/upload/media?page=1&page_size=20&folder=&visibility=&is_processed=",
+              "raw": "{{BASE_URL}}/api/v1/upload/media?limit=20",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -4483,28 +4486,8 @@
               ],
               "query": [
                 {
-                  "key": "page",
-                  "value": "1",
-                  "disabled": false
-                },
-                {
-                  "key": "page_size",
+                  "key": "limit",
                   "value": "20",
-                  "disabled": false
-                },
-                {
-                  "key": "folder",
-                  "value": "",
-                  "disabled": false
-                },
-                {
-                  "key": "visibility",
-                  "value": "",
-                  "disabled": false
-                },
-                {
-                  "key": "is_processed",
-                  "value": "",
                   "disabled": false
                 }
               ]
@@ -4553,7 +4536,7 @@
                 "{{test_media_id}}"
               ]
             },
-            "description": "Soft-delete a media file. Returns 204 on success."
+            "description": "Delete a media file. Returns 204 on success. A storage failure returns 503 STORAGE_DELETE_FAILED with Retry-After 30 and keeps the row."
           },
           "response": []
         },
@@ -4577,7 +4560,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"visibility\": \"public\",\n  \"is_processed\": true,\n  \"cdn_url\": \"\",\n  \"thumbnail_url\": \"\"\n}",
+              "raw": "{\n  \"visibility\": \"public\",\n  \"is_processed\": true,\n  \"cdn_url\": null,\n  \"thumbnail_url\": null\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -5267,12 +5250,12 @@
       "name": "🔌 WebSocket",
       "item": [
         {
-          "name": "WS: AI Job Progress — ws://{{BASE_URL}}/ws/jobs/{job_id}?token=...",
+          "name": "WS: AI Job Progress — ws://{{BASE_URL}}/ws/jobs/{job_id}",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/ws/jobs/{{test_ai_job_id}}?token={{access_token}}",
+              "raw": "{{BASE_URL}}/ws/jobs/{{test_ai_job_id}}",
               "host": [
                 "{{BASE_URL}}"
               ],
@@ -5280,69 +5263,28 @@
                 "ws",
                 "jobs",
                 "{{test_ai_job_id}}"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "disabled": false
-                }
               ]
             },
-            "description": "WebSocket endpoint for real-time AI job progress updates.\n\n**Protocol:** WebSocket (ws:// or wss://)\n**Auth:** JWT token via ?token= query param\n**Messages:** JSON objects with {status, progress, result}\n\nUse a WebSocket client (not Postman HTTP) to connect. Example: wscat -c 'ws://localhost:3600/ws/jobs/123?token=YOUR_TOKEN'"
+            "description": "WebSocket endpoint for AI job progress.\n\n**Protocol:** WebSocket (ws:// or wss://)\n**Auth:** Do not put the token in the URL. After the socket opens, send the first text frame: `{\"type\": \"auth\", \"token\": \"<JWT>\"}`. A bad token closes the socket with 4001. An unknown job closes with 4004. Do not reconnect after either code.\n**Frames:** `{\"type\": \"job_update\", \"job_id\": \"...\", \"data\": {\"status\", \"progress\", \"error_message\", \"result\"}}`. One frame per state change.\n\nUse a WebSocket client (not Postman HTTP). Example: `wscat -c 'ws://localhost:3600/ws/jobs/123'`, then send the auth frame."
           },
           "response": []
         },
         {
-          "name": "WS: User Notifications — ws://{{BASE_URL}}/ws/user?token=...",
+          "name": "WS: User Notifications — ws://{{BASE_URL}}/ws/user",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{BASE_URL}}/ws/user?token={{access_token}}",
+              "raw": "{{BASE_URL}}/ws/user",
               "host": [
                 "{{BASE_URL}}"
               ],
               "path": [
                 "ws",
                 "user"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "disabled": false
-                }
               ]
             },
-            "description": "WebSocket endpoint for real-time user notifications.\n\n**Protocol:** WebSocket (ws:// or wss://)\n**Auth:** JWT token via ?token= query param\n**Messages:** JSON notification objects\n\nUse a WebSocket client. Example: wscat -c 'ws://localhost:3600/ws/user?token=YOUR_TOKEN'"
-          },
-          "response": []
-        },
-        {
-          "name": "WS: Tour Collaboration — ws://{{BASE_URL}}/ws/tours/{tour_id}?token=...",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/ws/tours/{{test_tour_id}}?token={{access_token}}",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "ws",
-                "tours",
-                "{{test_tour_id}}"
-              ],
-              "query": [
-                {
-                  "key": "token",
-                  "value": "{{access_token}}",
-                  "disabled": false
-                }
-              ]
-            },
-            "description": "WebSocket endpoint for real-time virtual tour collaboration.\n\n**Protocol:** WebSocket (ws:// or wss://)\n**Auth:** JWT token via ?token= query param\n**Messages:** JSON objects with scene/hotspot change events\n\nUse a WebSocket client. Example: wscat -c 'ws://localhost:3600/ws/tours/abc123?token=YOUR_TOKEN'"
+            "description": "WebSocket endpoint for user notifications.\n\n**Protocol:** WebSocket (ws:// or wss://)\n**Auth:** Do not put the token in the URL. After the socket opens, send the first text frame: `{\"type\": \"auth\", \"token\": \"<JWT>\"}`. A bad token closes the socket with 4001. Do not reconnect after 4001.\n**Frames:** `{\"type\": \"notification\", \"data\": {\"id\", \"type\", \"title\", \"message\", \"created_at\"}}`. `created_at` is UTC.\n\nUse a WebSocket client (not Postman HTTP). Example: `wscat -c 'ws://localhost:3600/ws/user'`, then send the auth frame."
           },
           "response": []
         }
