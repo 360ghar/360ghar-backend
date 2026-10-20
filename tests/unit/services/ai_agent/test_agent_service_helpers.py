@@ -9,27 +9,22 @@ from pydantic_ai.messages import (
 
 from app.services.ai_agent.agent_service import (
     _build_message_history,
+    _is_error_result,
+    _structured,
     sse_event,
-    _summarize_result,
 )
 
 
-def test_build_message_history_handles_user_assistant_and_tool_roundtrip():
+def test_build_message_history_replays_widget_rows_as_tool_roundtrip():
     history = _build_message_history(
         [
-            {"role": "user", "content": "hello"},
-            {"role": "assistant", "content": "hi"},
+            {"id": 1, "role": "user", "content": "hello"},
+            {"id": 2, "role": "assistant", "content": "hi"},
             {
-                "role": "tool_call",
-                "tool_name": "owner_properties_list",
-                "tool_args": {"page": 1},
-                "tool_call_id": "tc_1",
-            },
-            {
-                "role": "tool_result",
+                "id": 3,
+                "role": "widget",
                 "tool_name": "owner_properties_list",
                 "tool_result": {"items": [1, 2]},
-                "tool_call_id": "tc_1",
             },
         ]
     )
@@ -40,40 +35,38 @@ def test_build_message_history_handles_user_assistant_and_tool_roundtrip():
     assert isinstance(history[1].parts[0], TextPart)
     assert isinstance(history[2], ModelResponse)
     assert isinstance(history[2].parts[0], ToolCallPart)
+    assert history[2].parts[0].tool_call_id == "widget_3"
     assert isinstance(history[3], ModelRequest)
     assert isinstance(history[3].parts[0], ToolReturnPart)
     assert history[3].parts[0].content == '{"items": [1, 2]}'
 
 
-def test_build_message_history_uses_safe_defaults_for_invalid_tool_args_and_unflushed_calls():
+def test_build_message_history_ignores_roles_that_are_never_stored():
     history = _build_message_history(
         [
-            {"role": "tool_call", "tool_name": "bad_args", "tool_args": "not-a-dict"},
-            {"role": "tool_result", "tool_name": "bad_args", "tool_result": "done"},
-            {"role": "tool_call", "tool_name": "pending", "tool_args": {"k": "v"}},
+            {"role": "user", "content": "hello"},
+            {"role": "tool_call", "tool_name": "x", "tool_args": {"k": "v"}},
+            {"role": "tool_result", "tool_name": "x", "tool_result": {"ok": True}},
         ]
     )
 
-    first_tool_call = history[0].parts[0]
-    assert isinstance(first_tool_call, ToolCallPart)
-    assert first_tool_call.args == {}
-
-    tool_return = history[1].parts[0]
-    assert isinstance(tool_return, ToolReturnPart)
-    assert tool_return.content == "done"
-    assert tool_return.tool_call_id == "unknown"
-
-    pending_tool_call = history[2].parts[0]
-    assert isinstance(pending_tool_call, ToolCallPart)
-    assert pending_tool_call.tool_name == "pending"
+    assert len(history) == 1
+    assert isinstance(history[0].parts[0], UserPromptPart)
 
 
-def test_summarize_result_covers_all_branches():
-    assert _summarize_result({"message": "ok"}) == "ok"
-    assert _summarize_result({"items": [1, 2, 3]}) == "Found 3 items"
-    assert _summarize_result({"error": "bad", "message": "Denied"}) == "Denied"
-    assert _summarize_result("x" * 200, max_len=10) == "x" * 10
-    assert _summarize_result(12345, max_len=3) == "123"
+def test_is_error_result_marks_only_error_shaped_dicts():
+    assert _is_error_result({"error": True, "message": "Denied"}) is True
+    assert _is_error_result({"error": "NOT_FOUND"}) is True
+    assert _is_error_result({"error": None, "items": []}) is False
+    assert _is_error_result({"items": []}) is False
+    assert _is_error_result("error") is False
+
+
+def test_structured_wraps_list_and_string_widget_results():
+    assert _structured({"items": [1]}) == {"items": [1]}
+    assert _structured([1, 2]) == {"raw": [1, 2]}
+    assert _structured("plain text") == {"raw": "plain text"}
+    assert _structured('{"items": []}') == {"items": []}
 
 
 def test_sse_event_format_is_valid():

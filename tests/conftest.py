@@ -31,11 +31,12 @@ from sqlalchemy.pool import NullPool
 # Ensure no leftover client from a prior import of app.main in this process.
 sentry_sdk.init(dsn=None)
 
-# Import all models to ensure they're registered with SQLAlchemy
-import app.models  # noqa: F401
-from app.core.database import Base
-from app.core.utils import utc_now_iso
-from app.factory import create_app
+# Import all models to ensure they're registered with SQLAlchemy.
+# Late on purpose: sentry_sdk.init above must run before app code loads.
+import app.models  # noqa: E402, F401
+from app.core.database import Base  # noqa: E402
+from app.core.utils import utc_now_iso  # noqa: E402
+from app.factory import create_app  # noqa: E402
 
 # =============================================================================
 # Shared SQL

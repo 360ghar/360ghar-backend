@@ -31,10 +31,13 @@ def test_jsonable_passes_through_primitives_and_none():
 
 def test_jsonable_coerces_temporal_decimal_uuid_enum():
     dt = datetime(2026, 7, 4, 12, 30, 45)
-    assert _jsonable(dt) == "2026-07-04T12:30:45"
+    assert _jsonable(dt) == "2026-07-04T12:30:45Z"
     assert _jsonable(date(2026, 7, 4)) == "2026-07-04"
     assert _jsonable(Decimal("3.5")) == 3.5
-    assert _jsonable(UUID("12345678-1234-5678-1234-567812345678")) == "12345678-1234-5678-1234-567812345678"
+    assert (
+        _jsonable(UUID("12345678-1234-5678-1234-567812345678"))
+        == "12345678-1234-5678-1234-567812345678"
+    )
     assert _jsonable(_Color.RED) == "red"
 
 
@@ -47,7 +50,7 @@ def test_jsonable_recurses_into_containers():
     }
     out = _jsonable(payload)
     assert out == {
-        "dt": "2026-01-01T00:00:00",
+        "dt": "2026-01-01T00:00:00Z",
         "nums": [1.0, 2.0],
         "pair": ["12345678-1234-5678-1234-567812345678", "green"],
         "set": [1, 2],

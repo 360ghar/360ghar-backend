@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.schemas.pagination import offset_payload
+from app.schemas.pagination import read_keyset
 from app.services.ai_agent import conversation_store
 
 
@@ -16,34 +16,33 @@ def _make_db():
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_conversation_returns_existing_conversation():
+async def test_get_owned_conversation_returns_owned_row():
     db = _make_db()
     existing = SimpleNamespace(id=7, user_id=4, title="Existing")
-    db.execute = AsyncMock(
-        return_value=SimpleNamespace(scalar_one_or_none=lambda: existing)
-    )
+    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: existing))
 
-    conv = await conversation_store.get_or_create_conversation(
-        db,
-        user_id=4,
-        conversation_id=7,
-    )
+    conv = await conversation_store.get_owned_conversation(db, user_id=4, conversation_id=7)
 
     assert conv is existing
     db.add.assert_not_called()
-    db.flush.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_get_or_create_conversation_creates_new_when_missing():
+async def test_get_owned_conversation_returns_none_for_other_user():
+    # The query filters by user_id, so a foreign conversation yields no row (404 at the route).
     db = _make_db()
     db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
 
-    conv = await conversation_store.get_or_create_conversation(
-        db,
-        user_id=10,
-        conversation_id=999,
-    )
+    conv = await conversation_store.get_owned_conversation(db, user_id=10, conversation_id=999)
+
+    assert conv is None
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_adds_row_for_user():
+    db = _make_db()
+
+    conv = await conversation_store.create_conversation(db, user_id=10)
 
     assert conv.user_id == 10
     db.add.assert_called_once_with(conv)
@@ -98,9 +97,7 @@ async def test_get_history_reverses_descending_query_order_and_applies_limit():
     m2 = SimpleNamespace(id=2)
     m3 = SimpleNamespace(id=3)
     db.execute = AsyncMock(
-        return_value=SimpleNamespace(
-            scalars=lambda: SimpleNamespace(all=lambda: [m3, m2, m1])
-        )
+        return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [m3, m2, m1]))
     )
 
     history = await conversation_store.get_history(db, conversation_id=30, limit=3)
@@ -111,7 +108,7 @@ async def test_get_history_reverses_descending_query_order_and_applies_limit():
 
 
 @pytest.mark.asyncio
-async def test_list_conversations_handles_none_message_count_and_pagination():
+async def test_list_conversations_handles_none_message_count():
     now = datetime.now(timezone.utc)
     conv_a = SimpleNamespace(id=1, title=None, created_at=now, updated_at=now)
     conv_b = SimpleNamespace(id=2, title="B", created_at=now, updated_at=now)
@@ -119,20 +116,47 @@ async def test_list_conversations_handles_none_message_count_and_pagination():
     db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: [(conv_a, None), (conv_b, 4)]))
 
     rows, next_payload, total = await conversation_store.list_conversations(
-        db,
-        user_id=77,
-        cursor_payload=offset_payload(5),
-        limit=20,
+        db, user_id=77, cursor_payload={}, limit=20
     )
 
     assert rows[0]["message_count"] == 0
     assert rows[1]["message_count"] == 4
-    assert rows[0]["created_at"] == now.isoformat()
+    assert rows[0]["created_at"] == now
     assert next_payload is None
     assert total is None
-    stmt = db.execute.await_args.args[0]
-    assert stmt._limit_clause.value == 21
-    assert stmt._offset_clause.value == 5
+
+
+@pytest.mark.asyncio
+async def test_list_conversations_pages_by_keyset_not_offset():
+    newer = datetime(2026, 10, 14, 9, 0, tzinfo=timezone.utc)
+    older = datetime(2026, 10, 14, 8, 0, tzinfo=timezone.utc)
+    page_one = [
+        (SimpleNamespace(id=5, title="New", created_at=newer, updated_at=newer), 1),
+        (SimpleNamespace(id=4, title="Old", created_at=older, updated_at=older), 2),
+    ]
+    db = _make_db()
+    db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: page_one))
+
+    rows, next_payload, total = await conversation_store.list_conversations(
+        db, user_id=77, cursor_payload={}, limit=1
+    )
+
+    # The lookahead row shows another page. The cursor holds the last row's (updated_at, id).
+    assert [r["id"] for r in rows] == [5]
+    assert total is None
+    assert read_keyset(next_payload)[1] == 5
+    first_stmt = db.execute.await_args.args[0]
+    assert first_stmt._limit_clause.value == 2
+    assert first_stmt._offset_clause is None
+
+    # The next page filters by the keyset and carries no offset.
+    db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: []))
+    await conversation_store.list_conversations(
+        db, user_id=77, cursor_payload=next_payload, limit=1
+    )
+    next_stmt = db.execute.await_args.args[0]
+    assert next_stmt._offset_clause is None
+    assert next_stmt._where_criteria
 
 
 @pytest.mark.asyncio

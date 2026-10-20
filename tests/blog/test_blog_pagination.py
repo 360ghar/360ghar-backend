@@ -31,6 +31,7 @@ async def three_posts(db_session) -> list[BlogPost]:
             slug=f"pagination-post-{i}-{uuid.uuid4().hex[:6]}",
             content="Content " * 10,
             active=True,
+            status="published",
             published_at=base - timedelta(days=i),
         )
         db_session.add(post)

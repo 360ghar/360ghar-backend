@@ -211,7 +211,6 @@ async def seeded_expenses(db_session, pm_owner, owner_property) -> list[Expense]
             amount=1000.0 + i * 500,
             expense_date=today - timedelta(days=i),
             description=f"Expense {i}",
-            is_recurring=False,
         )
         db_session.add(exp)
         await db_session.flush()
@@ -261,9 +260,7 @@ async def test_expenses_invalid_cursor_400(pm_client: AsyncClient) -> None:
 
 
 @pytest_asyncio.fixture
-async def seeded_maintenance(
-    db_session, pm_owner, owner_property
-) -> list[MaintenanceRequest]:
+async def seeded_maintenance(db_session, pm_owner, owner_property) -> list[MaintenanceRequest]:
     """3 maintenance requests owned by pm_owner."""
     reqs = []
     for i in range(3):

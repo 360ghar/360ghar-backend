@@ -43,7 +43,7 @@ async def test_overlapping_visit_raises_conflict(db_session: AsyncSession, user_
     base = datetime.now(timezone.utc) + timedelta(days=2)
 
     first = await _create_visit(db_session, user, prop, base)
-    assert first.status == VisitStatus.scheduled
+    assert first.status == VisitStatus.requested
 
     with pytest.raises(ConflictException) as exc_info:
         await _create_visit(db_session, user, prop, base)
@@ -62,7 +62,7 @@ async def test_non_overlapping_visit_succeeds(db_session: AsyncSession, user_and
     second = await _create_visit(db_session, user, prop, base + timedelta(hours=3))
 
     assert first.id != second.id
-    assert second.status == VisitStatus.scheduled
+    assert second.status == VisitStatus.requested
 
 
 async def test_cancelled_visit_does_not_conflict(db_session: AsyncSession, user_and_property):
@@ -77,7 +77,7 @@ async def test_cancelled_visit_does_not_conflict(db_session: AsyncSession, user_
 
     # An overlapping visit should now be allowed.
     second = await _create_visit(db_session, user, prop, base)
-    assert second.status == VisitStatus.scheduled
+    assert second.status == VisitStatus.requested
 
 
 async def test_completed_visit_does_not_conflict(db_session: AsyncSession, user_and_property):
@@ -90,7 +90,7 @@ async def test_completed_visit_does_not_conflict(db_session: AsyncSession, user_
     await db_session.flush()
 
     second = await _create_visit(db_session, user, prop, base)
-    assert second.status == VisitStatus.scheduled
+    assert second.status == VisitStatus.requested
 
 
 async def test_conflict_buffer_applies(db_session: AsyncSession, user_and_property, monkeypatch):
@@ -121,7 +121,7 @@ async def test_same_user_different_properties_allowed(db_session: AsyncSession, 
     second = await _create_visit(db_session, user, prop2, base)
 
     assert first.id != second.id
-    assert second.status == VisitStatus.scheduled
+    assert second.status == VisitStatus.requested
 
 
 async def test_different_users_same_property_allowed(db_session: AsyncSession, user_and_property):
@@ -134,4 +134,4 @@ async def test_different_users_same_property_allowed(db_session: AsyncSession, u
     second = await _create_visit(db_session, user2, prop, base)
 
     assert first.id != second.id
-    assert second.status == VisitStatus.scheduled
+    assert second.status == VisitStatus.requested

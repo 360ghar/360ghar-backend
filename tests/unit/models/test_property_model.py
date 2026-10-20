@@ -106,7 +106,7 @@ class TestVisitModel:
         assert Visit.__tablename__ == "visits"
 
     def test_default_status(self):
-        assert Visit.status.default.arg == VisitStatus.scheduled
+        assert Visit.status.default.arg == VisitStatus.requested
 
     def test_default_visit_context(self):
         assert Visit.visit_context.default.arg == "property_tour"

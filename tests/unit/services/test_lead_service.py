@@ -11,6 +11,7 @@ def _db(prop=object()):
     db = MagicMock()
     db.get = AsyncMock(return_value=prop)
     db.commit = AsyncMock()
+    db.flush = AsyncMock()
     return db
 
 
@@ -27,7 +28,12 @@ async def test_lead_is_stored_with_the_user():
     db = _db()
     await create_lead(db, LeadCreate(phone="9876543210", property_id=7, note="Evening"), 42)
     lead = db.add.call_args.args[0]
-    assert (lead.property_id, lead.user_id, lead.phone, lead.note) == (7, 42, "9876543210", "Evening")
+    assert (lead.property_id, lead.user_id, lead.phone, lead.note) == (
+        7,
+        42,
+        "9876543210",
+        "Evening",
+    )
     db.commit.assert_awaited_once()
 
 

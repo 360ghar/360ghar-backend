@@ -40,7 +40,7 @@ async def draft_post(admin_authenticated_client: AsyncClient) -> dict:
         "/api/v1/blog/posts",
         json=_create_payload("Draft Status Post", status="draft"),
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 201, response.text
     return response.json()
 
 
@@ -49,7 +49,7 @@ async def test_create_post_defaults_to_draft(admin_authenticated_client: AsyncCl
         "/api/v1/blog/posts",
         json=_create_payload("Default Draft Post"),
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 201, response.text
     data = response.json()
     assert data["status"] == "draft"
     assert data["active"] is False
@@ -115,10 +115,16 @@ async def test_schedule_and_auto_publish(
             scheduled_at=scheduled_at.isoformat(),
         ),
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == 201, response.text
     post = response.json()
     assert post["status"] == "scheduled"
     assert post["active"] is False
+
+    # A live preview link must not survive the scheduled publish.
+    gen = await admin_authenticated_client.post(f"/api/v1/blog/posts/{post['id']}/preview-token")
+    assert gen.status_code == 200, gen.text
+    scheduled = await db_session.get(BlogPost, post["id"])
+    assert scheduled.preview_token is not None
 
     # Run the scheduled-publish service step.
     published_count = await publish_scheduled_posts(db_session)
@@ -128,6 +134,7 @@ async def test_schedule_and_auto_publish(
     assert refreshed.status == "published"
     assert refreshed.active is True
     assert refreshed.published_at is not None
+    assert refreshed.preview_token is None
 
 
 async def test_preview_token_generation_and_public_fetch(
@@ -176,9 +183,7 @@ async def test_non_admin_cannot_generate_preview_token(
     await db_session.flush()
     await db_session.refresh(post)
 
-    response = await authenticated_client.post(
-        f"/api/v1/blog/posts/{post.id}/preview-token"
-    )
+    response = await authenticated_client.post(f"/api/v1/blog/posts/{post.id}/preview-token")
     assert response.status_code == 403, response.text
 
 

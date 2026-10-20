@@ -1,4 +1,5 @@
 """Tests for MCP discovery tools (search, property details, feed, amenities, swipe, shortlist, recommendations)."""
+
 from __future__ import annotations
 
 import contextlib
@@ -161,22 +162,28 @@ class TestDiscoverySearch:
         prop = _make_property()
         mock_search = AsyncMock(return_value=([prop], None, 1))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
-            result = await discovery_search(city="Delhi", limit=10)
+            result = await discovery_search(city="Delhi", limit=10, include_total=True)
 
         assert isinstance(result, AppsSDKToolResult)
         assert result.structured_content["total"] == 1
-        assert len(result.structured_content["properties"]) == 1
-        assert result.structured_content["properties"][0]["id"] == prop.id
+        assert len(result.structured_content["items"]) == 1
+        assert result.structured_content["items"][0]["id"] == prop.id
 
     async def test_guest_search_with_nlp_query(self):
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(query="3BHK Gurugram buy under 2 crore")
 
@@ -191,21 +198,69 @@ class TestDiscoverySearch:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
-            result = await discovery_search(city="Agra")
+            result = await discovery_search(city="Agra", include_total=True)
 
         assert result.structured_content["total"] == 0
-        assert result.structured_content["properties"] == []
+        assert result.structured_content["items"] == []
         assert "No properties found" in _content_text(result)
+
+    async def test_filters_applied_lists_location_radius_and_amenities(self):
+        """r2-widgets-mcp-4: filters_applied holds every filter that changed the result."""
+        db = AsyncMock()
+        mock_search = AsyncMock(return_value=([], None, 0))
+
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
+        ):
+            result = await discovery_search(
+                latitude=19.07,
+                longitude=72.87,
+                radius_km=3,
+                amenities=["pool"],
+                city="Mumbai",
+            )
+
+        applied = result.structured_content["filters_applied"]
+        assert applied["latitude"] == 19.07
+        assert applied["longitude"] == 72.87
+        assert applied["radius_km"] == 3
+        assert applied["amenities"] == ["pool"]
+        assert applied["city"] == "Mumbai"
+
+    async def test_filters_applied_omits_radius_without_a_location(self):
+        db = AsyncMock()
+        mock_search = AsyncMock(return_value=([], None, 0))
+
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
+        ):
+            result = await discovery_search(city="Mumbai")
+
+        applied = result.structured_content["filters_applied"]
+        assert "radius_km" not in applied
+        assert "amenities" not in applied
 
     async def test_guest_search_amenities_as_string(self):
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(amenities="wifi,pool")
 
@@ -215,8 +270,11 @@ class TestDiscoverySearch:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(amenities=["wifi", "pool"])
 
@@ -226,8 +284,11 @@ class TestDiscoverySearch:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search()
 
@@ -237,8 +298,11 @@ class TestDiscoverySearch:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             result = await discovery_search(purpose="vacation")
 
@@ -247,25 +311,46 @@ class TestDiscoverySearch:
         assert "buy" in result.structured_content["message"]
         mock_search.assert_not_awaited()
 
-    async def test_guest_search_invalid_property_type(self):
+    async def test_guest_search_accepts_one_property_type(self):
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
-            result = await discovery_search(property_type="spaceship")
+            await discovery_search(property_type=PropertyType.apartment)
 
-        assert result.structured_content["error"] is True
-        assert "Invalid property_type" in result.structured_content["message"]
-        mock_search.assert_not_awaited()
+        assert mock_search.call_args.kwargs["filters"].property_type == [PropertyType.apartment]
+
+    async def test_guest_search_accepts_a_list_of_property_types(self):
+        db = AsyncMock()
+        mock_search = AsyncMock(return_value=([], None, 0))
+
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
+        ):
+            await discovery_search(property_type=[PropertyType.apartment, PropertyType.house])
+
+        assert mock_search.call_args.kwargs["filters"].property_type == [
+            PropertyType.apartment,
+            PropertyType.house,
+        ]
 
     async def test_guest_search_city_normalization(self):
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(city="bangalore")
 
@@ -275,14 +360,20 @@ class TestDiscoverySearch:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(limit=0)
         assert mock_search.call_args.kwargs["limit"] == 1
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             await discovery_search(limit=100)
         assert mock_search.call_args.kwargs["limit"] == 50
@@ -292,14 +383,17 @@ class TestDiscoverySearch:
         prop = _make_property()
         mock_search = AsyncMock(return_value=([prop], {"offset": 1}, 5))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
-            result = await discovery_search(city="Delhi")
+            result = await discovery_search(city="Delhi", include_total=True)
 
         assert isinstance(result, AppsSDKToolResult)
         sc = result.structured_content
-        for key in ("properties", "total", "next_cursor", "has_more", "limit", "filters_applied"):
+        for key in ("items", "total", "next_cursor", "has_more", "limit", "filters_applied"):
             assert key in sc
         assert sc["total"] == 5
         assert sc["has_more"] is True
@@ -308,12 +402,13 @@ class TestDiscoverySearch:
 
     async def test_guest_search_generic_exception_redacts_raw_message(self):
         db = AsyncMock()
-        mock_search = AsyncMock(
-            side_effect=RuntimeError("raw database host=db.internal")
-        )
+        mock_search = AsyncMock(side_effect=RuntimeError("raw database host=db.internal"))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.search_orchestration.run_property_search", new=mock_search
+            ),
         ):
             result = await discovery_search(city="Delhi")
 
@@ -340,8 +435,9 @@ class TestDiscoveryPropertyGet:
         db = AsyncMock()
         prop = _make_property(property_id=42)
 
-        with _patch_env(db, user=None), patch(
-            "app.services.property.get_property", new=AsyncMock(return_value=prop)
+        with (
+            _patch_env(db, user=None),
+            patch("app.services.property.get_property", new=AsyncMock(return_value=prop)),
         ):
             result = await discovery_property_get(property_id=42)
 
@@ -352,9 +448,12 @@ class TestDiscoveryPropertyGet:
     async def test_get_nonexistent_returns_error(self):
         db = AsyncMock()
 
-        with _patch_env(db, user=None), patch(
-            "app.services.property.get_property",
-            new=AsyncMock(side_effect=PropertyNotFoundException(property_id=999)),
+        with (
+            _patch_env(db, user=None),
+            patch(
+                "app.services.property.get_property",
+                new=AsyncMock(side_effect=PropertyNotFoundException(property_id=999)),
+            ),
         ):
             result = await discovery_property_get(property_id=999)
 
@@ -366,8 +465,9 @@ class TestDiscoveryPropertyGet:
         db = AsyncMock()
         prop = _make_property()
 
-        with _patch_env(db, user=None), patch(
-            "app.services.property.get_property", new=AsyncMock(return_value=prop)
+        with (
+            _patch_env(db, user=None),
+            patch("app.services.property.get_property", new=AsyncMock(return_value=prop)),
         ):
             result = await discovery_property_get(property_id=1)
 
@@ -404,8 +504,9 @@ class TestDiscoveryFeed:
         props = [_make_property(property_id=1), _make_property(property_id=2)]
         mock_search = AsyncMock(return_value=(props, None, None))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch("app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search),
         ):
             result = await discovery_feed(limit=2)
 
@@ -417,8 +518,9 @@ class TestDiscoveryFeed:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, None))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch("app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search),
         ):
             await discovery_feed(purpose="rent")
 
@@ -428,8 +530,9 @@ class TestDiscoveryFeed:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, None))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch("app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search),
         ):
             result = await discovery_feed(purpose="vacation")
 
@@ -441,14 +544,16 @@ class TestDiscoveryFeed:
         db = AsyncMock()
         mock_search = AsyncMock(return_value=([], None, None))
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch("app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search),
         ):
             await discovery_feed(limit=0)
         assert mock_search.call_args.kwargs["limit"] == 1
 
-        with _patch_env(db, user=None), patch(
-            "app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search
+        with (
+            _patch_env(db, user=None),
+            patch("app.mcp.chatgpt.discovery_tools.run_property_search", new=mock_search),
         ):
             await discovery_feed(limit=100)
         assert mock_search.call_args.kwargs["limit"] == 20
@@ -514,23 +619,39 @@ class TestDiscoverySwipe:
         db = AsyncMock()
         user = _make_user()
 
-        with _patch_env(db, user=user), patch(
-            "app.services.swipe.record_swipe", new=AsyncMock(return_value=True)
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.swipe.record_swipe", new=AsyncMock(return_value=True)),
         ):
             result = await discovery_swipe(property_id=1, is_liked=True)
 
         assert isinstance(result, AppsSDKToolResult)
-        assert result.structured_content["success"] is True
+        assert "success" not in result.structured_content
         assert result.structured_content["is_liked"] is True
         assert result.structured_content["property_id"] == 1
         db.commit.assert_awaited_once()
+
+    async def test_swipe_on_missing_or_own_property_is_an_error(self):
+        db = AsyncMock()
+        user = _make_user()
+
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.swipe.record_swipe", new=AsyncMock(return_value=False)),
+        ):
+            result = await discovery_swipe(property_id=9, is_liked=True)
+
+        assert result.structured_content["code"] == "SWIPE_NOT_ALLOWED"
+        assert result.structured_content["property_id"] == 9
+        assert "success" not in result.structured_content
 
     async def test_swipe_pass_success(self):
         db = AsyncMock()
         user = _make_user()
 
-        with _patch_env(db, user=user), patch(
-            "app.services.swipe.record_swipe", new=AsyncMock(return_value=True)
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.swipe.record_swipe", new=AsyncMock(return_value=True)),
         ):
             result = await discovery_swipe(property_id=5, is_liked=False)
 
@@ -564,8 +685,9 @@ class TestDiscoveryShortlist:
         ]
         mock_history = AsyncMock(return_value=(swipes, None, 2))
 
-        with _patch_env(db, user=user), patch(
-            "app.services.swipe.get_swipe_history", new=mock_history
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.swipe.get_swipe_history", new=mock_history),
         ):
             result = await discovery_shortlist()
 
@@ -579,8 +701,9 @@ class TestDiscoveryShortlist:
         user = _make_user()
         mock_history = AsyncMock(return_value=([], None, 0))
 
-        with _patch_env(db, user=user), patch(
-            "app.services.swipe.get_swipe_history", new=mock_history
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.swipe.get_swipe_history", new=mock_history),
         ):
             result = await discovery_shortlist()
 
@@ -609,8 +732,9 @@ class TestDiscoveryRecommendations:
         props = [_make_property(property_id=1), _make_property(property_id=2)]
         mock_recs = AsyncMock(return_value=(props, None, None))
 
-        with _patch_env(db, user=user), patch(
-            "app.services.property.get_property_recommendations", new=mock_recs
+        with (
+            _patch_env(db, user=user),
+            patch("app.services.property.get_property_recommendations", new=mock_recs),
         ):
             result = await discovery_recommendations(limit=2)
 

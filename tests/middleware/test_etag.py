@@ -48,6 +48,10 @@ def _make_app() -> FastAPI:
     async def both():
         return {"a": 1}
 
+    @app.get("/api/v1/varied")
+    async def varied():
+        return JSONResponse({"a": 1}, headers={"Vary": "Accept-Encoding"})
+
     @app.get("/outside")
     async def outside():
         return {"a": 1}
@@ -169,3 +173,20 @@ def test_registered_in_app_and_304_keeps_cache_headers():
     assert second.headers["etag"] == etag
     assert second.headers["cache-control"].startswith("public")
     assert "vary" in second.headers
+
+
+@pytest.mark.asyncio
+async def test_etag_responses_vary_on_authorization():
+    first = await _get("/api/v1/both")
+    assert first.status_code == 200
+    assert first.headers["vary"] == "Authorization"
+
+    second = await _get("/api/v1/both", **{"if-none-match": first.headers["etag"]})
+    assert second.status_code == 304
+    assert second.headers["vary"] == "Authorization"
+
+
+@pytest.mark.asyncio
+async def test_existing_vary_gets_authorization_merged_into_one_header():
+    resp = await _get("/api/v1/varied")
+    assert resp.headers["vary"] == "Accept-Encoding, Authorization"

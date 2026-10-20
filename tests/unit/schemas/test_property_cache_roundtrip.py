@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.schemas.property import Property, PropertyAgent
+from app.schemas.property import Property, PropertyAgent, PropertyDetail
 
 BASE = {
     "id": 1,
@@ -15,12 +15,13 @@ BASE = {
     "like_count": 0,
     "interest_count": 0,
     "created_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
+    "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
 }
 
 
 def test_cached_detail_keeps_amenities_and_agent():
     """get_property caches model_dump() and reads it back with model_validate()."""
-    prop = Property.model_validate(
+    prop = PropertyDetail.model_validate(
         {
             **BASE,
             "property_amenities": [{"id": 5, "title": "Gym", "icon": "dumbbell", "category": "recreation"}],

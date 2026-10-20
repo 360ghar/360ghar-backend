@@ -130,7 +130,7 @@ class TestVersionEndpoints:
             response = await client.post(
                 "/api/v1/versions/check",
                 json={
-                    "app": "360ghar",
+                    "app": "ghar",
                     "platform": "android",
                     "current_version": "1.0.0",
                 },
@@ -211,7 +211,7 @@ class TestVersionEndpoints:
             )
             await check_for_updates_cached(
                 core_service,
-                app="360ghar",
+                app="ghar",
                 platform="android",
                 current_version="1.0.4",
             )
@@ -261,7 +261,7 @@ class TestBugEndpoints:
                 ],
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             payload = response.json()
             assert payload["bug_type"] == "ui_bug"
             assert payload["media_urls"] == ["https://cdn.example.com/uploads/bug.png"]

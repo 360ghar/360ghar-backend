@@ -82,10 +82,8 @@ class TestCreateAgent:
         from app.services.agent import create_agent
 
         agent_data = AgentCreate(
-            user_id=test_user.id,
             name="New Agent",
-            email="newagent@example.com",
-            phone="+919876543210",
+            contact_number="+919876543210",
             agent_type="general",
         )
 

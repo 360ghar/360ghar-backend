@@ -35,7 +35,7 @@ def _setup_in_memory_cache():
 
 def get_tool_fn(tool):
     """Extract the underlying function from a FunctionTool object."""
-    return tool.fn if hasattr(tool, 'fn') else tool
+    return tool.fn if hasattr(tool, "fn") else tool
 
 
 class TestMCPServerIntegration:
@@ -45,12 +45,14 @@ class TestMCPServerIntegration:
     def client(self):
         """Create test client."""
         from app.factory import create_app
+
         app = create_app(testing=True)
         return TestClient(app)
 
     def test_mcp_endpoint_mounted(self, client):
         """Test that /mcp endpoint is mounted (by checking router)."""
         from app.factory import create_app
+
         app = create_app(testing=True)
 
         # Check that the MCP routes are registered
@@ -61,6 +63,7 @@ class TestMCPServerIntegration:
     def test_mcp_admin_endpoint_mounted(self, client):
         """Test that /mcp-admin endpoint is mounted (by checking router)."""
         from app.factory import create_app
+
         app = create_app(testing=True)
 
         # Check that the MCP admin routes are registered
@@ -85,17 +88,21 @@ class TestMCPToolsIntegration:
 
         fn = get_tool_fn(discovery_search)
 
-        with patch("app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = None  # Guest user
 
-            with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
+            with patch(
+                "app.services.property.get_unified_properties_optimized", new_callable=AsyncMock
+            ) as mock_search:
                 mock_search.return_value = ([], None, 0)
 
                 result = await fn(query="test")
 
                 assert isinstance(result, AppsSDKToolResult)
-                assert hasattr(result, 'content')
-                assert hasattr(result, 'structured_content')
+                assert hasattr(result, "content")
+                assert hasattr(result, "structured_content")
 
     @pytest.mark.asyncio
     async def test_discovery_search_with_user(self):
@@ -107,10 +114,14 @@ class TestMCPToolsIntegration:
 
         mock_user_obj = MagicMock(id=1, role="user")
 
-        with patch("app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = mock_user_obj
 
-            with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
+            with patch(
+                "app.services.property.get_unified_properties_optimized", new_callable=AsyncMock
+            ) as mock_search:
                 mock_search.return_value = ([], None, 0)
 
                 result = await fn(query="apartment in Mumbai")
@@ -127,10 +138,14 @@ class TestMCPToolsIntegration:
 
         mock_user_obj = MagicMock(id=1, role="user")
 
-        with patch("app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = mock_user_obj
 
-            with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
+            with patch(
+                "app.services.property.get_unified_properties_optimized", new_callable=AsyncMock
+            ) as mock_search:
                 mock_search.return_value = (
                     [
                         {"id": 1, "title": "Property 1", "base_price": 1000000},
@@ -141,10 +156,7 @@ class TestMCPToolsIntegration:
                 )
 
                 result = await fn(
-                    query="apartment",
-                    latitude=19.0760,
-                    longitude=72.8777,
-                    radius_km=10
+                    query="apartment", latitude=19.0760, longitude=72.8777, radius_km=10
                 )
 
                 assert isinstance(result, AppsSDKToolResult)
@@ -163,14 +175,12 @@ class TestMCPToolsIntegration:
         ) as mock_user:
             mock_user.return_value = None
             with patch(
-                "app.mcp.chatgpt.discovery_tools.run_property_search",
+                "app.services.property.search_orchestration.run_property_search",
                 new_callable=AsyncMock,
             ) as mock_search:
                 mock_search.return_value = ([], None, 0)
 
-                result = await fn(
-                    queries=[{"query": "2 BHK Sector 85", "max_results": 8}]
-                )
+                result = await fn(queries=[{"query": "2 BHK Sector 85", "max_results": 8}])
 
                 assert isinstance(result, AppsSDKToolResult)
                 assert mock_search.await_count == 1
@@ -196,7 +206,7 @@ class TestMCPToolsIntegration:
         ) as mock_user:
             mock_user.return_value = None
             with patch(
-                "app.mcp.chatgpt.discovery_tools.run_property_search",
+                "app.services.property.search_orchestration.run_property_search",
                 new_callable=AsyncMock,
             ) as mock_search:
                 mock_search.return_value = ([], None, 0)
@@ -214,7 +224,9 @@ class TestMCPToolsIntegration:
 
         fn = get_tool_fn(discovery_swipe)
 
-        with patch("app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = None  # Not authenticated
 
             # Should raise AuthRequiredError
@@ -269,17 +281,19 @@ class TestMCPAuthIntegration:
         from app.mcp.auth_provider import SupabaseTokenVerifier
 
         verifier = SupabaseTokenVerifier(
-            required_scopes=["mcp:read"],
-            expected_resource="http://localhost:3600/mcp"
+            required_scopes=["mcp:read"], expected_resource="http://localhost:3600/mcp"
         )
 
         # Mock the token store
-        with patch("app.services.oauth_token_store.oauth_token_store.get_access_token", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.services.oauth_token_store.oauth_token_store.get_access_token",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_get.return_value = {
                 "user_id": "123",
                 "scope": "mcp:read",
                 "resource": "http://localhost:3600/mcp",
-                "expires_at": 9999999999  # Far future
+                "expires_at": 9999999999,  # Far future
             }
 
             token = await verifier.verify_token("valid_token_12345_no_dots_longer_than_40_chars")
@@ -308,12 +322,15 @@ class TestMCPAuthIntegration:
 
         verifier = SupabaseTokenVerifier(required_scopes=["mcp:read"])
 
-        with patch("app.services.oauth_token_store.oauth_token_store.get_access_token", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.services.oauth_token_store.oauth_token_store.get_access_token",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_get.return_value = {
                 "user_id": "123",
                 "scope": "mcp:read",
                 "resource": "http://localhost:3600/mcp",
-                "expires_at": 1  # Expired long ago
+                "expires_at": 1,  # Expired long ago
             }
 
             token = await verifier.verify_token("valid_token_12345_no_dots_longer_than_40_chars")
@@ -327,16 +344,18 @@ class TestMCPAuthIntegration:
         from app.mcp.auth_provider import SupabaseTokenVerifier
 
         verifier = SupabaseTokenVerifier(
-            required_scopes=["mcp:read"],
-            expected_resource="http://localhost:3600/mcp"
+            required_scopes=["mcp:read"], expected_resource="http://localhost:3600/mcp"
         )
 
-        with patch("app.services.oauth_token_store.oauth_token_store.get_access_token", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.services.oauth_token_store.oauth_token_store.get_access_token",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_get.return_value = {
                 "user_id": "123",
                 "scope": "mcp:read",
                 "resource": "http://other-server.com/mcp",  # Wrong resource
-                "expires_at": 9999999999
+                "expires_at": 9999999999,
             }
 
             token = await verifier.verify_token("valid_token_12345_no_dots_longer_than_40_chars")
@@ -350,16 +369,18 @@ class TestMCPAuthIntegration:
         from app.mcp.auth_provider import SupabaseTokenVerifier
 
         verifier = SupabaseTokenVerifier(
-            required_scopes=["mcp:write"],
-            expected_resource="http://localhost:3600/mcp"
+            required_scopes=["mcp:write"], expected_resource="http://localhost:3600/mcp"
         )
 
-        with patch("app.services.oauth_token_store.oauth_token_store.get_access_token", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.services.oauth_token_store.oauth_token_store.get_access_token",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_get.return_value = {
                 "user_id": "123",
                 "scope": "mcp:read",  # Missing mcp:write
                 "resource": "http://localhost:3600/mcp",
-                "expires_at": 9999999999
+                "expires_at": 9999999999,
             }
 
             token = await verifier.verify_token("valid_token_12345_no_dots_longer_than_40_chars")
@@ -382,7 +403,7 @@ class TestMCPOAuthTokenStore:
             user_id="user_123",
             client_id="test_client",
             redirect_uri="http://localhost/callback",
-            scope="mcp:read"
+            scope="mcp:read",
         )
 
         assert result is True
@@ -409,13 +430,15 @@ class TestMCPOAuthTokenStore:
             refresh_token="refresh_token_12345_no_dots_longer_than_40_chars",
             user_id="user_123",
             scope="mcp:read mcp:write",
-            client_id="test_client"
+            client_id="test_client",
         )
 
         assert result is True
 
         # Retrieve access token
-        token_data = await oauth_token_store.get_access_token("access_token_12345_no_dots_longer_than_40_chars")
+        token_data = await oauth_token_store.get_access_token(
+            "access_token_12345_no_dots_longer_than_40_chars"
+        )
 
         assert token_data is not None
         assert token_data["user_id"] == "user_123"
@@ -466,14 +489,18 @@ class TestMCPOAuthTokenStore:
             access_token="token_to_revoke_12345_no_dots_longer_than_40_chars",
             refresh_token="refresh_to_revoke_12345_no_dots_longer_than_40_chars",
             user_id="user_123",
-            scope="mcp:read"
+            scope="mcp:read",
         )
 
-        result = await oauth_token_store.revoke_token("token_to_revoke_12345_no_dots_longer_than_40_chars")
+        result = await oauth_token_store.revoke_token(
+            "token_to_revoke_12345_no_dots_longer_than_40_chars"
+        )
         assert result is True
 
         # Should no longer exist
-        token_data = await oauth_token_store.get_access_token("token_to_revoke_12345_no_dots_longer_than_40_chars")
+        token_data = await oauth_token_store.get_access_token(
+            "token_to_revoke_12345_no_dots_longer_than_40_chars"
+        )
         assert token_data is None
 
     @pytest.mark.asyncio
@@ -486,7 +513,7 @@ class TestMCPOAuthTokenStore:
             access_token="old_access_token_12345_no_dots_longer_than_40",
             refresh_token="old_refresh_token_12345_no_dots_longer_than_40",
             user_id="user_123",
-            scope="mcp:read"
+            scope="mcp:read",
         )
 
         # Store new tokens (simulating refresh)
@@ -494,16 +521,20 @@ class TestMCPOAuthTokenStore:
             access_token="new_access_token_12345_no_dots_longer_than_40",
             refresh_token="new_refresh_token_12345_no_dots_longer_than_40",
             user_id="user_123",
-            scope="mcp:read"
+            scope="mcp:read",
         )
 
         # Old access token should still exist (until expiry)
-        old_token = await oauth_token_store.get_access_token("old_access_token_12345_no_dots_longer_than_40")
+        old_token = await oauth_token_store.get_access_token(
+            "old_access_token_12345_no_dots_longer_than_40"
+        )
         # Token store doesn't revoke old tokens on refresh, they expire naturally
         assert old_token is not None or old_token is None  # Depends on implementation
 
         # New token should exist
-        new_token = await oauth_token_store.get_access_token("new_access_token_12345_no_dots_longer_than_40")
+        new_token = await oauth_token_store.get_access_token(
+            "new_access_token_12345_no_dots_longer_than_40"
+        )
         assert new_token is not None
 
 
@@ -569,10 +600,14 @@ class TestMCPEndToEnd:
         avail_fn = get_tool_fn(bookings_check_availability)
 
         # Step 1: Search for properties
-        with patch("app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.chatgpt.discovery_tools._get_optional_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = MagicMock(id=1)
 
-            with patch("app.services.property.get_unified_properties_optimized", new_callable=AsyncMock) as mock_search:
+            with patch(
+                "app.services.property.get_unified_properties_optimized", new_callable=AsyncMock
+            ) as mock_search:
                 mock_search.return_value = (
                     [{"id": 1, "title": "Test Property", "base_price": 1000000}],
                     None,
@@ -586,7 +621,9 @@ class TestMCPEndToEnd:
         with patch("app.mcp.user.booking._get_user", new_callable=AsyncMock) as mock_user:
             mock_user.return_value = MagicMock(id=1)
 
-            with patch("app.services.booking.check_availability", new_callable=AsyncMock) as mock_avail:
+            with patch(
+                "app.services.booking.check_availability", new_callable=AsyncMock
+            ) as mock_avail:
                 mock_avail.return_value = {"available": True, "max_occupancy": 4}
 
                 with patch("app.mcp.user.booking.get_db") as mock_db:
@@ -596,7 +633,7 @@ class TestMCPEndToEnd:
                         property_id=1,
                         check_in_date="2025-06-01",
                         check_out_date="2025-06-05",
-                        guests=2
+                        guests=2,
                     )
 
                     # bookings_check_availability returns a dict via MCPResponse
@@ -614,6 +651,7 @@ class TestMCPEndToEnd:
         # Create a properly structured mock user that won't cause Pydantic validation errors
         # User schema requires: id, supabase_user_id, role, is_active, is_verified, created_at
         from datetime import datetime
+
         class MockUser:
             def __init__(self):
                 self.id = 1
@@ -638,14 +676,28 @@ class TestMCPEndToEnd:
 
         mock_user_obj = MockUser()
 
-        with patch("app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock) as mock_user:
+        with patch(
+            "app.mcp.admin.agent_tools.properties._get_user", new_callable=AsyncMock
+        ) as mock_user:
             mock_user.return_value = mock_user_obj
 
             # list_managed_properties is in app.services.pm_properties
-            with patch("app.services.pm_properties.list_managed_properties", new_callable=AsyncMock) as mock_list:
+            with patch(
+                "app.services.pm_properties.list_managed_properties", new_callable=AsyncMock
+            ) as mock_list:
                 mock_list.return_value = ([], None, None)
 
-                with patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db:
+                with (
+                    patch(
+                        "app.mcp.admin.agent_tools.properties.compute_portfolio_stats",
+                        new=AsyncMock(return_value={}),
+                    ),
+                    patch(
+                        "app.mcp.admin.agent_tools.properties.owner_scope",
+                        new=AsyncMock(return_value=None),
+                    ),
+                    patch("app.mcp.admin.agent_tools.properties.get_db") as mock_db,
+                ):
                     mock_db.return_value = AsyncIteratorMock([MagicMock()])
 
                     # List properties - admin server returns dict via MCPResponse
@@ -664,6 +716,7 @@ class TestMCPEndToEnd:
 
         # Create a properly structured mock user
         from datetime import datetime
+
         class MockUser:
             def __init__(self):
                 self.id = 1
@@ -701,7 +754,9 @@ class TestMCPEndToEnd:
             with patch("app.mcp.user.owner.get_db") as mock_db_gen:
                 mock_db_gen.return_value = AsyncIteratorMock([mock_db])
 
-                with patch("app.services.pm_properties.list_managed_properties", new_callable=AsyncMock) as mock_props:
+                with patch(
+                    "app.services.pm_properties.list_managed_properties", new_callable=AsyncMock
+                ) as mock_props:
                     mock_props.return_value = ([], None, None)
 
                     result = await list_fn()
@@ -715,12 +770,10 @@ class TestMCPEndToEnd:
             with patch("app.mcp.user.owner.get_db") as mock_db_gen:
                 mock_db_gen.return_value = AsyncIteratorMock([mock_db])
 
-                with patch("app.services.pm_properties.get_managed_property_detail", new_callable=AsyncMock) as mock_get:
-                    mock_get.return_value = MagicMock(
-                        id=1,
-                        title="My Property",
-                        is_available=True
-                    )
+                with patch(
+                    "app.services.pm_properties.get_managed_property_detail", new_callable=AsyncMock
+                ) as mock_get:
+                    mock_get.return_value = MagicMock(id=1, title="My Property", is_available=True)
 
                     result = await get_fn(property_id=1)
                     assert isinstance(result, dict)
@@ -773,6 +826,7 @@ class TestMCPEndToEnd:
 # Helper for async iteration
 class AsyncIteratorMock:
     """Helper for async iteration in tests."""
+
     def __init__(self, items):
         self.items = items
         self.index = 0

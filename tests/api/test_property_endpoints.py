@@ -62,7 +62,7 @@ def create_mock_property(
         interest_count=0,
         is_managed=False,
         created_at=datetime.now(timezone.utc),
-        updated_at=None,
+        updated_at=datetime.now(timezone.utc),
         images=None,
         amenities=None,
     )
@@ -103,7 +103,7 @@ class TestCreateProperty:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
             assert data["title"] == "Test Property"
 
@@ -328,9 +328,7 @@ class TestListProperties:
 
 class TestRecommendations:
     @pytest.mark.asyncio
-    async def test_recommendations_returns_503_for_transient_db_error(
-        self, client: AsyncClient
-    ):
+    async def test_recommendations_returns_503_for_transient_db_error(self, client: AsyncClient):
         with patch(
             "app.api.api_v1.endpoints.properties.get_property_recommendations",
             new_callable=AsyncMock,
@@ -350,12 +348,15 @@ class TestGetProperty:
     @pytest.mark.asyncio
     async def test_get_property_success(self, client: AsyncClient):
         """Test getting property by ID."""
-        with patch(
-            "app.api.api_v1.endpoints.properties.get_property",
-            new_callable=AsyncMock,
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.properties.increment_property_view_count",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.api.api_v1.endpoints.properties.get_property",
+                new_callable=AsyncMock,
+            ) as mock_get,
+            patch(
+                "app.api.api_v1.endpoints.properties.increment_property_view_count",
+                new_callable=AsyncMock,
+            ),
         ):
             mock_get.return_value = create_mock_property(property_id=1)
 
@@ -371,12 +372,15 @@ class TestGetProperty:
         """Test getting non-existent property returns 404."""
         from fastapi import HTTPException
 
-        with patch(
-            "app.api.api_v1.endpoints.properties.get_property",
-            new_callable=AsyncMock,
-        ) as mock_get, patch(
-            "app.api.api_v1.endpoints.properties.increment_property_view_count",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.api.api_v1.endpoints.properties.get_property",
+                new_callable=AsyncMock,
+            ) as mock_get,
+            patch(
+                "app.api.api_v1.endpoints.properties.increment_property_view_count",
+                new_callable=AsyncMock,
+            ),
         ):
             # Simulate not found by raising HTTPException
             mock_get.side_effect = HTTPException(status_code=404, detail="Property not found")
@@ -435,7 +439,8 @@ class TestDeleteProperty:
 
             response = await authenticated_client.delete("/api/v1/properties/1/")
 
-            assert response.status_code == 200
+            assert response.status_code == 204
+            assert response.content == b""
 
     @pytest.mark.asyncio
     async def test_delete_property_unauthenticated(self, client: AsyncClient):

@@ -36,3 +36,8 @@ class TestBuildTourQrUrl:
             public_app_url=None,
         )
         assert url == "https://360ghar.com/view/tour-uuid"
+
+    def test_short_code_fallback_uses_api_host_when_base_url_missing(self):
+        tour = SimpleNamespace(id="tour-uuid", short_code="abc234")
+        url = _build_tour_qr_url(tour, public_base_url=None, public_app_url=None)
+        assert url == "https://api.360ghar.com/v/abc234"

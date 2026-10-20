@@ -2,6 +2,8 @@
 Tests for app.models.enums module.
 """
 
+import pytest
+
 from app.models.enums import (
     AgentType,
     AuctionSource,
@@ -34,6 +36,7 @@ from app.models.enums import (
     PropertyPurpose,
     PropertyStatus,
     PropertyType,
+    RentalApplicationStatus,
     RentChargeStatus,
     ScraperStatus,
     SwipeAction,
@@ -150,18 +153,25 @@ class TestVisitStatus:
 
     def test_all_visit_statuses(self):
         """Test all visit statuses are defined."""
-        # VisitStatus members are intentionally name-aliased to the API/DB wire
-        # values (requested / reschedule_suggested), which is what Flutter, web,
-        # and Postgres all use. The member NAME differs from its VALUE here.
-        assert VisitStatus.scheduled.value == "requested"
+        # Member names match the wire and DB values (requested / reschedule_suggested).
+        assert VisitStatus.requested.value == "requested"
         assert VisitStatus.confirmed.value == "confirmed"
         assert VisitStatus.completed.value == "completed"
         assert VisitStatus.cancelled.value == "cancelled"
-        assert VisitStatus.rescheduled.value == "reschedule_suggested"
+        assert VisitStatus.reschedule_suggested.value == "reschedule_suggested"
 
     def test_visit_status_count(self):
         """Test correct number of visit statuses."""
         assert len(VisitStatus) == 5
+
+    def test_visit_status_has_no_old_member_names(self):
+        """The scheduled and rescheduled aliases are gone. Names equal values."""
+        assert not hasattr(VisitStatus, "scheduled")
+        assert not hasattr(VisitStatus, "rescheduled")
+        assert all(member.name == member.value for member in VisitStatus)
+        assert VisitStatus("requested") is VisitStatus.requested
+        with pytest.raises(ValueError):
+            VisitStatus("scheduled")
 
 
 class TestUserRole:
@@ -269,13 +279,12 @@ class TestPropertyManagementEnums:
         assert ManagedPropertyStatus.archived.value == "archived"
 
     def test_tenant_status(self):
-        """Test TenantStatus values."""
-        assert TenantStatus.applicant.value == "applicant"
-        assert TenantStatus.approved.value == "approved"
-        assert TenantStatus.active.value == "active"
-        assert TenantStatus.notice_period.value == "notice_period"
-        assert TenantStatus.vacated.value == "vacated"
-        assert TenantStatus.rejected.value == "rejected"
+        """Test TenantStatus values: the tenancy states computed for the tenant summary."""
+        assert [m.value for m in TenantStatus] == ["active", "vacated"]
+
+    def test_rental_application_status(self):
+        """Test RentalApplicationStatus values: the states an application stores."""
+        assert [m.value for m in RentalApplicationStatus] == ["applicant", "approved", "rejected"]
 
     def test_lease_status(self):
         """Test LeaseStatus values."""

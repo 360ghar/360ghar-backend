@@ -3,10 +3,10 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
 
-from app.core.exceptions import BadRequestException, FileTooLargeException, InvalidFileException
+from app.core.exceptions import FileTooLargeException, InvalidFileException
 from app.services.storage import StorageService
 from app.services.storage.helpers import read_upload_file_limited
 from app.services.storage_paths import StorageFolder
@@ -134,10 +134,11 @@ class TestStorageServiceErrors:
             for idx in range(21)
         ]
 
-        with pytest.raises(BadRequestException) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             await service.upload_batch(files, db=None, user_id=1)
 
         assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["code"] == "BATCH_TOO_MANY_FILES"
 
     def test_storage_service_does_not_expose_noop_list_files(self):
         assert not hasattr(StorageService, "list_files")
@@ -159,6 +160,7 @@ class TestStorageDeleteBatch:
             filename="a.jpg",
             folder="folder",
             bucket_name="media",
+            mime_type="image/jpeg",
         )
         result_proxy = MagicMock()
         result_proxy.scalars.return_value.all.return_value = [media]
@@ -177,6 +179,11 @@ class TestStorageDeleteBatch:
         assert result["deleted"] == ["media-1", "https://cdn.example.com/a.jpg"]
         assert result["failed"] == ["missing-id"]
         assert result["storage_warnings"] == []
-        service.delete_file.assert_called_once_with("folder/a.jpg", bucket_name="media")
+        service.delete_file.assert_called_once_with(
+            "folder/a.jpg",
+            bucket_name="media",
+            resource_type="image",
+            delivery_type="upload",
+        )
         db.delete.assert_awaited_once_with(media)
         db.flush.assert_awaited_once()

@@ -64,6 +64,12 @@ class TestUserModel:
         }
         assert flatmates_cols.issubset(columns)
 
+    def test_dead_user_columns_are_not_mapped(self):
+        # The DB keeps these columns (user data). The ORM no longer maps them.
+        mapped = {c.name for c in User.__table__.columns}
+        assert "flatmates_smoking_drinking" not in mapped
+        assert "ghar360_onboarding_completed" not in mapped
+
     def test_has_preference_json_columns(self):
         columns = {c.name for c in User.__table__.columns}
         assert "preferences" in columns

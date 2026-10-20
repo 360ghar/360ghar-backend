@@ -197,7 +197,7 @@ async def seeded_visits(db_session, booking_user, seeded_property) -> list[Visit
             user_id=booking_user.id,
             property_id=seeded_property.id,
             scheduled_date=base + timedelta(days=i * 7),
-            status=VisitStatus.scheduled,
+            status=VisitStatus.requested,
         )
         db_session.add(v)
         await db_session.flush()

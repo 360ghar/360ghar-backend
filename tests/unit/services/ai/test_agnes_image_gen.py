@@ -63,7 +63,7 @@ async def test_image_to_image_sends_data_url_in_extra_body(client):
         mode=ImageGenMode.IMAGE_TO_IMAGE,
         prompt="Repaint the walls sage green",
         image="QUJD",
-        mimeType="image/png",
+        mime_type="image/png",
         ratio="16:9",
     )
 

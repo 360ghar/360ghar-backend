@@ -133,7 +133,7 @@ class TestVisitsSchedule:
             with pytest.raises(AuthRequiredError):
                 await visits_schedule(
                     property_id=1,
-                    scheduled_date="2099-07-01T10:00:00",
+                    scheduled_date="2099-07-01T10:00:00+05:30",
                 )
 
     @pytest.mark.asyncio
@@ -152,7 +152,7 @@ class TestVisitsSchedule:
             with pytest.raises(AuthRequiredError) as exc_info:
                 await visits_schedule(
                     property_id=42,
-                    scheduled_date="2099-07-01T10:00:00",
+                    scheduled_date="2099-07-01T10:00:00+05:30",
                     notes="Call before arriving",
                 )
 
@@ -170,14 +170,17 @@ class TestVisitsSchedule:
             _patch_session(db),
             _patch_user(user),
             _patch_widget(),
-            patch("app.services.property.get_property", new=AsyncMock(return_value=SimpleNamespace(id=1))),
+            patch(
+                "app.services.property.get_property",
+                new=AsyncMock(return_value=SimpleNamespace(id=1)),
+            ),
             patch("app.services.visit.create_visit", new=AsyncMock(return_value=visit)),
         ):
             from app.mcp.chatgpt.visit_tools import visits_schedule
 
             result = await visits_schedule(
                 property_id=1,
-                scheduled_date="2099-07-01T10:00:00",
+                scheduled_date="2099-07-01T10:00:00+05:30",
                 notes="Early",
             )
 
@@ -226,7 +229,7 @@ class TestVisitsSchedule:
 
             result = await visits_schedule(
                 property_id=999,
-                scheduled_date="2099-07-01T10:00:00",
+                scheduled_date="2099-07-01T10:00:00+05:30",
             )
 
         assert result.structured_content["error"] is True
@@ -248,7 +251,7 @@ class TestVisitsSchedule:
 
             result = await visits_schedule(
                 property_id=1,
-                scheduled_date="2000-01-01T10:00:00",
+                scheduled_date="2000-01-01T10:00:00+05:30",
             )
 
         assert result.structured_content["error"] is True
@@ -263,6 +266,20 @@ class TestVisitsSchedule:
 
 class TestVisitsList:
     """Tests for the visits_list MCP tool."""
+
+    @pytest.fixture(autouse=True)
+    def _visit_counts(self):
+        counts = {
+            "total": 0,
+            "upcoming": 0,
+            "completed": 0,
+            "cancelled": 0,
+            "requested": 0,
+            "confirmed": 0,
+            "reschedule_suggested": 0,
+        }
+        with patch(f"{_VISIT_TOOLS}._visit_status_counts", new=AsyncMock(return_value=counts)):
+            yield
 
     @pytest.mark.asyncio
     async def test_requires_auth(self):
@@ -298,8 +315,7 @@ class TestVisitsList:
 
             result = await visits_list()
 
-        assert result.structured_content["total"] == 2
-        assert len(result.structured_content["visits"]) == 2
+        assert len(result.structured_content["items"]) == 2
         assert result.structured_content["has_more"] is False
 
     @pytest.mark.asyncio
@@ -318,8 +334,7 @@ class TestVisitsList:
 
             result = await visits_list()
 
-        assert result.structured_content["total"] == 0
-        assert result.structured_content["visits"] == []
+        assert result.structured_content["items"] == []
         assert "don't have any property visits" in _content_text(result)
 
     @pytest.mark.asyncio
@@ -344,13 +359,13 @@ class TestVisitsList:
             result = await visits_list(status="completed")
 
         assert mock_get.await_args.kwargs["status"] == VisitStatus.completed
-        returned = result.structured_content["visits"]
+        returned = result.structured_content["items"]
         assert len(returned) == 1
         assert returned[0]["id"] == 2
-        assert result.structured_content["total"] == 1
+        assert len(returned) == 1
 
     @pytest.mark.asyncio
-    async def test_list_invalid_status_no_filter(self):
+    async def test_list_invalid_status_is_an_error(self):
         db = AsyncMock()
         user = _make_user()
         mock_get = AsyncMock(return_value=([], None, 0))
@@ -363,10 +378,36 @@ class TestVisitsList:
         ):
             from app.mcp.chatgpt.visit_tools import visits_list
 
-            await visits_list(status="not_a_status")
+            result = await visits_list(status="not_a_status")
 
-        # Invalid statuses are treated leniently as "no filter".
-        assert mock_get.await_args.kwargs["status"] is None
+        assert result.structured_content["code"] == "INVALID_STATUS"
+        mock_get.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_list_status_accepts_stored_values_only(self):
+        from app.models.enums import VisitStatus
+
+        user = _make_user()
+        mock_get = AsyncMock(return_value=([], None, 0))
+        with (
+            _patch_session(AsyncMock()),
+            _patch_user(user),
+            _patch_widget(),
+            patch(f"{_VISIT_TOOLS}.get_user_visits", new=mock_get),
+        ):
+            from app.mcp.chatgpt.visit_tools import visits_list
+
+            await visits_list(status="requested")
+            assert mock_get.await_args.kwargs["status"] == VisitStatus.requested
+            await visits_list(status="reschedule_suggested")
+            assert mock_get.await_args.kwargs["status"] == VisitStatus.reschedule_suggested
+
+            # The removed member names are not accepted any more.
+            mock_get.reset_mock()
+            for old_name in ("scheduled", "rescheduled"):
+                result = await visits_list(status=old_name)
+                assert result.structured_content["code"] == "INVALID_STATUS"
+            mock_get.assert_not_awaited()
 
 
 # ===========================================================================
@@ -490,7 +531,7 @@ class TestVisitsCancel:
 
             result = await visits_cancel(visit_id=3, reason="Busy")
 
-        assert result.structured_content["success"] is True
+        assert "success" not in result.structured_content
         assert result.structured_content["visit_id"] == 3
         assert result.structured_content["status"] == "cancelled"
         mock_cancel.assert_awaited_once_with(db, 3, "Busy")
@@ -558,3 +599,27 @@ class TestVisitsCancel:
 
         assert result.structured_content["error"] is True
         assert result.structured_content["code"] == "FORBIDDEN"
+
+
+class TestVisitsScheduleTimezone:
+    """A visit time without a UTC offset is rejected. It is local time, not UTC."""
+
+    @pytest.mark.asyncio
+    async def test_naive_time_is_rejected_with_offset_hint(self):
+        db = AsyncMock()
+        user = _make_user()
+
+        with (
+            _patch_session(db),
+            _patch_user(user),
+            _patch_widget(),
+        ):
+            from app.mcp.chatgpt.visit_tools import visits_schedule
+
+            result = await visits_schedule(
+                property_id=1,
+                scheduled_date="2099-07-01T14:00:00",
+            )
+
+        assert result.structured_content["code"] == "INVALID_DATE"
+        assert "UTC offset" in result.structured_content["message"]

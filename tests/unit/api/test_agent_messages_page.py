@@ -33,8 +33,16 @@ def _msg(msg_id: int, minute: int, conversation_id: int = 7):
 
 
 # Ids 1..7; ids 4 and 5 share a timestamp so the id tie-break is exercised.
-ROWS = [_msg(1, 0), _msg(2, 1), _msg(3, 2), _msg(4, 3), _msg(5, 3), _msg(6, 4), _msg(7, 5),
-        _msg(99, 9, conversation_id=8)]
+ROWS = [
+    _msg(1, 0),
+    _msg(2, 1),
+    _msg(3, 2),
+    _msg(4, 3),
+    _msg(5, 3),
+    _msg(6, 4),
+    _msg(7, 5),
+    _msg(99, 9, conversation_id=8),
+]
 
 
 class _KeysetDb:
@@ -64,20 +72,29 @@ async def test_store_walks_back_in_time_with_chronological_pages():
 
     page1, cursor1 = await conversation_store.get_history_page(db, 7, cursor_payload={}, limit=3)
     assert [m.id for m in page1] == [5, 6, 7]  # newest three, oldest first
-    assert "ORDER BY ai_conversation_messages.created_at DESC, ai_conversation_messages.id DESC" in db.sql[0]
+    assert (
+        "ORDER BY ai_conversation_messages.created_at DESC, ai_conversation_messages.id DESC"
+        in db.sql[0]
+    )
     assert cursor1 is not None
 
-    page2, cursor2 = await conversation_store.get_history_page(db, 7, cursor_payload=cursor1, limit=3)
+    page2, cursor2 = await conversation_store.get_history_page(
+        db, 7, cursor_payload=cursor1, limit=3
+    )
     assert [m.id for m in page2] == [2, 3, 4]
     assert cursor2 is not None
 
-    page3, cursor3 = await conversation_store.get_history_page(db, 7, cursor_payload=cursor2, limit=3)
+    page3, cursor3 = await conversation_store.get_history_page(
+        db, 7, cursor_payload=cursor2, limit=3
+    )
     assert [m.id for m in page3] == [1]
     assert cursor3 is None  # end of history
 
 
 async def test_store_exact_fit_has_no_next_cursor():
-    page, cursor = await conversation_store.get_history_page(_KeysetDb(ROWS), 7, cursor_payload={}, limit=7)
+    page, cursor = await conversation_store.get_history_page(
+        _KeysetDb(ROWS), 7, cursor_payload={}, limit=7
+    )
     assert [m.id for m in page] == [1, 2, 3, 4, 5, 6, 7]
     assert cursor is None
 
@@ -93,13 +110,20 @@ async def test_endpoint_builds_cursor_page():
     store = AsyncMock(return_value=(rows, {"v": 1, "k": ["2026-09-01T00:04:00+00:00", 6]}))
     with patch.object(conversation_store, "get_history_page", new=store):
         page = await get_conversation_messages_page(
-            conversation_id=7, cursor=None, limit=2,
-            current_user=SimpleNamespace(id=5), db=_owned_db(SimpleNamespace(id=7)),
+            conversation_id=7,
+            cursor=None,
+            limit=2,
+            current_user=SimpleNamespace(id=5),
+            db=_owned_db(SimpleNamespace(id=7)),
         )
 
     assert [m.id for m in page["items"]] == [6, 7]
     assert page["has_more"] is True and page["limit"] == 2
-    assert decode_cursor(page["next_cursor"])["k"] == ["2026-09-01T00:04:00+00:00", 6]
+    # The cursor is bound to the conversation: it decodes only with that filter.
+    assert decode_cursor(page["next_cursor"], {"conversation_id": 7})["k"] == [
+        "2026-09-01T00:04:00+00:00",
+        6,
+    ]
     assert "total" not in page
     store.assert_awaited_once()
     assert store.await_args.kwargs == {"cursor_payload": {}, "limit": 2}
@@ -108,8 +132,11 @@ async def test_endpoint_builds_cursor_page():
 async def test_endpoint_foreign_conversation_is_404_like_messages_route():
     with pytest.raises(HTTPException) as exc:
         await get_conversation_messages_page(
-            conversation_id=999, cursor=None, limit=30,
-            current_user=SimpleNamespace(id=5), db=_owned_db(None),
+            conversation_id=999,
+            cursor=None,
+            limit=30,
+            current_user=SimpleNamespace(id=5),
+            db=_owned_db(None),
         )
     assert exc.value.status_code == 404
     assert exc.value.detail == "Conversation not found"
@@ -118,8 +145,11 @@ async def test_endpoint_foreign_conversation_is_404_like_messages_route():
 async def test_endpoint_invalid_cursor_is_invalid_cursor():
     with pytest.raises(BadRequestException) as exc:
         await get_conversation_messages_page(
-            conversation_id=7, cursor="not-a-cursor", limit=30,
-            current_user=SimpleNamespace(id=5), db=_owned_db(SimpleNamespace(id=7)),
+            conversation_id=7,
+            cursor="not-a-cursor",
+            limit=30,
+            current_user=SimpleNamespace(id=5),
+            db=_owned_db(SimpleNamespace(id=7)),
         )
     assert exc.value.error_code == "INVALID_CURSOR"
 
@@ -148,3 +178,54 @@ def test_route_is_registered_with_limits_and_error_envelope():
     bad = client.get(url, params={"cursor": "%%%"})
     assert bad.status_code == 400
     assert bad.json()["error"]["code"] == "INVALID_CURSOR"
+
+
+def test_bare_messages_route_is_removed_and_the_page_route_is_a_cursor_page():
+    """webui2-3: the bare list route is gone (no installed builds). Only /messages/page remains."""
+    from app.api.api_v1.dependencies.auth import get_current_active_user
+    from app.core.database import get_db
+    from app.factory import create_app
+
+    app = create_app(testing=True)
+    app.dependency_overrides[get_current_active_user] = lambda: SimpleNamespace(id=5)
+    app.dependency_overrides[get_db] = lambda: _owned_db(SimpleNamespace(id=7))
+    client = TestClient(app, raise_server_exceptions=False)
+
+    bare = client.get("/api/v1/agent/conversations/7/messages")
+    assert bare.status_code == 404
+    assert bare.json()["error"]["code"] == "NOT_FOUND"
+    paths = app.openapi()["paths"]
+    assert "/api/v1/agent/conversations/{conversation_id}/messages" not in paths
+    assert "/api/v1/agent/conversations/{conversation_id}/messages/page" in paths
+
+    with patch.object(
+        conversation_store, "get_history_page", new=AsyncMock(return_value=([], None))
+    ):
+        paged = client.get("/api/v1/agent/conversations/7/messages/page")
+    assert paged.status_code == 200
+    assert set(paged.json()) >= {"items", "next_cursor", "has_more", "limit"}
+
+
+async def test_page_route_maps_widget_rows_to_widget_fields():
+    """Kept from the removed bare route test: a widget row exposes widget_name and widget_data."""
+    widget = SimpleNamespace(
+        id=1,
+        role="widget",
+        content=None,
+        tool_name="OwnerDashboardWidget",
+        tool_args=None,
+        tool_result={"cards": 2},
+        created_at=T0,
+    )
+    store = AsyncMock(return_value=([widget], None))
+    with patch.object(conversation_store, "get_history_page", new=store):
+        page = await get_conversation_messages_page(
+            7,
+            cursor=None,
+            limit=30,
+            current_user=SimpleNamespace(id=5),
+            db=_owned_db(SimpleNamespace(id=7)),
+        )
+    item = page["items"][0]
+    assert item.widget_name == "OwnerDashboardWidget"
+    assert item.widget_data == {"cards": 2}

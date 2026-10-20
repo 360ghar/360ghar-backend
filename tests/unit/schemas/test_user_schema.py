@@ -18,5 +18,8 @@ class TestUserUpdate:
         assert data.full_name == "New Name"
 
     def test_notification_settings(self):
-        data = UserUpdate(notification_settings={"email": True, "push": False})
-        assert data.notification_settings == {"email": True, "push": False}
+        data = UserUpdate(notification_settings={"email_notifications": True, "push_notifications": False})
+        assert data.notification_settings.model_dump(exclude_unset=True) == {
+            "email_notifications": True,
+            "push_notifications": False,
+        }

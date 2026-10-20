@@ -10,8 +10,11 @@ import pytest
 import app.models.enums as enum_module
 from app.mcp.apps_sdk import AuthRequiredError
 from app.mcp.chatgpt.pm_lease_tools import owner_leases_terminate
-from app.mcp.chatgpt.pm_rent_tools import owner_rent_record_payment, owner_rent_status
-from app.models.enums import RentChargeStatus
+from app.mcp.chatgpt.pm_rent_tools import (
+    owner_rent_history,
+    owner_rent_record_payment,
+    owner_rent_status,
+)
 
 
 class _SessionContext:
@@ -59,21 +62,28 @@ def _build_charge(*, amount_due, amount_paid, status):
         amount_due=amount_due,
         amount_paid=amount_paid,
         status=status,
-        late_fee=0,
+        late_fee_assessed=0,
     )
 
 
 def _build_payment():
-    now = datetime.now(timezone.utc)
-    return SimpleNamespace(
+    """A real RentPayment row (unsaved), so the serializer reads the ORM columns."""
+    from app.models.enums import PaymentMethod, RentPaymentStatus
+    from app.models.pm_finance import RentPayment
+
+    return RentPayment(
         id=5,
-        rent_charge_id=3,
-        amount=1200,
-        payment_date=date(2026, 2, 15),
-        payment_method=SimpleNamespace(value="upi"),
-        transaction_id="TXN-001",
+        charge_id=3,
+        lease_id=2,
+        property_id=4,
+        owner_id=1,
+        paid_at=datetime(2026, 2, 15, tzinfo=timezone.utc),
+        amount_paid=1200,
+        payment_method=PaymentMethod.upi,
+        status=RentPaymentStatus.settled,
+        reference="TXN-001",
         notes="partial payment",
-        created_at=now,
+        created_at=datetime.now(timezone.utc),
     )
 
 
@@ -91,7 +101,9 @@ async def test_owner_leases_terminate_requires_authentication():
 
     with (
         patch("app.mcp.chatgpt.pm_lease_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
-        patch("app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=None)),
+        patch(
+            "app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=None)
+        ),
     ):
         with pytest.raises(AuthRequiredError):
             await owner_leases_terminate(lease_id=1, termination_date="2026-03-15")
@@ -104,7 +116,9 @@ async def test_owner_leases_terminate_invalid_date_returns_validation_error():
 
     with (
         patch("app.mcp.chatgpt.pm_lease_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
-        patch("app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=user)),
+        patch(
+            "app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=user)
+        ),
     ):
         result = await owner_leases_terminate(lease_id=1, termination_date="not-a-date")
 
@@ -120,7 +134,9 @@ async def test_owner_leases_terminate_maps_not_found_errors():
 
     with (
         patch("app.mcp.chatgpt.pm_lease_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
-        patch("app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=user)),
+        patch(
+            "app.mcp.chatgpt.pm_lease_tools._get_optional_user", new=AsyncMock(return_value=user)
+        ),
         patch("app.schemas.user.User.model_validate", return_value=user),
         patch(
             "app.services.pm_leases.terminate_lease",
@@ -231,77 +247,129 @@ async def test_owner_rent_record_payment_success_commits_and_serializes_payment(
             notes="partial payment",
         )
 
-    assert result.structured_content["success"] is True
-    assert result.structured_content["payment"]["rent_charge_id"] == 3
+    assert "success" not in result.structured_content
+    assert result.structured_content["payment"]["charge_id"] == 3
+    assert result.structured_content["payment"]["amount_paid"] == 1200.0
+    assert result.structured_content["payment"]["paid_at"] == "2026-02-15T00:00:00Z"
     assert result.structured_content["payment"]["payment_method"] == "upi"
+    assert result.structured_content["payment"]["reference"] == "TXN-001"
     db.commit.assert_awaited_once()
     assert mock_record.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_owner_rent_record_payment_failure_after_record_does_not_commit():
+    """A failure while building the response rolls the write back. A retry cannot double-record."""
+    db = AsyncMock()
+    user = _build_user()
+    payment = _build_payment()
+    mock_record = AsyncMock(return_value=payment)
+
+    with (
+        patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
+        patch("app.mcp.chatgpt.pm_rent_tools._get_optional_user", new=AsyncMock(return_value=user)),
+        patch("app.schemas.user.User.model_validate", return_value=user),
+        patch("app.services.pm_rent.record_rent_payment", new=mock_record),
+        patch(
+            "app.mcp.chatgpt.pm_rent_tools.serialize_rent_payment",
+            side_effect=RuntimeError("serializer broke"),
+        ),
+    ):
+        result = await owner_rent_record_payment(
+            rent_charge_id=3,
+            amount=1200,
+            payment_date="2026-02-15",
+            payment_method="upi",
+        )
+
+    db.commit.assert_not_awaited()
+    assert result.structured_content["error"] is True
+
+
+@pytest.mark.asyncio
+async def test_owner_rent_history_returns_items_with_real_payment_fields():
+    db = AsyncMock()
+    user = _build_user()
+    mock_list = AsyncMock(return_value=([_build_payment()], None, None))
+
+    with (
+        patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
+        patch("app.mcp.chatgpt.pm_rent_tools._get_optional_user", new=AsyncMock(return_value=user)),
+        patch("app.schemas.user.User.model_validate", return_value=user),
+        patch("app.services.pm_rent.list_rent_payments", new=mock_list),
+    ):
+        result = await owner_rent_history(property_id=4)
+
+    content = result.structured_content
+    assert "payments" not in content
+    assert content["items"][0]["charge_id"] == 3
+    assert content["items"][0]["amount_paid"] == 1200.0
+    assert content["items"][0]["reference"] == "TXN-001"
+    assert content["total"] is None
+
+
+def _page(items=(), totals=None):
+    from app.services.pm.rent_due import RentChargePage
+
+    return RentChargePage(
+        items=list(items),
+        next_payload=None,
+        totals=totals
+        or {"total_due": 0.0, "total_paid": 0.0, "overdue_count": 0, "charges_count": 0},
+    )
 
 
 @pytest.mark.asyncio
 async def test_owner_rent_status_summary_all_current_when_no_outstanding_balance():
     db = AsyncMock()
     user = _build_user()
-
-    # No unpaid charges returned for any status
-    mock_list = AsyncMock(return_value=([], None, None))
+    mock_page = AsyncMock(return_value=_page())
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
         patch("app.mcp.chatgpt.pm_rent_tools._get_optional_user", new=AsyncMock(return_value=user)),
         patch("app.schemas.user.User.model_validate", return_value=user),
-        patch("app.services.pm_rent.list_rent_charges", new=mock_list),
+        patch("app.services.pm.rent_due.list_rent_charge_page", new=mock_page),
     ):
         result = await owner_rent_status()
 
     assert _content_text(result) == "All rent is current. No outstanding balances."
     assert result.structured_content["totals"]["total_due"] == 0
-    # list_rent_charges is called once per unpaid status
-    assert mock_list.await_count == 3
-    called_statuses = [c.kwargs["status"] for c in mock_list.await_args_list]
-    assert called_statuses == [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
+    assert mock_page.await_args.kwargs["owner_ids"] == [user.id]
+    assert mock_page.await_args.kwargs["unpaid_only"] is True
 
 
 @pytest.mark.asyncio
-async def test_owner_rent_status_includes_overdue_counts_in_summary():
+async def test_owner_rent_status_summary_counts_overdue_charges_from_the_totals():
     db = AsyncMock()
     user = _build_user()
-    overdue_charge = _build_charge(amount_due=2000, amount_paid=500, status="overdue")
-
-    async def _list_by_status(*args, **kwargs):
-        status = kwargs.get("status")
-        if status == RentChargeStatus.overdue:
-            return ([overdue_charge], None, None)
-        return ([], None, None)
-
-    mock_list = AsyncMock(side_effect=_list_by_status)
+    totals = {"total_due": 1500.0, "total_paid": 500.0, "overdue_count": 1, "charges_count": 1}
+    mock_page = AsyncMock(return_value=_page(totals=totals))
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
         patch("app.mcp.chatgpt.pm_rent_tools._get_optional_user", new=AsyncMock(return_value=user)),
         patch("app.schemas.user.User.model_validate", return_value=user),
-        patch("app.services.pm_rent.list_rent_charges", new=mock_list),
+        patch("app.services.pm.rent_due.list_rent_charge_page", new=mock_page),
     ):
         result = await owner_rent_status()
 
     assert "1 overdue charges require attention" in _content_text(result)
     assert result.structured_content["totals"]["overdue_count"] == 1
-    # list_rent_charges is called once per unpaid status
-    assert mock_list.await_count == 3
 
 
 @pytest.mark.asyncio
-async def test_owner_rent_status_include_paid_disables_status_filter():
+async def test_owner_rent_status_include_paid_drops_the_unpaid_filter():
     db = AsyncMock()
     user = _build_user()
-    mock_list = AsyncMock(return_value=([], None, None))
+    mock_page = AsyncMock(return_value=_page())
 
     with (
         patch("app.mcp.chatgpt.pm_rent_tools.AsyncSessionLocal", return_value=_SessionContext(db)),
         patch("app.mcp.chatgpt.pm_rent_tools._get_optional_user", new=AsyncMock(return_value=user)),
         patch("app.schemas.user.User.model_validate", return_value=user),
-        patch("app.services.pm_rent.list_rent_charges", new=mock_list),
+        patch("app.services.pm.rent_due.list_rent_charge_page", new=mock_page),
     ):
         await owner_rent_status(include_paid=True)
 
-    assert mock_list.await_args.kwargs["status"] is None
+    assert mock_page.await_args.kwargs["unpaid_only"] is False

@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -154,7 +151,8 @@ async def test_http_exception_keeps_retry_after_and_standard_body() -> None:
     assert limited.json() == {"error": {"code": "RATE_LIMIT_EXCEEDED", "message": "Slow down"}}
     assert coded.status_code == 503
     assert coded.headers["retry-after"] == "9"
-    assert coded.json() == {"error": {"code": "BUSY", "message": "Busy"}}
+    # A 5xx code that is not on the curated list shows the status phrase, not the detail text.
+    assert coded.json() == {"error": {"code": "BUSY", "message": "Service Unavailable"}}
 
 
 @pytest.mark.asyncio

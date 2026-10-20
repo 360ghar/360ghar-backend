@@ -262,7 +262,7 @@ class VisitFactory:
         property_id: int | None = None,
         agent_id: int | None = None,
         scheduled_date: datetime | None = None,
-        status: VisitStatus = VisitStatus.scheduled,
+        status: VisitStatus = VisitStatus.requested,
         **kwargs,
     ) -> Visit:
         """Build a Visit instance without persisting."""

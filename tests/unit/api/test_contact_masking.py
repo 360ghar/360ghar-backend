@@ -16,7 +16,7 @@ from app.api.api_v1.dependencies.auth import (
 from app.core.database import get_db
 from app.factory import create_app
 from app.schemas.visit import Visit
-from app.services.property.privacy import hide_visit_contacts
+from app.services.visibility import mask_visit_contacts
 
 NOW = datetime(2026, 9, 1, tzinfo=timezone.utc)
 OWNER, VISITOR, COUNTERPARTY, ADMIN = 10, 20, 30, 99
@@ -30,13 +30,13 @@ def _property():
     return SimpleNamespace(
         id=1, title="2BHK", property_type="apartment", purpose="rent", base_price=25000,
         owner_id=OWNER, owner_contact="+919800000010", status="available", is_available=True,
-        view_count=0, like_count=0, interest_count=0, created_at=NOW,
+        view_count=0, like_count=0, interest_count=0, created_at=NOW, updated_at=NOW,
     )
 
 
 def _counterparty():
     return SimpleNamespace(
-        id=COUNTERPARTY, supabase_user_id="u-30", is_active=True, is_verified=True, created_at=NOW,
+        id=COUNTERPARTY, supabase_user_id="u-30", is_active=True, is_verified=True, created_at=NOW, updated_at=NOW,
         full_name="Asha", profile_image_url="https://img/asha.png", email="asha@example.com",
         phone="+919800000030", current_latitude=28.6, current_longitude=77.2,
     )
@@ -46,13 +46,12 @@ def _visit_row():
     return SimpleNamespace(
         id=5, user_id=VISITOR, property_id=1, agent_id=None, agent=None,
         scheduled_date=NOW + timedelta(days=2), status="confirmed", visit_context="flatmate_meet",
-        counterparty_user_id=COUNTERPARTY, created_at=NOW, follow_up_required=False,
+        counterparty_user_id=COUNTERPARTY, created_at=NOW, updated_at=NOW, follow_up_required=False,
         property=_property(), counterparty_user=_counterparty(),
     )
 
 
-def _masked(cp: dict) -> bool:
-    return all(cp[k] is None for k in ("email", "phone", "current_latitude", "current_longitude"))
+PUBLIC_REF = {"id", "display_name", "avatar_url"}
 
 
 # --- the helper ---------------------------------------------------------------------------
@@ -60,40 +59,50 @@ def _masked(cp: dict) -> bool:
 
 def test_helper_masks_for_non_owner_and_keeps_identity():
     visit = Visit.model_validate(_visit_row(), from_attributes=True)
-    out = hide_visit_contacts(visit, _viewer(VISITOR))
+    out = mask_visit_contacts(visit, _viewer(VISITOR))
 
     assert out.property.owner_contact is None
     cp = out.counterparty_user
-    assert _masked(cp.model_dump())
-    assert (cp.id, cp.full_name, cp.profile_image_url) == (COUNTERPARTY, "Asha", "https://img/asha.png")
+    # The counterparty is a PublicUserRef: name and avatar only, never contact data.
+    assert set(cp.model_dump()) == {"id", "display_name", "avatar_url"}
+    assert (cp.id, cp.display_name, cp.avatar_url) == (COUNTERPARTY, "Asha", "https://img/asha.png")
     # Input is not changed.
     assert visit.property.owner_contact == "+919800000010"
-    assert visit.counterparty_user.phone == "+919800000030"
+    assert visit.counterparty_user.display_name == "Asha"
 
 
 @pytest.mark.parametrize("viewer", [_viewer(OWNER), _viewer(ADMIN, "admin")])
 def test_helper_keeps_everything_for_owner_and_admin(viewer):
-    out = hide_visit_contacts(Visit.model_validate(_visit_row(), from_attributes=True), viewer)
+    out = mask_visit_contacts(Visit.model_validate(_visit_row(), from_attributes=True), viewer)
     assert out.property.owner_contact == "+919800000010"
-    assert out.counterparty_user.phone == "+919800000030"
-    assert out.counterparty_user.email == "asha@example.com"
+    assert set(out.counterparty_user.model_dump()) == PUBLIC_REF
 
 
-def test_helper_counterparty_sees_own_contact_but_not_owner_number():
-    out = hide_visit_contacts(
+def test_helper_counterparty_gets_name_and_avatar_only_and_not_owner_number():
+    out = mask_visit_contacts(
         Visit.model_validate(_visit_row(), from_attributes=True), _viewer(COUNTERPARTY)
     )
-    assert out.counterparty_user.phone == "+919800000030"
+    assert set(out.counterparty_user.model_dump()) == PUBLIC_REF
     assert out.property.owner_contact is None
 
 
 def test_helper_masks_for_anonymous_viewer():
-    out = hide_visit_contacts(Visit.model_validate(_visit_row(), from_attributes=True), None)
+    out = mask_visit_contacts(Visit.model_validate(_visit_row(), from_attributes=True), None)
     assert out.property.owner_contact is None
-    assert _masked(out.counterparty_user.model_dump())
+    assert set(out.counterparty_user.model_dump()) == PUBLIC_REF
 
 
 # --- the endpoints --------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _stub_agent_lookup():
+    # The DB is a mock here. The agent lookup has a DB-backed test in tests/api/test_owner_agent_contact.py.
+    with (
+        patch("app.api.api_v1.endpoints.swipes.attach_owner_agents", new=AsyncMock()),
+        patch("app.api.api_v1.endpoints.visits.attach_owner_agents", new=AsyncMock()),
+    ):
+        yield
 
 
 def _client(viewer) -> TestClient:
@@ -149,5 +158,5 @@ def test_visit_list_detail_and_cancel_mask_contacts(viewer, masked):
     for body in bodies:
         assert (body["property"]["owner_contact"] is None) is masked
         cp = body["counterparty_user"]
-        assert _masked(cp) is masked
-        assert (cp["id"], cp["full_name"]) == (COUNTERPARTY, "Asha")
+        assert set(cp) == {"id", "display_name", "avatar_url"}
+        assert (cp["id"], cp["display_name"]) == (COUNTERPARTY, "Asha")

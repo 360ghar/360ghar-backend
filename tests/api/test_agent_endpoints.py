@@ -263,15 +263,15 @@ class TestGetAgentWithStatsEndpoint:
     """Tests for GET /api/v1/agents/{agent_id}/stats/ endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_agent_with_stats(self, authenticated_client: AsyncClient):
-        """Test getting agent with statistics."""
+    async def test_get_agent_with_stats(self, admin_authenticated_client: AsyncClient):
+        """Test getting agent with statistics (admins and the agent only)."""
         with patch(
             "app.api.api_v1.endpoints.agents.get_agent_with_stats",
             new_callable=AsyncMock,
         ) as mock_get:
             mock_get.return_value = create_mock_agent_with_stats(42)
 
-            response = await authenticated_client.get("/api/v1/agents/42/stats/")
+            response = await admin_authenticated_client.get("/api/v1/agents/42/stats/")
 
             assert response.status_code == 200
             data = response.json()
@@ -279,7 +279,7 @@ class TestGetAgentWithStatsEndpoint:
             assert "stats" in data
 
     @pytest.mark.asyncio
-    async def test_get_agent_stats_not_found(self, authenticated_client: AsyncClient):
+    async def test_get_agent_stats_not_found(self, admin_authenticated_client: AsyncClient):
         """Test getting stats for non-existent agent."""
         with patch(
             "app.api.api_v1.endpoints.agents.get_agent_with_stats",
@@ -287,7 +287,7 @@ class TestGetAgentWithStatsEndpoint:
         ) as mock_get:
             mock_get.return_value = None
 
-            response = await authenticated_client.get("/api/v1/agents/99999/stats/")
+            response = await admin_authenticated_client.get("/api/v1/agents/99999/stats/")
 
             assert response.status_code == 404
 
@@ -345,12 +345,16 @@ class TestUpdateAgentAvailabilityEndpoint:
         with patch(
             "app.api.api_v1.endpoints.agents.update_agent_availability",
             new_callable=AsyncMock,
-        ) as mock_update:
+        ) as mock_update, patch(
+            "app.api.api_v1.endpoints.agents.get_agent_by_id",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_update.return_value = True
+            mock_get.return_value = create_mock_agent(42, "Test Agent")
 
             response = await admin_authenticated_client.patch(
                 "/api/v1/agents/42/availability/",
-                params={"is_available": False},
+                json={"is_available": False},
             )
 
             assert response.status_code == 200
@@ -368,7 +372,7 @@ class TestUpdateAgentAvailabilityEndpoint:
 
             response = await admin_authenticated_client.patch(
                 "/api/v1/agents/99999/availability/",
-                params={"is_available": False},
+                json={"is_available": False},
             )
 
             assert response.status_code == 404

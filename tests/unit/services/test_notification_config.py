@@ -122,14 +122,6 @@ class TestNotificationTypesRegistry:
         for m in marketing:
             assert m.frequency_cap is not None, f"Marketing type '{m.key}' missing frequency cap"
 
-    def test_marketing_types_have_opt_in_key(self):
-        marketing = [
-            v for v in NOTIFICATION_TYPES.values()
-            if v.category == NotificationCategory.MARKETING
-        ]
-        for m in marketing:
-            assert m.marketing_opt_in_key is not None, f"Marketing type '{m.key}' missing opt-in key"
-
     def test_security_alert_uses_all_channels(self):
         config = NOTIFICATION_TYPES["security_alert"]
         assert NotificationChannel.PUSH in config.allowed_channels

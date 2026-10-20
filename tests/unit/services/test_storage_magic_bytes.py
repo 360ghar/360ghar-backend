@@ -11,7 +11,7 @@ import pytest
 from fastapi import UploadFile
 from starlette.datastructures import Headers
 
-from app.core.exceptions import StorageException
+from app.core.exceptions import InvalidFileException, StorageException
 from app.services.storage.helpers import (
     expected_type_from_content_type,
     validate_magic_bytes,
@@ -139,10 +139,11 @@ class TestServiceRejectsSpoofedUploads:
         service._cloudinary = object()  # avoid lazy cloudinary build; never reached
 
         file = _make_upload(SPOOFED_PDF, "application/pdf", "spoof.pdf")
-        with pytest.raises(StorageException) as exc_info:
+        with pytest.raises(InvalidFileException) as exc_info:
             await service.upload_with_path(
                 file, user_id=1, folder=StorageFolder.DOCUMENT_GENERAL
             )
+        assert exc_info.value.status_code == 400
         assert exc_info.value.error_code == "INVALID_FILE_TYPE"
 
     @pytest.mark.asyncio
@@ -151,10 +152,11 @@ class TestServiceRejectsSpoofedUploads:
         service._cloudinary = object()
 
         file = _make_upload(SPOOFED_MP4, "video/mp4", "spoof.mp4")
-        with pytest.raises(StorageException) as exc_info:
+        with pytest.raises(InvalidFileException) as exc_info:
             await service.upload_with_path(
                 file, user_id=1, folder=StorageFolder.GENERIC_UPLOAD
             )
+        assert exc_info.value.status_code == 400
         assert exc_info.value.error_code == "INVALID_FILE_TYPE"
 
     @pytest.mark.asyncio

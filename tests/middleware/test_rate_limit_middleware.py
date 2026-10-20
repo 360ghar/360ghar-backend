@@ -36,7 +36,8 @@ class TestRateLimitMiddleware:
             "/docs",
             "/redoc",
             "/openapi.json",
-            "/api/v1/notifications/sse",
+            "/api/v1/agent/chat",
+            "/api/v1/agent/chat-public",
         ]
         for path in exempt_paths:
             assert middleware._is_exempt_path(path) is True
@@ -48,7 +49,13 @@ class TestRateLimitMiddleware:
         app = FastAPI()
         middleware = RateLimitMiddleware(app)
 
-        non_exempt = ["/api/v1/properties/", "/api/v1/users/profile/", "/api/v1/users/"]
+        # The notifications SSE route does not exist, so its name is not exempt.
+        non_exempt = [
+            "/api/v1/properties/",
+            "/api/v1/users/profile/",
+            "/api/v1/users/",
+            "/api/v1/notifications/sse",
+        ]
         for path in non_exempt:
             assert middleware._is_exempt_path(path) is False
 
@@ -72,24 +79,23 @@ class TestRateLimitMiddleware:
         assert client_id is not None
         assert len(client_id) > 0
 
-    def test_get_client_id_with_forwarded_header(self):
-        """Test client ID with X-Forwarded-For header."""
+    def test_get_client_id_with_forwarded_header(self, monkeypatch):
+        """The client is the entry the trusted proxy appended. The first entry is client-supplied."""
+        from app.config import settings
         from app.middleware.rate_limit import RateLimitMiddleware
 
-        app = FastAPI()
-        middleware = RateLimitMiddleware(app)
+        monkeypatch.setattr(settings, "TRUSTED_PROXY_HOPS", 1)
+        middleware = RateLimitMiddleware(FastAPI())
 
-        mock_request = MagicMock(spec=Request)
-        mock_request.headers = {"X-Forwarded-For": "1.2.3.4, 5.6.7.8"}
-        mock_request.client = MagicMock()
-        mock_request.client.host = "127.0.0.1"
-        mock_request.state = MagicMock()
-        mock_request.state.user = None
+        request = Request(
+            {
+                "type": "http",
+                "headers": [(b"x-forwarded-for", b"1.2.3.4, 5.6.7.8")],
+                "client": ("127.0.0.1", 1234),
+            }
+        )
 
-        client_id = middleware.get_client_id(mock_request)
-
-        # Should use first IP from forwarded header
-        assert "1.2.3.4" in client_id or client_id is not None
+        assert middleware.get_client_id(request) == "ip:5.6.7.8"
 
 
 class TestRateLimitIntegration:

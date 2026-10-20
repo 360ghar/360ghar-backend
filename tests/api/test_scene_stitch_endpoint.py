@@ -62,7 +62,7 @@ class TestSceneStitchEndpoint:
                 f"/api/v1/scenes/{scene.id}/stitch", json={"frame_urls": FRAME_URLS}
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 202
         job = response.json()["job"]
         assert job["job_type"] == "panorama_stitch"
         assert job["status"] == "pending"
@@ -71,9 +71,7 @@ class TestSceneStitchEndpoint:
         mock_track.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_foreign_scene_returns_404(
-        self, user_client, db_session, test_user, test_user_2
-    ):
+    async def test_foreign_scene_returns_404(self, user_client, db_session, test_user, test_user_2):
         foreign_scene = await _make_scene(db_session, test_user_2)
 
         response = await user_client.post(
