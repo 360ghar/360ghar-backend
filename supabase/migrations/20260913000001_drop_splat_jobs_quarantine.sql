@@ -1,15 +1,12 @@
 -- =============================================================================
--- QUARANTINE – UNAPPLIED – DEV ONLY – DO NOT APPLY TO PROD
 -- Migration: 20260913000001_drop_splat_jobs_quarantine.sql
 --
 -- Drops the 3D Splat Lab `splat_jobs` table created by
 -- 20260715000001_splat_jobs.sql (Gaussian Splatting pipeline jobs).
 --
--- Status: UNAPPLIED by design. No DB writes have been performed in this pass.
--- Prod drop needs separate approval per spec
--- 2026-09-13-splat-removal-daytona-tour-keep.md.
--- Apply only against a dev/staging Supabase project, never prod, via:
---   uv run python scripts/run_supabase_migrations.py --file 20260913000001_drop_splat_jobs_quarantine.sql
+-- Splat removal was approved on 2026-10-14 (contract-audit/decisions.md), so this
+-- runs with the normal migration runner. The splat code was removed in the same
+-- integration branch.
 -- =============================================================================
 
 -- Drop the auto-updated trigger first (table-dependent).
