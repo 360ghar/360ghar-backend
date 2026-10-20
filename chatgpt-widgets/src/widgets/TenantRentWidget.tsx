@@ -1,151 +1,130 @@
 /**
  * TenantRentWidget - View rent dues and payment history for tenants.
  *
- * Tool: tenant.rent.dues, tenant.rent.history
+ * Tools: tenant_rent_dues (`charges`, `total_due`, `overdue_count`),
+ * tenant_rent_history (`items`, `total_collected`, cursor).
+ *
+ * The widget has no pay button: there is no tenant payment route. The owner or agent
+ * records a payment.
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/bridge';
+import type { RentChargeRow, RentPaymentRow, TenantRentOutput } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useTheme,
+  useToolInput,
+  useToolOutput,
+} from '../utils/bridge';
+import { formatDateOnly, formatInstantDate } from '../utils/datetime';
+import { formatRupees } from '../utils/format';
+import { pageArgs, readPage, usePagedRows, type PagedView } from '../utils/paging';
+import {
+  PAYMENT_METHOD_LABEL,
+  RENT_CHARGE_STATUS,
+  RENT_PAYMENT_STATUS,
+  enumKey,
+  statusView,
+  toneColor,
+} from '../utils/status';
 import { themeColors } from '../utils/theme';
-import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { FullError, InlineError, LoadMore, LoadingNote, LoginRequired } from '../components/common/Notices';
 
-interface RentCharge {
-  id: number;
-  lease_id: number;
-  billing_month: string;
-  due_date: string;
-  amount_due: number;
-  amount_paid: number;
-  balance: number;
-  status: string;
-  late_fee?: number;
+type View = 'dues' | 'history';
+
+const DATE_WITH_YEAR: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'short', day: 'numeric' };
+const MONTH_ONLY: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long' };
+
+/** tenant_rent_dues sends `charges`. tenant_rent_history sends `items`. */
+function isDues(payload: TenantRentOutput): boolean {
+  return payload.charges != null;
 }
 
-interface RentPayment {
-  id: number;
-  rent_charge_id: number;
-  amount: number;
-  payment_date: string;
-  payment_method: string;
-  transaction_id?: string;
-  created_at?: string;
-}
-
-interface TenantRentOutput {
-  charges?: RentCharge[];
-  payments?: RentPayment[];
-  total_due?: number;
-  overdue_count?: number;
-  total?: number;
-  total_collected?: number;
-  error?: boolean;
-  message?: string;
-  requires_auth?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatMonth(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    year: 'numeric',
-    month: 'long',
-  });
-}
-
-function formatCurrency(amount: number): string {
-  return `₹${amount.toLocaleString('en-IN')}`;
-}
-
-function getStatusColor(status: string, colors: typeof themeColors.light): string {
-  switch (status) {
-    case 'paid':
-      return colors.success;
-    case 'pending':
-      return colors.warning;
-    case 'partial':
-      return colors.primary;
-    case 'overdue':
-      return colors.error;
-    default:
-      return colors.textSecondary;
-  }
-}
-
-function isOverdue(dueDate: string): boolean {
-  return new Date(dueDate) < new Date();
+function readHistory(payload: TenantRentOutput): PagedView<RentPaymentRow> | null {
+  return payload.items ? { rows: payload.items, page: readPage(payload) } : null;
 }
 
 function TenantRentWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
   const data = useToolOutput<TenantRentOutput>();
+  const toolInput = useToolInput();
   const callTool = useCallTool();
-  const sendMessage = useSendMessage();
-  const [view, setView] = React.useState<'dues' | 'history'>('dues');
+  // The tab the user chose. Null: the tab of the tool that produced the widget.
+  const [chosenView, setChosenView] = React.useState<View | null>(null);
+  const [fetchedDues, setFetchedDues] = React.useState<TenantRentOutput | null>(null);
+  const [fetchedHistory, setFetchedHistory] = React.useState<TenantRentOutput | null>(null);
+  const [loadingView, setLoadingView] = React.useState<View | null>(null);
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const dues = fetchedDues ?? (data && isDues(data) ? data : null);
+  const historyOutput = fetchedHistory ?? (data && readHistory(data) ? data : null);
+  const history = usePagedRows(historyOutput, readHistory);
 
   if (!data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>
-        Loading rent information...
-      </div>
-    );
+    return <LoadingNote text="Loading rent information..." />;
   }
 
   if (data.requires_auth) {
-    return (
-      <div style={{
-        backgroundColor: colors.background,
-        color: colors.text,
-        minHeight: '100vh',
-        padding: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🔐</div>
-        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Login Required</h2>
-        <p style={{ color: colors.textSecondary, marginBottom: 24 }}>
-          Please log in to view your rent information.
-        </p>
-        <Button onClick={() => sendMessage('Help me log in to 360Ghar')}>
-          Log In
-        </Button>
-      </div>
-    );
+    return <LoginRequired message="Please log in to view your rent information." />;
   }
 
   if (data.error) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.error }}>
-        {data.message || 'Failed to load rent information'}
-      </div>
-    );
+    return <FullError message={data.message || 'Failed to load rent information'} />;
   }
 
-  const charges = data.charges || [];
-  const payments = data.payments || [];
-  const totalDue = data.total_due || 0;
-  const overdueCount = data.overdue_count || 0;
+  const view: View = chosenView ?? (isDues(data) ? 'dues' : 'history');
 
-  const handleViewHistory = () => {
-    setView('history');
-    callTool('tenant.rent.history', {});
+  const showView = async (next: View) => {
+    setChosenView(next);
+    setError(null);
+    const loaded = next === 'dues' ? dues : historyOutput;
+    if (loaded) return;
+
+    setLoadingView(next);
+    const result = await callTool<TenantRentOutput>(
+      next === 'dues' ? 'tenant_rent_dues' : 'tenant_rent_history',
+      {},
+    );
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else if (next === 'dues') {
+      setFetchedDues(result);
+    } else {
+      setFetchedHistory(result);
+    }
+    setLoadingView(null);
   };
 
-  const handleViewDues = () => {
-    setView('dues');
-    callTool('tenant.rent.dues', {});
+  const handleLoadMore = async () => {
+    if (loadingMore || !history.page.has_more || !history.page.next_cursor) return;
+    setLoadingMore(true);
+    setError(null);
+
+    // The original call's arguments apply only when tenant_rent_history made this widget.
+    const baseArgs = !fetchedHistory && readHistory(data) ? toolInput : {};
+    const result = await callTool<TenantRentOutput>(
+      'tenant_rent_history',
+      pageArgs(baseArgs, history.page.next_cursor),
+    );
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else {
+      history.append(result);
+    }
+    setLoadingMore(false);
   };
+
+  const charges: RentChargeRow[] = dues?.charges ?? [];
+  const totalDue = dues?.total_due ?? 0;
+  const overdueCount = dues?.overdue_count ?? 0;
+  const payments = history.rows;
+  const totalCollected = (fetchedHistory ?? historyOutput)?.total_collected;
 
   return (
     <div style={{
@@ -159,7 +138,7 @@ function TenantRentWidget() {
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
         <button
-          onClick={handleViewDues}
+          onClick={() => showView('dues')}
           style={{
             flex: 1,
             padding: '12px 16px',
@@ -175,7 +154,7 @@ function TenantRentWidget() {
           Current Dues
         </button>
         <button
-          onClick={handleViewHistory}
+          onClick={() => showView('history')}
           style={{
             flex: 1,
             padding: '12px 16px',
@@ -192,7 +171,11 @@ function TenantRentWidget() {
         </button>
       </div>
 
-      {view === 'dues' ? (
+      <InlineError message={error} />
+
+      {loadingView === view ? (
+        <LoadingNote text="Loading..." />
+      ) : view === 'dues' ? (
         <>
           {/* Summary */}
           {totalDue > 0 ? (
@@ -202,19 +185,20 @@ function TenantRentWidget() {
                   Total Amount Due
                 </div>
                 <div style={{ fontSize: 32, fontWeight: 700, color: colors.error }}>
-                  {formatCurrency(totalDue)}
+                  {formatRupees(totalDue)}
                 </div>
                 {overdueCount > 0 && (
                   <div style={{
                     marginTop: 8,
                     padding: '4px 12px',
                     backgroundColor: colors.error,
-                    color: '#F2EDE0',
+                    color: '#3D3829',
                     borderRadius: 20,
                     fontSize: 12,
+                    fontWeight: 600,
                     display: 'inline-block',
                   }}>
-                    {overdueCount} payment{overdueCount > 1 ? 's' : ''} overdue!
+                    {overdueCount} payment{overdueCount > 1 ? 's' : ''} overdue
                   </div>
                 )}
               </div>
@@ -236,67 +220,63 @@ function TenantRentWidget() {
           {/* Charges List */}
           {charges.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {charges.map((charge) => (
-                <Card key={charge.id} padding="md">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <span style={{
-                        display: 'inline-block',
-                        padding: '2px 8px',
-                        borderRadius: 4,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        textTransform: 'uppercase',
-                        backgroundColor: `${getStatusColor(charge.status, colors)}20`,
-                        color: getStatusColor(charge.status, colors),
-                        marginBottom: 6,
-                      }}>
-                        {charge.status}
-                      </span>
-                      <div style={{ fontSize: 16, fontWeight: 600 }}>
-                        {formatMonth(charge.billing_month)}
+              {charges.map((charge) => {
+                const status = statusView(RENT_CHARGE_STATUS, charge.status);
+                const statusColor = toneColor(status.tone, colors);
+                return (
+                  <Card key={charge.id} padding="md">
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <span style={{
+                          display: 'inline-block',
+                          padding: '2px 8px',
+                          borderRadius: 4,
+                          fontSize: 11,
+                          fontWeight: 500,
+                          textTransform: 'uppercase',
+                          backgroundColor: `${statusColor}20`,
+                          color: statusColor,
+                          marginBottom: 6,
+                        }}>
+                          {status.label}
+                        </span>
+                        <div style={{ fontSize: 16, fontWeight: 600 }}>
+                          {formatDateOnly(charge.billing_month, MONTH_ONLY)}
+                        </div>
+                        <div style={{ fontSize: 12, color: colors.textSecondary }}>
+                          Due: {formatDateOnly(charge.due_date, DATE_WITH_YEAR)}
+                        </div>
                       </div>
-                      <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                        Due: {formatDate(charge.due_date)}
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: colors.error }}>
+                          {formatRupees(charge.balance)}
+                        </div>
+                        {charge.amount_paid > 0 && (
+                          <div style={{ fontSize: 12, color: colors.success }}>
+                            {formatRupees(charge.amount_paid)} paid
+                          </div>
+                        )}
+                        {charge.late_fee > 0 && (
+                          <div style={{ fontSize: 11, color: colors.error }}>
+                            Includes {formatRupees(charge.late_fee)} late fee
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: colors.error }}>
-                        {formatCurrency(charge.balance)}
-                      </div>
-                      {charge.amount_paid > 0 && (
-                        <div style={{ fontSize: 12, color: colors.success }}>
-                          {formatCurrency(charge.amount_paid)} paid
-                        </div>
-                      )}
-                      {charge.late_fee && charge.late_fee > 0 && (
-                        <div style={{ fontSize: 11, color: colors.error }}>
-                          +{formatCurrency(charge.late_fee)} late fee
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          )}
-
-          {/* Pay Now CTA */}
-          {totalDue > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <Button
-                size="lg"
-                style={{ width: '100%' }}
-                onClick={() => sendMessage('How can I pay my rent?')}
-              >
-                Pay Now
-              </Button>
+                  </Card>
+                );
+              })}
             </div>
           )}
         </>
       ) : (
         <>
           {/* Payment History */}
+          {typeof totalCollected === 'number' && payments.length > 0 && (
+            <div style={{ marginBottom: 12, fontSize: 14, color: colors.textSecondary }}>
+              Total paid: <span style={{ fontWeight: 600, color: colors.success }}>{formatRupees(totalCollected)}</span>
+            </div>
+          )}
           {payments.length === 0 ? (
             <div style={{
               textAlign: 'center',
@@ -309,37 +289,50 @@ function TenantRentWidget() {
               <p style={{ fontSize: 16 }}>No payment history</p>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {payments.map((payment) => (
-                <Card key={payment.id} padding="md">
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 15, fontWeight: 600, color: colors.success }}>
-                        {formatCurrency(payment.amount)}
-                      </div>
-                      <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                        {formatDate(payment.payment_date)} • {payment.payment_method}
-                      </div>
-                      {payment.transaction_id && (
-                        <div style={{ fontSize: 11, color: colors.textSecondary }}>
-                          Ref: {payment.transaction_id}
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {payments.map((payment) => {
+                  const status = statusView(RENT_PAYMENT_STATUS, payment.status);
+                  const statusColor = toneColor(status.tone, colors);
+                  const methodKey = enumKey(PAYMENT_METHOD_LABEL, payment.payment_method);
+                  return (
+                    <Card key={payment.id} padding="md">
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: colors.success }}>
+                            {formatRupees(payment.amount_paid)}
+                          </div>
+                          <div style={{ fontSize: 12, color: colors.textSecondary }}>
+                            {formatInstantDate(payment.paid_at, DATE_WITH_YEAR)}
+                            {methodKey ? ` • ${PAYMENT_METHOD_LABEL[methodKey]}` : ''}
+                          </div>
+                          {payment.reference && (
+                            <div style={{ fontSize: 11, color: colors.textSecondary }}>
+                              Ref: {payment.reference}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <div style={{
-                      padding: '4px 10px',
-                      backgroundColor: `${colors.success}15`,
-                      borderRadius: 20,
-                      color: colors.success,
-                      fontSize: 12,
-                      fontWeight: 500,
-                    }}>
-                      Paid
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
+                        <div style={{
+                          padding: '4px 10px',
+                          backgroundColor: `${statusColor}15`,
+                          borderRadius: 20,
+                          color: statusColor,
+                          fontSize: 12,
+                          fontWeight: 500,
+                        }}>
+                          {status.label}
+                        </div>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+              <LoadMore
+                hasMore={history.page.has_more && history.page.next_cursor !== null}
+                loading={loadingMore}
+                onClick={handleLoadMore}
+              />
+            </>
           )}
         </>
       )}

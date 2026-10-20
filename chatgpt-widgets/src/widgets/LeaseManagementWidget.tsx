@@ -1,155 +1,72 @@
 /**
- * LeaseManagementWidget - Manage property leases for owners.
+ * LeaseManagementWidget - Manage property leases for owners and agents.
  *
- * Tool: owner.leases.list, owner.leases.get
+ * Tools: owner_leases_list and agent_leases_list (`leases` and `stats`), owner_leases_get (one `lease`).
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/bridge';
+import type { LeaseManagementOutput, LeaseRow } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useSendMessage,
+  useTheme,
+  useToolInput,
+  useToolOutput,
+} from '../utils/bridge';
+import { daysUntilDateOnly, formatDateOnly } from '../utils/datetime';
+import { formatRupeesCompact } from '../utils/format';
+import { pageArgs, readPage, usePagedRows, type PagedView } from '../utils/paging';
+import { ENDED_LEASE, LEASE_STATUS, OCCUPYING_LEASE, enumKey, statusView, toneColor } from '../utils/status';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { FullError, InlineError, LoadMore, LoadingNote, LoginRequired } from '../components/common/Notices';
 
-interface PropertyData {
-  id: number;
-  title: string;
-  locality?: string;
-  city?: string;
-  main_image_url?: string;
-}
+type Filter = 'all' | 'active' | 'ended';
 
-interface TenantData {
-  id: number;
-  name: string;
-  phone?: string;
-  email?: string;
-}
-
-interface Lease {
-  id: number;
-  property_id: number;
-  property?: PropertyData;
-  tenant_user_id?: number;
-  tenant?: TenantData;
-  start_date: string;
-  end_date: string;
-  monthly_rent: number;
-  security_deposit?: number;
-  payment_due_day?: number;
-  status: string;
-  rent_paid_through?: string;
-  created_at?: string;
-}
-
-interface Stats {
-  active_leases: number;
-  total_monthly_rent: number;
-}
-
-interface LeaseListOutput {
-  leases?: Lease[];
-  total?: number;
-  page?: number;
-  limit?: number;
-  stats?: Stats;
-  error?: boolean;
-  message?: string;
-  requires_auth?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-IN', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatCurrency(amount?: number): string {
-  if (!amount) return '₹0';
-  if (amount >= 100000) return `₹${(amount / 100000).toFixed(1)}L`;
-  return `₹${amount.toLocaleString('en-IN')}`;
-}
-
-function getStatusColor(status: string, colors: typeof themeColors.light): string {
-  switch (status) {
-    case 'active':
-      return colors.success;
-    case 'pending':
-      return colors.warning;
-    case 'expired':
-    case 'terminated':
-      return colors.error;
-    default:
-      return colors.textSecondary;
-  }
-}
-
-function getDaysRemaining(endDate: string): number {
-  const end = new Date(endDate);
-  const today = new Date();
-  return Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+/** `leases` from the list tools. owner_leases_get sends one `lease`. */
+function readLeases(payload: LeaseManagementOutput): PagedView<LeaseRow> | null {
+  if (payload.leases) return { rows: payload.leases, page: readPage(payload) };
+  if (payload.lease) return { rows: [payload.lease], page: readPage({}) };
+  return null;
 }
 
 function LeaseManagementWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
-  const data = useToolOutput<LeaseListOutput>();
+  const data = useToolOutput<LeaseManagementOutput>();
+  const toolInput = useToolInput();
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
-  const [filter, setFilter] = React.useState<'all' | 'active' | 'expired'>('all');
+  const [filter, setFilter] = React.useState<Filter>('all');
+  const [loadingMore, setLoadingMore] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const { rows: leases, page, append } = usePagedRows(data, readLeases);
 
   if (!data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>
-        Loading leases...
-      </div>
-    );
+    return <LoadingNote text="Loading leases..." />;
   }
 
   if (data.requires_auth) {
-    return (
-      <div style={{
-        backgroundColor: colors.background,
-        color: colors.text,
-        minHeight: '100vh',
-        padding: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🔐</div>
-        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Login Required</h2>
-        <p style={{ color: colors.textSecondary, marginBottom: 24 }}>
-          Please log in to manage your leases.
-        </p>
-        <Button onClick={() => sendMessage('Help me log in to 360Ghar')}>
-          Log In
-        </Button>
-      </div>
-    );
+    return <LoginRequired message="Please log in to manage your leases." />;
   }
 
   if (data.error) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.error }}>
-        {data.message || 'Failed to load leases'}
-      </div>
-    );
+    return <FullError message={data.message || 'Failed to load leases'} />;
   }
 
-  const leases = data.leases || [];
-  const stats = data.stats || { active_leases: 0, total_monthly_rent: 0 };
+  // Portfolio stats come with the list tools. A single lease has none.
+  const stats = data.stats ?? null;
 
   // Filter leases
   const filteredLeases = leases.filter((lease) => {
     if (filter === 'all') return true;
-    if (filter === 'active') return lease.status === 'active';
-    if (filter === 'expired') return lease.status === 'expired' || lease.status === 'terminated';
-    return true;
+    const key = enumKey(LEASE_STATUS, lease.status);
+    if (key === null) return false;
+    return filter === 'active' ? OCCUPYING_LEASE.includes(key) : ENDED_LEASE.includes(key);
   });
 
   const handleViewLease = (leaseId: number) => {
@@ -158,6 +75,23 @@ function LeaseManagementWidget() {
 
   const handleTerminateLease = (leaseId: number) => {
     sendMessage(`I want to terminate lease ${leaseId}`);
+  };
+
+  const handleLoadMore = async () => {
+    if (loadingMore || !page.has_more || !page.next_cursor) return;
+    setLoadingMore(true);
+    setError(null);
+
+    const result = await callTool<LeaseManagementOutput>(
+      ['owner_leases_list', 'agent_leases_list'],
+      pageArgs(toolInput, page.next_cursor),
+    );
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else {
+      append(result);
+    }
+    setLoadingMore(false);
   };
 
   return (
@@ -170,22 +104,24 @@ function LeaseManagementWidget() {
       <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>Lease Management</h2>
 
       {/* Stats */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-        <Card padding="md">
-          <div style={{ fontSize: 12, color: colors.textSecondary }}>Active Leases</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: colors.success }}>{stats.active_leases}</div>
-        </Card>
-        <Card padding="md">
-          <div style={{ fontSize: 12, color: colors.textSecondary }}>Monthly Income</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: colors.primary }}>
-            {formatCurrency(stats.total_monthly_rent)}
-          </div>
-        </Card>
-      </div>
+      {stats && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <Card padding="md">
+            <div style={{ fontSize: 12, color: colors.textSecondary }}>Active Leases</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: colors.success }}>{stats.active_leases}</div>
+          </Card>
+          <Card padding="md">
+            <div style={{ fontSize: 12, color: colors.textSecondary }}>Monthly Income</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: colors.primary }}>
+              {formatRupeesCompact(stats.total_monthly_rent)}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Filter */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {(['all', 'active', 'expired'] as const).map((f) => (
+        {(['all', 'active', 'ended'] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -206,6 +142,8 @@ function LeaseManagementWidget() {
         ))}
       </div>
 
+      <InlineError message={error} />
+
       {/* Lease List */}
       {filteredLeases.length === 0 ? (
         <div style={{
@@ -221,8 +159,11 @@ function LeaseManagementWidget() {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {filteredLeases.map((lease) => {
-            const daysRemaining = getDaysRemaining(lease.end_date);
-            const isExpiringSoon = daysRemaining <= 30 && daysRemaining > 0 && lease.status === 'active';
+            const status = statusView(LEASE_STATUS, lease.status);
+            const statusColor = toneColor(status.tone, colors);
+            const daysRemaining = daysUntilDateOnly(lease.end_date);
+            const isOccupying = status.key !== null && OCCUPYING_LEASE.some((k) => k === status.key);
+            const isExpiringSoon = isOccupying && daysRemaining !== null && daysRemaining <= 30 && daysRemaining > 0;
 
             return (
               <Card key={lease.id} padding="none" style={{ overflow: 'hidden' }}>
@@ -250,10 +191,10 @@ function LeaseManagementWidget() {
                         fontSize: 11,
                         fontWeight: 500,
                         textTransform: 'uppercase',
-                        backgroundColor: `${getStatusColor(lease.status, colors)}20`,
-                        color: getStatusColor(lease.status, colors),
+                        backgroundColor: `${statusColor}20`,
+                        color: statusColor,
                       }}>
-                        {lease.status}
+                        {status.label}
                       </span>
                       {isExpiringSoon && (
                         <span style={{
@@ -272,25 +213,25 @@ function LeaseManagementWidget() {
                       </h3>
                     )}
 
-                    {/* Tenant */}
-                    {lease.tenant && (
+                    {/* Tenant: name only. Contact data reaches the owner, admins and the tenant. */}
+                    {lease.tenant?.display_name && (
                       <p style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
-                        Tenant: {lease.tenant.name}
+                        Tenant: {lease.tenant.display_name}
                       </p>
                     )}
 
                     {/* Details */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <div style={{ fontSize: 12, color: colors.textSecondary }}>
-                        {formatDate(lease.start_date)} - {formatDate(lease.end_date)}
+                        {formatDateOnly(lease.start_date)} - {formatDateOnly(lease.end_date)}
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 600, color: colors.primary }}>
-                        {formatCurrency(lease.monthly_rent)}/mo
+                        {formatRupeesCompact(lease.monthly_rent)}/mo
                       </div>
                     </div>
 
                     {/* Actions */}
-                    {lease.status === 'active' && (
+                    {isOccupying && (
                       <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
                         <Button
                           variant="secondary"
@@ -316,6 +257,8 @@ function LeaseManagementWidget() {
           })}
         </div>
       )}
+
+      <LoadMore hasMore={page.has_more && page.next_cursor !== null} loading={loadingMore} onClick={handleLoadMore} />
     </div>
   );
 }

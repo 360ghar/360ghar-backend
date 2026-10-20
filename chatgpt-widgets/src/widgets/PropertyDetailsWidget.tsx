@@ -1,76 +1,27 @@
 /**
  * PropertyDetailsWidget - Displays full property details.
  *
- * Tool: discovery.property.get
+ * Tools: discovery_property_get, owner_properties_get, agent_properties_get
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useSendMessage, useCallTool } from '../utils/bridge';
+import type { PropertyDetailRow, PropertyDetailsOutput, PropertyImage } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useSendMessage,
+  useTheme,
+  useToolOutput,
+} from '../utils/bridge';
+import { formatRupeesCompact } from '../utils/format';
+import { formatLocation, formatPropertyPrice, purposeLabel } from '../utils/property';
+import { FURNISHING_LABEL, enumKey } from '../utils/status';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
-
-interface PropertyImage {
-  id: number;
-  url: string;
-  caption?: string;
-}
-
-interface Amenity {
-  id: number;
-  name: string;
-  icon?: string;
-}
-
-interface PropertyDetails {
-  id: number;
-  title: string;
-  description?: string;
-  locality?: string;
-  city?: string;
-  state?: string;
-  pincode?: string;
-  full_address?: string;
-  latitude?: number;
-  longitude?: number;
-  base_price?: number;
-  monthly_rent?: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  area_sqft?: number;
-  property_type?: string;
-  purpose?: string;
-  main_image_url?: string;
-  images?: PropertyImage[];
-  amenities?: Amenity[];
-  is_available?: boolean;
-  furnished_status?: string;
-  floor_number?: number;
-  total_floors?: number;
-  facing?: string;
-  age_years?: number;
-  user_liked?: boolean;
-  owner_name?: string;
-  owner_phone?: string;
-}
-
-interface PropertyDetailsOutput {
-  property?: PropertyDetails;
-  error?: boolean;
-  code?: string;
-  message?: string;
-}
-
-function formatPrice(price?: number, purpose?: string): string {
-  if (!price) return 'Price on request';
-  const formatted = price >= 10000000
-    ? `₹${(price / 10000000).toFixed(2)} Cr`
-    : price >= 100000
-      ? `₹${(price / 100000).toFixed(2)} L`
-      : `₹${price.toLocaleString('en-IN')}`;
-  return purpose === 'rent' ? `${formatted}/month` : formatted;
-}
+import { FullError, InlineError, LoadingNote } from '../components/common/Notices';
 
 function PropertyDetailsWidget() {
   const theme = useTheme();
@@ -80,6 +31,7 @@ function PropertyDetailsWidget() {
   const callTool = useCallTool();
   const [currentImageIndex, setCurrentImageIndex] = React.useState(0);
   const [isLiked, setIsLiked] = React.useState(false);
+  const [likeError, setLikeError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (data?.property?.user_liked) {
@@ -88,11 +40,7 @@ function PropertyDetailsWidget() {
   }, [data?.property?.user_liked]);
 
   if (!data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>
-        Loading property details...
-      </div>
-    );
+    return <LoadingNote text="Loading property details..." />;
   }
 
   if (data.error) {
@@ -106,21 +54,32 @@ function PropertyDetailsWidget() {
     );
   }
 
-  const property = data.property!;
-  const images = property.images || (property.main_image_url ? [{ id: 0, url: property.main_image_url }] : []);
-  const price = property.purpose === 'rent' ? property.monthly_rent : property.base_price;
+  if (!data.property) {
+    return <FullError message="No property to show." />;
+  }
+
+  const property: PropertyDetailRow = data.property;
+  const images: PropertyImage[] =
+    property.images && property.images.length > 0
+      ? property.images
+      : property.main_image_url
+        ? [{ url: property.main_image_url, caption: null }]
+        : [];
+  const badge = purposeLabel(property.purpose);
+  const furnishing = enumKey(FURNISHING_LABEL, property.furnished_status);
 
   const handleScheduleVisit = () => {
     sendMessage(`I'd like to schedule a visit for property ${property.id}: ${property.title}`);
   };
 
   const handleLike = async () => {
-    await callTool('discovery.swipe', { property_id: property.id, is_liked: true });
-    setIsLiked(true);
-  };
-
-  const handleShare = () => {
-    sendMessage(`Share property ${property.id}: ${property.title}`);
+    setLikeError(null);
+    const result = await callTool('discovery_swipe', { property_id: property.id, is_liked: true });
+    if (isToolFailure(result)) {
+      setLikeError(toolFailureMessage(result));
+    } else {
+      setIsLiked(true);
+    }
   };
 
   const handlePrevImage = () => {
@@ -216,21 +175,23 @@ function PropertyDetailsWidget() {
           )}
           {/* Badges */}
           <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 8 }}>
-            <span style={{
-              backgroundColor: 'rgba(28, 26, 22, 0.85)',
-              color: '#F2EDE0',
-              padding: '6px 12px',
-              borderRadius: 6,
-              fontSize: 12,
-              fontWeight: 500,
-              textTransform: 'uppercase',
-            }}>
-              {property.purpose === 'rent' ? 'For Rent' : property.purpose === 'short_stay' ? 'Short Stay' : 'For Sale'}
-            </span>
+            {badge && (
+              <span style={{
+                backgroundColor: 'rgba(28, 26, 22, 0.85)',
+                color: '#F2EDE0',
+                padding: '6px 12px',
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 500,
+                textTransform: 'uppercase',
+              }}>
+                {badge}
+              </span>
+            )}
             {property.is_available === false && (
               <span style={{
                 backgroundColor: colors.error,
-                color: '#F2EDE0',
+                color: '#3D3829',
                 padding: '6px 12px',
                 borderRadius: 6,
                 fontSize: 12,
@@ -249,29 +210,29 @@ function PropertyDetailsWidget() {
         <div style={{ marginBottom: 16 }}>
           <h1 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>{property.title}</h1>
           <p style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>
-            {[property.locality, property.city, property.state].filter(Boolean).join(', ')}
+            {formatLocation(property)}
           </p>
           <p style={{ fontSize: 28, fontWeight: 700, color: colors.primary }}>
-            {formatPrice(price, property.purpose)}
+            {formatPropertyPrice(property, true)}
           </p>
         </div>
 
         {/* Quick Specs */}
         <Card padding="md" style={{ marginBottom: 16 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, textAlign: 'center' }}>
-            {property.bedrooms !== undefined && (
+            {property.bedrooms != null && (
               <div>
                 <div style={{ fontSize: 20, fontWeight: 600 }}>{property.bedrooms}</div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Bedrooms</div>
               </div>
             )}
-            {property.bathrooms !== undefined && (
+            {property.bathrooms != null && (
               <div>
                 <div style={{ fontSize: 20, fontWeight: 600 }}>{property.bathrooms}</div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Bathrooms</div>
               </div>
             )}
-            {property.area_sqft !== undefined && (
+            {property.area_sqft != null && (
               <div>
                 <div style={{ fontSize: 20, fontWeight: 600 }}>{property.area_sqft.toLocaleString()}</div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Sq Ft</div>
@@ -279,7 +240,7 @@ function PropertyDetailsWidget() {
             )}
             {property.property_type && (
               <div>
-                <div style={{ fontSize: 14, fontWeight: 600, textTransform: 'capitalize' }}>{property.property_type}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, textTransform: 'capitalize' }}>{property.property_type.replace(/_/g, ' ')}</div>
                 <div style={{ fontSize: 12, color: colors.textSecondary }}>Type</div>
               </div>
             )}
@@ -300,13 +261,13 @@ function PropertyDetailsWidget() {
         <Card padding="md" style={{ marginBottom: 16 }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Property Details</h3>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
-            {property.furnished_status && (
+            {furnishing && (
               <div>
-                <span style={{ color: colors.textSecondary, fontSize: 13 }}>Furnished Status:</span>
-                <span style={{ marginLeft: 8, fontSize: 14, textTransform: 'capitalize' }}>{property.furnished_status}</span>
+                <span style={{ color: colors.textSecondary, fontSize: 13 }}>Furnishing:</span>
+                <span style={{ marginLeft: 8, fontSize: 14 }}>{FURNISHING_LABEL[furnishing]}</span>
               </div>
             )}
-            {property.floor_number !== undefined && (
+            {property.floor_number != null && (
               <div>
                 <span style={{ color: colors.textSecondary, fontSize: 13 }}>Floor:</span>
                 <span style={{ marginLeft: 8, fontSize: 14 }}>
@@ -314,16 +275,27 @@ function PropertyDetailsWidget() {
                 </span>
               </div>
             )}
-            {property.facing && (
-              <div>
-                <span style={{ color: colors.textSecondary, fontSize: 13 }}>Facing:</span>
-                <span style={{ marginLeft: 8, fontSize: 14, textTransform: 'capitalize' }}>{property.facing}</span>
-              </div>
-            )}
-            {property.age_years !== undefined && (
+            {property.age_years != null && (
               <div>
                 <span style={{ color: colors.textSecondary, fontSize: 13 }}>Age:</span>
                 <span style={{ marginLeft: 8, fontSize: 14 }}>{property.age_years} years</span>
+              </div>
+            )}
+            {property.security_deposit != null && property.security_deposit > 0 && (
+              <div>
+                <span style={{ color: colors.textSecondary, fontSize: 13 }}>Security deposit:</span>
+                <span style={{ marginLeft: 8, fontSize: 14 }}>{formatRupeesCompact(property.security_deposit)}</span>
+              </div>
+            )}
+            {property.owner_phone && (
+              <div>
+                <span style={{ color: colors.textSecondary, fontSize: 13 }}>Contact:</span>
+                <a
+                  href={`tel:${property.owner_phone}`}
+                  style={{ marginLeft: 8, fontSize: 14, color: colors.text }}
+                >
+                  {property.owner_phone}
+                </a>
               </div>
             )}
           </div>
@@ -334,9 +306,9 @@ function PropertyDetailsWidget() {
           <div style={{ marginBottom: 16 }}>
             <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Amenities</h3>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {property.amenities.map((amenity) => (
+              {property.amenities.map((amenity, index) => (
                 <span
-                  key={amenity.id}
+                  key={amenity.id ?? `amenity-${index}`}
                   style={{
                     backgroundColor: colors.backgroundSecondary,
                     padding: '8px 12px',
@@ -356,7 +328,10 @@ function PropertyDetailsWidget() {
         )}
 
         {/* Action Buttons */}
-        <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+        <div style={{ marginTop: 20 }}>
+          <InlineError message={likeError} />
+        </div>
+        <div style={{ display: 'flex', gap: 12 }}>
           <Button
             onClick={handleScheduleVisit}
             size="lg"
