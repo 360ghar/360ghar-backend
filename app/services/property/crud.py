@@ -1,9 +1,11 @@
 """Create, read, update, delete operations for properties."""
 
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import date, datetime, timezone
+from typing import Any
 
+from sqlalchemy import DateTime, func, select, update
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -12,10 +14,12 @@ from app.core.cache import PropertyCacheManager, get_cache_manager
 from app.core.db_resilience import execute_with_transient_retry
 from app.core.exceptions import (
     BadRequestException,
+    ConflictException,
     InsufficientPermissionsError,
     PropertyNotFoundException,
     PropertyOwnershipError,
     UserNotFoundException,
+    ValidationException,
 )
 from app.core.logging import get_logger
 from app.models.agents import Agent
@@ -31,9 +35,14 @@ from app.models.properties import Amenity, Property, PropertyAmenity, PropertyIm
 from app.models.users import User as UserModel
 from app.repositories.property_repository import PropertyRepository
 from app.schemas.amenity import Amenity as AmenitySchema
-from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
+from app.schemas.pagination import (
+    keyset_payload,
+    keyset_sort_value,
+    read_keyset,
+    validate_keyset_payload,
+)
 from app.schemas.property import Property as PropertySchema
-from app.schemas.property import PropertyAgent, PropertyCreate, PropertyUpdate
+from app.schemas.property import PropertyAgent, PropertyCreate, PropertyDetail, PropertyUpdate
 from app.schemas.user import User as UserSchema
 from app.services.flatmates.helpers import geocode_listing
 from app.services.flatmates.moderation import (
@@ -41,7 +50,13 @@ from app.services.flatmates.moderation import (
     apply_stale_listing_pause,
 )
 from app.services.pm_authz import get_actor_role
-from app.services.property.helpers import build_location_wkt, validate_listing_contract
+from app.services.property.helpers import (
+    build_location_wkt,
+    derive_furnishing_level,
+    validate_listing_contract,
+)
+from app.services.property.keyset import KeySpec, keyset_after
+from app.services.visibility import PUBLIC_LISTING_PREFERENCE_KEYS, public_listing_preferences
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
@@ -100,13 +115,12 @@ def _schedule_async_image_verification(property_id: int, image_urls: list[str]) 
 
             async with AsyncSessionLocal() as session:
                 for bad_url in dropped:
+                    # image_url is NOT NULL, so an unreachable photo is deleted, not nulled.
                     await session.execute(
-                        update(PropertyImage)
-                        .where(
+                        sa_delete(PropertyImage).where(
                             PropertyImage.property_id == property_id,
                             PropertyImage.image_url == bad_url,
                         )
-                        .values(image_url=None)
                     )
                     # If the broken URL was the main image, clear it too.
                     await session.execute(
@@ -150,6 +164,59 @@ def _owner_moderation_status_toggle(update_data: dict) -> str | None:
         return None
     moderation_status = incoming_preferences.get("moderation_status")
     return moderation_status if moderation_status in {"live", "paused"} else None
+
+
+# Top-level flatmate preference fields. They are stored inside listing_preferences.
+_TOP_LEVEL_PREFERENCE_KEYS = (
+    "gender_preference",
+    "sharing_type",
+    "society_type",
+    "society_amenities",
+    "society_vibe_tags",
+)
+
+# Set by auto-pause. An owner cannot resume a listing while it is set.
+_REVIEW_REQUIRED_FLAG = "room_poster_review_required"
+
+
+def _check_owner_status_toggle(existing_preferences: dict, target: str) -> None:
+    """An owner may pause a live listing, and resume a paused one that has no review flag.
+
+    A listing that is pending review or rejected cannot be paused or resumed by
+    its owner. A pause from those states would otherwise lead to a resume without review.
+    """
+    current = existing_preferences.get("moderation_status")
+    if current not in {"live", "paused"}:
+        raise ConflictException(
+            detail="Only a live or paused listing can change status",
+            error_code="LISTING_STATUS_CONFLICT",
+        )
+    if target == "live" and existing_preferences.get(_REVIEW_REQUIRED_FLAG):
+        raise ConflictException(
+            detail="This listing needs review before it can go live again",
+            error_code="LISTING_STATUS_CONFLICT",
+        )
+
+
+def _available_from_datetime(value: Any) -> datetime | None:
+    """Store a date-only available_from as UTC midnight."""
+    if value is None:
+        return None
+    day = date.fromisoformat(value) if isinstance(value, str) else value
+    return datetime(day.year, day.month, day.day, tzinfo=timezone.utc)
+
+
+async def _ensure_amenities_exist(db: AsyncSession, amenity_ids: Iterable[int] | None) -> None:
+    """Reject unknown amenity ids with 422 instead of a foreign-key error (500)."""
+    wanted = set(amenity_ids or [])
+    if not wanted:
+        return
+    found = set(
+        (await db.execute(select(Amenity.id).where(Amenity.id.in_(wanted)))).scalars().all()
+    )
+    missing = sorted(wanted - found)
+    if missing:
+        raise ValidationException(detail=f"Unknown amenity id(s): {missing}")
 
 
 async def _replace_property_images(
@@ -235,6 +302,25 @@ async def create_property(
         if image_urls:
             image_urls = await _verify_and_clean_image_urls(image_urls)
         amenity_ids = property_dict.pop("amenity_ids", None)
+        await _ensure_amenities_exist(db, amenity_ids)
+        if "available_from" in property_dict:
+            property_dict["available_from"] = _available_from_datetime(
+                property_dict["available_from"]
+            )
+        top_level_prefs = {
+            key: property_dict.pop(key)
+            for key in _TOP_LEVEL_PREFERENCE_KEYS
+            if key in property_dict
+        }
+        if top_level_prefs:
+            prefs = dict(property_dict.get("listing_preferences") or {})
+            prefs.update(top_level_prefs)
+            property_dict["listing_preferences"] = prefs
+        if actor_role != UserRole.admin and property_dict.get("listing_preferences") is not None:
+            # Owners write public listing keys only. Moderator and boost keys are server-owned.
+            property_dict["listing_preferences"] = public_listing_preferences(
+                property_dict["listing_preferences"]
+            )
         if image_urls and not property_dict.get("main_image_url"):
             property_dict["main_image_url"] = image_urls[0]
         property_dict["owner_id"] = owner_id
@@ -245,9 +331,18 @@ async def create_property(
 
         if property_data.property_type in PG_FLATMATE_TYPES:
             preferences = dict(property_dict.get("listing_preferences") or {})
-            preferences.setdefault("moderation_status", "pending_review")
+            if actor_role == UserRole.admin:
+                preferences.setdefault("moderation_status", "pending_review")
+            else:
+                # An owner's PG or flatmate listing always starts in review, whatever the body says.
+                preferences["moderation_status"] = "pending_review"
             property_dict["listing_preferences"] = preferences
             property_dict["is_available"] = False
+
+        # A listing with room-level furnishing takes the highest room level. The client value is ignored.
+        derived_furnishing = derive_furnishing_level(property_dict.get("listing_preferences"))
+        if derived_furnishing is not None:
+            property_dict["furnishing_level"] = derived_furnishing
 
         # Create WKT for location
         wkt = build_location_wkt(property_dict.get("latitude"), property_dict.get("longitude"))
@@ -294,19 +389,40 @@ async def create_property(
         raise
 
 
-async def _owner_agent(db: AsyncSession, owner_id: int | None) -> Agent | None:
-    """The active agent assigned to the listing owner (users.agent_id), if any."""
-    if owner_id is None:
-        return None
+async def attach_owner_agents(
+    db: AsyncSession, props: Iterable[PropertySchema | dict[str, Any] | None]
+) -> None:
+    """Set ``agent`` on each listing to its owner's active agent (users.agent_id).
+
+    One query for all owners. Mutates schemas or list-row dicts in place. ``None`` entries are skipped.
+    """
+    found = [p for p in props if p is not None]
+
+    def owner_of(prop: PropertySchema | dict[str, Any]) -> Any:
+        return prop.get("owner_id") if isinstance(prop, dict) else prop.owner_id
+
+    owner_ids = list({owner_of(p) for p in found} - {None})
+    if not owner_ids:
+        return
     result = await db.execute(
-        select(Agent)
-        .join(UserModel, UserModel.agent_id == Agent.id)
-        .where(UserModel.id == owner_id, Agent.is_active.is_(True))
+        select(UserModel.id, Agent)
+        .join(Agent, UserModel.agent_id == Agent.id)
+        .where(UserModel.id.in_(owner_ids), Agent.is_active.is_(True))
     )
-    return result.scalar_one_or_none()
+    # result.tuples().all(), not the Result: Result has keys(), so dict() would treat it as a mapping.
+    agents: dict[int, Agent] = dict(result.tuples().all())
+    for prop in found:
+        agent = agents.get(owner_of(prop))
+        if agent is None:
+            continue
+        ref = PropertyAgent.model_validate(agent)
+        if isinstance(prop, dict):
+            prop["agent"] = ref.model_dump(mode="json")
+        else:
+            prop.agent = ref
 
 
-async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
+async def get_property(db: AsyncSession, property_id: int) -> PropertyDetail:
     """Get a property with images and owner."""
     logger.debug("Fetching property %s", property_id)
 
@@ -318,7 +434,7 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
     try:
         cached = await get_cache_manager().get(cache_key)
         if cached is not None:
-            return PropertySchema.model_validate(cached)
+            return PropertyDetail.model_validate(cached)
     except Exception as cache_exc:  # noqa: BLE001
         logger.warning("Property detail cache read failed for %s: %s", property_id, cache_exc)
 
@@ -338,10 +454,8 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
                 "image_count": len(property_obj.images) if property_obj.images else 0,
             },
         )
-        schema = PropertySchema.model_validate(property_obj)
-        agent = await _owner_agent(db, property_obj.owner_id)
-        if agent is not None:
-            schema = schema.model_copy(update={"agent": PropertyAgent.model_validate(agent)})
+        schema = PropertyDetail.model_validate(property_obj)
+        await attach_owner_agents(db, [schema])
         try:
             await get_cache_manager().set(
                 cache_key,
@@ -358,6 +472,10 @@ async def get_property(db: AsyncSession, property_id: int) -> PropertySchema:
         raise
 
 
+# The owner list is ordered by created_at, then id (the id is the keyset tie-breaker).
+_OWNER_SORT_KEYS: list[KeySpec] = [(Property.created_at, DateTime(timezone=True), True)]
+
+
 async def list_user_properties(
     db: AsyncSession,
     owner_id: int,
@@ -368,10 +486,7 @@ async def list_user_properties(
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
     """List properties owned by a specific user (auth enforced by caller)."""
     count_total: int | None = None
-    base_stmt = (
-        select(Property)
-        .where(Property.owner_id == owner_id)
-    )
+    base_stmt = select(Property).where(Property.owner_id == owner_id)
     if with_total:
         count_result = await execute_with_transient_retry(
             db,
@@ -380,7 +495,9 @@ async def list_user_properties(
         )
         count_total = count_result.scalar_one()
 
-    predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=True)
+    # The owner cursor is single-key: [created_at, id]. The id is checked against int8.
+    validate_keyset_payload(cursor_payload, "datetime")
+    keyset = read_keyset(cursor_payload)
     stmt = (
         select(Property)
         .options(
@@ -389,8 +506,9 @@ async def list_user_properties(
         )
         .where(Property.owner_id == owner_id)
     )
-    if predicate is not None:
-        stmt = stmt.where(predicate)
+    if keyset is not None:
+        last_created_at, last_id = keyset
+        stmt = stmt.where(keyset_after(_OWNER_SORT_KEYS, True, [last_created_at], int(last_id)))
     stmt = stmt.order_by(Property.created_at.desc(), Property.id.desc()).limit(limit + 1)
 
     res = await execute_with_transient_retry(
@@ -464,6 +582,10 @@ async def update_property(
             image_urls = await _verify_and_clean_image_urls(image_urls)
         amenity_ids_present = "amenity_ids" in update_data
         amenity_ids = update_data.pop("amenity_ids", None)
+        if amenity_ids_present:
+            await _ensure_amenities_exist(db, amenity_ids)
+        if "available_from" in update_data:
+            update_data["available_from"] = _available_from_datetime(update_data["available_from"])
         if image_urls_present and "main_image_url" not in update_data:
             update_data["main_image_url"] = image_urls[0] if image_urls else None
         final_property_type = update_data.get("property_type", property_obj.property_type)
@@ -473,6 +595,14 @@ async def update_property(
         if isinstance(final_purpose, str):
             final_purpose = PropertyPurpose(final_purpose)
         validate_listing_contract(final_property_type, final_purpose)
+        # Same rule as create: a rent-bearing listing keeps a positive monthly_rent.
+        final_monthly_rent = update_data.get("monthly_rent", property_obj.monthly_rent)
+        if (final_property_type in PG_FLATMATE_TYPES or final_purpose == PropertyPurpose.rent) and (
+            final_monthly_rent is None or float(final_monthly_rent) <= 0
+        ):
+            raise ValidationException(
+                detail="monthly_rent must be a positive number for rent/flatmate/PG listings"
+            )
 
         owner_status_toggle = (
             _owner_moderation_status_toggle(update_data)
@@ -493,6 +623,28 @@ async def update_property(
             if pref_key in update_data:
                 top_level_prefs[pref_key] = update_data.pop(pref_key)
 
+        # Owners write public listing keys only. Moderator keys stay as stored, and a null
+        # value keeps the stored preferences (it must not replace the JSONB with null).
+        if (
+            actor_role != UserRole.admin
+            and owner_status_toggle is None
+            and "listing_preferences" in update_data
+        ):
+            incoming_preferences = update_data["listing_preferences"]
+            merged_preferences = (
+                dict(property_obj.listing_preferences)
+                if isinstance(property_obj.listing_preferences, dict)
+                else {}
+            )
+            if isinstance(incoming_preferences, dict):
+                for pref_key, pref_value in incoming_preferences.items():
+                    if (
+                        pref_key in PUBLIC_LISTING_PREFERENCE_KEYS
+                        and pref_key != "moderation_status"
+                    ):
+                        merged_preferences[pref_key] = pref_value
+            update_data["listing_preferences"] = merged_preferences
+
         if final_property_type in PG_FLATMATE_TYPES and actor_role != UserRole.admin:
             existing_preferences = (
                 dict(property_obj.listing_preferences)
@@ -500,20 +652,29 @@ async def update_property(
                 else {}
             )
             if owner_status_toggle is not None:
+                _check_owner_status_toggle(existing_preferences, owner_status_toggle)
                 existing_preferences["moderation_status"] = owner_status_toggle
                 existing_preferences["owner_status_updated_at"] = datetime.now(
                     timezone.utc
                 ).isoformat()
                 update_data["is_available"] = owner_status_toggle == "live"
             else:
+                # Content edits (title, rent, photos, preferences) send a live listing
+                # back to review. Availability and status changes do not.
+                touched = set(update_data) | set(top_level_prefs)
+                if image_urls_present:
+                    touched.add("image_urls")
+                if amenity_ids_present:
+                    touched.add("amenity_ids")
+                content_edit = bool(touched - {"is_available", "status"})
                 incoming_preferences = update_data.get("listing_preferences")
                 if isinstance(incoming_preferences, dict):
                     incoming_preferences.pop("moderation_status", None)
                     incoming_preferences.pop("moderated_by", None)
                     incoming_preferences.pop("moderated_at", None)
                     existing_preferences.update(incoming_preferences)
-                existing_preferences["moderation_status"] = "pending_review"
-                update_data["is_available"] = False
+                if content_edit:
+                    existing_preferences["moderation_status"] = "pending_review"
             update_data["listing_preferences"] = existing_preferences
 
         # Route top-level preference fields into listing_preferences for every
@@ -529,13 +690,20 @@ async def update_property(
             prefs.update(top_level_prefs)
             update_data["listing_preferences"] = prefs
 
-        # Handle location update
+        # A listing with room-level furnishing takes the highest room level, from the new rooms
+        # or the stored ones. The client value is ignored.
+        derived_furnishing = derive_furnishing_level(
+            update_data.get("listing_preferences", property_obj.listing_preferences)
+        )
+        if derived_furnishing is not None:
+            update_data["furnishing_level"] = derived_furnishing
+
+        # Handle location update. When either coordinate is cleared, the point is cleared
+        # too (build_location_wkt gives None), so geo search does not match the old place.
         if "latitude" in update_data or "longitude" in update_data:
             lat = update_data.get("latitude", property_obj.latitude)
             lon = update_data.get("longitude", property_obj.longitude)
-            wkt = build_location_wkt(lat, lon)
-            if wkt is not None:
-                update_data["location"] = wkt
+            update_data["location"] = build_location_wkt(lat, lon)
 
         for field, value in update_data.items():
             setattr(property_obj, field, value)
@@ -645,7 +813,7 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
                 select(Visit.id)
                 .where(
                     Visit.property_id == property_id,
-                    Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed]),
+                    Visit.status.in_([VisitStatus.requested, VisitStatus.confirmed]),
                 )
                 .limit(1)
             )
@@ -658,12 +826,14 @@ async def delete_property(db: AsyncSession, property_id: int, actor: UserSchema)
                 select(Lease.id)
                 .where(
                     Lease.property_id == property_id,
-                    Lease.status.in_([
-                        LeaseStatus.draft,
-                        LeaseStatus.pending_signature,
-                        LeaseStatus.active,
-                        LeaseStatus.expiring_soon,
-                    ]),
+                    Lease.status.in_(
+                        [
+                            LeaseStatus.draft,
+                            LeaseStatus.pending_signature,
+                            LeaseStatus.active,
+                            LeaseStatus.expiring_soon,
+                        ]
+                    ),
                 )
                 .limit(1)
             )
@@ -710,12 +880,12 @@ async def increment_property_view_count(db: AsyncSession, property_id: int):
         result = await db.execute(stmt)
         await db.flush()
 
-        if getattr(result, 'rowcount', 0) > 0:
+        if getattr(result, "rowcount", 0) > 0:
             logger.debug("View count incremented for property %s", property_id)
         else:
             logger.warning("Property %s not found for view count increment", property_id)
 
-        return getattr(result, 'rowcount', 0) > 0
+        return getattr(result, "rowcount", 0) > 0
     except Exception as e:
         logger.error(
             "Failed to increment view count for property %s: %s", property_id, e, exc_info=True

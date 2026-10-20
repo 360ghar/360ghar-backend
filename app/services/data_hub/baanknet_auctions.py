@@ -1,10 +1,11 @@
 """BaankNet auction scraper — NPA and insolvency liquidation assets from baanknet.com."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -94,16 +95,12 @@ class BaankNetAuctionScraper(BaseScraper):
                         record["city"] = self._detect_city(val) or "Delhi NCR"
                     elif "reserve" in h or "base" in h or "price" in h:
                         try:
-                            record["reserve_price"] = float(
-                                re.sub(r"[,₹\s]", "", val)
-                            )
+                            record["reserve_price"] = float(re.sub(r"[,₹\s]", "", val))
                         except ValueError:
                             pass
                     elif "emd" in h or "earnest" in h:
                         try:
-                            record["emd_amount"] = float(
-                                re.sub(r"[,₹\s]", "", val)
-                            )
+                            record["emd_amount"] = float(re.sub(r"[,₹\s]", "", val))
                         except ValueError:
                             pass
                     elif "auction" in h and "date" in h:
@@ -128,7 +125,7 @@ class BaankNetAuctionScraper(BaseScraper):
         """Attempt multiple date formats."""
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
             try:
-                return datetime.strptime(val.strip(), fmt).date()
+                return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
             except ValueError:
                 continue
         return date(1970, 1, 1)

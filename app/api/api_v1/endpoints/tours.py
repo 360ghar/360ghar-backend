@@ -4,12 +4,14 @@
 This module provides REST API endpoints for managing virtual tours,
 including CRUD operations, publishing, duplication, and analytics.
 """
+
 from __future__ import annotations
 
 from datetime import date
 from typing import Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -18,12 +20,14 @@ from app.core.logging import get_logger
 from app.models.enums import TourStatus
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
+    PublicTourWithScenes,
     Scene,
     SceneCreate,
     SceneReorder,
     Tour,
     TourAnalytics,
     TourCreate,
+    TourHeatmapData,
     TourUpdate,
     TourWithScenes,
 )
@@ -52,10 +56,11 @@ async def list_tours(
 
     Returns paginated list of tours with optional filtering by status and search.
     """
+    filters = {"status": status, "search": search}
     tours, next_payload, total = await tour_service.get_tours(
         db=db,
         user_id=current_user.id,
-        cursor_payload=page.decoded(),
+        cursor_payload=page.decoded(filters),
         limit=page.limit,
         with_total=page.include_total,
         status_filter=status,
@@ -66,6 +71,7 @@ async def list_tours(
         limit=page.limit,
         next_payload=next_payload,
         total=total,
+        filters=filters,
     )
 
 
@@ -88,7 +94,11 @@ async def create_tour(
     return tour
 
 
-@router.get("/{tour_id}", response_model=TourWithScenes, summary="Get tour")
+@router.get(
+    "/{tour_id}",
+    response_model=TourWithScenes | PublicTourWithScenes,
+    summary="Get tour",
+)
 async def get_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -97,16 +107,20 @@ async def get_tour(
     """
     Get a tour by ID with all scenes and hotspots.
 
-    Returns the complete tour structure including nested scenes and their hotspots.
+    The owner gets the owner shape (user_id, inactive hotspots, floor plans). Any other
+    caller gets the public shape of a published tour: no user_id, and inactive hotspots
+    removed. A tour the caller cannot see returns 404.
     """
-    return await tour_service.get_tour(
+    tour = await tour_service.get_tour(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
     )
+    if tour.user_id == current_user.id:
+        return TourWithScenes.model_validate(tour)
+    return tour_service.public_tour_view(tour)
 
 
-@router.put("/{tour_id}", response_model=Tour, summary="Update tour")
 @router.patch("/{tour_id}", response_model=Tour, summary="Update tour")
 async def update_tour(
     tour_id: str,
@@ -182,7 +196,12 @@ async def unpublish_tour(
     )
 
 
-@router.post("/{tour_id}/duplicate", response_model=Tour, status_code=status.HTTP_201_CREATED, summary="Duplicate tour")
+@router.post(
+    "/{tour_id}/duplicate",
+    response_model=Tour,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate tour",
+)
 async def duplicate_tour(
     tour_id: str,
     db: AsyncSession = Depends(get_db),
@@ -224,23 +243,33 @@ async def get_tour_analytics(
 
 
 # Scene endpoints nested under tours
-@router.get("/{tour_id}/scenes", response_model=list[Scene], summary="List tour scenes")
+@router.get("/{tour_id}/scenes", response_model=CursorPage[Scene], summary="List tour scenes")
 async def list_scenes(
     tour_id: str,
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-    limit: int = Query(100, le=100, description="Max scenes to return (hard cap 100)"),
 ):
     """
-    List all scenes for a tour.
-
-    Returns scenes ordered by their order_index.
+    List the scenes of a tour, in order_index order.
     """
-    scenes = await tour_service.get_scenes(db=db, tour_id=tour_id, user_id=current_user.id)
-    return scenes[:limit]
+    items, next_payload, total = await tour_service.get_scenes_page(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        include_total=page.include_total,
+    )
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/{tour_id}/scenes", response_model=Scene, status_code=status.HTTP_201_CREATED, summary="Create tour scene")
+@router.post(
+    "/{tour_id}/scenes",
+    response_model=Scene,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create tour scene",
+)
 async def create_scene(
     tour_id: str,
     scene_data: SceneCreate,
@@ -260,8 +289,9 @@ async def create_scene(
     )
 
 
-@router.put("/{tour_id}/scenes/reorder", response_model=list[Scene], summary="Reorder tour scenes")
-@router.post("/{tour_id}/scenes/reorder", response_model=list[Scene], summary="Reorder tour scenes")
+@router.post(
+    "/{tour_id}/scenes/reorder", response_model=CursorPage[Scene], summary="Reorder tour scenes"
+)
 async def reorder_scenes(
     tour_id: str,
     reorder_data: SceneReorder,
@@ -271,7 +301,7 @@ async def reorder_scenes(
     """
     Reorder scenes within a tour.
 
-    Provide the scene IDs in the desired order.
+    Provide every scene ID in the desired order. Returns the reordered scenes in one page.
     """
     scenes = await tour_service.reorder_scenes(
         db=db,
@@ -279,12 +309,11 @@ async def reorder_scenes(
         user_id=current_user.id,
         scene_ids=reorder_data.scene_ids,
     )
-    if scenes is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-    return scenes
+    return build_cursor_page(scenes, limit=max(len(scenes), 1), next_payload=None)
+
+
+# Used when PUBLIC_BASE_URL is unset. Matches the default in app/factory.py and the MCP auth provider.
+PUBLIC_API_FALLBACK_URL = "https://api.360ghar.com"
 
 
 class _TourQRSource(Protocol):
@@ -310,10 +339,11 @@ def _build_tour_qr_url(
     """
     short_code = tour.short_code
     tour_id = tour.id
+    # Same host as the share links: /v/{code} is served by the API (app/api/share.py).
     if short_code:
-        base_url = (public_base_url or "https://360ghar.com").rstrip("/")
+        base_url = (public_base_url or PUBLIC_API_FALLBACK_URL).rstrip("/")
         return f"{base_url}/v/{short_code}"
-    base_url = (public_app_url or public_base_url or "https://360ghar.com").rstrip("/")
+    base_url = (public_app_url or public_base_url or PUBLIC_API_FALLBACK_URL).rstrip("/")
     return f"{base_url}/view/{tour_id}"
 
 
@@ -323,7 +353,7 @@ async def get_tour_qr_code(
     size: int = Query(256, ge=64, le=1024, description="QR code size in pixels"),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
+) -> StreamingResponse:
     """
     Generate a QR code for the tour URL.
 
@@ -332,13 +362,11 @@ async def get_tour_qr_code(
     from io import BytesIO
 
     import qrcode
-    from fastapi.responses import StreamingResponse
 
     tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
     if not tour:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found or not authorized"
         )
 
     from app.config import settings
@@ -363,6 +391,7 @@ async def get_tour_qr_code(
 
     # Resize to requested size
     from PIL import Image
+
     img = img.resize((size, size), Image.Resampling.LANCZOS)
 
     # Convert to bytes
@@ -373,11 +402,11 @@ async def get_tour_qr_code(
     return StreamingResponse(
         buffer,
         media_type="image/png",
-        headers={"Content-Disposition": f"inline; filename=tour-{tour_id}-qr.png"}
+        headers={"Content-Disposition": f"inline; filename=tour-{tour_id}-qr.png"},
     )
 
 
-@router.get("/{tour_id}/heatmap", summary="Get tour heatmap")
+@router.get("/{tour_id}/heatmap", response_model=TourHeatmapData, summary="Get tour heatmap")
 async def get_tour_heatmap(
     tour_id: str,
     scene_id: str | None = Query(None, description="Filter by specific scene"),
@@ -387,21 +416,15 @@ async def get_tour_heatmap(
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """
-    Get aggregated heatmap data for a tour.
+    Get aggregated heatmap data for a tour. The owner only.
 
-    Returns heatmap points grouped by scene with intensity values
-    for visualization of user interaction patterns.
+    Returns one flat list of points. Each point has its scene_id, a 5-degree
+    yaw and pitch cell, a 0-1 intensity and the view count, from scene_view events.
     """
-    tour = await tour_service.get_tour(db=db, tour_id=tour_id, user_id=current_user.id)
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or not authorized"
-        )
-
     heatmap_data = await tour_service.get_tour_heatmap(
         db=db,
         tour_id=tour_id,
+        user_id=current_user.id,
         scene_id=scene_id,
         start_date=start_date,
         end_date=end_date,

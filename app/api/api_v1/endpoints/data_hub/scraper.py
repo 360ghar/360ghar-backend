@@ -1,4 +1,4 @@
-"""Scraper run management and bulk import endpoints (admin only)."""
+"""Scraper run management endpoints (admin only)."""
 
 from importlib import import_module
 
@@ -10,7 +10,7 @@ from app.api.api_v1.dependencies.auth import get_current_admin
 from app.core.database import get_db
 from app.core.logging import get_logger
 from app.models.data_hub import ScraperRun
-from app.schemas.data_hub import ScraperRunResponse
+from app.schemas.data_hub import ScraperRunResponse, ScraperTriggerResult
 from app.schemas.pagination import (
     CursorPage,
     CursorParams,
@@ -48,7 +48,11 @@ _SCRAPER_MAP: dict[str, str] = {
 }
 
 
-@router.post("/admin/scraper/{scraper_name}/trigger", summary="Trigger scraper")
+@router.post(
+    "/admin/scraper/{scraper_name}/trigger",
+    response_model=ScraperTriggerResult,
+    summary="Trigger scraper",
+)
 async def trigger_scraper(
     scraper_name: str,
     current_user: UserSchema = Depends(get_current_admin),
@@ -65,13 +69,19 @@ async def trigger_scraper(
         scraper_cls = getattr(module, class_name)
         scraper = scraper_cls()
         result = await scraper.run(run_type="manual", triggered_by=current_user.id)
-        return {"message": f"Scraper '{scraper_name}' triggered", "result": result}
+        return ScraperTriggerResult(message=f"Scraper '{scraper_name}' triggered", result=result)
     except Exception as exc:
         logger.error("Failed to trigger scraper %s: %s", scraper_name, exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Scraper trigger failed — see server logs") from None
+        raise HTTPException(
+            status_code=500, detail="Scraper trigger failed — see server logs"
+        ) from None
 
 
-@router.get("/admin/scraper/runs", response_model=CursorPage[ScraperRunResponse], summary="List scraper runs")
+@router.get(
+    "/admin/scraper/runs",
+    response_model=CursorPage[ScraperRunResponse],
+    summary="List scraper runs",
+)
 async def list_scraper_runs(
     page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
@@ -83,13 +93,11 @@ async def list_scraper_runs(
 
     total: int | None = None
     if page.include_total:
-        total = (
-            await db.execute(select(func.count()).select_from(ScraperRun))
-        ).scalar_one()
+        total = (await db.execute(select(func.count()).select_from(ScraperRun))).scalar_one()
 
     result = await db.execute(
         select(ScraperRun)
-        .order_by(ScraperRun.started_at.desc())
+        .order_by(ScraperRun.started_at.desc(), ScraperRun.id.desc())
         .offset(offset)
         .limit(page.limit + 1)
     )
@@ -99,25 +107,3 @@ async def list_scraper_runs(
     rows = rows[: page.limit]
     next_payload = offset_payload(offset + page.limit) if has_more else None
     return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
-
-
-@router.post("/admin/import/{table_name}", summary="Bulk import data")
-async def bulk_import(
-    table_name: str,
-    current_user: UserSchema = Depends(get_current_admin),
-):
-    """Placeholder for bulk data import (admin only)."""
-    _SUPPORTED_TABLES = {
-        "circle_rates", "rera_projects", "bank_auctions", "bank_rates",
-        "court_auctions", "rera_complaints", "zoning_data", "colony_approvals",
-        "gazette_notifications",
-    }
-    if table_name not in _SUPPORTED_TABLES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Table '{table_name}' not supported. Supported: {sorted(_SUPPORTED_TABLES)}",
-        )
-    return {
-        "message": f"Bulk import for '{table_name}' is not yet implemented.",
-        "table": table_name,
-    }

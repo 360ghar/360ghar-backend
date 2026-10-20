@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -25,6 +25,7 @@ router = APIRouter()
 @router.post(
     "",
     response_model=LeaseSchema,
+    status_code=status.HTTP_201_CREATED,
     summary="Create lease",
     openapi_extra={
         "requestBody": {
@@ -93,23 +94,34 @@ async def create_pm_lease(
 
 @router.get("", response_model=CursorPage[LeaseSchema], summary="List leases")
 async def list_pm_leases(
+    as_tenant: bool = Query(
+        False, description="If true, return leases where the caller is the tenant"
+    ),
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
     tenant_user_id: int | None = Query(None),
-    status: LeaseStatus | None = Query(None),
+    status_filter: LeaseStatus | None = Query(None, alias="status"),
     page: CursorParams = Depends(),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List leases."""
+    """List leases. Owners see their portfolio; as_tenant=true lists the caller's own leases."""
+    filters = {
+        "as_tenant": as_tenant,
+        "owner_id": owner_id,
+        "property_id": property_id,
+        "tenant_user_id": tenant_user_id,
+        "status": status_filter,
+    }
     rows, next_payload, total = await list_leases(
         db,
         actor=current_user,
+        as_tenant=as_tenant,
         owner_id=owner_id,
         property_id=property_id,
         tenant_user_id=tenant_user_id,
-        status=status,
-        cursor_payload=page.decoded(),
+        status=status_filter,
+        cursor_payload=page.decoded(filters),
         limit=page.limit,
         with_total=page.include_total,
     )
@@ -118,6 +130,7 @@ async def list_pm_leases(
         limit=page.limit,
         next_payload=next_payload,
         total=total,
+        filters=filters,
     )
 
 
@@ -151,7 +164,12 @@ async def upload_signed(
     return LeaseSchema.model_validate(lease)
 
 
-@router.post("/{lease_id}/renew", response_model=LeaseSchema, summary="Renew lease")
+@router.post(
+    "/{lease_id}/renew",
+    response_model=LeaseSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Renew lease",
+)
 async def renew(
     lease_id: int,
     payload: LeaseRenew,
@@ -188,4 +206,3 @@ async def terminate(
         reason=payload.reason if payload else None,
     )
     return LeaseSchema.model_validate(lease)
-

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import io
+import re
 from pathlib import Path
 from typing import Any
+
+from cloudinary.exceptions import NotFound as CloudinaryNotFound
 
 from app.config import settings
 from app.core.exceptions import StorageException
@@ -11,6 +14,25 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 CLOUDINARY_ROOT = "360ghar"
+
+# Cloudinary puts the resource type and delivery type in every asset URL:
+# https://res.cloudinary.com/<cloud>/<resource_type>/<type>/v<n>/<public_id>
+_DELIVERY_IN_URL = re.compile(r"/(image|video|raw)/(upload|authenticated|private)/")
+
+
+def resource_type_for(content_type: str) -> str:
+    """Cloudinary resource type for a MIME type. Anything that is not image or video is raw."""
+    if content_type.startswith("image/"):
+        return "image"
+    if content_type.startswith("video/"):
+        return "video"
+    return "raw"
+
+
+def delivery_from_url(url: str | None) -> tuple[str, str] | None:
+    """(resource_type, delivery_type) that a stored asset URL was created with, or None."""
+    match = _DELIVERY_IN_URL.search(url or "")
+    return (match.group(1), match.group(2)) if match else None
 
 
 def _configure():
@@ -29,6 +51,10 @@ def _configure():
         api_secret=settings.CLOUDINARY_API_SECRET,
         secure=True,
     )
+
+
+class StorageLookupError(Exception):
+    """Cloudinary could not answer a lookup. The asset may or may not exist."""
 
 
 class CloudinaryService:
@@ -69,13 +95,11 @@ class CloudinaryService:
         cleaned = [p.strip("/") for p in parts if p]
         return "/".join(cleaned)
 
-    def _upload_options(self, is_image: bool = False, is_document: bool = False) -> dict[str, Any]:
+    def _upload_options(self, is_image: bool = False) -> dict[str, Any]:
         options: dict[str, Any] = {}
         if is_image:
             options["fetch_format"] = "auto"
             options["quality"] = "auto"
-        if is_document:
-            options["resource_type"] = "auto"
         return options
 
     def upload_file(
@@ -98,7 +122,7 @@ class CloudinaryService:
             }
             if content_type:
                 options["resource_type"] = self._resource_type(content_type)
-            options.update(self._upload_options(is_image=is_image, is_document=options.get("resource_type") == "raw"))
+            options.update(self._upload_options(is_image=is_image))
             options.update(extra_options)
 
             if isinstance(file_bytes, bytes):
@@ -110,15 +134,19 @@ class CloudinaryService:
             return {
                 "public_id": result.get("public_id", full_public_id),
                 "secure_url": secure_url,
-                "bytes": result.get("bytes", len(file_bytes) if isinstance(file_bytes, bytes) else 0),
+                "bytes": result.get(
+                    "bytes", len(file_bytes) if isinstance(file_bytes, bytes) else 0
+                ),
                 "width": result.get("width"),
                 "height": result.get("height"),
                 "format": result.get("format"),
                 "original_filename": result.get("original_filename", ""),
+                # What Cloudinary stored. A PDF stays raw; never re-derive it from the MIME type.
+                "resource_type": result.get("resource_type", options["resource_type"]),
             }
         except Exception as e:
-            logger.error("Cloudinary upload error: %s", e)
-            raise StorageException(detail=f"Cloudinary upload failed: {e}") from e
+            logger.error("Cloudinary upload error: %s", e, exc_info=True)
+            raise StorageException(detail="Cloudinary upload failed") from e
 
     def upload_local_file(
         self,
@@ -150,8 +178,8 @@ class CloudinaryService:
                 "format": result.get("format"),
             }
         except Exception as e:
-            logger.error("Cloudinary local file upload error: %s", e)
-            raise StorageException(detail=f"Cloudinary upload failed: {e}") from e
+            logger.error("Cloudinary local file upload error: %s", e, exc_info=True)
+            raise StorageException(detail="Cloudinary upload failed") from e
 
     def upload_from_url(
         self,
@@ -179,14 +207,22 @@ class CloudinaryService:
                 "format": result.get("format"),
             }
         except Exception as e:
-            logger.error("Cloudinary URL upload error: %s", e)
-            raise StorageException(detail=f"Cloudinary upload from URL failed: {e}") from e
+            logger.error("Cloudinary URL upload error: %s", e, exc_info=True)
+            raise StorageException(detail="Cloudinary upload from URL failed") from e
 
-    def delete_file(self, public_id: str) -> bool:
+    def delete_file(
+        self, public_id: str, *, resource_type: str = "image", delivery_type: str = "upload"
+    ) -> bool:
+        """Delete one asset. True when it is removed or already absent, so a retry does not loop."""
         try:
-            result = self._api.delete_resources([public_id], resource_type="auto")
-            deleted = result.get("deleted", {})
-            return bool(deleted.get(public_id) == "deleted")
+            result = self._api.delete_resources(
+                [public_id], resource_type=resource_type, type=delivery_type
+            )
+            status = result.get("deleted", {}).get(public_id)
+            if status in ("deleted", "not_found"):
+                return True
+            logger.error("Cloudinary delete not confirmed for %s: %s", public_id, status)
+            return False
         except Exception as e:
             logger.error("Cloudinary delete error: %s", e)
             return False
@@ -195,11 +231,13 @@ class CloudinaryService:
         self,
         public_id: str,
         *,
+        resource_type: str = "image",
         fetch_format: str | None = "auto",
         quality: str | None = "auto",
         width: int | None = None,
         height: int | None = None,
         crop: str | None = None,
+        delivery_type: str = "upload",
     ) -> str:
         transformations: list[dict[str, Any]] = []
         if fetch_format:
@@ -216,7 +254,26 @@ class CloudinaryService:
             transformations.append(t)
         url, _ = self._url(
             public_id,
+            resource_type=resource_type,
+            type=delivery_type,
             transformation=transformations,
+            secure=True,
+        )
+        return str(url)
+
+    def private_delivery_url(self, public_id: str, *, resource_type: str = "raw") -> str:
+        """Signed URL for an authenticated (private) asset.
+
+        Only a server that holds the API secret can produce the signature, so the
+        URL works for the caller that asks for it. The asset is stored with
+        ``type="authenticated"``, so the plain secure_url does not serve it.
+        ponytail: the signature does not expire. Add Cloudinary token auth when a key is configured.
+        """
+        url, _ = self._url(
+            public_id,
+            resource_type=resource_type,
+            type="authenticated",
+            sign_url=True,
             secure=True,
         )
         return str(url)
@@ -231,21 +288,30 @@ class CloudinaryService:
         except Exception:
             return None
 
-    def get_file_info(self, public_id: str) -> dict[str, Any] | None:
+    def get_file_info(
+        self, public_id: str, *, resource_type: str = "image", delivery_type: str = "upload"
+    ) -> dict[str, Any] | None:
+        """Return the stored file's info, or None when Cloudinary has no such asset.
+
+        Any other failure (timeout, rate limit, 5xx) raises StorageLookupError. A
+        transient error must not look like a missing file.
+        """
         try:
-            result = self._api.resource(public_id, resource_type="auto")
-            return {
-                "public_id": result.get("public_id", ""),
-                "bytes": result.get("bytes", 0),
-                "width": result.get("width"),
-                "height": result.get("height"),
-                "format": result.get("format"),
-                "resource_type": result.get("resource_type", ""),
-                "created_at": result.get("created_at", ""),
-            }
+            result = self._api.resource(public_id, resource_type=resource_type, type=delivery_type)
+        except CloudinaryNotFound:
+            return None
         except Exception as e:
             logger.error("Cloudinary file info error: %s", e)
-            return None
+            raise StorageLookupError(str(e)) from e
+        return {
+            "public_id": result.get("public_id", ""),
+            "bytes": result.get("bytes", 0),
+            "width": result.get("width"),
+            "height": result.get("height"),
+            "format": result.get("format"),
+            "resource_type": result.get("resource_type", ""),
+            "created_at": result.get("created_at", ""),
+        }
 
     def generate_signed_upload_params(
         self,
@@ -253,6 +319,7 @@ class CloudinaryService:
         public_id: str,
         folder: str | None = None,
         resource_type: str = "auto",
+        delivery_type: str = "upload",
     ) -> dict[str, Any]:
         """Generate signed upload parameters for client-side direct uploads.
 
@@ -269,14 +336,15 @@ class CloudinaryService:
         timestamp = int(time.time())
 
         # Build the parameters to sign (sorted alphabetically per Cloudinary docs).
-        params_to_sign = {
+        params_to_sign: dict[str, Any] = {
             "public_id": full_public_id,
             "timestamp": timestamp,
         }
+        if delivery_type != "upload":
+            # Signed, so the client cannot change the delivery type after presign.
+            params_to_sign["type"] = delivery_type
         # Cloudinary signs: param=value&param=value (sorted) + api_secret
-        sorted_params = "&".join(
-            f"{k}={v}" for k, v in sorted(params_to_sign.items())
-        )
+        sorted_params = "&".join(f"{k}={v}" for k, v in sorted(params_to_sign.items()))
         to_sign = f"{sorted_params}{settings.CLOUDINARY_API_SECRET}"
         signature = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
 
@@ -288,15 +356,12 @@ class CloudinaryService:
             "signature": signature,
             "timestamp": timestamp,
             "public_id": full_public_id,
+            "type": delivery_type if delivery_type != "upload" else None,
         }
 
     @staticmethod
     def _resource_type(content_type: str) -> str:
-        if content_type.startswith("image/"):
-            return "image"
-        if content_type.startswith("video/"):
-            return "video"
-        return "raw"
+        return resource_type_for(content_type)
 
 
 # Lazy singleton. The ``cloudinary_service`` name is resolved lazily via the

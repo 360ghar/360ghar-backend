@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, case, exists, func, select
+from sqlalchemy import Numeric, and_, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
 from app.core.exceptions import InsufficientPermissionsError
-from app.models.enums import LeaseStatus, PropertyStatus, UserRole
+from app.models.enums import PropertyStatus, RentPaymentStatus, UserRole
 from app.models.pm_finance import Expense, RentCharge, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
 from app.schemas.pagination import offset_payload, read_offset
+from app.services.pm.occupancy import active_lease_exists
+from app.services.pm.rent_rules import money
+
+# Typed zero for SQL sums. A float literal here makes Postgres sum in double precision.
+SQL_ZERO_MONEY = cast(0, Numeric(12, 2))
 
 
 async def _resolve_owner_scope(
@@ -50,13 +55,13 @@ async def _resolve_owner_scope(
 
 
 def _month_start(d: date) -> datetime:
-    return datetime(d.year, d.month, 1)
+    return datetime(d.year, d.month, 1, tzinfo=UTC)
 
 
 def _next_month_start(d: date) -> datetime:
     if d.month == 12:
-        return datetime(d.year + 1, 1, 1)
-    return datetime(d.year, d.month + 1, 1)
+        return datetime(d.year + 1, 1, 1, tzinfo=UTC)
+    return datetime(d.year, d.month + 1, 1, tzinfo=UTC)
 
 
 async def get_dashboard_overview(
@@ -68,13 +73,9 @@ async def get_dashboard_overview(
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    active_lease_exists = exists(
-        select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
-    )
-
     property_metrics_stmt = select(
         func.count(Property.id),
-        func.count(Property.id).filter(active_lease_exists),
+        func.count(Property.id).filter(active_lease_exists()),
         func.count(Property.id).filter(Property.status == PropertyStatus.maintenance),
     ).where(
         Property.is_managed,
@@ -91,15 +92,18 @@ async def get_dashboard_overview(
     )
     vacant_properties = max(total_properties - occupied_properties, 0)
 
-    today = date.today()
+    today = datetime.now(UTC).date()
     cur_start = _month_start(today)
     cur_end = _next_month_start(today)
 
     # previous month
-    prev_month = date(today.year - 1, 12, 1) if today.month == 1 else date(today.year, today.month - 1, 1)
+    prev_month = (
+        date(today.year - 1, 12, 1) if today.month == 1 else date(today.year, today.month - 1, 1)
+    )
     prev_start = _month_start(prev_month)
     prev_end = _next_month_start(prev_month)
 
+    settled = RentPaymentStatus.settled
     revenue_stmt = select(
         func.coalesce(
             func.sum(
@@ -108,10 +112,10 @@ async def get_dashboard_overview(
                         and_(RentPayment.paid_at >= cur_start, RentPayment.paid_at < cur_end),
                         RentPayment.amount_paid,
                     ),
-                    else_=0.0,
+                    else_=SQL_ZERO_MONEY,
                 )
             ),
-            0.0,
+            SQL_ZERO_MONEY,
         ),
         func.coalesce(
             func.sum(
@@ -120,12 +124,13 @@ async def get_dashboard_overview(
                         and_(RentPayment.paid_at >= prev_start, RentPayment.paid_at < prev_end),
                         RentPayment.amount_paid,
                     ),
-                    else_=0.0,
+                    else_=SQL_ZERO_MONEY,
                 )
             ),
-            0.0,
+            SQL_ZERO_MONEY,
         ),
     ).where(
+        RentPayment.status == settled,
         RentPayment.paid_at >= prev_start,
         RentPayment.paid_at < cur_end,
     )
@@ -136,8 +141,9 @@ async def get_dashboard_overview(
         lambda: db.execute(revenue_stmt),
         operation_name="pm_dashboard_revenue_metrics",
     )
+    # Money stays Decimal here. The Money fields of DashboardOverview make the JSON numbers.
     monthly_revenue_current, monthly_revenue_previous = (
-        float(value or 0.0) for value in revenue_result.one()
+        money(value) for value in revenue_result.one()
     )
 
     # Outstanding rent: sum over charges (due+late - paid), computed in SQL to avoid
@@ -145,10 +151,15 @@ async def get_dashboard_overview(
     charges_subquery = (
         select(
             RentCharge.id,
-            (RentCharge.amount_due + func.coalesce(RentCharge.late_fee_assessed, 0.0)).label("due_total"),
-            func.coalesce(func.sum(RentPayment.amount_paid), 0.0).label("paid_total"),
+            (
+                RentCharge.amount_due + func.coalesce(RentCharge.late_fee_assessed, SQL_ZERO_MONEY)
+            ).label("due_total"),
+            func.coalesce(func.sum(RentPayment.amount_paid), SQL_ZERO_MONEY).label("paid_total"),
         )
-        .outerjoin(RentPayment, RentPayment.charge_id == RentCharge.id)
+        .outerjoin(
+            RentPayment,
+            and_(RentPayment.charge_id == RentCharge.id, RentPayment.status == settled),
+        )
         .group_by(RentCharge.id)
     )
     if owner_ids is not None:
@@ -156,8 +167,10 @@ async def get_dashboard_overview(
     charges_sq = charges_subquery.subquery()
     outstanding_stmt = select(
         func.coalesce(
-            func.sum(func.greatest(charges_sq.c.due_total - charges_sq.c.paid_total, 0.0)),
-            0.0,
+            func.sum(
+                func.greatest(charges_sq.c.due_total - charges_sq.c.paid_total, SQL_ZERO_MONEY)
+            ),
+            SQL_ZERO_MONEY,
         )
     )
     outstanding_result = await execute_with_transient_retry(
@@ -165,11 +178,11 @@ async def get_dashboard_overview(
         lambda: db.execute(outstanding_stmt),
         operation_name="pm_dashboard_outstanding_rent",
     )
-    outstanding_rent_total = float(outstanding_result.scalar_one() or 0.0)
+    outstanding_rent_total = money(outstanding_result.scalar_one())
 
     # Upcoming expenses: next 30 days
     upcoming_to = today + timedelta(days=30)
-    expenses_stmt = select(func.coalesce(func.sum(Expense.amount), 0.0)).where(
+    expenses_stmt = select(func.coalesce(func.sum(Expense.amount), SQL_ZERO_MONEY)).where(
         Expense.expense_date >= today, Expense.expense_date <= upcoming_to
     )
     if owner_ids is not None:
@@ -179,7 +192,7 @@ async def get_dashboard_overview(
         lambda: db.execute(expenses_stmt),
         operation_name="pm_dashboard_upcoming_expenses",
     )
-    upcoming_expenses_total = float(expenses_result.scalar_one() or 0.0)
+    upcoming_expenses_total = money(expenses_result.scalar_one())
 
     return {
         "total_properties": total_properties,
@@ -212,7 +225,12 @@ async def get_recent_activity(
 
     activities: list[dict[str, Any]] = []
 
-    pay_stmt = select(RentPayment).order_by(RentPayment.paid_at.desc()).limit(fetch_limit)
+    pay_stmt = (
+        select(RentPayment)
+        .where(RentPayment.status == RentPaymentStatus.settled)
+        .order_by(RentPayment.paid_at.desc())
+        .limit(fetch_limit)
+    )
     if owner_ids is not None:
         pay_stmt = pay_stmt.where(RentPayment.owner_id.in_(owner_ids))
     payments_result = await execute_with_transient_retry(
@@ -225,15 +243,19 @@ async def get_recent_activity(
         activities.append(
             {
                 "type": "rent_payment",
-                "at": p.paid_at.isoformat(),
+                "at": p.paid_at,
+                "title": "Rent payment received",
+                "description": f"Amount {money(p.amount_paid):.2f}",
                 "property_id": p.property_id,
                 "lease_id": p.lease_id,
-                "amount": p.amount_paid,
+                "amount": money(p.amount_paid),
                 "id": p.id,
             }
         )
 
-    maint_stmt = select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
+    maint_stmt = (
+        select(MaintenanceRequest).order_by(MaintenanceRequest.created_at.desc()).limit(fetch_limit)
+    )
     if owner_ids is not None:
         maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     requests_result = await execute_with_transient_retry(
@@ -246,7 +268,9 @@ async def get_recent_activity(
         activities.append(
             {
                 "type": "maintenance_request",
-                "at": r.created_at.isoformat(),
+                "at": r.created_at,
+                "title": f"Maintenance request: {r.title}",
+                "description": r.description,
                 "property_id": r.property_id,
                 "lease_id": r.lease_id,
                 "status": getattr(r.request_status, "value", r.request_status),
@@ -267,19 +291,23 @@ async def get_recent_activity(
         activities.append(
             {
                 "type": "lease",
-                "at": lease.created_at.isoformat(),
+                "at": lease.created_at,
+                "title": f"Lease {getattr(lease.status, 'value', lease.status)}",
+                "description": None,
                 "property_id": lease.property_id,
                 "lease_id": lease.id,
                 "status": getattr(lease.status, "value", lease.status),
             }
         )
 
-    activities.sort(key=lambda x: x.get("at") or "", reverse=True)
+    activities.sort(key=lambda x: x["at"], reverse=True)
 
     # Compute total via per-source SQL COUNT queries so the sum is not capped
     # by fetch_limit.  Each count mirrors the exact WHERE filters used above.
     if with_total:
-        pay_count_stmt = select(func.count(RentPayment.id))
+        pay_count_stmt = select(func.count(RentPayment.id)).where(
+            RentPayment.status == RentPaymentStatus.settled
+        )
         if owner_ids is not None:
             pay_count_stmt = pay_count_stmt.where(RentPayment.owner_id.in_(owner_ids))
 

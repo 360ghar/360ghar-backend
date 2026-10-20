@@ -7,6 +7,7 @@ Wraps Agnes AI image generation for text-to-image and image-to-image generation.
 from __future__ import annotations
 
 from app.services.ai.image_gen.schemas import (
+    DesignImageOut,
     ImageGenMode,
     ImageGenRequest,
     ImageGenResponse,
@@ -24,6 +25,7 @@ def __getattr__(name: str):
 __all__ = [
     "generate_image",
     "ImageGenMode",
+    "DesignImageOut",
     "ImageGenRequest",
     "ImageGenResponse",
 ]

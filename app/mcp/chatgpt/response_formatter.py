@@ -6,11 +6,24 @@ ChatGPT Apps expect tool responses in a specific format:
 - content: Narrative text for the model to use in responses
 - _meta: Data only the widget sees (for large/sensitive data)
 """
+
 from __future__ import annotations
 
 from typing import Any, NoReturn
 
 from app.mcp.apps_sdk import AppsSDKToolResult
+from app.mcp.chatgpt.widget_payloads import widget_payload
+
+
+def _widget_name_for_uri(widget_uri: str) -> str | None:
+    """The widget class name for a ``ui://widget/<name>.html`` URI, with or without a version."""
+    from app.mcp.chatgpt import WIDGETS
+
+    stem = widget_uri.split("?", 1)[0].removeprefix("ui://widget/").removesuffix(".html")
+    for widget_name in WIDGETS:
+        if widget_name.lower() == stem:
+            return widget_name
+    return None
 
 
 def format_chatgpt_response(
@@ -38,6 +51,9 @@ def format_chatgpt_response(
     if widget_uri:
         meta = meta or {}
         meta.setdefault("ui", {})["resourceUri"] = widget_uri
+        widget_name = _widget_name_for_uri(widget_uri)
+        if widget_name:
+            data = widget_payload(widget_name, data)
     return AppsSDKToolResult(
         content=content_summary,
         structured_content=data,
@@ -119,9 +135,7 @@ def format_property_list_summary(
 
     # Extract price range
     prices: list[float] = [
-        v
-        for p in properties
-        if (v := p.get("base_price") or p.get("monthly_rent")) is not None
+        v for p in properties if (v := p.get("base_price") or p.get("monthly_rent")) is not None
     ]
     if prices:
         min_price = min(prices)
@@ -135,7 +149,11 @@ def format_property_list_summary(
     type_str = ", ".join(types) if len(types) <= 3 else "various types"
 
     # Extract locations
-    locations = {p.get("locality") or p.get("city", "") for p in properties if p.get("locality") or p.get("city")}
+    locations = {
+        p.get("locality") or p.get("city", "")
+        for p in properties
+        if p.get("locality") or p.get("city")
+    }
     location_str = ", ".join(list(locations)[:3]) if locations else "your search area"
 
     showing = len(properties)
@@ -154,7 +172,9 @@ def format_property_detail_summary(property_data: dict[str, Any]) -> str:
     title = property_data.get("title", "Property")
     locality = property_data.get("locality", "")
     city = property_data.get("city", "")
-    location = f"{locality}, {city}" if locality and city else locality or city or "Unknown location"
+    location = (
+        f"{locality}, {city}" if locality and city else locality or city or "Unknown location"
+    )
 
     bedrooms = property_data.get("bedrooms")
     bathrooms = property_data.get("bathrooms")
@@ -193,7 +213,7 @@ def format_visit_summary(visit_data: dict[str, Any]) -> str:
     """
     property_title = visit_data.get("property", {}).get("title", "property")
     scheduled_date = visit_data.get("scheduled_date", "")
-    status = visit_data.get("status", "scheduled")
+    status = visit_data.get("status", "requested")
 
     return f"Visit to {property_title} {status} for {scheduled_date}."
 
@@ -348,7 +368,9 @@ def format_dashboard_summary(dashboard: dict[str, Any]) -> str:
 
     if expected > 0:
         collection_rate = (collected / expected * 100) if expected else 0
-        parts.append(f"₹{format_price(collected, is_monthly_rent=True)}/₹{format_price(expected, is_monthly_rent=True)} rent collected ({collection_rate:.0f}%)")
+        parts.append(
+            f"₹{format_price(collected, is_monthly_rent=True)}/₹{format_price(expected, is_monthly_rent=True)} rent collected ({collection_rate:.0f}%)"
+        )
 
     if open_maint > 0:
         parts.append(f"{open_maint} open maintenance requests")

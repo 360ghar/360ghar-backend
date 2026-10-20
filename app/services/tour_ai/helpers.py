@@ -4,6 +4,7 @@ Shared helpers for tour AI operations.
 Contains retry configuration, concurrency semaphore, AI provider wrappers,
 prompt templates, image download utilities, and navigation hotspot helpers.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,12 +25,16 @@ from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 from app.models.enums import HotspotType
 from app.models.tours import Hotspot, Tour
+from app.schemas.tour import ai_hotspot_position
 from app.services.ai import (
     AIMessage,
+    AIProvider,
     AIProviderError,
+    AIProviderType,
     VisionInput,
     get_ai_provider,
 )
+from app.services.tour_ai.jobs import AIJobCancelledError
 
 logger = get_logger(__name__)
 
@@ -56,6 +61,8 @@ async def _run_with_semaphore(coro):
     async with _AI_TASK_SEMAPHORE:
         try:
             await coro
+        except AIJobCancelledError:
+            logger.info("Background AI task stopped: its job was cancelled")
         except Exception:
             logger.warning("Unhandled exception in background AI task", exc_info=True)
 
@@ -66,7 +73,9 @@ def _is_retryable_ai_provider_error(exc: BaseException) -> bool:
     HTTP errors (429/5xx/network) are already retried with backoff inside
     ``AIProvider._make_request``; retrying them again here would multiply attempts.
     """
-    return isinstance(exc, AIProviderError) and exc.status_code is None and exc.retryable is not False
+    return (
+        isinstance(exc, AIProviderError) and exc.status_code is None and exc.retryable is not False
+    )
 
 
 def _create_retry_decorator():
@@ -133,10 +142,26 @@ async def _call_ai_with_retry(
 
 # Room type mappings for scene analysis
 ROOM_TYPES = [
-    "living_room", "bedroom", "bathroom", "kitchen", "dining_room",
-    "home_office", "hallway", "entrance", "balcony", "terrace",
-    "garden", "garage", "basement", "attic", "pool_area",
-    "gym", "laundry_room", "storage", "exterior", "other"
+    "living_room",
+    "bedroom",
+    "bathroom",
+    "kitchen",
+    "dining_room",
+    "home_office",
+    "hallway",
+    "entrance",
+    "balcony",
+    "terrace",
+    "garden",
+    "garage",
+    "basement",
+    "attic",
+    "pool_area",
+    "gym",
+    "laundry_room",
+    "storage",
+    "exterior",
+    "other",
 ]
 
 # Scene analysis prompt template
@@ -228,11 +253,13 @@ async def _ensure_navigation_hotspots(
         if existing:
             continue
 
+        # order_index is server-owned: the new hotspot goes after the scene's last one.
+        next_order = max((h.order_index or 0 for h in scene.hotspots or []), default=-1) + 1
         hotspot = Hotspot(
             id=str(uuid4()),
             scene_id=scene.id,
             type=HotspotType.navigation,
-            position={"yaw": 0, "pitch": 0, "radius": None},
+            position=ai_hotspot_position(0, 0),
             target_scene_id=next_scene.id,
             title=next_scene.title or "Next",
             description=None,
@@ -242,7 +269,7 @@ async def _ensure_navigation_hotspots(
             icon_size=32,
             content=None,
             custom_data={"auto_generated": True},
-            order_index=0,
+            order_index=next_order,
             is_active=True,
         )
         db.add(hotspot)
@@ -265,9 +292,7 @@ async def _download_image_bytes(url: str, timeout: float = 60.0) -> bytes:
     from app.core.http import get_general_client
 
     client = get_general_client()
-    async with client.stream(
-        "GET", url, timeout=timeout, follow_redirects=False
-    ) as response:
+    async with client.stream("GET", url, timeout=timeout, follow_redirects=False) as response:
         if response.is_redirect or 300 <= response.status_code < 400:
             raise ValueError(
                 f"Refusing to follow redirect for {url} (status {response.status_code})"
@@ -277,9 +302,7 @@ async def _download_image_bytes(url: str, timeout: float = 60.0) -> bytes:
         async for chunk in response.aiter_bytes():
             buffer.extend(chunk)
             if len(buffer) > MAX_DOWNLOAD_BYTES:
-                raise ValueError(
-                    f"Download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}"
-                )
+                raise ValueError(f"Download exceeded {MAX_DOWNLOAD_BYTES} bytes: {url}")
         return bytes(buffer)
 
 

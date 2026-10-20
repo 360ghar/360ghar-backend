@@ -1,165 +1,123 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import (
     get_current_active_user,
     get_current_cached_active_user,
 )
+from app.api.api_v1.endpoints.properties import build_property_filters
 from app.core.database import get_db
 from app.core.db_resilience import raise_read_service_unavailable
+from app.core.exceptions import ValidationException
 from app.core.logging import get_logger
-from app.models.enums import PropertyPurpose, PropertyType
-from app.schemas.common import MessageResponse
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.property import (
     Property,
-    PropertySwipe,
-    SortBy,
     UnifiedPropertyFilter,
+)
+from app.schemas.swipe import (
+    BatchRemoveRequest,
+    BatchRemoveResult,
+    SwipeCreate,
+    SwipeOut,
+    SwipeStats,
 )
 from app.schemas.user import User as UserSchema
 from app.services.auth_user_cache import AuthUserSnapshot
-from app.services.property.privacy import hide_owner_contacts
+from app.services.property import attach_owner_agents
 from app.services.swipe import (
     batch_unswipe,
     get_swipe_history,
     get_swipe_stats,
-    record_swipe,
     toggle_swipe,
     undo_last_swipe,
+    upsert_property_swipe,
 )
+from app.services.visibility import mask_owner_contacts
 
 logger = get_logger(__name__)
 
 router = APIRouter()
 
-@router.post("", response_model=MessageResponse, summary="Swipe property")
+
+@router.post(
+    "",
+    response_model=SwipeOut,
+    summary="Swipe property",
+    responses={
+        201: {"description": "Swipe created", "model": SwipeOut},
+        200: {"description": "Swipe updated", "model": SwipeOut},
+    },
+)
 async def swipe_property(
-    swipe: PropertySwipe,
+    swipe: SwipeCreate,
+    response: Response,
     current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Record a property swipe (like/dislike)"""
-    success = await record_swipe(db, current_user.id, swipe)
+    """Record a property swipe (like or pass). Returns the stored swipe.
 
-    action = "liked" if swipe.is_liked else "passed"
+    Returns 201 when the swipe is new and 200 when it replaces an earlier swipe.
+    """
+    row, created = await upsert_property_swipe(
+        db, current_user.id, swipe.property_id, swipe.is_liked
+    )
+    response.status_code = 201 if created else 200
+    logger.debug(
+        "Property swipe recorded",
+        extra={
+            "user_id": current_user.id,
+            "property_id": swipe.property_id,
+            "action": "liked" if swipe.is_liked else "passed",
+        },
+    )
+    return SwipeOut(id=row.id, property_id=swipe.property_id, is_liked=row.is_liked)
 
-    if not success:
-        # Property doesn't exist, but we return success to avoid client errors
-        logger.warning("Attempted to swipe non-existent property %s by user %s", swipe.property_id, current_user.id)
-        return MessageResponse(message=f"Property {action} successfully")
-
-    logger.debug("Property swipe recorded", extra={"user_id": current_user.id, "property_id": swipe.property_id, "action": action})
-    return MessageResponse(message=f"Property {action} successfully")
 
 @router.get("", response_model=CursorPage[Property], summary="List swipe history")
 async def get_user_swipe_history(
-    # Location-based search
-    lat: float | None = Query(None, description="Latitude for location-based search"),
-    lng: float | None = Query(None, description="Longitude for location-based search"),
-    radius: int = Query(5, ge=1, le=100, description="Search radius in km"),
-
-    # Search query
-    q: str | None = Query(None, description="Search query for text search"),
-
-    # Property filters
-    property_type: list[PropertyType] | None = Query(None),
-    purpose: PropertyPurpose | None = Query(None),
-
-    # Price filters
-    price_min: float | None = Query(None, ge=0),
-    price_max: float | None = Query(None, le=1e9),
-
-    # Room filters
-    bedrooms_min: int | None = Query(None, ge=0),
-    bedrooms_max: int | None = Query(None, le=20),
-    bathrooms_min: int | None = Query(None, ge=0),
-    bathrooms_max: int | None = Query(None, le=10),
-
-    # Area filters
-    area_min: float | None = Query(None, ge=0),
-    area_max: float | None = Query(None, le=100000),
-
-    # Location filters
-    city: str | None = Query(None),
-    locality: str | None = Query(None),
-    pincode: str | None = Query(None),
-
-    # Additional filters
-    amenities: list[str] | None = Query(None),
-    features: list[str] | None = Query(None),
-    parking_spaces_min: int | None = Query(None, ge=0),
-    floor_number_min: int | None = Query(None, ge=0),
-    floor_number_max: int | None = Query(None, le=100),
-    age_max: int | None = Query(None, ge=0),
-
-    # Short stay filters
-    check_in: str | None = Query(None, description="Check-in date (YYYY-MM-DD)"),
-    check_out: str | None = Query(None, description="Check-out date (YYYY-MM-DD)"),
-    guests: int | None = Query(None, ge=1, le=20),
-
-    # Swipe-specific filters
+    # Every property filter key of GET /properties, from the shared builder.
+    filters: UnifiedPropertyFilter = Depends(build_property_filters),
+    # Swipe-specific filter
     is_liked: bool | None = Query(None, description="Filter by liked (true) or disliked (false)"),
-
-    # Sorting
-    sort_by: SortBy = Query(SortBy.newest, description="Sort by: distance, price_low, price_high, newest, popular, relevance"),
-
     # Cursor pagination
     page: CursorParams = Depends(),
-
     current_user: AuthUserSnapshot = Depends(get_current_cached_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """
-    Get user's swipe history with comprehensive filtering and property details.
+    Get user's swipe history with the same filters as GET /properties.
 
-    This endpoint supports:
-    - Location-based search (lat/lng + radius)
-    - Text search (q parameter)
-    - Comprehensive property filtering
-    - Multiple sorting options
-    - Swipe-specific filters (liked/disliked)
-    - Cursor-based pagination
+    Swipe-only filter: `is_liked`. `semantic_search` and `exclude_swiped` do not apply
+    to the swipe feed and give 422 when true.
+    Cursor-based pagination, bound to the filters above.
     """
-    # Build filters
-    filters = UnifiedPropertyFilter(
-        latitude=lat,
-        longitude=lng,
-        radius_km=radius,
-        search_query=q,
-        property_type=property_type,
-        purpose=purpose,
-        price_min=price_min,
-        price_max=price_max,
-        bedrooms_min=bedrooms_min,
-        bedrooms_max=bedrooms_max,
-        bathrooms_min=bathrooms_min,
-        bathrooms_max=bathrooms_max,
-        area_min=area_min,
-        area_max=area_max,
-        city=city,
-        locality=locality,
-        pincode=pincode,
-        amenities=amenities,
-        features=features,
-        parking_spaces_min=parking_spaces_min,
-        floor_number_min=floor_number_min,
-        floor_number_max=floor_number_max,
-        age_max=age_max,
-        check_in_date=check_in,
-        check_out_date=check_out,
-        guests=guests,
-        sort_by=sort_by
-    )
+    if filters.semantic_search or filters.exclude_swiped:
+        raise ValidationException(
+            detail="semantic_search and exclude_swiped do not apply to the swipe feed"
+        )
+    filter_binding = {**filters.model_dump(mode="json", exclude_none=True), "is_liked": is_liked}
+    cursor_payload = page.decoded(filter_binding)
 
     # Log search request
     logger.info(
         "Swipe history search request - user: %s, filters: %s",
         current_user.id,
-        len([f for f in [q, lat, lng, property_type, city] if f]),
+        len(
+            [
+                f
+                for f in [
+                    filters.search_query,
+                    filters.latitude,
+                    filters.longitude,
+                    filters.property_type,
+                    filters.city,
+                ]
+                if f
+            ]
+        ),
     )
 
     try:
@@ -167,7 +125,7 @@ async def get_user_swipe_history(
             db,
             current_user.id,
             filters,
-            cursor_payload=page.decoded(),
+            cursor_payload=cursor_payload,
             limit=page.limit,
             is_liked=is_liked,
             with_total=page.include_total,
@@ -182,9 +140,13 @@ async def get_user_swipe_history(
                 swipe.property.liked = swipe.is_liked
                 props.append(Property.model_validate(swipe.property))
 
+        await attach_owner_agents(db, props)
         return build_cursor_page(
-            hide_owner_contacts(props, current_user),
-            limit=page.limit, next_payload=next_payload, total=total,
+            mask_owner_contacts(props, current_user),
+            limit=page.limit,
+            next_payload=next_payload,
+            total=total,
+            filters=filter_binding,
         )
     except Exception as e:
         raise_read_service_unavailable(
@@ -196,42 +158,44 @@ async def get_user_swipe_history(
         logger.error("Swipe history search failed for user %s: %s", current_user.id, e)
         raise
 
-@router.delete("/undo", response_model=MessageResponse, summary="Undo last swipe")
+
+@router.delete("/undo", status_code=204, summary="Undo last swipe")
 async def undo_last_swipe_endpoint(
-    current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    current_user: UserSchema = Depends(get_current_active_user), db: AsyncSession = Depends(get_db)
 ):
-    """Undo the last swipe for the user"""
+    """Undo the last swipe for the user. Returns 204, or 404 when there is nothing to undo."""
     undone_swipe = await undo_last_swipe(db, current_user.id)
 
     if not undone_swipe:
         raise HTTPException(status_code=404, detail="No swipes to undo")
 
-    return MessageResponse(message="Last swipe undone successfully")
+    return Response(status_code=204)
 
-@router.put("/{swipe_id}/toggle", response_model=MessageResponse, summary="Toggle swipe like")
+
+@router.put("/{swipe_id}/toggle", response_model=SwipeOut, summary="Toggle swipe like")
 async def toggle_swipe_like(
     swipe_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Toggle the like status of an existing swipe"""
+    """Toggle the like status of one of the user's swipes. Other users' swipes return 404."""
     result = await toggle_swipe(db, swipe_id, current_user.id)
 
     if not result:
         raise HTTPException(status_code=404, detail="Swipe not found or does not belong to user")
+    return SwipeOut(
+        id=result["id"], property_id=result["property_id"], is_liked=result["new_status"]
+    )
 
-    action = "liked" if result["new_status"] else "unliked"
-    return MessageResponse(message=f"Property {action} successfully")
 
-@router.get("/stats", summary="Get swipe statistics")
+@router.get("/stats", response_model=SwipeStats, summary="Get swipe statistics")
 async def get_user_swipe_statistics(
     current_user: AuthUserSnapshot = Depends(get_current_cached_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Get user's swipe statistics"""
     try:
-        return await get_swipe_stats(db, current_user.id)
+        return SwipeStats(**await get_swipe_stats(db, current_user.id))
     except Exception as exc:
         raise_read_service_unavailable(
             exc,
@@ -242,26 +206,20 @@ async def get_user_swipe_statistics(
         raise
 
 
-class BatchRemoveRequest(BaseModel):
-    property_ids: list[int]
-
-
-class BatchRemoveResponse(BaseModel):
-    removed_count: int
-    failed_property_ids: list[int] = []
-    message: str
-
-
-@router.post("/batch-remove", response_model=BatchRemoveResponse, summary="Batch remove swipes")
+@router.post("/batch-remove", response_model=BatchRemoveResult, summary="Batch remove swipes")
 async def batch_remove_swipes(
     payload: BatchRemoveRequest,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove many liked swipes for the current user in a single request."""
-    deleted = await batch_unswipe(db, current_user.id, payload.property_ids)
-    return BatchRemoveResponse(
-        removed_count=deleted,
-        failed_property_ids=[],
-        message=f"Removed {deleted} swipes",
+    """Remove the user's swipes for many properties in one request.
+
+    Lists the requested property ids that had no swipe to remove.
+    """
+    removed = await batch_unswipe(db, current_user.id, payload.property_ids)
+    removed_set = set(removed)
+    requested = list(dict.fromkeys(payload.property_ids))
+    return BatchRemoveResult(
+        removed_count=len(removed),
+        failed_property_ids=[pid for pid in requested if pid not in removed_set],
     )

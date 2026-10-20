@@ -1,5 +1,5 @@
 import re
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Any
 
 import bleach  # type: ignore[import-untyped]  # bleach ships no type stubs
@@ -152,7 +152,7 @@ class ValidationUtils:
         if start_date > end_date:
             raise ValidationException("Start date must be before end date")
 
-        if start_date < date.today():
+        if start_date < datetime.now(UTC).date():
             raise ValidationException("Start date cannot be in the past")
 
         days_diff = (end_date - start_date).days

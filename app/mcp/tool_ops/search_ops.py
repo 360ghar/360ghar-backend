@@ -3,6 +3,7 @@
 Provides natural language query parsing, city alias resolution,
 and empty-result UX helpers for property search.
 """
+
 from __future__ import annotations
 
 import re
@@ -17,6 +18,7 @@ __all__ = [
     "build_empty_result_message",
     "normalize_city",
     "parse_natural_query",
+    "search_properties",
 ]
 
 logger = get_logger(__name__)
@@ -189,9 +191,24 @@ def parse_natural_query(query: str) -> dict[str, Any]:
 
     # 6. Clean up remaining text for FTS
     # Remove common filler words
-    filler_words = {"in", "for", "with", "near", "around", "the", "a", "an", "and", "or", "is", "are"}
+    filler_words = {
+        "in",
+        "for",
+        "with",
+        "near",
+        "around",
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "is",
+        "are",
+    }
     cleaned_tokens = [
-        t.strip() for t in re.split(r"\s+", text.strip()) if t.strip() and t.strip().lower() not in filler_words
+        t.strip()
+        for t in re.split(r"\s+", text.strip())
+        if t.strip() and t.strip().lower() not in filler_words
     ]
     cleaned_query = " ".join(cleaned_tokens).strip()
 
@@ -232,3 +249,63 @@ def build_empty_result_message(
     parts.append("360Ghar is expanding to new areas. Check back soon for more listings.")
 
     return " ".join(parts)
+
+
+async def search_properties(
+    db: Any,
+    *,
+    query: str | None = None,
+    property_type: list[Any] | None = None,
+    purpose: Any = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    bedrooms_min: int | None = None,
+    bedrooms_max: int | None = None,
+    amenities: list[str] | None = None,
+    city: str | None = None,
+    locality: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    radius_km: int = 5,
+    user_id: int | None = None,
+    cursor_payload: dict[str, Any] | None = None,
+    limit: int = 20,
+    with_total: bool = False,
+    **orchestration_kwargs: Any,
+) -> tuple[list[Any], dict[str, Any] | None, int | None]:
+    """Shared property search body for the MCP discovery tool and the AI agent tool.
+
+    ``property_type`` is a list of ``PropertyType`` members and ``purpose`` a
+    ``PropertyPurpose`` member. Callers validate the values first. Extra keyword
+    arguments (``endpoint_name``, ``stale_listing_context``, ``unavailable_detail``)
+    go to ``run_property_search`` so each surface keeps its own error text.
+    """
+    from app.services.property.search_orchestration import (
+        build_property_search_filters,
+        run_property_search,
+    )
+
+    filters = build_property_search_filters(
+        search_query=query,
+        latitude=latitude,
+        longitude=longitude,
+        property_type=property_type,
+        purpose=purpose,
+        price_min=price_min,
+        price_max=price_max,
+        bedrooms_min=bedrooms_min,
+        bedrooms_max=bedrooms_max,
+        amenities=amenities,
+        city=city,
+        locality=locality,
+        radius_km=radius_km if (latitude is not None and longitude is not None) else 5,
+    )
+    return await run_property_search(
+        db=db,
+        filters=filters,
+        user_id=user_id,
+        cursor_payload=cursor_payload or {},
+        limit=limit,
+        with_total=with_total,
+        **orchestration_kwargs,
+    )

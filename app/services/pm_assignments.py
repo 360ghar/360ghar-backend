@@ -49,4 +49,3 @@ async def set_owner_relationship_manager(
     await db.flush()
     await db.refresh(owner)
     return owner
-

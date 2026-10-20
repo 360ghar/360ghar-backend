@@ -553,6 +553,16 @@ def _register_scheduler_jobs(app: FastAPI) -> None:
     _register_notification_job(app)
     _register_vector_sync_job(app)
     _register_data_hub_jobs(app)
+    _register_pm_lifecycle_job(app)
+
+
+def _register_pm_lifecycle_job(app: FastAPI) -> None:
+    try:
+        from app.services.pm_scheduler import start_pm_scheduler
+
+        start_pm_scheduler(app)
+    except Exception as sched_pm_e:
+        logger.error("Failed to register PM lifecycle scheduler: %s", sched_pm_e, exc_info=True)
 
 
 def _register_blog_publish_job(app: FastAPI) -> None:

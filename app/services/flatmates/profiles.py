@@ -11,7 +11,11 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+)
 from app.core.logging import get_logger
 from app.models.conversations import Conversation, ConversationParticipant, Message
 from app.models.enums import (
@@ -31,7 +35,9 @@ from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_profile_payload,
+    _is_blocked,
     _serialize_flatmate_notification,
+    live_listing_predicate,
 )
 from app.services.flatmates.realtime import flatmates_realtime_config
 from app.services.notifications import _supa, list_notifications_for_user
@@ -80,16 +86,42 @@ async def get_flatmates_profile(db: AsyncSession, user_id: int) -> dict[str, Any
     return _build_profile_payload(user)
 
 
+def profile_is_visible(peer: User) -> bool:
+    """Return True when the account is active, onboarded, and its profile status is active."""
+    return (
+        bool(peer.is_active)
+        and peer.flatmates_onboarding_completed is True
+        and peer.flatmates_profile_status == FlatmatesProfileStatus.active
+    )
+
+
+async def load_visible_peer(db: AsyncSession, viewer_id: int | None, peer_id: int) -> User:
+    """Return the peer when the viewer may see its profile, else raise 404.
+
+    A profile is visible when the account is active, onboarding is complete, the
+    profile status is active, and neither user has blocked the other. A user always
+    sees their own profile.
+    """
+    peer = await db.get(User, peer_id)
+    if peer is None:
+        raise NotFoundException(detail="Profile not found", error_code="PROFILE_NOT_FOUND")
+    if viewer_id is not None and viewer_id == peer_id:
+        return peer
+    if not profile_is_visible(peer):
+        raise NotFoundException(detail="Profile not found", error_code="PROFILE_NOT_FOUND")
+    if viewer_id is not None and await _is_blocked(db, viewer_id, peer_id):
+        raise NotFoundException(detail="Profile not found", error_code="PROFILE_NOT_FOUND")
+    return peer
+
+
 async def get_profile_by_id(
     db: AsyncSession,
     user_id: int,
     *,
     current_user_id: int | None = None,
 ) -> dict[str, Any]:
-    """Return a flatmates peer payload for an arbitrary user (used by GET /profiles/{user_id})."""
-    user = await db.get(User, user_id)
-    if user is None:
-        raise BadRequestException(detail="User not found")
+    """Return a flatmates peer payload for a visible user (used by GET /profiles/{user_id})."""
+    user = await load_visible_peer(db, current_user_id, user_id)
     current_user = await db.get(User, current_user_id) if current_user_id else None
 
     # Load the peer's most recent active flatmate/PG listing so the peer payload
@@ -106,6 +138,7 @@ async def get_profile_by_id(
             Property.property_type.in_([PropertyType.flatmate, PropertyType.pg]),
             Property.purpose == PropertyPurpose.rent,
             Property.is_available.is_(True),
+            live_listing_predicate(),
         )
         .order_by(Property.created_at.desc())
         .limit(1)
@@ -133,6 +166,7 @@ async def list_discoverable_profiles(
     lng: float | None = None,
     radius: float | None = None,
     non_negotiables_override: list[str] | None = None,
+    gender_preference: str | None = None,
     cursor_payload: dict[str, Any] | None = None,
     limit: int = 20,
     with_total: bool = False,
@@ -172,10 +206,7 @@ async def list_discoverable_profiles(
     if requesting_user and requesting_user.phone:
         base_phone = requesting_user.phone.split("_dup_")[0]
         phone_excluded_subq = select(User.id).where(
-            or_(
-                User.phone == base_phone,
-                User.phone.like(f"{base_phone}_dup_%")
-            ),
+            or_(User.phone == base_phone, User.phone.like(f"{base_phone}_dup_%")),
             User.id != user_id,
         )
         phone_dup_ids = list((await db.execute(phone_excluded_subq)).scalars().all())
@@ -186,6 +217,7 @@ async def list_discoverable_profiles(
         User.id.notin_(swiped_subq),
         User.flatmates_onboarding_completed.is_(True),
         User.flatmates_profile_status == FlatmatesProfileStatus.active,
+        User.is_active.is_(True),
     ]
 
     for nn in non_negotiables:
@@ -212,13 +244,12 @@ async def list_discoverable_profiles(
                 )
             )
         elif nn == "no_overnight_guests":
-            filters.append(User.flatmates_guests_policy.in_(
-                ["no_overnight_guests"]
-            ))
+            filters.append(User.flatmates_guests_policy.in_(["no_overnight_guests"]))
         elif nn == "no_pets":
             # pets is stored inside preferences.flatmates.pets
             filters.append(
-                func.coalesce(cast(User.preferences[("flatmates", "pets")], String), "no_pets") == "no_pets"
+                func.coalesce(cast(User.preferences[("flatmates", "pets")], String), "no_pets")
+                == "no_pets"
             )
         elif nn == "gender_female_only":
             # gender stored in preferences.flatmates.gender
@@ -238,23 +269,25 @@ async def list_discoverable_profiles(
             # JSON text extraction returns quoted strings (e.g. '"never"'), so
             # we must include both quoted and unquoted variants.
             filters.append(
-                func.coalesce(cast(User.preferences[("flatmates", "parties_at_home")], String), "").notin_(
+                func.coalesce(
+                    cast(User.preferences[("flatmates", "parties_at_home")], String), ""
+                ).notin_(
                     [
-                        "occasional_weekends", '"occasional_weekends"',
-                        "party_friendly", '"party_friendly"',
-                        "occasionally", '"occasionally"',
-                        "regularly", '"regularly"',
+                        "occasional_weekends",
+                        '"occasional_weekends"',
+                        "party_friendly",
+                        '"party_friendly"',
+                        "occasionally",
+                        '"occasionally"',
+                        "regularly",
+                        '"regularly"',
                     ]
                 )
             )
         elif nn == "min_tidy":
-            filters.append(User.flatmates_cleanliness.in_(
-                ["tidy", "spotless"]
-            ))
+            filters.append(User.flatmates_cleanliness.in_(["tidy", "spotless"]))
         elif nn == "early_riser":
-            filters.append(User.flatmates_sleep_schedule.in_(
-                ["early_bird"]
-            ))
+            filters.append(User.flatmates_sleep_schedule.in_(["early_bird"]))
 
     # --- Discovery filtering (P0-8) ---
     if city is not None:
@@ -297,10 +330,20 @@ async def list_discoverable_profiles(
     # --- Geolocation filtering ---
     if lat is not None and lng is not None and radius is not None:
         min_lat, max_lat, min_lon, max_lon = get_bounding_box(lat, lng, radius)
-        filters.extend([
-            User.current_latitude.between(min_lat, max_lat),
-            User.current_longitude.between(min_lon, max_lon),
-        ])
+        filters.extend(
+            [
+                User.current_latitude.between(min_lat, max_lat),
+                User.current_longitude.between(min_lon, max_lon),
+            ]
+        )
+
+    # Viewer's preferred candidate gender. "any" (or None) applies no filter.
+    if gender_preference in ("male", "female"):
+        filters.append(
+            func.coalesce(cast(User.preferences[("flatmates", "gender")], String), "").in_(
+                [gender_preference, f'"{gender_preference}"']
+            )
+        )
 
     _payload: dict[str, Any] = cursor_payload if cursor_payload is not None else {}
     _offset = read_offset(_payload)
@@ -313,7 +356,8 @@ async def list_discoverable_profiles(
     stmt = (
         select(User)
         .where(*filters)
-        .order_by(User.flatmates_last_active_at.desc().nulls_last())
+        # id is the unique tiebreak. Users with NULL last-active tie, and offset pages would repeat or skip them.
+        .order_by(User.flatmates_last_active_at.desc().nulls_last(), User.id.desc())
         .offset(_offset)
         .limit(limit + 1)
     )
@@ -338,6 +382,7 @@ async def list_discoverable_profiles(
                 Property.property_type.in_([PropertyType.flatmate, PropertyType.pg]),
                 Property.purpose == PropertyPurpose.rent,
                 Property.is_available.is_(True),
+                live_listing_predicate(),
             )
             .order_by(Property.created_at.desc())
         )
@@ -367,6 +412,17 @@ async def update_flatmates_profile(
         raise BadRequestException(detail="User not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "profile_status" in update_data and user.flatmates_profile_status in (
+        FlatmatesProfileStatus.paused,
+        FlatmatesProfileStatus.pending_review,
+        FlatmatesProfileStatus.rejected,
+    ):
+        # Moderation set this status. Any owner write to it is refused, not only
+        # reactivation. Only an admin can clear it.
+        raise ConflictException(
+            detail="Profile is under moderation and its status cannot be changed by the owner",
+            error_code="PROFILE_STATUS_LOCKED",
+        )
     preference_patch = update_data.pop("preferences", None)
 
     if "full_name" in update_data:
@@ -383,11 +439,6 @@ async def update_flatmates_profile(
             except Exception:
                 logger.warning("Failed to delete old profile image for user %s", user_id)
         user.profile_image_url = url
-    if "email" in update_data:
-        user.email = update_data.pop("email")
-    if "phone" in update_data:
-        user.phone = update_data.pop("phone")
-
     preference_fields = ("age", "profession", "gender", "gender_preference")
     age_was_updated = "age" in update_data
     current_preferences = user.preferences if isinstance(user.preferences, dict) else {}
@@ -490,7 +541,10 @@ async def mark_flatmates_notification_read(
     db: AsyncSession,
     user_id: int,
     notification_id: str,
+    *,
+    is_read: bool = True,
 ) -> dict[str, Any]:
+    """Set the read state of one notification and return it as a flatmates notification."""
     from app.core.utils import is_valid_uuid
 
     user = await db.get(User, user_id)
@@ -504,10 +558,10 @@ async def mark_flatmates_notification_read(
         raise BadRequestException(detail="Notification not found")
     supa = _supa()
 
-    def _sync_mark_read():
+    def _sync_set_read():
         res = (
             supa.table("notifications")
-            .select("id,data,target_user_id")
+            .select("id,title,body,data,created_at,target_user_id")
             .eq("id", notification_id)
             .eq("target_user_id", user.supabase_user_id)
             .limit(1)
@@ -517,15 +571,51 @@ async def mark_flatmates_notification_read(
             return None
         row = res.data[0]
         data = dict(row.get("data") or {})
-        data["is_read"] = True
-        data["read_at"] = datetime.now(timezone.utc).isoformat()
+        data["is_read"] = is_read
+        data["read_at"] = datetime.now(timezone.utc).isoformat() if is_read else None
         supa.table("notifications").update({"data": data}).eq("id", notification_id).execute()
-        return True
+        return {**row, "data": data}
 
-    result = await asyncio.to_thread(_sync_mark_read)
-    if result is None:
+    row = await asyncio.to_thread(_sync_set_read)
+    if row is None:
         raise BadRequestException(detail="Notification not found")
-    return {"ok": True, "id": notification_id, "is_read": True}
+    return _serialize_flatmate_notification(row)
+
+
+async def count_unread_flatmates_notifications(db: AsyncSession, user_id: int) -> int:
+    """Count unread notifications by scanning the user's rows in pages."""
+    from app.core.utils import is_valid_uuid
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise BadRequestException(detail="User not found")
+    if not is_valid_uuid(str(user.supabase_user_id or "")):
+        return 0
+
+    def _sync_count_unread() -> int:
+        supa = _supa()
+        unread = 0
+        start = 0
+        page_size = 1000
+        while True:
+            res = (
+                supa.table("notifications")
+                .select("id,data")
+                .eq("target_user_id", user.supabase_user_id)
+                .order("id")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+            rows = res.data or []
+            for row in rows:
+                data = row.get("data") or {}
+                if not (data.get("is_read") or data.get("read_at")):
+                    unread += 1
+            if len(rows) < page_size:
+                return unread
+            start += page_size
+
+    return await asyncio.to_thread(_sync_count_unread)
 
 
 async def mark_all_flatmates_notifications_read(db: AsyncSession, user_id: int) -> dict[str, Any]:
@@ -535,7 +625,7 @@ async def mark_all_flatmates_notifications_read(db: AsyncSession, user_id: int) 
     if user is None:
         raise BadRequestException(detail="User not found")
     if not is_valid_uuid(str(user.supabase_user_id or "")):
-        return {"ok": True, "updated": 0}
+        return {"updated": 0}
 
     def _sync_mark_all_read():
         supa = _supa()
@@ -559,7 +649,7 @@ async def mark_all_flatmates_notifications_read(db: AsyncSession, user_id: int) 
         return count
 
     count = await asyncio.to_thread(_sync_mark_all_read)
-    return {"ok": True, "updated": count}
+    return {"updated": count}
 
 
 async def get_bootstrap(db: AsyncSession, user_id: int) -> dict[str, Any]:
@@ -586,8 +676,8 @@ async def get_bootstrap(db: AsyncSession, user_id: int) -> dict[str, Any]:
             Conversation.app == ConversationApp.flatmates,
         )
     )
-    conversation_count_stmt = select(func.count()).select_from(Conversation).where(
-        Conversation.id.in_(conv_id_subq)
+    conversation_count_stmt = (
+        select(func.count()).select_from(Conversation).where(Conversation.id.in_(conv_id_subq))
     )
     conversation_count = int((await db.execute(conversation_count_stmt)).scalar() or 0)
 

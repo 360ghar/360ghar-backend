@@ -3,9 +3,11 @@ Custom Domain service for managing branded tour URLs.
 
 Handles domain creation, DNS verification, and SSL provisioning.
 """
-import secrets
 
-from sqlalchemy import select
+import secrets
+from typing import Any
+
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictException, NotFoundException
@@ -16,6 +18,7 @@ from app.schemas.custom_domain import (
     CustomDomainResponse,
     CustomDomainVerification,
 )
+from app.schemas.pagination import keyset_filter, keyset_sort_value, trim_keyset_lookahead
 
 logger = get_logger(__name__)
 
@@ -83,16 +86,38 @@ async def get_custom_domain(
     return None
 
 
-async def get_user_domains(
+async def get_user_domains_page(
     db: AsyncSession,
     user_id: int,
-) -> list[CustomDomainResponse]:
-    """Get all custom domains for a user."""
-    stmt = select(CustomDomain).where(CustomDomain.user_id == user_id).order_by(CustomDomain.created_at.desc())
-    result = await db.execute(stmt)
-    domains = result.scalars().all()
-
-    return [CustomDomainResponse.model_validate(d) for d in domains]
+    cursor_payload: dict[str, Any],
+    limit: int,
+    include_total: bool = False,
+) -> tuple[list[CustomDomainResponse], dict[str, Any] | None, int | None]:
+    """One keyset page of a user's custom domains, newest first. total is set only with include_total."""
+    total: int | None = None
+    if include_total:
+        total = int(
+            (
+                await db.execute(
+                    select(func.count(CustomDomain.id)).where(CustomDomain.user_id == user_id)
+                )
+            ).scalar_one()
+        )
+    stmt = select(CustomDomain).where(CustomDomain.user_id == user_id)
+    predicate = keyset_filter(
+        CustomDomain.created_at, CustomDomain.id, cursor_payload, descending=True
+    )
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(CustomDomain.created_at.desc(), CustomDomain.id.desc()).limit(limit + 1)
+    rows = list((await db.execute(stmt)).scalars().all())
+    page, next_payload = trim_keyset_lookahead(
+        rows,
+        limit=limit,
+        sort_value=lambda row: keyset_sort_value(row.created_at),
+        item_id=lambda row: row.id,
+    )
+    return [CustomDomainResponse.model_validate(d) for d in page], next_payload, total
 
 
 async def verify_domain(
@@ -125,7 +150,7 @@ async def verify_domain(
     if is_verified:
         domain.verification_status = "verified"
         # Start SSL provisioning
-        domain.ssl_status = "provisioning"
+        domain.ssl_status = "pending"
         await db.commit()
         await db.refresh(domain)
 

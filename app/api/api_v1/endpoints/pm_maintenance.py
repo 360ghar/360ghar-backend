@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -27,6 +27,7 @@ router = APIRouter()
 @router.post(
     "/requests",
     response_model=MaintenanceRequestSchema,
+    status_code=status.HTTP_201_CREATED,
     summary="Submit maintenance request",
     openapi_extra={
         "requestBody": {
@@ -65,11 +66,19 @@ async def submit_request(
         description=payload.description,
         preferred_contact_method=payload.preferred_contact_method,
         availability_notes=payload.availability_notes,
+        lease_id=payload.lease_id,
+        estimated_cost=payload.estimated_cost,
+        scheduled_for=payload.scheduled_for,
+        assigned_agent_id=payload.assigned_agent_id,
     )
     return MaintenanceRequestSchema.model_validate(req)
 
 
-@router.get("/requests", response_model=CursorPage[MaintenanceRequestSchema], summary="List maintenance requests")
+@router.get(
+    "/requests",
+    response_model=CursorPage[MaintenanceRequestSchema],
+    summary="List maintenance requests",
+)
 async def list_requests(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     property_id: int | None = Query(None),
@@ -81,6 +90,13 @@ async def list_requests(
     db: AsyncSession = Depends(get_db),
 ):
     """List maintenance requests."""
+    filters = {
+        "owner_id": owner_id,
+        "property_id": property_id,
+        "lease_id": lease_id,
+        "request_status": request_status,
+        "work_order_status": work_order_status,
+    }
     rows, next_payload, total = await list_maintenance_requests(
         db,
         actor=current_user,  # type: ignore[arg-type]
@@ -89,7 +105,7 @@ async def list_requests(
         lease_id=lease_id,
         request_status=request_status,
         work_order_status=work_order_status,
-        cursor_payload=page.decoded(),
+        cursor_payload=page.decoded(filters),
         limit=page.limit,
         with_total=page.include_total,
     )
@@ -98,37 +114,26 @@ async def list_requests(
         limit=page.limit,
         next_payload=next_payload,
         total=total,
+        filters=filters,
     )
 
 
-@router.patch("/requests/{request_id}", response_model=MaintenanceRequestSchema, summary="Update maintenance request")
+@router.patch(
+    "/requests/{request_id}",
+    response_model=MaintenanceRequestSchema,
+    summary="Update maintenance request",
+)
 async def update_request(
     request_id: int,
     payload: MaintenanceRequestUpdate,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Update maintenance request."""
+    """Update maintenance request. Send only the keys to change. An explicit null clears a nullable field."""
     req = await update_maintenance_request(
         db,
         actor=current_user,  # type: ignore[arg-type]
         request_id=request_id,
-        request_status=payload.request_status,
-        assigned_agent_id=payload.assigned_agent_id,
-        work_order_status=payload.work_order_status,
-        priority=payload.priority,
-        estimated_cost=(
-            float(payload.estimated_cost) if payload.estimated_cost is not None else None
-        ),
-        actual_cost=(
-            float(payload.actual_cost) if payload.actual_cost is not None else None
-        ),
-        scheduled_for=payload.scheduled_for,
-        completed_at=payload.completed_at,
-        closed_at=payload.closed_at,
-        completion_notes=payload.completion_notes,
-        vendor_name=payload.vendor_name,
-        vendor_contact=payload.vendor_contact,
+        body=payload,
     )
     return MaintenanceRequestSchema.model_validate(req)
-

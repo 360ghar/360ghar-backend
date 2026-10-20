@@ -4,6 +4,7 @@ Guided capture session API.
 Mobile capture app uses these endpoints to create sessions, attach
 uploaded frames with pose metadata, and complete processing.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,11 +20,10 @@ from app.schemas.capture import (
     CaptureFrameResponse,
     CaptureSessionCreate,
     CaptureSessionDetail,
-    CaptureSessionListResponse,
     CaptureSessionResponse,
-    CaptureSessionStatusResponse,
     CaptureSessionUpdate,
 )
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.user import User as UserSchema
 from app.services.capture import session_service
 
@@ -47,27 +47,34 @@ async def create_capture_session(
 
 @router.get(
     "",
-    response_model=CaptureSessionListResponse,
+    response_model=CursorPage[CaptureSessionResponse],
     summary="List capture sessions",
 )
 async def list_capture_sessions(
+    page: CursorParams = Depends(),
     status_filter: CaptureSessionStatus | None = Query(
         None, alias="status", description="Filter by session status"
     ),
-    limit: int = Query(50, ge=1, le=200),
-    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ) -> dict[str, Any]:
     """List the current user's capture sessions (newest first)."""
-    items, total = await session_service.list_sessions(
+    filters = {"status": status_filter}
+    items, next_payload, total = await session_service.list_sessions_page(
         db,
         current_user.id,
         status_filter=status_filter,
-        limit=limit,
-        offset=offset,
+        cursor_payload=page.decoded(filters),
+        limit=page.limit,
+        include_total=page.include_total,
     )
-    return {"items": items, "total": total}
+    return build_cursor_page(
+        items,
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+        filters=filters,
+    )
 
 
 @router.get(
@@ -99,20 +106,6 @@ async def update_capture_session(
 ) -> dict[str, Any]:
     """Update plan, status, progress, or metadata for a session."""
     return await session_service.update_session(db, session_id, current_user.id, data)
-
-
-@router.get(
-    "/{session_id}/status",
-    response_model=CaptureSessionStatusResponse,
-    summary="Get capture session status",
-)
-async def get_capture_session_status(
-    session_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserSchema = Depends(get_current_active_user),
-) -> dict[str, Any]:
-    """Lightweight status poll for upload / processing UI."""
-    return await session_service.get_status(db, session_id, current_user.id)
 
 
 @router.post(

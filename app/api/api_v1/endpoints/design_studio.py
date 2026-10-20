@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from app.core.logging import get_logger
 from app.middleware.rate_limit import EndpointRateLimiter
 from app.services.ai.image_gen.schemas import (
+    DesignImageOut,
     ImageGenMode,
     ImageGenRequest,
-    ImageGenResponse,
 )
 
 logger = get_logger(__name__)
@@ -36,11 +36,11 @@ async def _check_generate_rate_limit(request: Request) -> None:
         )
 
 
-@router.post("/generate", response_model=ImageGenResponse, summary="Generate design image")
+@router.post("/generate", response_model=DesignImageOut, summary="Generate design image")
 async def generate_design_image(
     request: ImageGenRequest,
     _rate_limit: None = Depends(_check_generate_rate_limit),
-) -> ImageGenResponse:
+) -> DesignImageOut:
     """
     Generate an AI design image. Free, no login required. Powered by Agnes AI.
 
@@ -54,14 +54,12 @@ async def generate_design_image(
     - `mode`: Generation mode
     - `prompt`: Text description (3-4000 chars)
     - `image`: Base64-encoded source image (required for image-to-image)
-    - `mimeType`: MIME type of source image (e.g., image/jpeg)
+    - `mime_type`: MIME type of source image (e.g., image/jpeg)
     - `ratio`: Output aspect ratio (`1:1`, `3:4`, `4:3`, `16:9`, `9:16`, `2:3`, `3:2`, `21:9`). Default `1:1`
 
-    **Response:**
-    - `success`: Whether generation succeeded
-    - `image`: Base64 data URL of generated image (on success)
-    - `error`: Error message (on failure)
-    - `code`: Error code (on failure)
+    **Response:** `image`, a base64 data URL. A failed generation returns an error
+    envelope with a `code` (`QUOTA_EXCEEDED`, `SERVICE_UNAVAILABLE`, `CONTENT_BLOCKED`,
+    and others).
     """
     from app.services.ai.image_gen.service import generate_image
 
@@ -71,8 +69,8 @@ async def generate_design_image(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Source image is required for image-to-image mode",
             )
-        if not request.mimeType:
-            request.mimeType = "image/jpeg"
+        if not request.mime_type:
+            request.mime_type = "image/jpeg"
 
     logger.info(
         "AI image generation request: mode=%s, ratio=%s, prompt_len=%d",
@@ -107,4 +105,4 @@ async def generate_design_image(
         len(result.image) if result.image else 0,
     )
 
-    return result
+    return DesignImageOut(image=result.image or "")

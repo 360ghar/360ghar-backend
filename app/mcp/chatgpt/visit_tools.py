@@ -7,10 +7,11 @@ These tools enable property visit scheduling and management:
 - Get visit details
 - Cancel a visit
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
@@ -29,7 +30,7 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
-from app.mcp.utils import get_user_from_mcp_context
+from app.mcp.utils import get_user_from_mcp_context, utc_iso
 from app.models.enums import VisitStatus
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.schemas.visit import VisitCreate
@@ -72,16 +73,69 @@ def _serialize_visit(visit) -> dict[str, Any]:
         "id": visit.id,
         "property_id": visit.property_id,
         "property": property_data,
-        "scheduled_date": visit.scheduled_date.isoformat() if visit.scheduled_date else None,
+        "scheduled_date": utc_iso(visit.scheduled_date),
         "status": visit.status.value if hasattr(visit.status, "value") else visit.status,
         "notes": visit.notes,
-        "created_at": visit.created_at.isoformat() if visit.created_at else None,
+        "created_at": utc_iso(visit.created_at),
     }
 
 
 # ============================================================================
 # Visit Tools (All require authentication)
 # ============================================================================
+
+
+# Upcoming visits are the statuses that have not ended yet.
+_UPCOMING_STATUSES = {VisitStatus.requested, VisitStatus.confirmed, VisitStatus.reschedule_suggested}
+
+
+# Accepted visits_list values: the stored VisitStatus values.
+VisitStatusFilter = Literal[
+    "requested",
+    "confirmed",
+    "completed",
+    "cancelled",
+    "reschedule_suggested",
+]
+
+
+def _visit_status_filter(status: str | None) -> VisitStatus | None:
+    """Resolve a stored status value (``requested``). Unknown values give None."""
+    if not status:
+        return None
+    try:
+        return VisitStatus(status.strip())
+    except ValueError:
+        return None
+
+
+async def _visit_status_counts(db: Any, user_id: int) -> dict[str, int]:
+    """Per-status counts of every visit the user is party to, from one grouped query."""
+    from sqlalchemy import func, or_, select
+
+    from app.models.properties import Visit
+
+    grouped = (
+        await db.execute(
+            select(Visit.status, func.count())
+            .where(or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id))
+            .group_by(Visit.status)
+        )
+    ).all()
+    by_value: dict[str, int] = {}
+    for status, count in grouped:
+        value = str(getattr(status, "value", status))
+        by_value[value] = by_value.get(value, 0) + int(count)
+    upcoming = sum(by_value.get(member.value, 0) for member in _UPCOMING_STATUSES)
+    return {
+        "total": sum(by_value.values()),
+        "upcoming": upcoming,
+        "completed": by_value.get(VisitStatus.completed.value, 0),
+        "cancelled": by_value.get(VisitStatus.cancelled.value, 0),
+        "requested": by_value.get(VisitStatus.requested.value, 0),
+        "confirmed": by_value.get(VisitStatus.confirmed.value, 0),
+        "reschedule_suggested": by_value.get(VisitStatus.reschedule_suggested.value, 0),
+    }
 
 
 @user_mcp.tool(
@@ -108,7 +162,7 @@ async def visits_schedule(
 
     Args:
         property_id: Property ID to schedule visit for
-        scheduled_date: Visit date and time in ISO 8601 format (e.g., "2025-02-15T14:00:00")
+        scheduled_date: Visit date and time in ISO 8601 format with a UTC offset (e.g., "2025-02-15T14:00:00+05:30")
         notes: Optional notes for the visit (e.g., "Please call before arrival")
 
     Returns:
@@ -131,12 +185,21 @@ async def visits_schedule(
             # Parse scheduled date
             try:
                 parsed_date = datetime.fromisoformat(scheduled_date.replace("Z", "+00:00"))
-                if parsed_date.tzinfo is None:
-                    parsed_date = parsed_date.replace(tzinfo=timezone.utc)
             except ValueError as e:
                 return format_chatgpt_response(
                     data={"error": True, "code": "INVALID_DATE", "message": str(e)},
-                    content_summary="Invalid date format. Please use ISO 8601 format like '2025-02-15T14:00:00'.",
+                    content_summary="Invalid date format. Please use ISO 8601 format like '2025-02-15T14:00:00+05:30'.",
+                    widget_uri=get_widget_for_tool("visits_schedule"),
+                )
+            if parsed_date.tzinfo is None:
+                # A naive time is local time for the user, not UTC. Ask for the offset.
+                return format_chatgpt_response(
+                    data={
+                        "error": True,
+                        "code": "INVALID_DATE",
+                        "message": "scheduled_date must include a UTC offset.",
+                    },
+                    content_summary="The visit time needs a UTC offset, for example '2025-02-15T14:00:00+05:30'.",
                     widget_uri=get_widget_for_tool("visits_schedule"),
                 )
 
@@ -199,7 +262,7 @@ async def visits_schedule(
     meta=VISIT_LIST_META,
 )
 async def visits_list(
-    status: str | None = None,
+    status: VisitStatusFilter | None = None,
     cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -210,7 +273,7 @@ async def visits_list(
     This tool requires authentication.
 
     Args:
-        status: Filter by status (scheduled, confirmed, completed, cancelled, rescheduled)
+        status: Filter by status (requested, confirmed, completed, cancelled, reschedule_suggested)
         cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Results per page (max 50)
 
@@ -219,7 +282,9 @@ async def visits_list(
     """
     try:
         limit = min(max(1, limit), 50)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        status_key = _visit_status_filter(status)
+        filters = {"status": status_key.value if status_key is not None else None}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -233,48 +298,39 @@ async def visits_list(
             # Get user's visits (paginated via cursor). Status filtering is
             # applied server-side by get_user_visits, so the page and the
             # reported total are accurate for the requested status.
-            status_enum = None
-            if status:
-                try:
-                    status_enum = VisitStatus(status)
-                except ValueError:
-                    # Invalid status — treat as no filter (MCP tools are lenient).
-                    status_enum = None
+            status_enum = _visit_status_filter(status)
+            if status and status_enum is None:
+                valid = sorted(m.value for m in VisitStatus)
+                return format_chatgpt_response(
+                    data={
+                        "error": True,
+                        "code": "INVALID_STATUS",
+                        "message": f"Invalid status: {status}. Valid values: {valid}",
+                    },
+                    content_summary=f"Invalid visit status '{status}'. Valid values are: {', '.join(valid)}.",
+                    widget_uri=get_widget_for_tool("visits_list"),
+                )
             rows, next_payload, total_count = await get_user_visits(
-                db, user.id, cursor_payload=cursor_payload, limit=limit, with_total=True,
+                db,
+                user.id,
+                cursor_payload=cursor_payload,
+                limit=limit,
+                with_total=True,
                 status=status_enum,
             )
 
             all_visits = rows
 
-            # Compute per-status counts from the fetched page. These are
-            # approximate when paginating (they reflect only the current page,
-            # not the full dataset).
-            def _s(v):
-                return v.status.value if hasattr(v.status, "value") else v.status
-            page_counts = {"upcoming": 0, "completed": 0, "cancelled": 0}
-            for v in all_visits:
-                s = _s(v)
-                if s in ("scheduled", "confirmed", "rescheduled"):
-                    page_counts["upcoming"] += 1
-                elif s == "completed":
-                    page_counts["completed"] += 1
-                elif s == "cancelled":
-                    page_counts["cancelled"] += 1
-
-            counts = {
-                "total": total_count if total_count is not None else len(rows),
-                **page_counts,
-            }
+            # Per-status counts of every visit the user is party to (not the page).
+            counts = await _visit_status_counts(db, user.id)
 
             # Serialize visits
             visits = [_serialize_visit(v) for v in all_visits]
 
             return format_chatgpt_response(
                 data={
-                    "visits": visits,
-                    "total": len(all_visits),
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "items": visits,
+                    "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
                     "has_more": next_payload is not None,
                     "limit": limit,
                     "counts": counts,
@@ -444,7 +500,7 @@ async def visits_cancel(
             await db.commit()
 
             return format_chatgpt_response(
-                data={"success": True, "visit_id": visit_id, "status": "cancelled"},
+                data={"visit_id": visit_id, "status": "cancelled"},
                 content_summary=f"Your visit has been cancelled.{' Reason: ' + reason if reason else ''}",
                 widget_uri=get_widget_for_tool("visits_cancel"),
             )

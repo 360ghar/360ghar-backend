@@ -11,11 +11,13 @@ Robustness features:
 
 from __future__ import annotations
 
-from pydantic import ValidationError
+from enum import Enum
+from typing import Any
 
 from app.core.constants import DEFAULT_VISION_PROVIDER
+from app.core.exceptions import ExternalServiceError
 from app.core.logging import get_logger
-from app.core.utils import utc_now_iso
+from app.core.utils import utc_now
 from app.services.ai import (
     AIMessage,
     AIProviderError,
@@ -73,10 +75,12 @@ async def _call_provider_with_json_retry(
     with a corrective nudge appended to the last user message.
     """
     try:
-        return dict(await provider.complete_json(
-            messages=messages,
-            vision_input=vision_input,
-        ))
+        return dict(
+            await provider.complete_json(
+                messages=messages,
+                vision_input=vision_input,
+            )
+        )
     except AIProviderError as exc:
         # Only retry on JSON parse failures, not on HTTP/auth errors
         if "Failed to parse JSON" not in str(exc):
@@ -94,10 +98,12 @@ async def _call_provider_with_json_retry(
                 content=original.content + _JSON_RETRY_NUDGE,
             )
 
-        return dict(await provider.complete_json(
-            messages=nudged_messages,
-            vision_input=vision_input,
-        ))
+        return dict(
+            await provider.complete_json(
+                messages=nudged_messages,
+                vision_input=vision_input,
+            )
+        )
 
 
 async def analyze_vastu(
@@ -119,7 +125,7 @@ async def analyze_vastu(
         VastuAnalyzeResponse with structured analysis and markdown report
     """
     provider_used = DEFAULT_VISION_PROVIDER
-    analyzed_at = utc_now_iso()
+    analyzed_at = utc_now()
 
     messages = [
         AIMessage(role=AIRole.SYSTEM, content=VASTU_VISION_SYSTEM_PROMPT),
@@ -134,41 +140,26 @@ async def analyze_vastu(
     )
 
     result_json = await _attempt_analysis(messages, vision_input)
-
     if result_json is None:
-        return VastuAnalyzeResponse(
-            success=False,
-            error=f"Analysis failed with provider '{provider_used}'",
-            provider_used=provider_used,
-            analyzed_at=analyzed_at,
-        )
-
-    # Normalize string-list fields so markdown + pydantic both see list[str]
-    result_json["improvements"] = coerce_string_list(result_json.get("improvements"))
-    result_json["assumptions"] = coerce_string_list(result_json.get("assumptions"))
+        raise unusable_analysis_error("the provider returned no result")
 
     try:
-        analysis_result = _parse_analysis_result(result_json)
-    except ValidationError as exc:
-        logger.error("Vastu result schema validation failed: %s", exc)
-        return VastuAnalyzeResponse(
-            success=False,
-            error="Analysis returned an unexpected format. Please try again.",
-            provider_used=provider_used,
-            analyzed_at=analyzed_at,
-        )
-
-    report_markdown = generate_markdown_report(result_json)
+        # Coerce the LLM output into the shape the parser expects. Anything
+        # that still fails below is an unusable result, not a server crash.
+        normalized = _coerce_analysis_input(result_json)
+        analysis_result = _parse_analysis_result(normalized)
+        report_markdown = generate_markdown_report(normalized)
+    except Exception as exc:
+        logger.error("Vastu result could not be parsed: %s", exc, exc_info=True)
+        raise unusable_analysis_error("the result could not be parsed") from exc
 
     has_warnings = len(analysis_result.warnings) > 0
     warning_count = len(analysis_result.warnings)
     critical_warnings = any(
-        w.severity == AnalysisWarningSeverity.CRITICAL
-        for w in analysis_result.warnings
+        w.severity == AnalysisWarningSeverity.CRITICAL for w in analysis_result.warnings
     )
 
     return VastuAnalyzeResponse(
-        success=True,
         data=analysis_result,
         report_markdown=report_markdown,
         has_warnings=has_warnings,
@@ -177,6 +168,216 @@ async def analyze_vastu(
         provider_used=provider_used,
         analyzed_at=analyzed_at,
     )
+
+
+VASTU_UNUSABLE_MESSAGE = "The analysis service returned an unusable result. Please try again."
+
+
+def unusable_analysis_error(reason: str) -> ExternalServiceError:
+    """A 502 with the shared envelope. The reason is logged, never returned."""
+    logger.warning("Vastu analysis unusable: %s", reason)
+    return ExternalServiceError(VASTU_UNUSABLE_MESSAGE, error_code="VASTU_UNUSABLE_OUTPUT")
+
+
+def _as_dict(value: object) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _as_text(value: object, default: str | None = None) -> str | None:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    return default
+
+
+def _as_count(value: object, default: int = 0) -> int:
+    try:
+        return max(0, int(float(value)))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_score(value: object, default: int = 5) -> int:
+    try:
+        return max(1, min(10, round(float(value))))  # type: ignore[arg-type]
+    except (TypeError, ValueError, OverflowError):
+        return default
+
+
+def _coerce_section(value: object) -> dict[str, Any] | None:
+    """A floor-plan section (entrance, toilets, ...). A bare string becomes its direction."""
+    if isinstance(value, str):
+        return {"direction": value}
+    if isinstance(value, dict):
+        return value
+    return None
+
+
+def _enum_value(enum_cls: type[Enum], raw: object, default: Enum) -> str:
+    """The enum value for a raw LLM label, or the default when the label is unknown."""
+    try:
+        return str(enum_cls(str(raw).lower()).value)
+    except ValueError:
+        return str(default.value)
+
+
+_TRUE_TEXT = frozenset({"true", "yes", "y", "1"})
+_FALSE_TEXT = frozenset({"false", "no", "n", "0"})
+DEFAULT_DISCLAIMER = (
+    "This analysis is based on traditional Vastu Shastra principles and the floor plan "
+    "information provided. Individual results may vary. For major structural changes, "
+    "consult a qualified Vastu expert in person. This is for informational purposes only."
+)
+
+
+def _as_bool(value: object, default: bool) -> bool:
+    """A bool from an LLM value. Any other text, such as 'maybe', is the default."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _TRUE_TEXT:
+            return True
+        if text in _FALSE_TEXT:
+            return False
+    return default
+
+
+def _as_list(value: object) -> list[Any]:
+    return value if isinstance(value, list) else []
+
+
+def _coerce_analysis_input(raw: dict[str, Any]) -> dict[str, Any]:
+    """Shape the raw LLM dict into the exact types the result model reads.
+
+    Every field that the result model requires gets a value of the right type,
+    or the documented default. Null, a wrong type, or an unknown label never
+    reaches the model. The markdown report and the structured result both read
+    this output, so they agree. Running it twice gives the same result.
+    """
+    fp = _as_dict(raw.get("floor_plan_analysis"))
+
+    rooms: list[dict[str, Any]] = [
+        {
+            "name": _as_text(room.get("name"), "Unknown"),
+            "direction": _as_text(room.get("direction"), "Unknown"),
+            "notes": _as_text(room.get("notes")),
+        }
+        for room in _as_list(fp.get("rooms"))
+        if isinstance(room, dict)
+    ]
+
+    entrance_raw = _coerce_section(fp.get("entrance"))
+    entrance = None
+    if entrance_raw is not None:
+        entrance = {
+            "direction": _as_text(entrance_raw.get("direction"), "Unknown"),
+            "type": _as_text(entrance_raw.get("type")),
+        }
+
+    kitchen_raw = fp.get("kitchen")
+    kitchen: dict[str, str] | None = None
+    if isinstance(kitchen_raw, dict):
+        kitchen = {str(k): _as_text(v, "") or "" for k, v in kitchen_raw.items() if v is not None}
+    elif kitchen_raw is not None:
+        kitchen = {"description": str(kitchen_raw)}
+
+    toilets_raw = _coerce_section(fp.get("toilets"))
+    toilets = None
+    if toilets_raw is not None:
+        toilets = {
+            "count": _as_count(toilets_raw.get("count")),
+            "directions": coerce_string_list(toilets_raw.get("directions")),
+        }
+    balconies_raw = _coerce_section(fp.get("balconies"))
+    balconies = None
+    if balconies_raw is not None:
+        balconies = {
+            "count": _as_count(balconies_raw.get("count")),
+            "directions": coerce_string_list(balconies_raw.get("directions")),
+        }
+    staircase_raw = _coerce_section(fp.get("staircase"))
+    staircase = None
+    if staircase_raw is not None:
+        staircase = {
+            "direction": _as_text(staircase_raw.get("direction"), "Unknown"),
+            "type": _as_text(staircase_raw.get("type")),
+        }
+
+    open_spaces = fp.get("open_spaces")
+    room_analysis = [
+        {
+            "room": _as_text(ra.get("room"), "Unknown"),
+            "direction": _as_text(ra.get("direction"), "Unknown"),
+            "status": _enum_value(VastuStatus, ra.get("status"), VastuStatus.NEUTRAL),
+            "analysis": _as_text(ra.get("analysis"), ""),
+        }
+        for ra in _as_list(raw.get("room_analysis"))
+        if isinstance(ra, dict)
+    ]
+    major_defects = [
+        {
+            "issue": _as_text(defect.get("issue"), "Unknown issue"),
+            "severity": _enum_value(DefectSeverity, defect.get("severity"), DefectSeverity.MEDIUM),
+            "impact": _as_text(defect.get("impact"), ""),
+        }
+        for defect in _as_list(raw.get("major_defects"))
+        if isinstance(defect, dict)
+    ][:5]
+    remedies = [
+        {
+            "problem": _as_text(remedy.get("problem"), "Unknown problem"),
+            "solution": _as_text(remedy.get("solution"), ""),
+            "type": _enum_value(RemedyType, remedy.get("type"), RemedyType.PLACEMENT),
+        }
+        for remedy in _as_list(raw.get("remedies"))
+        if isinstance(remedy, dict)
+    ]
+    analysis_warnings = [
+        {
+            "type": _as_text(w.get("type"), "partial_analysis"),
+            "severity": _as_text(w.get("severity"), "info"),
+            "message": _as_text(w.get("message")) or "Analysis limitation detected",
+            "suggestion": _as_text(w.get("suggestion"))
+            or "Try uploading a clearer floor plan image.",
+        }
+        for w in _as_list(raw.get("analysis_warnings"))
+        if isinstance(w, dict)
+    ]
+
+    data = dict(raw)
+    data.update(
+        {
+            "floor_plan_analysis": {
+                "plot_shape": _as_text(fp.get("plot_shape")),
+                "rooms": rooms,
+                "entrance": entrance,
+                "kitchen": kitchen,
+                "toilets": toilets,
+                "balconies": balconies,
+                "staircase": staircase,
+                "open_spaces": None if open_spaces is None else coerce_string_list(open_spaces),
+                "center_area": _as_text(fp.get("center_area")),
+                "compass_visible": _as_bool(fp.get("compass_visible"), False),
+            },
+            "room_analysis": room_analysis,
+            "major_defects": major_defects,
+            "remedies": remedies,
+            "analysis_warnings": analysis_warnings,
+            "vastu_score": _as_score(raw.get("vastu_score")),
+            "score_explanation": _as_text(raw.get("score_explanation"), "") or "",
+            "assumptions": coerce_string_list(raw.get("assumptions")),
+            "improvements": coerce_string_list(raw.get("improvements")),
+            "disclaimer": _as_text(raw.get("disclaimer")) or DEFAULT_DISCLAIMER,
+            "is_valid_floor_plan": _as_bool(raw.get("is_valid_floor_plan"), True),
+        }
+    )
+    return data
 
 
 async def _attempt_analysis(
@@ -199,141 +400,47 @@ async def _attempt_analysis(
 
 
 def _parse_analysis_result(result_json: dict) -> VastuAnalysisResult:
-    """
-    Parse and validate the raw JSON result into a VastuAnalysisResult.
+    """Build the result model from LLM JSON. Coercion runs first, so defaults apply."""
+    data = _coerce_analysis_input(result_json)
+    fp = data["floor_plan_analysis"]
 
-    Handles partial data gracefully with defaults.
-    """
-    # Parse floor plan analysis
-    fp_data = result_json.get("floor_plan_analysis", {})
-
-    rooms = []
-    for room in fp_data.get("rooms", []):
-        rooms.append(RoomInfo(
-            name=room.get("name", "Unknown"),
-            direction=room.get("direction", "Unknown"),
-            notes=room.get("notes"),
-        ))
-
-    entrance = None
-    if fp_data.get("entrance"):
-        entrance = EntranceInfo(
-            direction=fp_data["entrance"].get("direction", "Unknown"),
-            type=fp_data["entrance"].get("type"),
-        )
-
-    toilets = None
-    if fp_data.get("toilets"):
-        toilets = ToiletInfo(
-            count=fp_data["toilets"].get("count", 0),
-            directions=fp_data["toilets"].get("directions", []),
-        )
-
-    staircase = None
-    if fp_data.get("staircase"):
-        staircase = StaircaseInfo(
-            direction=fp_data["staircase"].get("direction", "Unknown"),
-            type=fp_data["staircase"].get("type"),
-        )
-
-    balconies = None
-    if fp_data.get("balconies"):
-        balconies = BalconyInfo(
-            count=fp_data["balconies"].get("count", 0),
-            directions=fp_data["balconies"].get("directions", []),
-        )
-
+    rooms = [RoomInfo.model_validate(room) for room in fp["rooms"]]
     floor_plan = FloorPlanAnalysis(
-        plot_shape=fp_data.get("plot_shape"),
+        plot_shape=fp["plot_shape"],
         rooms=rooms,
-        entrance=entrance,
-        kitchen=fp_data.get("kitchen"),
-        toilets=toilets,
-        staircase=staircase,
-        balconies=balconies,
-        open_spaces=fp_data.get("open_spaces"),
-        center_area=fp_data.get("center_area"),
-        compass_visible=fp_data.get("compass_visible", False),
+        entrance=EntranceInfo.model_validate(fp["entrance"]) if fp["entrance"] else None,
+        kitchen=fp["kitchen"],
+        toilets=ToiletInfo.model_validate(fp["toilets"]) if fp["toilets"] else None,
+        staircase=StaircaseInfo.model_validate(fp["staircase"]) if fp["staircase"] else None,
+        balconies=BalconyInfo.model_validate(fp["balconies"]) if fp["balconies"] else None,
+        open_spaces=fp["open_spaces"],
+        center_area=fp["center_area"],
+        compass_visible=fp["compass_visible"],
     )
+    room_analysis = [RoomVastuAnalysis.model_validate(ra) for ra in data["room_analysis"]]
+    major_defects = [VastuDefect.model_validate(d) for d in data["major_defects"]]
+    remedies = [VastuRemedy.model_validate(r) for r in data["remedies"]]
 
-    # Parse room analysis
-    room_analysis = []
-    for ra in result_json.get("room_analysis", []):
-        try:
-            status = VastuStatus(ra.get("status", "neutral").lower())
-        except ValueError:
-            status = VastuStatus.NEUTRAL
-
-        room_analysis.append(RoomVastuAnalysis(
-            room=ra.get("room", "Unknown"),
-            direction=ra.get("direction", "Unknown"),
-            status=status,
-            analysis=ra.get("analysis", ""),
-        ))
-
-    # Parse major defects
-    major_defects = []
-    for defect in result_json.get("major_defects", [])[:5]:  # Limit to 5
-        try:
-            severity = DefectSeverity(defect.get("severity", "medium").lower())
-        except ValueError:
-            severity = DefectSeverity.MEDIUM
-
-        major_defects.append(VastuDefect(
-            issue=defect.get("issue", "Unknown issue"),
-            severity=severity,
-            impact=defect.get("impact", ""),
-        ))
-
-    # Parse remedies
-    remedies = []
-    for remedy in result_json.get("remedies", []):
-        try:
-            remedy_type = RemedyType(remedy.get("type", "placement").lower())
-        except ValueError:
-            remedy_type = RemedyType.PLACEMENT
-
-        remedies.append(VastuRemedy(
-            problem=remedy.get("problem", "Unknown problem"),
-            solution=remedy.get("solution", ""),
-            type=remedy_type,
-        ))
-
-    # Clamp score to 1-10 range
-    score = result_json.get("vastu_score", 5)
-    score = max(1, min(10, round(score)))
-
-    # Generate warnings based on analysis
-    warnings, confidence = _generate_analysis_warnings(result_json, floor_plan, rooms)
-
-    # Determine if this is a valid floor plan
-    is_valid = result_json.get("is_valid_floor_plan", True)
+    warnings, confidence = _generate_analysis_warnings(data, floor_plan, rooms)
 
     return VastuAnalysisResult(
         floor_plan_analysis=floor_plan,
-        vastu_score=score,
-        score_explanation=result_json.get("score_explanation", ""),
-        assumptions=result_json.get("assumptions", []),
+        vastu_score=data["vastu_score"],
+        score_explanation=data["score_explanation"],
+        assumptions=data["assumptions"],
         room_analysis=room_analysis,
         major_defects=major_defects,
         remedies=remedies,
-        improvements=result_json.get("improvements", []),
-        disclaimer=result_json.get(
-            "disclaimer",
-            "This analysis is based on traditional Vastu Shastra principles and the floor plan information provided. "
-            "Individual results may vary. For major structural changes, consult a qualified Vastu expert in person. "
-            "This is for informational purposes only."
-        ),
+        improvements=data["improvements"],
+        disclaimer=data["disclaimer"],
         analysis_confidence=confidence,
         warnings=warnings,
-        is_valid_floor_plan=is_valid,
+        is_valid_floor_plan=data["is_valid_floor_plan"],
     )
 
 
 def _generate_analysis_warnings(
-    result_json: dict,
-    floor_plan: FloorPlanAnalysis,
-    rooms: list
+    result_json: dict, floor_plan: FloorPlanAnalysis, rooms: list
 ) -> tuple[list[AnalysisWarning], float]:
     """
     Analyze the result and generate appropriate warnings.
@@ -353,12 +460,14 @@ def _generate_analysis_warnings(
 
     # Check if it's a valid floor plan
     if not result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.NOT_FLOOR_PLAN,
-            severity=AnalysisWarningSeverity.CRITICAL,
-            message="This image does not appear to be a floor plan. The analysis may not be accurate.",
-            suggestion="Please upload a clear 2D floor plan showing room layouts, walls, and doors. Avoid photographs, 3D renders, or decorative images."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.NOT_FLOOR_PLAN,
+                severity=AnalysisWarningSeverity.CRITICAL,
+                message="This image does not appear to be a floor plan. The analysis may not be accurate.",
+                suggestion="Please upload a clear 2D floor plan showing room layouts, walls, and doors. Avoid photographs, 3D renders, or decorative images.",
+            )
+        )
         confidence = min(confidence, 0.3)
 
     # Get room names for checking
@@ -366,65 +475,72 @@ def _generate_analysis_warnings(
 
     # Missing kitchen
     has_kitchen = (
-        any("kitchen" in name for name in room_names_lower) or
-        floor_plan.kitchen is not None
+        any("kitchen" in name for name in room_names_lower) or floor_plan.kitchen is not None
     )
     if not has_kitchen and result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.MISSING_KITCHEN,
-            severity=AnalysisWarningSeverity.WARNING,
-            message="No kitchen was detected in the floor plan.",
-            suggestion="If your floor plan includes a kitchen, ensure it is clearly labeled or distinguishable. Kitchen placement is crucial for Vastu analysis."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.MISSING_KITCHEN,
+                severity=AnalysisWarningSeverity.WARNING,
+                message="No kitchen was detected in the floor plan.",
+                suggestion="If your floor plan includes a kitchen, ensure it is clearly labeled or distinguishable. Kitchen placement is crucial for Vastu analysis.",
+            )
+        )
         confidence = min(confidence, 0.8)
 
     # Missing bedroom
     has_bedroom = any(
-        "bedroom" in name or "bed room" in name or "master" in name
-        for name in room_names_lower
+        "bedroom" in name or "bed room" in name or "master" in name for name in room_names_lower
     )
     if not has_bedroom and result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.MISSING_BEDROOM,
-            severity=AnalysisWarningSeverity.WARNING,
-            message="No bedroom was detected in the floor plan.",
-            suggestion="If your floor plan includes bedrooms, ensure they are labeled. Bedroom placement affects rest and relationships in Vastu."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.MISSING_BEDROOM,
+                severity=AnalysisWarningSeverity.WARNING,
+                message="No bedroom was detected in the floor plan.",
+                suggestion="If your floor plan includes bedrooms, ensure they are labeled. Bedroom placement affects rest and relationships in Vastu.",
+            )
+        )
         confidence = min(confidence, 0.8)
 
     # Missing bathroom
-    has_bathroom = (
-        any("bath" in name or "toilet" in name or "wc" in name or "washroom" in name
-            for name in room_names_lower) or
-        (floor_plan.toilets is not None and floor_plan.toilets.count > 0)
-    )
+    has_bathroom = any(
+        "bath" in name or "toilet" in name or "wc" in name or "washroom" in name
+        for name in room_names_lower
+    ) or (floor_plan.toilets is not None and floor_plan.toilets.count > 0)
     if not has_bathroom and result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.MISSING_BATHROOM,
-            severity=AnalysisWarningSeverity.WARNING,
-            message="No bathroom or toilet was detected in the floor plan.",
-            suggestion="If your floor plan includes bathrooms, ensure they are marked. Toilet placement is important in Vastu."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.MISSING_BATHROOM,
+                severity=AnalysisWarningSeverity.WARNING,
+                message="No bathroom or toilet was detected in the floor plan.",
+                suggestion="If your floor plan includes bathrooms, ensure they are marked. Toilet placement is important in Vastu.",
+            )
+        )
         confidence = min(confidence, 0.85)
 
     # Missing entrance
     if floor_plan.entrance is None and result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.MISSING_ENTRANCE,
-            severity=AnalysisWarningSeverity.WARNING,
-            message="The main entrance could not be identified.",
-            suggestion="The main door is crucial for Vastu analysis. Please ensure it is visible and marked in your floor plan."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.MISSING_ENTRANCE,
+                severity=AnalysisWarningSeverity.WARNING,
+                message="The main entrance could not be identified.",
+                suggestion="The main door is crucial for Vastu analysis. Please ensure it is visible and marked in your floor plan.",
+            )
+        )
         confidence = min(confidence, 0.7)
 
     # Very few rooms detected
     if len(rooms) < 3 and result_json.get("is_valid_floor_plan", True):
-        warnings.append(AnalysisWarning(
-            type=AnalysisWarningType.FEW_ROOMS_DETECTED,
-            severity=AnalysisWarningSeverity.WARNING,
-            message=f"Only {len(rooms)} room(s) were detected, which seems unusually low for a complete floor plan.",
-            suggestion="If more rooms exist, try uploading a clearer image with better contrast and visible room labels."
-        ))
+        warnings.append(
+            AnalysisWarning(
+                type=AnalysisWarningType.FEW_ROOMS_DETECTED,
+                severity=AnalysisWarningSeverity.WARNING,
+                message=f"Only {len(rooms)} room(s) were detected, which seems unusually low for a complete floor plan.",
+                suggestion="If more rooms exist, try uploading a clearer image with better contrast and visible room labels.",
+            )
+        )
         confidence = min(confidence, 0.7)
 
     # Include AI-generated warnings from response
@@ -448,12 +564,14 @@ def _generate_analysis_warnings(
             # Check if this warning type already exists (avoid duplicates)
             existing_types = [existing.type for existing in warnings]
             if warning_type not in existing_types:
-                warnings.append(AnalysisWarning(
-                    type=warning_type,
-                    severity=severity,
-                    message=w.get("message", "Analysis limitation detected"),
-                    suggestion=w.get("suggestion", "Try uploading a clearer floor plan image.")
-                ))
+                warnings.append(
+                    AnalysisWarning(
+                        type=warning_type,
+                        severity=severity,
+                        message=w.get("message", "Analysis limitation detected"),
+                        suggestion=w.get("suggestion", "Try uploading a clearer floor plan image."),
+                    )
+                )
         except Exception:
             # Skip invalid warnings
             pass

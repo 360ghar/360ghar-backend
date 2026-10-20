@@ -30,6 +30,7 @@ from app.models.enums import (
     ConversationApp,
     ConversationSource,
     ConversationStatus,
+    ListingModerationStatus,
     MessageType,
     UserMatchStatus,
 )
@@ -37,13 +38,15 @@ from app.models.properties import Property
 from app.models.social import MatchQnAAnswer, UserMatch
 from app.models.users import User
 from app.schemas.flatmates import ConversationCreate, MessageCreate, QnAAnswers
-from app.schemas.pagination import offset_payload, read_offset
+from app.schemas.pagination import offset_payload, read_keyset, read_offset, trim_keyset_lookahead
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
     _canonical_pair,
     _is_blocked,
+    _is_closed_match,
 )
+from app.services.flatmates.profiles import load_visible_peer
 from app.services.flatmates.realtime import (
     EVENT_CONVERSATION_UPDATED,
     EVENT_NEW_MESSAGE,
@@ -118,13 +121,13 @@ async def _ensure_conversation(
         if context_property_id is not None:
             conversation.context_type = "property"
             conversation.context_id = context_property_id
-        # Never silently reactivate a blocked conversation — a block must be
-        # lifted explicitly via the unblock flow, not undone by a swipe or a
-        # new conversation request. (Callers should also reject blocked pairs
-        # upfront via _is_blocked, but guard here too as defense-in-depth.)
+        # Never silently reactivate a blocked or closed conversation. A block is
+        # lifted only through the unblock flow. An unmatch closes the conversation,
+        # and only a new decision reopens it, not a swipe or a conversation request.
         if conversation.status not in (
             ConversationStatus.active,
             ConversationStatus.blocked,
+            ConversationStatus.closed,
         ):
             conversation.status = ConversationStatus.active
         if source == ConversationSource.profile_match:
@@ -229,6 +232,37 @@ async def _conversation_qna_state(
 # ---------------------------------------------------------------------------
 
 
+async def _require_active_match(
+    db: AsyncSession,
+    match_id: int,
+    user_id: int,
+    peer_id: int,
+) -> UserMatch:
+    """Return the match when it is active and links exactly this user and this peer."""
+    match = await db.get(UserMatch, match_id)
+    if (
+        match is None
+        or {match.user_one_id, match.user_two_id} != {user_id, peer_id}
+        or match.status != UserMatchStatus.active
+    ):
+        raise NotFoundException(detail="Match not found", error_code="MATCH_NOT_FOUND")
+    return match
+
+
+async def _require_visible_listing(db: AsyncSession, property_id: int, user_id: int) -> Property:
+    """Return the listing when the viewer may see it: the owner, or a live listing."""
+    prop = await db.get(Property, property_id)
+    if prop is None:
+        raise NotFoundException(detail="Listing not found", error_code="LISTING_NOT_FOUND")
+    if prop.owner_id == user_id:
+        return prop
+    prefs = prop.listing_preferences if isinstance(prop.listing_preferences, dict) else {}
+    is_live = prefs.get("moderation_status") == ListingModerationStatus.live.value
+    if not (prop.is_available and is_live):
+        raise NotFoundException(detail="Listing not found", error_code="LISTING_NOT_FOUND")
+    return prop
+
+
 async def create_conversation_from_payload(
     db: AsyncSession,
     user_id: int,
@@ -241,14 +275,21 @@ async def create_conversation_from_payload(
     if payload.peer_user_id == user_id:
         raise BadRequestException(detail="Cannot create a conversation with yourself")
 
-    peer = await db.get(User, payload.peer_user_id)
-    if peer is None:
-        raise BadRequestException(detail="User not found")
-
     # Refuse to open (or reopen) a conversation when either party has blocked
     # the other — mirrors the block guard on the swipe/like paths in matching.py.
     if await _is_blocked(db, user_id, payload.peer_user_id):
         raise ForbiddenException(detail="You can't start a conversation with this user")
+    # The peer must have a visible profile: active account, complete onboarding, active
+    # profile status. Same rule as GET /flatmates/profiles/{user_id}. Raises 404.
+    await load_visible_peer(db, user_id, payload.peer_user_id)
+    # An unmatch or block closes the pair's match. A new conversation needs a new match, not a request.
+    if await _is_closed_match(db, user_id, payload.peer_user_id):
+        raise ForbiddenException(detail="You can't start a conversation with this user")
+
+    if payload.match_id is not None:
+        await _require_active_match(db, payload.match_id, user_id, payload.peer_user_id)
+    if payload.context_property_id is not None:
+        await _require_visible_listing(db, payload.context_property_id, user_id)
 
     conversation = await _ensure_conversation(
         db,
@@ -256,8 +297,8 @@ async def create_conversation_from_payload(
         other_user_id=payload.peer_user_id,
         created_by_user_id=user_id,
         source=ConversationSource.profile_match,
+        context_property_id=payload.context_property_id,
     )
-
     if payload.initial_message and payload.initial_message.strip():
         message = Message(
             conversation_id=conversation.id,
@@ -377,17 +418,16 @@ async def list_conversations(
     participant_rows = list(
         (
             await db.execute(
-                select(ConversationParticipant.conversation_id, ConversationParticipant.user_id).where(
+                select(
+                    ConversationParticipant.conversation_id, ConversationParticipant.user_id
+                ).where(
                     ConversationParticipant.conversation_id.in_(conv_ids),
                     ConversationParticipant.user_id != user_id,
                 )
             )
-        )
-        .all()
+        ).all()
     )
-    peer_by_conv: dict[int, int] = {
-        row.conversation_id: row.user_id for row in participant_rows
-    }
+    peer_by_conv: dict[int, int] = {row.conversation_id: row.user_id for row in participant_rows}
 
     # Bulk-load context properties (flatmates context_type='property')
     property_ids = {
@@ -398,7 +438,9 @@ async def list_conversations(
     property_map: dict[int, Property] = {}
     if property_ids:
         prop_rows = list(
-            (await db.execute(select(Property).where(Property.id.in_(property_ids)))).scalars().all()
+            (await db.execute(select(Property).where(Property.id.in_(property_ids))))
+            .scalars()
+            .all()
         )
         property_map = {p.id: p for p in prop_rows}
 
@@ -543,27 +585,37 @@ async def list_messages(
     user_id: int,
     *,
     limit: int = 50,
-    before_id: int | None = None,
+    cursor_payload: dict[str, Any] | None = None,
+    with_total: bool = False,
     mark_read: bool = True,
-) -> tuple[list[Message], bool]:
-    """Return a chronologically-ordered page of messages.
+) -> tuple[list[Message], dict[str, Any] | None, int | None]:
+    """Return one chronologically-ordered page of messages, newest page first in the query.
 
-    The function is intentionally READ-ONLY: scroll-back via ``before_id`` would
-    otherwise silently mark every old message on the page as read, firing
-    spurious read-receipts and destroying unread state. The "I have seen the
-    bottom of the conversation" read marker is set by the explicit
-    ``mark_conversation_read`` endpoint / ``mark_read=True`` argument (which
-    only the first / most-recent page should pass).
+    The cursor is a keyset on message id: the next page holds ids below the last id
+    of this page. ``total`` is a count of all messages, computed only when
+    ``with_total`` is set.
 
-    ``limit`` is clamped to [1, 200] and ``before_id`` to >= 1 as
-    defense-in-depth: the FastAPI layer already constrains these via Query(),
-    but a direct service-level caller (or a future refactor) must not be
-    able to trigger the infinite-loop bug by passing limit=0.
+    The function is intentionally READ-ONLY: scroll-back would otherwise silently
+    mark every old message on the page as read, firing spurious read-receipts and
+    destroying unread state. Only the first page (no cursor) marks messages read,
+    and only when ``mark_read`` is set.
     """
     limit = max(1, min(int(limit), 200))
-    if before_id is not None and before_id < 1:
-        before_id = None
     await get_conversation(db, conversation_id, user_id)
+
+    total: int | None = None
+    if with_total:
+        total = (
+            await db.execute(
+                select(func.count())
+                .select_from(Message)
+                .where(Message.conversation_id == conversation_id)
+            )
+        ).scalar_one()
+
+    # The cursor is [message id, message id]: both must be integers, or the cursor gives 400.
+    keyset = read_keyset(cursor_payload or {}, "int8", "int8")
+    before_id = int(keyset[1]) if keyset is not None else None
     stmt = (
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -573,14 +625,14 @@ async def list_messages(
     if before_id is not None:
         stmt = stmt.where(Message.id < before_id)
     rows = list((await db.execute(stmt)).scalars().all())
-    has_more = len(rows) > limit
-    if has_more:
-        rows = rows[:limit]
+    page_rows, next_payload = trim_keyset_lookahead(
+        rows, limit=limit, sort_value=lambda m: m.id, item_id=lambda m: m.id
+    )
     # Return in chronological order
-    messages = list(reversed(rows))
+    messages = list(reversed(page_rows))
 
     # Only mark unread messages as read when this is the newest page (no
-    # before_id) and the caller explicitly opts in. Backward pagination must
+    # cursor) and the caller explicitly opts in. Backward pagination must
     # never touch read state.
     if mark_read and before_id is None and messages:
         now = datetime.now(timezone.utc)
@@ -589,7 +641,7 @@ async def list_messages(
                 message.read_at = now
         await db.flush()
         await db.commit()
-    return messages, has_more
+    return messages, next_payload, total
 
 
 async def send_message(
@@ -601,6 +653,10 @@ async def send_message(
     conversation = await get_conversation(db, conversation_id, user_id)
     if conversation.status != ConversationStatus.active:
         raise BadRequestException(detail="Conversation is not active")
+    peer_id = await _find_participant_peer_id(db, conversation.id, user_id)
+    if peer_id is not None:
+        # A suspended, paused or unready peer cannot receive new messages (404, same as profile lookup).
+        await load_visible_peer(db, user_id, peer_id)
 
     body = payload.body.strip() if payload.body else None
     attachment_url = payload.attachment_url
@@ -629,8 +685,6 @@ async def send_message(
     # --- Push notification to peer (deferred to after_commit so it only fires if the
     # message actually persists, and uses a background session to avoid holding the request
     # session open during FCM dispatch). ---
-    peer_id = await _find_participant_peer_id(db, conversation.id, user_id)
-
     if peer_id is not None and not await _is_blocked(db, user_id, peer_id):
         sender = await db.get(User, user_id)
         sender_name = (sender.full_name if sender else None) or "Someone"
@@ -749,10 +803,10 @@ async def save_match_qna_answers(
     conversation_id: int,
     user_id: int,
     payload: QnAAnswers,
-) -> dict[str, int | str]:
+) -> dict[str, Any]:
     """Persist current-user match Q&A answers for a conversation."""
     # Verify the user is a participant
-    conversation = await get_conversation(db, conversation_id, user_id)
+    await get_conversation(db, conversation_id, user_id)
     peer_id = await _find_participant_peer_id(db, conversation_id, user_id)
     if peer_id is None:
         raise NotFoundException(detail="Conversation peer not found")
@@ -767,18 +821,8 @@ async def save_match_qna_answers(
     )
     user_match = match_result.scalar_one_or_none()
 
-    context_property_id = (
-        conversation.context_id if conversation.context_type == "property" else None
-    )
-    if not user_match:
-        user_match = UserMatch(
-            user_one_id=user_one_id,
-            user_two_id=user_two_id,
-            context_property_id=context_property_id,
-            status=UserMatchStatus.active,
-        )
-        db.add(user_match)
-        await db.flush()
+    if user_match is None or user_match.status != UserMatchStatus.active:
+        raise NotFoundException(detail="Match not found", error_code="MATCH_NOT_FOUND")
 
     existing = await db.execute(
         select(MatchQnAAnswer).where(
@@ -821,4 +865,5 @@ async def save_match_qna_answers(
             setattr(qna_answer, answer_field, str(answer_text))
 
     await db.commit()
-    return {"status": "success", "match_id": user_match.id}
+    state = await _conversation_qna_state(db, user_id=user_id, peer_id=peer_id)
+    return state or {"current_user": None, "peer": None, "both_answered": False}

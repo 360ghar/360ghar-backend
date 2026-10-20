@@ -6,6 +6,7 @@ to work unchanged.
 """
 
 from app.services.property.crud import (
+    attach_owner_agents,
     create_property,
     delete_property,
     get_all_amenities,
@@ -38,6 +39,7 @@ from app.services.property.search_orchestration import (
 
 __all__ = [
     # CRUD
+    "attach_owner_agents",
     "create_property",
     "delete_property",
     "get_all_amenities",

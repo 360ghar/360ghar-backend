@@ -1,11 +1,12 @@
 """DRT auction scraper — Debt Recovery Tribunal Delhi benches (DRT-I and DRT-II)
 for court-ordered property sales under RDDBFI/SARFAESI Acts."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -84,7 +85,12 @@ class DRTAuctionScraper(BaseScraper):
                     "property_description": cells[0] if cells else "",
                     "city": "Delhi",
                     "source_url": link_url or bench_cfg["url"],
-                    "raw_data": {"headers": headers, "cells": cells, "bench": bench_cfg["bench"], "detail_url": link_url},
+                    "raw_data": {
+                        "headers": headers,
+                        "cells": cells,
+                        "bench": bench_cfg["bench"],
+                        "detail_url": link_url,
+                    },
                 }
 
                 for i, h in enumerate(headers):
@@ -132,7 +138,9 @@ class DRTAuctionScraper(BaseScraper):
 
         # Try notice/list cards as fallback
         if not records:
-            for item in soup.find_all(["div", "li"], class_=re.compile(r"notice|auction|listing", re.I)):
+            for item in soup.find_all(
+                ["div", "li"], class_=re.compile(r"notice|auction|listing", re.I)
+            ):
                 text = item.get_text(separator=" ", strip=True)
                 if not text or len(text) < 15:
                     continue
@@ -189,7 +197,7 @@ class DRTAuctionScraper(BaseScraper):
         """Attempt multiple date formats."""
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
             try:
-                return datetime.strptime(val.strip(), fmt).date()
+                return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
             except ValueError:
                 continue
         return date(1970, 1, 1)
@@ -199,7 +207,16 @@ class DRTAuctionScraper(BaseScraper):
         """Detect city from address text."""
         text_lower = text.lower()
         city_keywords = {
-            "Delhi": ["delhi", "new delhi", "narela", "jhilmil", "nangloi", "dwarka", "rohini", "saket"],
+            "Delhi": [
+                "delhi",
+                "new delhi",
+                "narela",
+                "jhilmil",
+                "nangloi",
+                "dwarka",
+                "rohini",
+                "saket",
+            ],
             "Gurugram": ["gurugram", "gurgaon"],
             "Noida": ["noida", "greater noida"],
             "Faridabad": ["faridabad"],

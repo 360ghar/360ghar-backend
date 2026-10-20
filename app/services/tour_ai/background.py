@@ -4,6 +4,7 @@ Background task runners and apply-suggestion functions for tour AI operations.
 Contains tour generation, tour optimization background runners,
 and functions to apply AI-generated suggestions to scenes/hotspots.
 """
+
 from __future__ import annotations
 
 import os
@@ -15,9 +16,15 @@ from app.config import settings
 from app.core.database import get_bg_session_factory
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.core.logging import get_logger
-from app.models.enums import HotspotType, TourStatus
+from app.models.enums import AIJobType, HotspotType, TourStatus, TourVisibility
 from app.models.tours import AIJob, Hotspot, Scene, Tour
-from app.schemas.tour import TourGenerationRequest, TourGenerationSceneInput
+from app.schemas.tour import (
+    SceneMetadata,
+    TourGenerationRequest,
+    TourGenerationSceneInput,
+    ai_hotspot_position,
+    merge_ai_scene_metadata,
+)
 from app.services.ai import AIMessage, AIProviderError, AIRole, VisionInput
 from app.utils.validators import ValidationUtils
 
@@ -31,7 +38,7 @@ from .helpers import (
     _track_background_task,
 )
 from .jobs import create_ai_job, get_ai_job, update_job_status
-from .spatial import analyze_and_build_scenes
+from .spatial import analyze_and_build_scenes, graph_summary
 
 logger = get_logger(__name__)
 
@@ -40,11 +47,9 @@ logger = get_logger(__name__)
 # Apply Suggestions
 # ====================
 
+
 async def apply_scene_analysis(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int,
-    suggestions: list[dict[str, Any]]
+    db: AsyncSession, tour_id: str, user_id: int, suggestions: list[dict[str, Any]]
 ) -> int:
     """Apply AI scene analysis suggestions (update titles/descriptions)."""
     from app.services.tour import get_scene, get_tour
@@ -88,7 +93,7 @@ async def apply_hotspot_suggestions(
     scene_id: str,
     user_id: int,
     suggestion_ids: list[str],
-    job_id: str | None = None
+    job_id: str | None = None,
 ) -> list[Hotspot]:
     """Apply AI hotspot suggestions by creating hotspots."""
     from app.services.tour import create_hotspot, get_scene
@@ -121,12 +126,11 @@ async def apply_hotspot_suggestions(
             hotspot_data = HotspotCreate(
                 type=hotspot_type,
                 position=HotspotPosition(
-                    yaw=position.get("yaw", 0),
-                    pitch=position.get("pitch", 0)
+                    yaw=position.get("yaw", 0), pitch=position.get("pitch", 0)
                 ),
                 target_scene_id=suggestion.get("target_scene_id"),
                 title=suggestion.get("suggested_title"),
-                description=suggestion.get("reasoning")
+                description=suggestion.get("reasoning"),
             )
 
             hotspot = await create_hotspot(db, scene_id, user_id, hotspot_data)
@@ -142,6 +146,7 @@ async def apply_hotspot_suggestions(
 # ====================
 # Tour Generation
 # ====================
+
 
 async def generate_tour(
     db: AsyncSession,
@@ -169,9 +174,10 @@ async def generate_tour(
         user_id=user_id,
         title=data.title,
         description=data.description,
-        status=data.status or TourStatus.draft,
-        is_public=data.is_public or False,
-        settings=data.settings.model_dump() if data.settings else None,
+        status=TourStatus.draft,  # generated tours start as drafts; publish is a separate step
+        is_public=data.visibility == TourVisibility.public,
+        visibility=data.visibility,
+        settings=data.settings.model_dump(exclude_none=True) if data.settings else None,
     )
     db.add(tour)
     await db.flush()
@@ -181,7 +187,7 @@ async def generate_tour(
         if isinstance(scene_input, dict):
             scene_payload = scene_input
         else:
-            scene_payload = scene_input.model_dump(by_alias=True)
+            scene_payload = scene_input.model_dump()
 
         scene_id = str(uuid4())
         scene_ids.append(scene_id)
@@ -192,9 +198,11 @@ async def generate_tour(
         if not ValidationUtils.is_absolute_url(image_url):
             logger.warning("Non-absolute image_url for AI tour scene: %s", image_url)
 
-        metadata = scene_payload.get("metadata") or scene_payload.get("scene_metadata")
-        if metadata and not isinstance(metadata, dict):
-            metadata = metadata.model_dump()
+        metadata = scene_payload.get("scene_metadata")
+        if metadata is not None:
+            metadata = SceneMetadata.model_validate(
+                metadata.model_dump() if isinstance(metadata, SceneMetadata) else metadata
+            ).model_dump(exclude_none=True)
 
         scene = Scene(
             id=scene_id,
@@ -203,9 +211,7 @@ async def generate_tour(
             description=scene_payload.get("description"),
             image_url=image_url,
             thumbnail_url=scene_payload.get("thumbnail_url"),
-            order_index=scene_payload.get("order_index")
-            if scene_payload.get("order_index") is not None
-            else index,
+            order_index=index,  # server-owned: the order of the input list
             scene_metadata=metadata,
         )
         db.add(scene)
@@ -213,21 +219,23 @@ async def generate_tour(
     await db.commit()
     await db.refresh(tour)
 
-    job = await create_ai_job(db, user_id, "generate_tour", tour_id=tour.id)
+    job = await create_ai_job(db, user_id, AIJobType.generate_tour, tour_id=tour.id)
     _track_background_task(
-        _run_with_semaphore(_run_tour_generation(
-            job.id,
-            tour.id,
-            user_id,
-            {
-                "generate_titles": data.generate_titles,
-                "generate_descriptions": data.generate_descriptions,
-                "suggest_hotspots": data.suggest_hotspots,
-                "apply_to_scenes": data.apply_to_scenes,
-                "language": data.language,
-                "spatial": data.spatial,
-            },
-        ))
+        _run_with_semaphore(
+            _run_tour_generation(
+                job.id,
+                tour.id,
+                user_id,
+                {
+                    "generate_titles": data.generate_titles,
+                    "generate_descriptions": data.generate_descriptions,
+                    "suggest_hotspots": data.suggest_hotspots,
+                    "apply_to_scenes": data.apply_to_scenes,
+                    "language": data.language,
+                    "spatial": data.spatial,
+                },
+            )
+        )
     )
 
     return job, tour, scene_ids
@@ -264,9 +272,12 @@ async def _run_tour_generation(
             downloaded_panoramas: dict[str, tuple[str, str]] = {}
 
             created_hotspots: list[str] = []
+            # Null unless spatial linking runs, so the client can tell "no report"
+            # from "linked nothing".
+            spatial_summary: dict[str, Any] | None = None
             if options.get("spatial"):
                 if settings.USE_DAYTONA_SANDBOX:
-                    created_hotspots, generated = await _apply_spatial_tour_plan(
+                    created_hotspots, generated, spatial_summary = await _apply_spatial_tour_plan(
                         db,
                         tour,
                         provider,
@@ -275,7 +286,7 @@ async def _run_tour_generation(
                         fallback_description=tour.description,
                     )
                 else:
-                    created_hotspots = await _apply_spatial_navigation(
+                    created_hotspots, spatial_summary = await _apply_spatial_navigation(
                         db,
                         tour,
                         provider,
@@ -299,24 +310,32 @@ Respond in JSON with:
 {{
   "title": "Scene title",
   "description": "2-3 sentence description",
-  "room_type": "one of: {', '.join(ROOM_TYPES)}"
+  "room_type": "one of: {", ".join(ROOM_TYPES)}"
 }}"""
 
                         messages = [
                             AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                            AIMessage(role=AIRole.USER, content="Create a scene title and description."),
+                            AIMessage(
+                                role=AIRole.USER, content="Create a scene title and description."
+                            ),
                         ]
 
                         result = await _complete_json_with_retry(provider, messages, vision_input)
                         del vision_input
                         if "room_type" in result:
-                            result["room_type"] = str(result["room_type"]).strip().lower().replace(" ", "_")
+                            result["room_type"] = (
+                                str(result["room_type"]).strip().lower().replace(" ", "_")
+                            )
                         generated.append({"scene_id": scene.id, **result})
 
                         if apply_to_scenes:
                             if generate_titles and result.get("title") and not scene.title:
                                 scene.title = result["title"]
-                            if generate_descriptions and result.get("description") and not scene.description:
+                            if (
+                                generate_descriptions
+                                and result.get("description")
+                                and not scene.description
+                            ):
                                 scene.description = result["description"]
 
                     await update_job_status(db, job_id, "processing", progress)
@@ -330,6 +349,7 @@ Respond in JSON with:
 
             # Re-fetch tour so hotspot counts reflect newly created hotspots.
             from app.services.tour import get_tour as _get_tour
+
             tour = await _get_tour(db, tour_id, user_id, include_scenes=True)
             scenes_summary = [
                 {
@@ -373,6 +393,7 @@ Respond in JSON with:
                     },
                     "generated": generated,
                     "created_hotspots": created_hotspots,
+                    "spatial_summary": spatial_summary,
                     "scenes": scenes_summary,
                 },
             )
@@ -395,7 +416,7 @@ async def _apply_spatial_navigation(
     provider: Any,
     apply_to_scenes: bool = True,
     downloaded_panoramas: dict[str, tuple[str, str]] | None = None,
-) -> list[str]:
+) -> tuple[list[str], dict[str, Any]]:
     """Build Matterport-style spatial navigation hotspots for a tour.
 
     Downloads each scene's panorama (or reuses pre-downloaded ones), runs the
@@ -412,7 +433,7 @@ async def _apply_spatial_navigation(
 
     scenes = sorted(tour.scenes or [], key=lambda s: s.order_index)
     if len(scenes) < 2:
-        return []
+        return [], {}
 
     panoramas: list[dict[str, Any]] = []
     for scene in scenes:
@@ -437,9 +458,10 @@ async def _apply_spatial_navigation(
 
     if len(panoramas) < 2:
         logger.warning("spatial: fewer than 2 readable panoramas; skipping spatial linking")
-        return []
+        return [], {}
 
     graph_scenes = await analyze_and_build_scenes(panoramas, provider)
+    summary = graph_summary(graph_scenes)
 
     # Map plan scene id -> real DB scene id via the preserved key.
     plan_to_db = {gs["id"]: gs["key"] for gs in graph_scenes}
@@ -457,19 +479,20 @@ async def _apply_spatial_navigation(
                 db_scene.title = gs["title"]
             if gs.get("description"):
                 db_scene.description = gs["description"]
-            metadata = dict(db_scene.scene_metadata or {})
-            metadata.setdefault(
-                "initial_view",
-                {"yaw": gs.get("facing_yaw", 0.0), "pitch": 0, "zoom": 50},
-            )
-            metadata["room_type"] = gs.get("room_type")
-            db_scene.scene_metadata = metadata
+            updates: dict[str, Any] = {"room_type": gs.get("room_type")}
+            if "initial_view" not in (db_scene.scene_metadata or {}):
+                updates["initial_view"] = {
+                    "yaw": gs.get("facing_yaw", 0.0),
+                    "pitch": 0,
+                    "zoom": 50,
+                }
+            db_scene.scene_metadata = merge_ai_scene_metadata(db_scene.scene_metadata, updates)
 
         existing_targets = {
-            h.target_scene_id
-            for h in (db_scene.hotspots or [])
-            if h.type == HotspotType.navigation
+            h.target_scene_id for h in (db_scene.hotspots or []) if h.type == HotspotType.navigation
         }
+        # order_index is server-owned: new hotspots go after the scene's last one.
+        next_order = max((h.order_index or 0 for h in db_scene.hotspots or []), default=-1) + 1
 
         for hs in gs.get("hotspots", []):
             target_db_id = plan_to_db.get(hs["target_scene_id"])
@@ -477,15 +500,12 @@ async def _apply_spatial_navigation(
                 continue
             existing_targets.add(target_db_id)
             hotspot_id = str(uuid4())
+            hs_position = hs.get("position") or {}
             hotspot = Hotspot(
                 id=hotspot_id,
                 scene_id=db_scene.id,
                 type=HotspotType.navigation,
-                position={
-                    "yaw": hs["position"]["yaw"],
-                    "pitch": hs["position"]["pitch"],
-                    "radius": None,
-                },
+                position=ai_hotspot_position(hs_position.get("yaw"), hs_position.get("pitch")),
                 target_scene_id=target_db_id,
                 title=hs.get("title") or "Go here",
                 description=None,
@@ -495,9 +515,10 @@ async def _apply_spatial_navigation(
                 icon_size=40,
                 content=None,
                 custom_data={"auto_generated": True, "spatial": True},
-                order_index=hs.get("order_index", 0),
+                order_index=next_order,
                 is_active=True,
             )
+            next_order += 1
             db.add(hotspot)
             created_ids.append(hotspot_id)
 
@@ -506,7 +527,7 @@ async def _apply_spatial_navigation(
     tour.settings = tour_settings
 
     logger.info("spatial: created %d navigation hotspots for tour %s", len(created_ids), tour.id)
-    return created_ids
+    return created_ids, summary
 
 
 async def _apply_spatial_tour_plan(
@@ -516,13 +537,13 @@ async def _apply_spatial_tour_plan(
     apply_to_scenes: bool = True,
     fallback_title: str = "Virtual Tour",
     fallback_description: str | None = None,
-) -> tuple[list[str], list[dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
     """Generate one tour.json-style plan and save it to the current DB tour."""
     from uuid import uuid4
 
     scenes = sorted(tour.scenes or [], key=lambda s: s.order_index)
     if not scenes:
-        return [], []
+        return [], [], {}
 
     panoramas: list[dict[str, Any]] = []
     for scene in scenes:
@@ -542,7 +563,7 @@ async def _apply_spatial_tour_plan(
         )
 
     if len(panoramas) < 2:
-        return [], []
+        return [], [], {}
 
     # Sandbox-only tour plan generation: the plan is produced by the Gemini agent
     # running inside an isolated Daytona sandbox. There is deliberately no
@@ -619,7 +640,9 @@ async def _apply_spatial_tour_plan(
             provider="gemini",
         )
 
-    if plan.get("title") and (tour.title == fallback_title or tour.title.startswith("AI Generated Tour")):
+    if plan.get("title") and (
+        tour.title == fallback_title or tour.title.startswith("AI Generated Tour")
+    ):
         tour.title = str(plan["title"])
 
     initial_plan_id = plan.get("initial_scene_id")
@@ -643,15 +666,15 @@ async def _apply_spatial_tour_plan(
                 db_scene.title = planned_scene["title"]
             if planned_scene.get("description"):
                 db_scene.description = planned_scene["description"]
-            metadata = dict(db_scene.scene_metadata or {})
-            metadata.update(planned_scene.get("metadata") or {})
-            metadata["room_type"] = planned_scene.get("room_type")
+            plan_metadata = planned_scene.get("metadata")
+            updates = dict(plan_metadata) if isinstance(plan_metadata, dict) else {}
+            updates["room_type"] = planned_scene.get("room_type")
             if planned_scene.get("caption"):
-                metadata["caption"] = planned_scene["caption"]
+                updates["caption"] = planned_scene["caption"]
             if planned_scene.get("narration_script"):
-                metadata["narration_script"] = planned_scene["narration_script"]
-            db_scene.scene_metadata = metadata
-            db_scene.order_index = int(planned_scene.get("order_index") or db_scene.order_index or 0)
+                updates["narration_script"] = planned_scene["narration_script"]
+            db_scene.scene_metadata = merge_ai_scene_metadata(db_scene.scene_metadata, updates)
+            # order_index is server-owned. The plan does not reorder scenes.
 
         generated.append(
             {
@@ -666,10 +689,10 @@ async def _apply_spatial_tour_plan(
         )
 
         existing_targets = {
-            h.target_scene_id
-            for h in (db_scene.hotspots or [])
-            if h.type == HotspotType.navigation
+            h.target_scene_id for h in (db_scene.hotspots or []) if h.type == HotspotType.navigation
         }
+        # order_index is server-owned: new hotspots go after the scene's last one.
+        next_order = max((h.order_index or 0 for h in db_scene.hotspots or []), default=-1) + 1
         for hotspot_plan in planned_scene.get("hotspots") or []:
             target_db_id = plan_to_db.get(hotspot_plan.get("target_scene_id"))
             if not target_db_id or target_db_id in existing_targets:
@@ -682,11 +705,9 @@ async def _apply_spatial_tour_plan(
                     id=hotspot_id,
                     scene_id=db_scene.id,
                     type=HotspotType.navigation,
-                    position={
-                        "yaw": position.get("yaw", 0),
-                        "pitch": position.get("pitch", -28),
-                        "radius": None,
-                    },
+                    position=ai_hotspot_position(
+                        position.get("yaw", 0), position.get("pitch", -28)
+                    ),
                     target_scene_id=target_db_id,
                     title=hotspot_plan.get("title") or "Go here",
                     description=None,
@@ -700,19 +721,37 @@ async def _apply_spatial_tour_plan(
                         "auto_generated": True,
                         "spatial": True,
                     },
-                    order_index=hotspot_plan.get("order_index", 0),
+                    order_index=next_order,
                     is_active=True,
                 )
             )
+            next_order += 1
             created_ids.append(hotspot_id)
 
+    plan_scenes = [
+        {
+            "id": planned_scene.get("id"),
+            "room_type": planned_scene.get("room_type"),
+            "openings": [],
+            "hotspots": [
+                {"target_scene_id": hotspot_plan.get("target_scene_id")}
+                for hotspot_plan in (planned_scene.get("hotspots") or [])
+                if isinstance(hotspot_plan, dict)
+            ],
+        }
+        for planned_scene in plan.get("scenes", [])
+        if planned_scene.get("id")
+    ]
+    summary = graph_summary(plan_scenes) if plan_scenes else {}
+
     logger.info("spatial: saved sandbox tour plan for %s (%d hotspots)", tour.id, len(created_ids))
-    return created_ids, generated
+    return created_ids, generated, summary
 
 
 # ====================
 # Tour Optimization
 # ====================
+
 
 async def optimize_tour(
     db: AsyncSession,
@@ -728,15 +767,17 @@ async def optimize_tour(
     if tour.user_id != user_id:
         raise ForbiddenException(detail="Access denied")
 
-    job = await create_ai_job(db, user_id, "optimize_tour", tour_id=tour_id)
+    job = await create_ai_job(db, user_id, AIJobType.optimize_tour, tour_id=tour_id)
 
     _track_background_task(
-        _run_with_semaphore(_run_tour_optimization(
-            job.id,
-            tour.id,
-            user_id,
-            options or {},
-        ))
+        _run_with_semaphore(
+            _run_tour_optimization(
+                job.id,
+                tour.id,
+                user_id,
+                options or {},
+            )
+        )
     )
     return job
 
@@ -804,9 +845,12 @@ Analyze this panorama and suggest improvements. Respond in JSON:
                 await update_job_status(db, job_id, "processing", progress)
 
             created_hotspots: list[str] = []
+            # Null unless spatial linking runs, so the client can tell "no report"
+            # from "linked nothing".
+            spatial_summary: dict[str, Any] | None = None
             if options.get("spatial"):
                 if settings.USE_DAYTONA_SANDBOX:
-                    created_hotspots, _ = await _apply_spatial_tour_plan(
+                    created_hotspots, _, spatial_summary = await _apply_spatial_tour_plan(
                         db,
                         tour,
                         provider,
@@ -815,8 +859,10 @@ Analyze this panorama and suggest improvements. Respond in JSON:
                         fallback_description=tour.description,
                     )
                 else:
-                    created_hotspots = await _apply_spatial_navigation(
-                        db, tour, provider,
+                    created_hotspots, spatial_summary = await _apply_spatial_navigation(
+                        db,
+                        tour,
+                        provider,
                         apply_to_scenes=True,
                         downloaded_panoramas=downloaded_panoramas,
                     )
@@ -860,6 +906,7 @@ Analyze this panorama and suggest improvements. Respond in JSON:
                     "overview_recommendations": overview_result.get("recommendations", []),
                     "scene_suggestions": suggestions,
                     "created_hotspots": created_hotspots,
+                    "spatial_summary": spatial_summary,
                 },
             )
             await db.commit()
@@ -879,6 +926,7 @@ Analyze this panorama and suggest improvements. Respond in JSON:
 # Spatial Connect (re-run spatial pipeline on existing tour)
 # ====================
 
+
 async def spatial_connect_existing_tour(
     db: AsyncSession,
     tour_id: str,
@@ -896,10 +944,8 @@ async def spatial_connect_existing_tour(
     if tour.user_id != user_id:
         raise ForbiddenException(detail="Access denied")
 
-    job = await create_ai_job(db, user_id, "spatial_connect", tour_id=tour_id)
-    _track_background_task(
-        _run_with_semaphore(_run_spatial_connect(job.id, tour_id, user_id))
-    )
+    job = await create_ai_job(db, user_id, AIJobType.spatial_connect, tour_id=tour_id)
+    _track_background_task(_run_with_semaphore(_run_spatial_connect(job.id, tour_id, user_id)))
     return job
 
 
@@ -938,8 +984,11 @@ async def _run_spatial_connect(
             await update_job_status(db, job_id, "processing", 15)
 
             provider = await _get_ai_provider_safe()
+            # This job always links, so the summary is a real report (empty only
+            # when the panoramas could not be read).
+            spatial_summary: dict[str, Any] = {}
             if settings.USE_DAYTONA_SANDBOX:
-                created_ids, _ = await _apply_spatial_tour_plan(
+                created_ids, _, spatial_summary = await _apply_spatial_tour_plan(
                     db,
                     tour,
                     provider,
@@ -948,7 +997,7 @@ async def _run_spatial_connect(
                     fallback_description=tour.description,
                 )
             else:
-                created_ids = await _apply_spatial_navigation(
+                created_ids, spatial_summary = await _apply_spatial_navigation(
                     db, tour, provider, apply_to_scenes=True
                 )
             await db.commit()
@@ -958,10 +1007,16 @@ async def _run_spatial_connect(
                 job_id,
                 "completed",
                 100,
-                result={"tour_id": tour_id, "hotspots_created": len(created_ids)},
+                result={
+                    "tour_id": tour_id,
+                    "hotspots_created": len(created_ids),
+                    "spatial_summary": spatial_summary,
+                },
             )
             await db.commit()
-            logger.info("Spatial connect completed for tour %s (%d hotspots)", tour_id, len(created_ids))
+            logger.info(
+                "Spatial connect completed for tour %s (%d hotspots)", tour_id, len(created_ids)
+            )
 
         except Exception as e:
             logger.error("Error during spatial connect for tour %s: %s", tour_id, e, exc_info=True)
@@ -972,6 +1027,7 @@ async def _run_spatial_connect(
 # ====================
 # Floor Plan AI Analysis
 # ====================
+
 
 async def analyze_floor_plan_ai(
     db: AsyncSession,
@@ -991,7 +1047,7 @@ async def analyze_floor_plan_ai(
     if not floor_plan.image_url:
         raise BadRequestException(detail="Floor plan has no image")
 
-    job = await create_ai_job(db, user_id, "analyze_floor_plan", tour_id=tour_id)
+    job = await create_ai_job(db, user_id, AIJobType.analyze_floor_plan, tour_id=tour_id)
     _track_background_task(
         _run_with_semaphore(
             _run_floor_plan_analysis(job.id, tour_id, floor_plan_id, floor_plan.image_url, user_id)
@@ -1032,7 +1088,9 @@ async def _run_floor_plan_analysis(
 
             # Update floor plan markers
             if markers:
-                await update_floor_plan_markers(db, floor_plan_id, user_id, markers, tour_id=tour_id)
+                await update_floor_plan_markers(
+                    db, floor_plan_id, user_id, markers, tour_id=tour_id
+                )
                 await db.commit()
 
             await update_job_status(

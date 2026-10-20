@@ -489,6 +489,107 @@ def _fallback_opening(scene: dict[str, Any]) -> dict[str, Any]:
     return {"yaw": round(scene.get("facing_yaw", 0.0), 1), "pitch": NAV_PITCH_DEFAULT, "type": "other"}
 
 
+def graph_summary(scenes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Quality report for a built scene graph, for the review step.
+
+    Reports what a reviewer needs to see before trusting the linking: rooms with
+    no links, one-way edges, rooms unreachable from the start scene, and
+    doorways the linker could not use. Unknowns are listed explicitly rather
+    than papered over.
+
+    An opening lands in ``unmatched_openings`` when no scene in the tour has the
+    room type it leads to (nothing to link to), and in ``unlinked_openings``
+    when such a scene exists but no link was placed (the matcher stays
+    conservative, e.g. stairs whose direction has no counterpart). The two read
+    very differently to a reviewer, so they are kept apart.
+    """
+    by_id = {s["id"]: s for s in scenes}
+    link_count = sum(len(s.get("hotspots", [])) for s in scenes)
+
+    rooms_without_links = [s["id"] for s in scenes if not s.get("hotspots")]
+
+    one_way_links: list[str] = []
+    for s in scenes:
+        for hs in s.get("hotspots", []):
+            target = by_id.get(hs.get("target_scene_id"))
+            if target is None:
+                continue
+            if not any(h.get("target_scene_id") == s["id"] for h in target.get("hotspots", [])):
+                one_way_links.append(f"{s['id']}->{target['id']}")
+
+    room_types_present = {s.get("room_type") for s in scenes}
+    unmatched_openings: list[dict[str, Any]] = []
+    unlinked_openings: list[dict[str, Any]] = []
+    for s in scenes:
+        linked_types = {
+            by_id[h["target_scene_id"]].get("room_type")
+            for h in s.get("hotspots", [])
+            if h.get("target_scene_id") in by_id
+        }
+        for op in s.get("openings", []):
+            leads = op.get("leads_to_room_type")
+            if not leads or leads in linked_types:
+                continue
+            entry = {
+                "scene_id": s["id"],
+                "leads_to_room_type": leads,
+                "label": op.get("label") or "",
+            }
+            if leads in room_types_present:
+                unlinked_openings.append(entry)
+            else:
+                unmatched_openings.append(entry)
+
+    unreachable_scenes: list[str] = []
+    if scenes:
+        start = start_scene_id(scenes)
+        reached = {start}
+        queue = deque([start])
+        while queue:
+            current = queue.popleft()
+            for hs in by_id[current].get("hotspots", []):
+                target_id = hs.get("target_scene_id")
+                if target_id in by_id and target_id not in reached:
+                    reached.add(target_id)
+                    queue.append(target_id)
+        unreachable_scenes = [s["id"] for s in scenes if s["id"] not in reached]
+
+    warnings: list[str] = []
+    if rooms_without_links:
+        warnings.append(
+            f"{len(rooms_without_links)} room(s) have no doorway links yet: "
+            + ", ".join(rooms_without_links)
+        )
+    if one_way_links:
+        warnings.append(f"{len(one_way_links)} link(s) only go one way and cannot be walked back.")
+    if unreachable_scenes:
+        warnings.append(
+            f"{len(unreachable_scenes)} room(s) are not reachable from the start: "
+            + ", ".join(unreachable_scenes)
+        )
+    if unmatched_openings:
+        warnings.append(
+            f"{len(unmatched_openings)} doorway(s) lead to rooms without a scene, "
+            "so no link could be placed there."
+        )
+    if unlinked_openings:
+        warnings.append(
+            f"{len(unlinked_openings)} doorway(s) could not be matched to a room in this tour "
+            "(a stair direction with no counterpart, for example), so no link was placed there."
+        )
+
+    return {
+        "scene_count": len(scenes),
+        "link_count": link_count,
+        "rooms_without_links": rooms_without_links,
+        "one_way_links": one_way_links,
+        "unreachable_scenes": unreachable_scenes,
+        "unmatched_openings": unmatched_openings[:20],
+        "unlinked_openings": unlinked_openings[:20],
+        "warnings": warnings,
+    }
+
+
 def scenes_to_tour_plan(title: str, scenes: list[dict[str, Any]]) -> dict[str, Any]:
     """Serialize graph scenes into the tour.json / API shape."""
     ordered = sorted(scenes, key=lambda s: (_ORDER_PRIORITY.get(s["room_type"], 50), s["id"]))
@@ -595,6 +696,7 @@ __all__ = [
     "assign_scene_ids",
     "build_graph",
     "build_spatial_tour",
+    "graph_summary",
     "scenes_to_tour_plan",
     "start_scene_id",
     "tour_plan_summary",

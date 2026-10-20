@@ -11,13 +11,11 @@ from __future__ import annotations
 import html
 import json
 import logging
-from dataclasses import dataclass
 
 from app.config import settings
 from app.services.deeplinks.registry import (
     APP_REGISTRY,
     AppLinkConfig,
-    get_app,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,10 +24,6 @@ logger = logging.getLogger(__name__)
 # it in production or iOS Universal Links will never verify.
 _PLACEHOLDER_TEAM_ID = "TEAMID"
 _team_id_warned = False
-
-# Maximum accepted length for a deep-link identifier. Mirrored by the request
-# schema (app/schemas/deeplinks.py) so the POST body and GET path agree.
-MAX_IDENTIFIER_LENGTH = 256
 
 
 def _read_fingerprint_setting(setting_name: str) -> list[str]:
@@ -78,6 +72,7 @@ def _team_id() -> str:
 # Android — assetlinks.json
 # ---------------------------------------------------------------------------
 
+
 def build_assetlinks() -> list[dict]:
     """Build the combined Android App Links ``assetlinks.json`` payload.
 
@@ -107,6 +102,7 @@ def build_assetlinks() -> list[dict]:
 # iOS — apple-app-site-association
 # ---------------------------------------------------------------------------
 
+
 def build_apple_app_site_association() -> dict:
     """Build the combined iOS Universal Links AASA payload.
 
@@ -132,61 +128,9 @@ def build_apple_app_site_association() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Link generation
-# ---------------------------------------------------------------------------
-
-@dataclass(frozen=True)
-class GeneratedLink:
-    app: str
-    entity: str
-    identifier: str
-    # Canonical HTTPS App Link / Universal Link (share this).
-    url: str
-    # Custom-scheme URL (direct app launch fallback).
-    scheme_url: str
-    # Web fallback shown when the app is not installed.
-    web_fallback_url: str
-
-
-def generate_link(app_key: str, entity: str, identifier: str) -> GeneratedLink:
-    """Generate the canonical share link for ``app_key``/``entity``/``identifier``.
-
-    Raises :class:`ValueError` if the app or entity is unknown so callers can
-    surface a 4xx rather than emitting a broken link.
-    """
-    app = get_app(app_key)
-    if app is None:
-        raise ValueError(f"Unknown app: {app_key!r}")
-    if not any(e.entity == entity for e in app.entities):
-        valid = ", ".join(e.entity for e in app.entities)
-        raise ValueError(
-            f"Unknown entity {entity!r} for app {app_key!r}. Valid entities: {valid}"
-        )
-
-    identifier = str(identifier).strip().strip("/")
-    if not identifier:
-        raise ValueError("identifier must not be empty")
-    # Enforce the same length cap as the request schema so every entry point
-    # (POST body and GET path) rejects oversized identifiers consistently.
-    if len(identifier) > MAX_IDENTIFIER_LENGTH:
-        raise ValueError(
-            f"identifier exceeds maximum length of {MAX_IDENTIFIER_LENGTH} characters"
-        )
-
-    domain = _domain()
-    return GeneratedLink(
-        app=app.key,
-        entity=entity,
-        identifier=identifier,
-        url=f"https://{domain}{app.https_path(entity, identifier)}",
-        scheme_url=app.scheme_url(entity, identifier),
-        web_fallback_url=app.web_fallback_url or f"https://{domain}",
-    )
-
-
-# ---------------------------------------------------------------------------
 # Smart fallback / redirect HTML page
 # ---------------------------------------------------------------------------
+
 
 def render_fallback_page(
     app: AppLinkConfig,
@@ -215,6 +159,7 @@ def render_fallback_page(
     emoji_esc = html.escape(app.emoji)
     web_url_esc = html.escape(web_url)
     play_url_esc = html.escape(app.play_store_url or store_url)
+
     # JS-safe encoding for inline <script>. json.dumps() alone does NOT escape
     # the "</script>" sequence, so we additionally neutralise "</" (matching the
     # approach in app/api/share.py) to prevent a </script> breakout / XSS via a

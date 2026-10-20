@@ -63,7 +63,8 @@ def _augment_data_with_meta(
     domain-specific data fields.
     """
     base: dict[str, Any] = dict(data or {})
-    meta = base.get("_meta") or {}
+    # _meta is reserved. A client value under this key is replaced, never merged into.
+    meta: dict[str, Any] = {}
     meta.update(
         {
             "type_key": type_key,

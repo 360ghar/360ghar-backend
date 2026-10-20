@@ -2,8 +2,10 @@
 Guest discovery tools — public property search, detail, and recommendation.
 
 These tools do not require authentication and allow unauthenticated users
-to browse and discover properties.
+to browse and discover properties. Search runs through the shared
+``search_properties`` body in ``app.mcp.tool_ops`` (the MCP discovery tool uses it too).
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,10 +13,21 @@ from typing import Any
 from pydantic_ai import RunContext
 
 from app.core.logging import get_logger
+from app.mcp.tool_ops import search_properties
 from app.mcp.utils import serialize_property_basic, serialize_property_full
+from app.models.enums import PropertyPurpose, PropertyType
+from app.schemas.pagination import decode_cursor, encode_cursor
 from app.services.ai_agent.tools.helpers import AgentDeps
+from app.services.visibility import Viewer, mask_owner_contact
 
 logger = get_logger(__name__)
+
+SEARCH_MAX_LIMIT = 50
+RECOMMENDATION_MAX_LIMIT = 20
+
+
+def _viewer(ctx: RunContext[AgentDeps]) -> Viewer:
+    return Viewer.from_user(ctx.deps.user)
 
 
 async def guest_property_search(
@@ -22,59 +35,79 @@ async def guest_property_search(
     query: str | None = None,
     city: str | None = None,
     locality: str | None = None,
-    property_type: str | None = None,
-    purpose: str | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    radius_km: int = 5,
+    property_type: PropertyType | list[PropertyType] | None = None,
+    purpose: PropertyPurpose | None = None,
     price_min: float | None = None,
     price_max: float | None = None,
     bedrooms_min: int | None = None,
     bedrooms_max: int | None = None,
-    page: int = 1,
+    amenities: list[str] | None = None,
+    cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
-    """Search for properties with optional filters. No authentication required."""
-    from app.schemas.property import UnifiedPropertyFilter
-    from app.services.property import get_unified_properties_optimized
+    """Search for properties with optional filters. No authentication required.
 
+    ``property_type`` takes one type or a list of types. ``latitude``, ``longitude``
+    and ``radius_km`` search around a point. ``cursor`` is the ``next_cursor`` of an
+    earlier result, for the next page of the same search. ``total`` is set only when
+    ``include_total`` is true.
+    """
     db = ctx.deps.db
     assert db is not None
 
-    limit = min(max(1, limit), 50)
-    page = max(1, page)
+    limit = min(max(1, limit), SEARCH_MAX_LIMIT)
+    types = [property_type] if isinstance(property_type, PropertyType) else property_type
+    filter_key = {
+        "query": query,
+        "city": city,
+        "locality": locality,
+        "latitude": latitude,
+        "longitude": longitude,
+        "radius_km": radius_km,
+        "property_type": [t.value for t in types] if types else None,
+        "purpose": purpose.value if purpose else None,
+        "price_min": price_min,
+        "price_max": price_max,
+        "bedrooms_min": bedrooms_min,
+        "bedrooms_max": bedrooms_max,
+        "amenities": amenities,
+    }
+    filter_key = {k: v for k, v in filter_key.items() if v is not None}
+    cursor_payload = decode_cursor(cursor, filter_key) if cursor else {}
 
-    filter_data: dict[str, Any] = {}
-    if query:
-        filter_data["search_query"] = query
-    if city:
-        filter_data["city"] = city
-    if locality:
-        filter_data["locality"] = locality
-    if property_type:
-        filter_data["property_type"] = property_type
-    if purpose:
-        filter_data["purpose"] = purpose
-    if price_min is not None:
-        filter_data["price_min"] = price_min
-    if price_max is not None:
-        filter_data["price_max"] = price_max
-    if bedrooms_min is not None:
-        filter_data["bedrooms_min"] = bedrooms_min
-    if bedrooms_max is not None:
-        filter_data["bedrooms_max"] = bedrooms_max
-
-    filters = UnifiedPropertyFilter(**filter_data)
-    rows, _next, total_count = await get_unified_properties_optimized(
+    user = ctx.deps.user
+    rows, next_payload, total = await search_properties(
         db,
-        filters=filters,
-        user_id=None,
-        cursor_payload={},
+        query=query,
+        latitude=latitude,
+        longitude=longitude,
+        radius_km=radius_km,
+        amenities=amenities,
+        property_type=types,
+        purpose=purpose,
+        price_min=price_min,
+        price_max=price_max,
+        bedrooms_min=bedrooms_min,
+        bedrooms_max=bedrooms_max,
+        city=city,
+        locality=locality,
+        user_id=getattr(user, "id", None),
+        cursor_payload=cursor_payload,
         limit=limit,
+        with_total=include_total,
     )
-
-    properties = [serialize_property_basic(p) for p in rows]
+    viewer = _viewer(ctx)
+    items = [serialize_property_basic(mask_owner_contact(p, viewer)) for p in rows]
     return {
-        "properties": properties,
-        "count": len(properties),
-        "page": page,
+        "items": items,
+        "total": total,
+        "limit": limit,
+        "has_more": next_payload is not None,
+        "next_cursor": encode_cursor(next_payload, filter_key) if next_payload else None,
     }
 
 
@@ -89,41 +122,28 @@ async def guest_property_details(
     assert db is not None
 
     property_obj = await get_property(db, property_id)
-    return {"property": dict(serialize_property_full(property_obj))}  # type: ignore[arg-type]
+    masked = mask_owner_contact(property_obj, _viewer(ctx))
+    return {"property": dict(serialize_property_full(masked, viewer=_viewer(ctx)))}
 
 
 async def guest_property_recommendations(
     ctx: RunContext[AgentDeps],
     city: str | None = None,
-    purpose: str | None = None,
+    purpose: PropertyPurpose | None = None,
     limit: int = 10,
 ) -> dict[str, Any]:
     """Get a list of recommended properties for discovery. No authentication required."""
-    from app.schemas.property import UnifiedPropertyFilter
-    from app.services.property import get_unified_properties_optimized
-
     db = ctx.deps.db
     assert db is not None
 
-    limit = min(max(1, limit), 20)
-
-    filter_data: dict[str, Any] = {}
-    if city:
-        filter_data["city"] = city
-    if purpose:
-        filter_data["purpose"] = purpose
-
-    filters = UnifiedPropertyFilter(**filter_data)
-    rows, _next, _total = await get_unified_properties_optimized(
+    limit = min(max(1, limit), RECOMMENDATION_MAX_LIMIT)
+    rows, _next, _total = await search_properties(
         db,
-        filters=filters,
-        user_id=None,
-        cursor_payload={},
+        purpose=purpose,
+        city=city,
+        user_id=getattr(ctx.deps.user, "id", None),
         limit=limit,
     )
-
-    properties = [serialize_property_basic(p) for p in rows]
-    return {
-        "properties": properties,
-        "count": len(properties),
-    }
+    viewer = _viewer(ctx)
+    items = [serialize_property_basic(mask_owner_contact(p, viewer)) for p in rows]
+    return {"items": items, "limit": limit}

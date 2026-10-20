@@ -9,32 +9,23 @@ Three routers are exposed (registration happens in
 * :data:`redirect_router` — root-level smart fallback/redirect pages for every
   app's link paths (``/p/{id}``, ``/estate/{entity}/{id}``,
   ``/flatmates/{entity}/{id}``, ``/stays/{entity}/{id}`` …).
-* :data:`api_router` — JSON link-generation API, mounted under ``/api/v1/deeplinks``.
 
-All routers are public (no auth) — they replace the previously separate
-static-hosted ``ghar_sale_links`` / ``the360ghar_links`` repos.
+Both routers are public (no auth). The JSON link-generation API was removed:
+no client called it, and the redirect pages and share links use the registry.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import HTMLResponse, Response
 
 from app.core.logging import get_logger
-from app.schemas.deeplinks import (
-    AppInfo,
-    EntityInfo,
-    GeneratedLinkResponse,
-    GenerateLinkRequest,
-)
 from app.services.deeplinks import (
     APP_REGISTRY,
     build_apple_app_site_association,
     build_assetlinks,
-    generate_link,
     get_app_for_path,
     render_fallback_page,
 )
@@ -78,57 +69,6 @@ async def apple_app_site_association() -> Response:
         media_type=_AASA_MEDIA_TYPE,
         headers={"Cache-Control": _WELLKNOWN_CACHE},
     )
-
-
-# ---------------------------------------------------------------------------
-# JSON link-generation API (mounted under /api/v1/deeplinks)
-# ---------------------------------------------------------------------------
-
-api_router = APIRouter()
-
-
-@api_router.get("/apps", response_model=list[AppInfo])
-async def list_apps() -> list[AppInfo]:
-    """List every registered app and its shareable entities (discovery)."""
-    return [
-        AppInfo(
-            key=app.key,
-            name=app.name,
-            path_prefix=app.path_prefix,
-            custom_scheme=app.custom_scheme,
-            android_packages=list(app.android_packages),
-            ios_bundle_id=app.ios_bundle_id,
-            entities=[
-                EntityInfo(entity=e.entity, description=e.description, public=e.public)
-                for e in app.entities
-            ],
-        )
-        for app in APP_REGISTRY
-    ]
-
-
-@api_router.post("/generate", response_model=GeneratedLinkResponse)
-async def generate(body: GenerateLinkRequest) -> GeneratedLinkResponse:
-    """Generate the canonical share link for an entity."""
-    try:
-        link = generate_link(body.app, body.entity, body.identifier)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return GeneratedLinkResponse(**dataclasses.asdict(link))
-
-
-@api_router.get("/{app_key}/{entity}/{identifier:path}", response_model=GeneratedLinkResponse)
-async def generate_path(
-    app_key: str = Path(..., max_length=32, description="App key: ghar/estate/flatmates/stays"),
-    entity: str = Path(..., max_length=32, description="Entity type, e.g. 'property'"),
-    identifier: str = Path(..., description="Entity identifier (may contain slashes)"),
-) -> GeneratedLinkResponse:
-    """Convenience GET form of link generation."""
-    try:
-        link = generate_link(app_key, entity, identifier)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return GeneratedLinkResponse(**dataclasses.asdict(link))
 
 
 # ---------------------------------------------------------------------------

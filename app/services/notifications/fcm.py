@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 from typing import TYPE_CHECKING, Any
 
@@ -14,8 +15,8 @@ if TYPE_CHECKING:
 
 from app.config import settings
 from app.core.constants.limits import FCM_TOKEN_REFRESH_BUFFER_SECONDS
-from app.core.exceptions import BadRequestException
 from app.core.logging import get_logger
+from app.models.enums import AppKey
 
 logger = get_logger(__name__)
 
@@ -111,52 +112,64 @@ async def _access_token() -> str | None:
     return str(_fcm_credentials.token)
 
 
+# Android notification channel per app. The app must create the channel before
+# a push that names it can display.
+APP_CHANNEL_IDS: dict[str, str] = {
+    AppKey.ghar.value: "high_importance_channel",
+    AppKey.estate.value: "high_importance_channel",
+    AppKey.flatmates.value: "flatmates_messages",
+    AppKey.stays.value: "high_importance_channel",
+}
+
+
+def _data_value(value: Any) -> str:
+    """FCM data values are strings. Structured values are JSON text, never a Python repr."""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, separators=(",", ":"), default=str)
+
+
 def build_message(
     *,
-    token: str | None = None,
-    topic: str | None = None,
+    token: str,
     title: str | None = None,
     body: str | None = None,
-    data: dict[str, str] | None = None,
-    deep_link: str | None = None,
+    data: dict[str, Any] | None = None,
+    route: str | None = None,
+    type_key: str | None = None,
+    app_key: AppKey = AppKey.ghar,
     image: str | None = None,
     priority_high: bool = True,
     content_available: bool = False,
     ttl_seconds: int | None = None,
 ) -> dict[str, Any]:
-    """Build an FCM HTTP v1 message payload.
+    """Build an FCM HTTP v1 message for one device token.
 
-    Supports notification+data and data-only content (iOS background).
+    Data keys: ``route`` is the in-app route to open, ``type_key`` is the
+    notification type at the top level, and any ``_meta`` block is JSON text.
     """
-    data = data or {}
-    if deep_link:
-        data["deep_link"] = deep_link
+    payload: dict[str, str] = {k: _data_value(v) for k, v in (data or {}).items()}
+    if route:
+        payload["route"] = route
+    if type_key:
+        payload["type_key"] = type_key
 
-    msg: dict[str, Any] = {"message": {}}
-    if token:
-        msg["message"]["token"] = token
-    elif topic:
-        msg["message"]["topic"] = topic
-    else:
-        raise BadRequestException(detail="Either token or topic must be provided")
+    msg: dict[str, Any] = {"message": {"token": token}}
 
     if title or body or image:
         msg["message"]["notification"] = {
             k: v for k, v in [("title", title), ("body", body), ("image", image)] if v
         }
 
-    if data:
-        msg["message"]["data"] = {k: str(v) for k, v in data.items()}
+    if payload:
+        msg["message"]["data"] = payload
 
-    if priority_high or ttl_seconds is not None:
-        android_cfg: dict[str, Any] = msg["message"].get("android") or {}
-        if priority_high:
-            android_cfg["priority"] = "HIGH"
-            android_cfg["notification"] = {"channel_id": "high_importance_channel"}
-        if ttl_seconds is not None:
-            android_cfg["ttl"] = f"{int(ttl_seconds)}s"
-        if android_cfg:
-            msg["message"]["android"] = android_cfg
+    android_cfg: dict[str, Any] = {"notification": {"channel_id": APP_CHANNEL_IDS[app_key.value]}}
+    if priority_high:
+        android_cfg["priority"] = "HIGH"
+    if ttl_seconds is not None:
+        android_cfg["ttl"] = f"{int(ttl_seconds)}s"
+    msg["message"]["android"] = android_cfg
 
     # APNs headers for alert vs background
     apns_headers = {"apns-priority": "10", "apns-push-type": "alert"}

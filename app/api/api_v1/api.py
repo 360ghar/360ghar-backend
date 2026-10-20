@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import RedirectResponse
 
+from app.api.api_v1.dependencies.query_params import reject_unknown_query_params
 from app.api.api_v1.endpoints import (
     # AI Agent
     agent_chat,
@@ -27,7 +28,6 @@ from app.api.api_v1.endpoints import (
     leads,
     notifications,
     oauth,
-    payments,
     pm_applications,
     pm_assignments,
     pm_dashboard,
@@ -43,6 +43,7 @@ from app.api.api_v1.endpoints import (
     properties,
     public,
     scenes,
+    stays_chat,
     swipes,
     # 360 Virtual Tours
     tours,
@@ -52,19 +53,18 @@ from app.api.api_v1.endpoints import (
     visits,
     webhooks,
 )
-from app.api.deeplinks import api_router as deeplinks_api_router
 
-api_router = APIRouter()
+api_router = APIRouter(dependencies=[Depends(reject_unknown_query_params)])
 
 
 @api_router.get("/health", include_in_schema=False)
-async def api_v1_health_redirect():
+async def api_v1_health_redirect() -> RedirectResponse:
     """Redirect /api/v1/health to the root /health endpoint."""
     return RedirectResponse(url="/health", status_code=307)
 
 
 @api_router.get("/ready", include_in_schema=False)
-async def api_v1_ready_redirect():
+async def api_v1_ready_redirect() -> RedirectResponse:
     """Redirect /api/v1/ready to the root /ready endpoint."""
     return RedirectResponse(url="/ready", status_code=307)
 
@@ -74,9 +74,9 @@ api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
+api_router.include_router(stays_chat.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(bookings.router, prefix="/bookings", tags=["bookings"])
 api_router.include_router(swipes.router, prefix="/swipes", tags=["swipes"])
-api_router.include_router(payments.router, prefix="/payments", tags=["payments"])
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(amenities.router, prefix="/amenities", tags=["amenities"])
 api_router.include_router(upload.router, prefix="/upload", tags=["upload"])
@@ -92,7 +92,9 @@ api_router.include_router(oauth.router, tags=["oauth"])
 api_router.include_router(pm_dashboard.router, prefix="/pm/dashboard", tags=["pm-dashboard"])
 api_router.include_router(pm_properties.router, prefix="/pm/properties", tags=["pm-properties"])
 api_router.include_router(pm_assignments.router, prefix="/pm/assignments", tags=["pm-assignments"])
-api_router.include_router(pm_applications.router, prefix="/pm/applications", tags=["pm-applications"])
+api_router.include_router(
+    pm_applications.router, prefix="/pm/applications", tags=["pm-applications"]
+)
 api_router.include_router(pm_applications.public_router, prefix="/pm/public", tags=["pm-public"])
 api_router.include_router(pm_tenants.router, prefix="/pm/tenants", tags=["pm-tenants"])
 api_router.include_router(pm_leases.router, prefix="/pm/leases", tags=["pm-leases"])
@@ -109,9 +111,6 @@ api_router.include_router(design_studio.router, prefix="/design-studio", tags=["
 # Vastu Checker - public endpoint (no auth required)
 api_router.include_router(vastu.router, prefix="/vastu", tags=["vastu"])
 
-# Deep Links - public link generation API (no auth required)
-api_router.include_router(deeplinks_api_router, prefix="/deeplinks", tags=["deeplinks"])
-
 # 360 Virtual Tours
 api_router.include_router(tours.router, prefix="/tours", tags=["tours"])
 api_router.include_router(scenes.router, prefix="/scenes", tags=["scenes"])
@@ -120,9 +119,7 @@ api_router.include_router(floor_plans.router, tags=["floor-plans"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 
 # Guided capture (mobile capture app) — additive; does not replace upload path
-api_router.include_router(
-    capture.router, prefix="/capture-sessions", tags=["capture-sessions"]
-)
+api_router.include_router(capture.router, prefix="/capture-sessions", tags=["capture-sessions"])
 
 # 360 Virtual Tours - Public endpoints (no auth required)
 api_router.include_router(public.router, prefix="/public", tags=["public-tours"])

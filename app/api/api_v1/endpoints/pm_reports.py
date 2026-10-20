@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,16 +38,19 @@ async def rent_roll(
     db: AsyncSession = Depends(get_db),
 ):
     """Get rent roll report."""
+    filters = {"owner_id": owner_id}
     try:
         rows, next_payload, total = await rent_roll_report(
             db,
             actor=current_user,  # type: ignore[arg-type]
             owner_id=owner_id,
-            cursor_payload=page.decoded(),
+            cursor_payload=page.decoded(filters),
             limit=page.limit,
             with_total=page.include_total,
         )
-        return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
+        return build_cursor_page(
+            rows, limit=page.limit, next_payload=next_payload, total=total, filters=filters
+        )
     except Exception as exc:
         raise_read_service_unavailable(
             exc,
@@ -61,8 +64,8 @@ async def rent_roll(
 @router.get("/income", response_model=IncomeReport, summary="Get income report")
 async def income(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
-    start: datetime | None = Query(None),
-    end: datetime | None = Query(None),
+    start: date | None = Query(None, description="First day, inclusive (UTC)"),
+    end: date | None = Query(None, description="Last day, inclusive (UTC)"),
     current_user: AuthUserSnapshot = Depends(get_current_cached_active_user),
     db: AsyncSession = Depends(get_db),
 ):

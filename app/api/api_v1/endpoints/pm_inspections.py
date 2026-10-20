@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -25,7 +25,12 @@ from app.services.pm_inspections import (
 router = APIRouter()
 
 
-@router.post("", response_model=InspectionChecklistSchema, summary="Create inspection checklist")
+@router.post(
+    "",
+    response_model=InspectionChecklistSchema,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create inspection checklist",
+)
 async def create_inspection(
     payload: InspectionChecklistCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -54,8 +59,13 @@ async def create_inspection(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.get("", response_model=CursorPage[InspectionChecklistSchema], summary="List inspection checklists")
+@router.get(
+    "", response_model=CursorPage[InspectionChecklistSchema], summary="List inspection checklists"
+)
 async def list_inspection_checklists(
+    as_tenant: bool = Query(
+        False, description="If true, return checklists on leases the caller holds"
+    ),
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     lease_id: int | None = Query(None),
     property_id: int | None = Query(None),
@@ -63,14 +73,21 @@ async def list_inspection_checklists(
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List inspection checklists."""
+    """List inspection checklists. as_tenant=true lists checklists on the caller's leases."""
+    filters = {
+        "as_tenant": as_tenant,
+        "owner_id": owner_id,
+        "lease_id": lease_id,
+        "property_id": property_id,
+    }
     rows, next_payload, total = await list_inspections(
         db,
         actor=current_user,  # type: ignore[arg-type]
+        as_tenant=as_tenant,
         owner_id=owner_id,
         lease_id=lease_id,
         property_id=property_id,
-        cursor_payload=page.decoded(),
+        cursor_payload=page.decoded(filters),
         limit=page.limit,
         with_total=page.include_total,
     )
@@ -79,10 +96,13 @@ async def list_inspection_checklists(
         limit=page.limit,
         next_payload=next_payload,
         total=total,
+        filters=filters,
     )
 
 
-@router.get("/{inspection_id}", response_model=InspectionChecklistSchema, summary="Get inspection checklist")
+@router.get(
+    "/{inspection_id}", response_model=InspectionChecklistSchema, summary="Get inspection checklist"
+)
 async def get_inspection_checklist(
     inspection_id: int,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -93,20 +113,24 @@ async def get_inspection_checklist(
     return InspectionChecklistSchema.model_validate(checklist)
 
 
-@router.post("/{inspection_id}/sign", response_model=InspectionChecklistSchema, summary="Sign inspection checklist")
+@router.post(
+    "/{inspection_id}/sign",
+    response_model=InspectionChecklistSchema,
+    summary="Sign inspection checklist",
+)
 async def sign(
     inspection_id: int,
-    payload: InspectionSign,
+    payload: InspectionSign | None = None,
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Sign inspection checklist."""
+    """Sign inspection checklist. The body is optional."""
+    body = payload or InspectionSign()
     checklist = await sign_inspection(
         db,
         actor=current_user,  # type: ignore[arg-type]
         inspection_id=inspection_id,
-        tenant_signature_document_id=payload.tenant_signature_document_id,
-        owner_signature_document_id=payload.owner_signature_document_id,
+        tenant_signature_document_id=body.tenant_signature_document_id,
+        owner_signature_document_id=body.owner_signature_document_id,
     )
     return InspectionChecklistSchema.model_validate(checklist)
-

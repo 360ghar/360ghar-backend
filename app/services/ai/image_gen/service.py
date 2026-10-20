@@ -87,40 +87,48 @@ async def generate_image(request: ImageGenRequest) -> ImageGenResponse:
         ImageGenResponse with base64 data URL on success, or error details on failure.
     """
     if not settings.AGNES_AI_API_KEY:
-        return ImageGenResponse(
-            success=False,
-            error="Image generation is not configured (missing API key)",
-            code="SERVICE_UNAVAILABLE",
-        )
+        return _failure("SERVICE_UNAVAILABLE", "AGNES_AI_API_KEY is not set")
 
     try:
         data = await _call_agnes(_build_payload(request))
     except httpx.TimeoutException as exc:
-        logger.error("Image generation timed out: %s", exc)
-        return ImageGenResponse(success=False, error="Image generation timed out", code="TIMEOUT")
+        return _failure("TIMEOUT", exc)
     except _AgnesImageError as exc:
-        logger.error("Image generation failed: %s", exc)
-        return ImageGenResponse(success=False, error=str(exc)[:500], code=_map_error_code(exc))
+        return _failure(_map_error_code(exc), exc)
     except Exception as exc:
-        logger.error("Image generation failed: %s", exc)
-        return ImageGenResponse(success=False, error=str(exc)[:500], code="GENERATION_FAILED")
+        return _failure("GENERATION_FAILED", exc)
 
     image_data_url = await _extract_image(data)
     if not image_data_url:
-        return ImageGenResponse(
-            success=False,
-            error="The model did not return an image. Try a different prompt.",
-            code="NO_IMAGE_RETURNED",
-        )
+        return _failure("NO_IMAGE_RETURNED", "response had no image")
 
     return ImageGenResponse(success=True, image=image_data_url)
+
+
+# Fixed client text per code. Provider bodies and exception text go to the log only.
+_PUBLIC_ERRORS: dict[str, str] = {
+    "SERVICE_UNAVAILABLE": "Image generation is not available right now. Try again later.",
+    "TIMEOUT": "The image took too long to generate. Try again.",
+    "QUOTA_EXCEEDED": "Image generation limit reached. Try again later.",
+    "CONTENT_BLOCKED": "This prompt could not be used. Try a different prompt.",
+    "GENERATION_FAILED": "The image could not be generated. Try again.",
+    "NO_IMAGE_RETURNED": "The model did not return an image. Try a different prompt.",
+}
+
+
+def _failure(code: str, detail: object) -> ImageGenResponse:
+    """A failed result with the fixed message for its code. ``detail`` is logged, not returned."""
+    logger.error("Image generation failed: code=%s detail=%s", code, str(detail)[:500])
+    return ImageGenResponse(success=False, error=_PUBLIC_ERRORS[code], code=code)
 
 
 def _map_error_code(exc: _AgnesImageError) -> str:
     body = exc.body.lower()
     if exc.status_code in (402, 429):
         return "QUOTA_EXCEEDED"
-    if exc.status_code == 400 and any(word in body for word in ("safety", "moderation", "content policy", "blocked")):
+    if exc.status_code == 400 and any(
+        word in body for word in ("safety", "moderation", "content policy", "blocked")
+    ):
         return "CONTENT_BLOCKED"
     return "GENERATION_FAILED"
 
@@ -132,7 +140,7 @@ def _build_payload(request: ImageGenRequest) -> dict[str, Any]:
 
     extra_body: dict[str, Any] = {"response_format": "b64_json"}
     if is_img2img:
-        mime = request.mimeType or "image/jpeg"
+        mime = request.mime_type or "image/jpeg"
         extra_body["image"] = [f"data:{mime};base64,{request.image}"]
 
     return {
@@ -168,11 +176,16 @@ async def _call_agnes(payload: dict[str, Any]) -> dict[str, Any]:
         )
         logger.info(
             "Agnes image API call completed",
-            extra={"duration_ms": round((time.monotonic() - t_start) * 1000, 1), "status": resp.status_code},
+            extra={
+                "duration_ms": round((time.monotonic() - t_start) * 1000, 1),
+                "status": resp.status_code,
+            },
         )
         if resp.status_code >= 400:
             body = resp.text[:1000]
-            raise _AgnesImageError(resp.status_code, body, _parse_retry_after_seconds(resp.headers, body))
+            raise _AgnesImageError(
+                resp.status_code, body, _parse_retry_after_seconds(resp.headers, body)
+            )
         data: dict[str, Any] = resp.json()
         return data
 

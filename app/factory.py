@@ -15,6 +15,7 @@ from app.infrastructure.errors import register_exception_handlers
 from app.infrastructure.lifespan import create_lifespan
 from app.infrastructure.mcp import build_mcp_http_apps
 from app.infrastructure.middleware import register_middleware
+from app.infrastructure.openapi import install_openapi
 from app.infrastructure.routing import register_routes
 
 logger = get_logger(__name__)
@@ -69,6 +70,18 @@ OPENAPI_TAGS: list[dict[str, str]] = [
 ]
 
 
+PRODUCTION_API_URL = "https://api.360ghar.com"
+
+
+def openapi_servers() -> list[dict[str, str]]:
+    """The server entry of the OpenAPI document. The description follows the URL, not a fixed word."""
+    url = (settings.PUBLIC_BASE_URL or PRODUCTION_API_URL).rstrip("/")
+    description = (
+        "Production server" if url == PRODUCTION_API_URL else f"{settings.ENVIRONMENT} server"
+    )
+    return [{"url": url, "description": description}]
+
+
 def create_app(testing: bool = False) -> FastAPI:
     """Create and configure the FastAPI application."""
     logger.info("Creating FastAPI application", extra={"testing": testing})
@@ -94,16 +107,12 @@ def create_app(testing: bool = False) -> FastAPI:
             "name": "MIT License",
             "url": "https://opensource.org/licenses/MIT",
         },
-        servers=[
-            {
-                "url": settings.PUBLIC_BASE_URL or "https://api.360ghar.com",
-                "description": "Production server",
-            },
-        ],
+        servers=openapi_servers(),
     )
 
     register_middleware(app, testing=testing)
     register_exception_handlers(app)
     register_routes(app, user_mcp_app=user_mcp_app, admin_mcp_app=admin_mcp_app)
+    install_openapi(app)
 
     return app

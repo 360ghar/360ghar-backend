@@ -229,8 +229,11 @@ async def delete_agent(db: AsyncSession, agent_id: int) -> bool:
     await db.flush()
     return True
 
-async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = True) -> AgentSchema | None:
-    """Get the assigned agent for a user, auto-assign if none exists"""
+async def get_user_agent(db: AsyncSession, user_id: int, auto_assign: bool = False) -> AgentSchema | None:
+    """Get the assigned agent for a user. Pass auto_assign=True to assign one when none exists.
+
+    Reads default to no assignment, so a GET never writes.
+    """
     # Check if user already has an agent
     user_stmt = select(User).where(User.id == user_id)
     user_result = await db.execute(user_stmt)

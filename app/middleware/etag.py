@@ -1,4 +1,5 @@
 """Weak ETags and 304 Not Modified for GET JSON responses under /api/v1."""
+
 from __future__ import annotations
 
 import hashlib
@@ -29,6 +30,16 @@ def _header(headers: list[tuple[bytes, bytes]], name: bytes) -> bytes | None:
         if key.lower() == name:
             return value
     return None
+
+
+def _vary_on_authorization(headers: list[tuple[bytes, bytes]]) -> list[tuple[bytes, bytes]]:
+    """Add Authorization to the Vary header, merged into one header when one exists."""
+    for i, (key, value) in enumerate(headers):
+        if key.lower() == b"vary":
+            if b"authorization" in value.lower():
+                return headers
+            return [*headers[:i], (key, value + b", Authorization"), *headers[i + 1 :]]
+    return [*headers, (b"vary", b"Authorization")]
 
 
 class ETagMiddleware:
@@ -79,7 +90,9 @@ class ETagMiddleware:
     @staticmethod
     async def _finish(start: Message, body: bytes, if_none_match: bytes | None, send: Send):
         etag = make_etag(body)
-        headers = [*start.get("headers", []), (b"etag", etag.encode("latin-1"))]
+        headers = _vary_on_authorization(
+            [*start.get("headers", []), (b"etag", etag.encode("latin-1"))]
+        )
         if if_none_match is not None and etag_matches(if_none_match.decode("latin-1"), etag):
             headers = [(k, v) for k, v in headers if k.lower() not in _BODY_HEADERS]
             await send({"type": "http.response.start", "status": 304, "headers": headers})

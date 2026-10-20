@@ -9,6 +9,7 @@ Tools for short-stay property bookings:
 - Check availability
 - Get pricing
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -31,6 +32,7 @@ from app.mcp.tool_ops import (
     TOOL_OPS_FORBIDDEN,
     TOOL_OPS_NOT_FOUND,
     TOOL_OPS_OPERATION_FAILED,
+    booking_list_filters,
     cancel_booking,
     check_availability,
     create_booking,
@@ -42,6 +44,7 @@ from app.mcp.tool_ops import (
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.models.enums import BookingStatus
 from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
@@ -144,7 +147,8 @@ async def bookings_create(
 async def bookings_list(
     cursor: str | None = None,
     limit: int = 20,
-    status: str | None = None,
+    status: BookingStatus | None = None,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List the current user's bookings.
 
@@ -152,6 +156,7 @@ async def bookings_list(
         cursor: Opaque pagination cursor from a prior response's next_cursor
         limit: Items per page
         status: Filter by status (pending, confirmed, checked_in, checked_out, cancelled, completed)
+        include_total: Set true to get the count of bookings matching status
     """
     try:
         limit = min(max(1, limit), 100)
@@ -165,13 +170,14 @@ async def bookings_list(
                     scope="mcp:read",
                 )
 
-            cursor_payload = decode_cursor(cursor) if cursor else None
+            cursor_payload = decode_cursor(cursor, booking_list_filters(status)) if cursor else None
             result = await list_user_bookings(
                 db,
                 user_id=user.id,
                 cursor_payload=cursor_payload,
                 limit=limit,
                 status=status,
+                include_total=include_total,
             )
 
             if result.get("error"):

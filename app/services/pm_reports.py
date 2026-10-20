@@ -1,35 +1,40 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from typing import TYPE_CHECKING, Any
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
-from app.models.enums import LeaseStatus
+from app.models.enums import RentPaymentStatus
 from app.models.pm_finance import Expense, RentPayment
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
 from app.models.users import User
 from app.schemas.pagination import offset_payload, read_offset
-from app.services.pm_dashboard import _resolve_owner_scope
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES, active_lease_exists
+from app.services.pm.rent_rules import money
+from app.services.pm_dashboard import SQL_ZERO_MONEY, _resolve_owner_scope
 
-if TYPE_CHECKING:
-    from sqlalchemy import Exists
+__all__ = [
+    "active_lease_exists",
+    "rent_roll_report",
+    "income_report",
+    "expense_report",
+    "pnl_report",
+]
 
 
-def active_lease_exists() -> Exists:
-    """Correlated EXISTS: Property has an active lease.
-
-    Shared "occupied" definition for occupancy reports (pm_reports and the
-    platform-wide system stats in services/agent/analytics.py).
-    """
-    return exists(
-        select(1).where(and_(Lease.property_id == Property.id, Lease.status == LeaseStatus.active))
+def _paid_window(start: date | None, end: date | None) -> tuple[datetime | None, datetime | None]:
+    """Payment window for whole UTC days. start is inclusive from 00:00; end is inclusive through its last moment."""
+    lower = datetime.combine(start, datetime.min.time(), tzinfo=UTC) if start else None
+    upper = (
+        datetime.combine(end + timedelta(days=1), datetime.min.time(), tzinfo=UTC) if end else None
     )
+    return lower, upper
 
 
 async def rent_roll_report(
@@ -64,7 +69,11 @@ async def rent_roll_report(
         )
         total = int(count_result.scalar_one() or 0)
 
-    stmt = stmt.order_by(Property.created_at.desc(), Property.id.desc()).offset(offset).limit(limit + 1)
+    stmt = (
+        stmt.order_by(Property.created_at.desc(), Property.id.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    )
     props_result = await execute_with_transient_retry(
         db,
         lambda: db.execute(stmt),
@@ -74,7 +83,7 @@ async def rent_roll_report(
     has_more = len(props) > limit
     props = props[:limit]
 
-    # Batched: one query for the newest active lease per property, instead
+    # Batched: one query for the newest occupying lease per property, instead
     # of one query per property (the original N+1 pattern).
     latest_lease: dict[int, Lease] = {}
     if props:
@@ -83,7 +92,7 @@ async def rent_roll_report(
             select(Lease)
             .where(
                 Lease.property_id.in_(prop_ids),
-                Lease.status == LeaseStatus.active,
+                Lease.status.in_(OCCUPIED_LEASE_STATUSES),
             )
             .order_by(Lease.property_id, Lease.created_at.desc())
         )
@@ -93,7 +102,7 @@ async def rent_roll_report(
             operation_name="pm_reports_rent_roll_active_leases",
         )
         lease_rows = lease_result.scalars().all()
-        # Keep only the newest active lease per property (created_at desc).
+        # Keep only the newest occupying lease per property (created_at desc).
         for row in lease_rows:
             latest_lease.setdefault(row.property_id, row)
 
@@ -105,9 +114,9 @@ async def rent_roll_report(
                 "property_id": p.id,
                 "title": p.title,
                 "occupancy": "occupied" if lease else "vacant",
-                "tenant_user_id": getattr(lease, "tenant_user_id", None) if lease else None,
-                "monthly_rent": getattr(lease, "monthly_rent", None) if lease else None,
-                "lease_end_date": getattr(lease, "end_date", None) if lease else None,
+                "tenant_user_id": lease.tenant_user_id if lease else None,
+                "monthly_rent": money(lease.monthly_rent) if lease else None,
+                "lease_end_date": lease.end_date if lease else None,
             }
         )
 
@@ -120,16 +129,19 @@ async def income_report(
     *,
     actor: User,
     owner_id: int | None = None,
-    start: datetime | None = None,
-    end: datetime | None = None,
+    start: date | None = None,
+    end: date | None = None,
 ) -> dict[str, Any]:
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
-    stmt = select(func.coalesce(func.sum(RentPayment.amount_paid), 0.0))
-    if start is not None:
-        stmt = stmt.where(RentPayment.paid_at >= start)
-    if end is not None:
-        stmt = stmt.where(RentPayment.paid_at <= end)
+    lower, upper = _paid_window(start, end)
+    stmt = select(func.coalesce(func.sum(RentPayment.amount_paid), SQL_ZERO_MONEY)).where(
+        RentPayment.status == RentPaymentStatus.settled
+    )
+    if lower is not None:
+        stmt = stmt.where(RentPayment.paid_at >= lower)
+    if upper is not None:
+        stmt = stmt.where(RentPayment.paid_at < upper)
     if owner_ids is not None:
         stmt = stmt.where(RentPayment.owner_id.in_(owner_ids))
     result = await execute_with_transient_retry(
@@ -137,7 +149,8 @@ async def income_report(
         lambda: db.execute(stmt),
         operation_name="pm_reports_income",
     )
-    total = float(result.scalar_one() or 0.0)
+    # Money stays Decimal. The Money field of IncomeReport makes the JSON number.
+    total = money(result.scalar_one())
     return {"total_income": total, "start": start, "end": end}
 
 
@@ -151,7 +164,7 @@ async def expense_report(
 ) -> dict[str, Any]:
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
-    stmt = select(func.coalesce(func.sum(Expense.amount), 0.0))
+    stmt = select(func.coalesce(func.sum(Expense.amount), SQL_ZERO_MONEY))
     if start is not None:
         stmt = stmt.where(Expense.expense_date >= start)
     if end is not None:
@@ -163,7 +176,7 @@ async def expense_report(
         lambda: db.execute(stmt),
         operation_name="pm_reports_expenses",
     )
-    total = float(result.scalar_one() or 0.0)
+    total = money(result.scalar_one())
     return {"total_expenses": total, "start": start, "end": end}
 
 
@@ -178,18 +191,18 @@ async def pnl_report(
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     owner_ids = await _resolve_owner_scope(db, actor=actor, owner_id=owner_id)
 
-    income_start = datetime.combine(start, datetime.min.time()) if start else None
-    income_end = datetime.combine(end, datetime.max.time()) if end else None
-
-    income_stmt = select(func.coalesce(func.sum(RentPayment.amount_paid), 0.0))
-    if income_start is not None:
-        income_stmt = income_stmt.where(RentPayment.paid_at >= income_start)
-    if income_end is not None:
-        income_stmt = income_stmt.where(RentPayment.paid_at <= income_end)
+    lower, upper = _paid_window(start, end)
+    income_stmt = select(func.coalesce(func.sum(RentPayment.amount_paid), SQL_ZERO_MONEY)).where(
+        RentPayment.status == RentPaymentStatus.settled
+    )
+    if lower is not None:
+        income_stmt = income_stmt.where(RentPayment.paid_at >= lower)
+    if upper is not None:
+        income_stmt = income_stmt.where(RentPayment.paid_at < upper)
     if owner_ids is not None:
         income_stmt = income_stmt.where(RentPayment.owner_id.in_(owner_ids))
 
-    expense_stmt = select(func.coalesce(func.sum(Expense.amount), 0.0))
+    expense_stmt = select(func.coalesce(func.sum(Expense.amount), SQL_ZERO_MONEY))
     if start is not None:
         expense_stmt = expense_stmt.where(Expense.expense_date >= start)
     if end is not None:
@@ -207,8 +220,8 @@ async def pnl_report(
         lambda: db.execute(expense_stmt),
         operation_name="pm_reports_pnl_expenses",
     )
-    total_income = float(income_result.scalar_one() or 0.0)
-    total_expenses = float(expense_result.scalar_one() or 0.0)
+    total_income = money(income_result.scalar_one())
+    total_expenses = money(expense_result.scalar_one())
     net = total_income - total_expenses
     return {
         "total_income": total_income,

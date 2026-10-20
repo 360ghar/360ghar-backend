@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
 
 class BaseAPIException(HTTPException):
@@ -228,3 +230,13 @@ class MaintenanceRequestNotFoundException(NotFoundException):
     """Maintenance request not found exception"""
     error_code = "MAINTENANCE_REQUEST_NOT_FOUND"
     detail = "Maintenance request not found"
+
+
+def client_input_error(exc: ValidationError, *loc_prefix: str) -> RequestValidationError:
+    """Turn a pydantic ValidationError on CLIENT input into a 422.
+
+    A bare ValidationError that reaches the app handlers is a server fault (500).
+    Use this wherever a handler or service validates data that came from the client.
+    """
+    errors = exc.errors(include_url=False, include_context=False, include_input=False)
+    return RequestValidationError([{**err, "loc": (*loc_prefix, *err["loc"])} for err in errors])

@@ -5,6 +5,7 @@ Downloads captured frames, stitches them into a panorama with OpenCV,
 pads the result onto a 2:1 (equirect-aspect) canvas, uploads the JPEG to
 Cloudinary, and updates the scene image — all tracked through an AIJob.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -51,14 +52,12 @@ async def request_scene_stitch(
     job = await create_ai_job(
         db,
         user_id,
-        AIJobType.panorama_stitch.value,
+        AIJobType.panorama_stitch,
         tour_id=tour_id,
         scene_id=scene_id,
     )
     _track_background_task(
-        _run_with_semaphore(
-            _run_scene_stitch(job.id, tour_id, scene_id, user_id, list(frame_urls))
-        )
+        _run_with_semaphore(_run_scene_stitch(job.id, tour_id, scene_id, user_id, list(frame_urls)))
     )
     return job
 
@@ -76,8 +75,7 @@ def _decode_and_downscale(frame_bytes: bytes) -> np.ndarray:
     height, width = image.shape[:2]
     if width * height > MAX_DECODED_PIXELS:
         raise ValueError(
-            f"Frame too large ({width}x{height} = {width * height} px, "
-            f"max {MAX_DECODED_PIXELS})"
+            f"Frame too large ({width}x{height} = {width * height} px, max {MAX_DECODED_PIXELS})"
         )
     long_side = max(height, width)
     if long_side > MAX_FRAME_LONG_SIDE:
@@ -112,8 +110,7 @@ def _stitch_frames(frames: list[bytes]) -> tuple[bytes, int, int]:
         ) from e
     if status != cv2.Stitcher_OK or panorama is None:
         raise ValueError(
-            f"OpenCV stitching failed (status {status}); "
-            "frames may lack enough overlap to stitch"
+            f"OpenCV stitching failed (status {status}); frames may lack enough overlap to stitch"
         )
 
     # Pad onto a 2:1 black canvas so viewers can treat it as equirect aspect.
@@ -124,7 +121,7 @@ def _stitch_frames(frames: list[bytes]) -> tuple[bytes, int, int]:
     canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
     y_offset = (canvas_height - height) // 2
     x_offset = (canvas_width - width) // 2
-    canvas[y_offset:y_offset + height, x_offset:x_offset + width] = panorama
+    canvas[y_offset : y_offset + height, x_offset : x_offset + width] = panorama
 
     ok, encoded = cv2.imencode(".jpg", canvas, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
     if not ok:
@@ -161,9 +158,7 @@ async def _stitch_and_store(
     )
     image_url: str = upload_result["secure_url"]
 
-    scene = (
-        await db.execute(select(Scene).where(Scene.id == scene_id))
-    ).scalar_one_or_none()
+    scene = (await db.execute(select(Scene).where(Scene.id == scene_id))).scalar_one_or_none()
     if scene is None:
         raise ValueError("Scene was deleted while stitching")
     scene.image_url = image_url

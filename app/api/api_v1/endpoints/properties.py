@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from datetime import date
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import (
@@ -19,17 +24,24 @@ from app.core.db_resilience import (
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
 from app.models.enums import (
+    FurnishingLevel,
+    KitchenType,
     ListingGenderPreference,
     ListingSharingType,
+    MoveInTimeline,
     PropertyPurpose,
+    PropertyStatus,
     PropertyType,
     UserRole,
+    VentilationType,
 )
 from app.models.users import User as UserModel
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.property import (
+    BASE_PRICE_MAX,
     Property,
     PropertyCreate,
+    PropertyDetail,
     PropertyUpdate,
     SortBy,
     UnifiedPropertyFilter,
@@ -39,6 +51,7 @@ from app.services.auth_user_cache import AuthUserSnapshot
 from app.services.flatmates import pause_stale_flatmate_listings
 from app.services.flatmates.compatibility import calculate_property_compatibility_score
 from app.services.property import (
+    attach_owner_agents,
     create_property,
     delete_property,
     get_property,
@@ -47,12 +60,12 @@ from app.services.property import (
     list_user_properties,
     update_property,
 )
-from app.services.property.privacy import hide_owner_contact, hide_owner_contacts
 from app.services.property.search_orchestration import (
     build_property_search_filters,
     run_property_search,
 )
 from app.services.swipe import get_user_like_for_property
+from app.services.visibility import mask_owner_contact, mask_owner_contacts
 from app.services.visit import get_user_property_visit_stats
 
 router = APIRouter()
@@ -94,10 +107,29 @@ def _is_bot_user_agent(user_agent: str | None) -> bool:
     return any(token in lowered for token in _BOT_USER_AGENT_TOKENS)
 
 
+def _filter_binding(filters: UnifiedPropertyFilter) -> dict[str, Any]:
+    """The request filters a cursor is bound to. The same dict goes to decoded() and build_cursor_page()."""
+    return filters.model_dump(mode="json", exclude_none=True)
+
+
+def _query_filter_errors(exc: ValidationError) -> list[dict[str, Any]]:
+    """Filter-model errors name their query parameter (query.<name>). A range pair
+    (min above max) has no single parameter, so its error is named "query"."""
+    errors: list[dict[str, Any]] = []
+    for err in exc.errors(include_url=False, include_context=False, include_input=False):
+        loc = err.get("loc") or ()
+        errors.append({**err, "loc": ("query", *loc)})
+    return errors
+
+
 def build_property_filters(
     # Query parameters for filtering
-    lat: float | None = Query(None, description="Latitude for location-based search"),
-    lng: float | None = Query(None, description="Longitude for location-based search"),
+    lat: float | None = Query(
+        None, ge=-90, le=90, description="Latitude for location-based search"
+    ),
+    lng: float | None = Query(
+        None, ge=-180, le=180, description="Longitude for location-based search"
+    ),
     radius: int = Query(5, ge=1, le=100, description="Search radius in km"),
     # Search query
     q: str | None = Query(None, description="Search query for text or semantic search"),
@@ -107,48 +139,57 @@ def build_property_filters(
     property_type: list[PropertyType] | None = Query(None),
     purpose: PropertyPurpose | None = Query(None),
     # Price filters
-    price_min: float | None = Query(None, ge=0),
-    price_max: float | None = Query(None, le=1e9),
+    price_min: float | None = Query(None, ge=0, le=BASE_PRICE_MAX),
+    price_max: float | None = Query(None, ge=0, le=BASE_PRICE_MAX),
     # Room filters
-    bedrooms_min: int | None = Query(None, ge=0),
-    bedrooms_max: int | None = Query(None, le=20),
-    bathrooms_min: int | None = Query(None, ge=0),
-    bathrooms_max: int | None = Query(None, le=10),
+    bedrooms_min: int | None = Query(None, ge=0, le=50),
+    bedrooms_max: int | None = Query(None, ge=0, le=50),
+    bathrooms_min: int | None = Query(None, ge=0, le=50),
+    bathrooms_max: int | None = Query(None, ge=0, le=50),
     # Area filters
-    area_min: float | None = Query(None, ge=0),
-    area_max: float | None = Query(None, le=100000),
+    area_min: float | None = Query(None, ge=0, le=1_000_000),
+    area_max: float | None = Query(None, ge=0, le=1_000_000),
+    # Listing status (admin lists; public lists show available listings)
+    status: PropertyStatus | None = Query(None, description="Listing status"),
     # Location filters
     city: str | None = Query(None),
-    locality: str | None = Query(None),
+    locality: str | None = Query(None, description="Exact locality name (case-insensitive)"),
+    sub_locality: str | None = Query(
+        None, description="Exact sub-locality name (case-insensitive)"
+    ),
     pincode: str | None = Query(None),
+    society_type: str | None = Query(None, description="Exact society type (case-insensitive)"),
+    society_vibe_tags: list[str] | None = Query(
+        None, description="Listings that carry every given society vibe tag"
+    ),
     # Additional filters
     amenities: list[str] | None = Query(None),
     features: list[str] | None = Query(None),
-    furnishing: list[str] | None = Query(
+    furnishing: list[FurnishingLevel] | None = Query(
         None, description="Furnishing levels: furnished, semi_furnished, unfurnished"
     ),
-    kitchen_type: list[str] | None = Query(
+    kitchen_type: list[KitchenType] | None = Query(
         None, description="Kitchen types: vegetarian, non_vegetarian, eggetarian, any"
     ),
-    ventilation_type: list[str] | None = Query(
+    ventilation_type: list[VentilationType] | None = Query(
         None, description="Ventilation: good, average, poor"
     ),
-    windows_min: int | None = Query(None, ge=0, description="Minimum window count"),
+    windows_min: int | None = Query(None, ge=0, le=100, description="Minimum window count"),
     has_lift: bool | None = Query(None, description="Require a lift amenity"),
     gender_preference: ListingGenderPreference | None = Query(None),
     sharing_type: ListingSharingType | None = Query(None),
-    available_from: str | None = Query(None, description="Minimum availability date (YYYY-MM-DD)"),
-    move_in: str | None = Query(
+    available_from: date | None = Query(None, description="Minimum availability date (YYYY-MM-DD)"),
+    move_in: MoveInTimeline | None = Query(
         None,
-        description="Move-in timeline: immediate, this_month, next_month, flexible",
+        description="Move-in timeline. flexible applies no filter.",
     ),
-    parking_spaces_min: int | None = Query(None, ge=0),
-    floor_number_min: int | None = Query(None, ge=0),
-    floor_number_max: int | None = Query(None, le=100),
-    age_max: int | None = Query(None, ge=0),
+    parking_spaces_min: int | None = Query(None, ge=0, le=100),
+    floor_number_min: int | None = Query(None, ge=-5, le=200),
+    floor_number_max: int | None = Query(None, ge=-5, le=200),
+    age_max: int | None = Query(None, ge=0, le=500),
     # Short stay filters
-    check_in: str | None = Query(None, description="Check-in date (YYYY-MM-DD)"),
-    check_out: str | None = Query(None, description="Check-out date (YYYY-MM-DD)"),
+    check_in: date | None = Query(None, description="Check-in date (YYYY-MM-DD)"),
+    check_out: date | None = Query(None, description="Check-out date (YYYY-MM-DD)"),
     guests: int | None = Query(None, ge=1, le=20),
     # Sorting
     sort_by: SortBy = Query(
@@ -161,52 +202,60 @@ def build_property_filters(
     ),
 ):
     """Common dependency to build UnifiedPropertyFilter from query params."""
-    return build_property_search_filters(
-        latitude=lat,
-        longitude=lng,
-        radius_km=radius,
-        search_query=q,
-        semantic_search=semantic_search,
-        property_ids=ids,
-        property_type=property_type,
-        purpose=purpose,
-        price_min=price_min,
-        price_max=price_max,
-        bedrooms_min=bedrooms_min,
-        bedrooms_max=bedrooms_max,
-        bathrooms_min=bathrooms_min,
-        bathrooms_max=bathrooms_max,
-        area_min=area_min,
-        area_max=area_max,
-        city=city,
-        locality=locality,
-        pincode=pincode,
-        amenities=amenities,
-        features=features,
-        furnishing=furnishing,
-        kitchen_type=kitchen_type,
-        ventilation_type=ventilation_type,
-        windows_min=windows_min,
-        has_lift=has_lift,
-        gender_preference=gender_preference,
-        sharing_type=sharing_type,
-        available_from=available_from,
-        move_in=move_in,
-        parking_spaces_min=parking_spaces_min,
-        floor_number_min=floor_number_min,
-        floor_number_max=floor_number_max,
-        age_max=age_max,
-        check_in_date=check_in,
-        check_out_date=check_out,
-        guests=guests,
-        sort_by=sort_by,
-        exclude_swiped=exclude_swiped,
-    )
+    try:
+        return build_property_search_filters(
+            latitude=lat,
+            longitude=lng,
+            radius_km=radius,
+            search_query=q,
+            semantic_search=semantic_search,
+            property_ids=ids,
+            property_type=property_type,
+            purpose=purpose,
+            status=status,
+            price_min=price_min,
+            price_max=price_max,
+            bedrooms_min=bedrooms_min,
+            bedrooms_max=bedrooms_max,
+            bathrooms_min=bathrooms_min,
+            bathrooms_max=bathrooms_max,
+            area_min=area_min,
+            area_max=area_max,
+            city=city,
+            locality=locality,
+            sub_locality=sub_locality,
+            pincode=pincode,
+            society_type=society_type,
+            society_vibe_tags=society_vibe_tags,
+            amenities=amenities,
+            features=features,
+            furnishing=furnishing,
+            kitchen_type=kitchen_type,
+            ventilation_type=ventilation_type,
+            windows_min=windows_min,
+            has_lift=has_lift,
+            gender_preference=gender_preference,
+            sharing_type=sharing_type,
+            available_from=available_from,
+            move_in=move_in,
+            parking_spaces_min=parking_spaces_min,
+            floor_number_min=floor_number_min,
+            floor_number_max=floor_number_max,
+            age_max=age_max,
+            check_in_date=check_in.isoformat() if check_in else None,
+            check_out_date=check_out.isoformat() if check_out else None,
+            guests=guests,
+            sort_by=sort_by,
+            exclude_swiped=exclude_swiped,
+        )
+    except ValidationError as exc:
+        raise RequestValidationError(_query_filter_errors(exc)) from exc
 
 
 @router.post(
     "",
     response_model=Property,
+    status_code=201,
     summary="Create property",
     openapi_extra={
         "requestBody": {
@@ -227,11 +276,11 @@ def build_property_filters(
                                 "area_sqft": 1200,
                             }
                         },
-                        "sale": {
+                        "buy": {
                             "value": {
                                 "title": "3BHK Villa in Whitefield",
                                 "property_type": "villa",
-                                "purpose": "sale",
+                                "purpose": "buy",
                                 "base_price": 12500000,
                                 "city": "Bengaluru",
                                 "locality": "Whitefield",
@@ -269,7 +318,8 @@ async def create_new_property(
                 )
         result = await create_property(db, property_data, target_owner_id, current_user)
         logger.info("Property created successfully with ID %s", result.id)
-        return result
+        await attach_owner_agents(db, [result])
+        return mask_owner_contact(result, current_user)
     except Exception as e:
         logger.error("Failed to create property for user %s: %s", current_user.id, e)
         raise
@@ -282,7 +332,8 @@ async def get_my_properties(
     db: AsyncSession = Depends(get_db),
 ):
     """List properties owned by the current user (requires authentication)."""
-    cursor_payload = page.decoded()
+    binding: dict[str, Any] = {"scope": "owner"}
+    cursor_payload = page.decoded(binding)
     rows, next_payload, total = await list_user_properties(
         db,
         owner_id=current_user.id,
@@ -290,7 +341,14 @@ async def get_my_properties(
         limit=page.limit,
         with_total=page.include_total,
     )
-    return build_cursor_page(rows, limit=page.limit, next_payload=next_payload, total=total)
+    await attach_owner_agents(db, rows)
+    return build_cursor_page(
+        mask_owner_contacts(rows, current_user),
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+        filters=binding,
+    )
 
 
 @router.get("", response_model=CursorPage[Property], summary="List properties")
@@ -313,14 +371,14 @@ async def get_properties_list(
     """
     user_id = current_user.id if current_user else None
 
-    cursor_payload = page.decoded()
+    binding = _filter_binding(filters)
+    cursor_payload = page.decoded(binding)
     logger.info(
         "Property search request",
         extra={
             "user": user_id or "anonymous",
             "has_semantic": filters.semantic_search,
             "query": filters.search_query,
-            "offset": cursor_payload.get("o", 0),
             "radius": filters.radius_km,
         },
     )
@@ -342,10 +400,18 @@ async def get_properties_list(
         len(rows),
     )
 
-    return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
+    return build_cursor_page(
+        mask_owner_contacts(rows, current_user),
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+        filters=binding,
+    )
 
 
-@router.get("/semantic-search", response_model=CursorPage[Property], summary="Semantic property search")
+@router.get(
+    "/semantic-search", response_model=CursorPage[Property], summary="Semantic property search"
+)
 async def semantic_property_search(
     filters: UnifiedPropertyFilter = Depends(build_property_filters),
     page: CursorParams = Depends(),
@@ -363,7 +429,8 @@ async def semantic_property_search(
         extra={"user": user_id or "anonymous", "query": filters.search_query},
     )
 
-    cursor_payload = page.decoded()
+    binding = _filter_binding(filters)
+    cursor_payload = page.decoded(binding)
     rows, next_payload, total = await run_property_search(
         db,
         filters,
@@ -377,10 +444,18 @@ async def semantic_property_search(
         stale_listing_context="semantic search",
         unavailable_detail="Semantic search is temporarily unavailable. Please retry shortly.",
     )
-    return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
+    return build_cursor_page(
+        mask_owner_contacts(rows, current_user),
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+        filters=binding,
+    )
 
 
-@router.get("/recommendations", response_model=CursorPage[Property], summary="List recommended properties")
+@router.get(
+    "/recommendations", response_model=CursorPage[Property], summary="List recommended properties"
+)
 async def get_recommendations(
     page: CursorParams = Depends(),
     current_user: UserSchema | None = Depends(get_current_user_optional),
@@ -397,23 +472,34 @@ async def get_recommendations(
     and will return `null`.
     """
     user_id = current_user.id if current_user else None
+    # Personalised ranking differs per viewer, so the cursor is bound to the viewer.
+    binding: dict[str, Any] = (
+        {"scope": "user", "viewer": user_id} if user_id else {"scope": "anonymous"}
+    )
     try:
         await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-        cursor_payload = page.decoded()
+        cursor_payload = page.decoded(binding)
         try:
             await pause_stale_flatmate_listings(db)
         except Exception as cleanup_exc:
-            logger.warning(
-                "Skipping stale-listing pause during recommendations: %s", cleanup_exc
-            )
+            logger.warning("Skipping stale-listing pause during recommendations: %s", cleanup_exc)
             await db.rollback()
             await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
 
         rows, next_payload, total = await get_property_recommendations(
-            db, user_id, cursor_payload, page.limit,
+            db,
+            user_id,
+            cursor_payload,
+            page.limit,
             with_total=page.include_total,
         )
-        return build_cursor_page(hide_owner_contacts(rows, current_user), limit=page.limit, next_payload=next_payload, total=total)
+        return build_cursor_page(
+            mask_owner_contacts(rows, current_user),
+            limit=page.limit,
+            next_payload=next_payload,
+            total=total,
+            filters=binding,
+        )
     except Exception as e:
         if is_transient_db_error(e) or is_statement_timeout(e):
             error_code = extract_db_error_code(e) or (
@@ -435,7 +521,7 @@ async def get_recommendations(
         raise
 
 
-@router.get("/{property_id}", response_model=Property, summary="Get property details")
+@router.get("/{property_id}", response_model=PropertyDetail, summary="Get property details")
 async def get_property_details(
     property_id: int,
     request: Request,
@@ -465,6 +551,9 @@ async def get_property_details(
         except Exception as view_exc:  # noqa: BLE001
             logger.warning("View count increment failed for %s: %s", property_id, view_exc)
 
+    # The detail response carries the viewer's own visit fields. Other responses do not.
+    detail = property_data
+
     # If user is authenticated, enrich with user-specific context
     if current_user:
         try:
@@ -482,7 +571,7 @@ async def get_property_details(
                         current_user, owner
                     )
 
-            property_data = property_data.model_copy(
+            detail = detail.model_copy(
                 update={
                     "liked": bool(liked) if liked is not None else None,
                     "user_has_scheduled_visit": visit_stats["count"] > 0,
@@ -495,7 +584,7 @@ async def get_property_details(
             # Log and continue without blocking property details
             logger.error("Failed to enrich property %s with user context: %s", property_id, e)
 
-    return hide_owner_contact(property_data, current_user)
+    return mask_owner_contact(detail, current_user)
 
 
 @router.put(
@@ -511,7 +600,7 @@ async def get_property_details(
                             "value": {
                                 "title": "Updated 2BHK Apartment in Koramangala",
                                 "monthly_rent": 28000,
-                                "status": "active",
+                                "status": "available",
                             }
                         },
                     }
@@ -526,16 +615,20 @@ async def update_property_details(
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
-    """Update property details"""
-    return await update_property(db, property_id, property_update, current_user)
+    """Update property details (PATCH semantics: send only the keys to change)."""
+    result = await update_property(db, property_id, property_update, current_user)
+    await attach_owner_agents(db, [result])
+    return mask_owner_contact(result, current_user)
 
 
-@router.delete("/{property_id}", summary="Delete property")
+@router.delete(
+    "/{property_id}", status_code=204, response_class=Response, summary="Delete property"
+)
 async def delete_property_endpoint(
     property_id: int,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-):
-    """Delete a property"""
+) -> Response:
+    """Delete a property. Returns 204 with no body."""
     await delete_property(db, property_id, current_user)
-    return {"message": "Property deleted successfully"}
+    return Response(status_code=204)

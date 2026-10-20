@@ -1,30 +1,52 @@
-"""
-WebSocket Connection Manager.
+"""WebSocket connection manager for AI job progress and user notifications.
 
-This module provides real-time communication capabilities for AI job progress
-updates and user notifications.
+Frames are the typed models in ``app.schemas.realtime``. The endpoint accepts the
+socket and authenticates it. The manager only tracks connections and sends frames.
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 from app.core.logging import get_logger
+from app.core.utils import utc_now
+from app.schemas.realtime import (
+    JobUpdateData,
+    JobUpdateFrame,
+    UserNotificationFrame,
+    UserNotificationPayload,
+)
 
 logger = get_logger(__name__)
 
 
-class ConnectionManager:
+def job_frame(job_id: str, data: dict[str, Any]) -> JobUpdateFrame:
+    """Build the job frame from the state dict used by the job pipeline.
+
+    Keys: ``status``, ``progress``, ``error_message``, ``result``. Missing keys are null.
     """
-    Manages WebSocket connections for real-time updates.
+    progress = data.get("progress")
+    return JobUpdateFrame(
+        job_id=job_id,
+        data=JobUpdateData(
+            status=str(data.get("status") or ""),
+            progress=int(progress) if progress is not None else None,
+            error_message=data.get("error_message"),
+            result=data.get("result"),
+        ),
+    )
+
+
+class ConnectionManager:
+    """Tracks WebSocket connections per job and per user.
 
     Supports:
-    - Job-specific connections (for AI job progress)
-    - User-level connections (for notifications)
+    - Job connections (AI job progress, keyed by job_id)
+    - User connections (notifications)
     """
 
     def __init__(self):
@@ -36,8 +58,7 @@ class ConnectionManager:
         self._lock = asyncio.Lock()
 
     async def connect_job(self, websocket: WebSocket, job_id: str) -> None:
-        """Connect a websocket to receive updates for a specific job."""
-        await websocket.accept()
+        """Register an accepted, authenticated socket for a job. The caller accepts it."""
         async with self._lock:
             if job_id not in self.job_connections:
                 self.job_connections[job_id] = set()
@@ -45,8 +66,7 @@ class ConnectionManager:
         logger.debug("WebSocket connected for job %s", job_id)
 
     async def connect_user(self, websocket: WebSocket, user_id: int) -> None:
-        """Connect a websocket to receive updates for a user."""
-        await websocket.accept()
+        """Register an accepted, authenticated socket for a user. The caller accepts it."""
         async with self._lock:
             if user_id not in self.user_connections:
                 self.user_connections[user_id] = set()
@@ -71,75 +91,35 @@ class ConnectionManager:
                     del self.user_connections[user_id]
         logger.debug("WebSocket disconnected from user %s", user_id)
 
-    async def send_job_update(
-        self,
-        job_id: str,
-        data: dict[str, Any],
-    ) -> None:
-        """
-        Send an update to all websockets connected to a job.
+    async def _send_text(self, sockets: list[WebSocket], message: str) -> list[WebSocket]:
+        dead: list[WebSocket] = []
+        for websocket in sockets:
+            try:
+                if websocket.client_state == WebSocketState.CONNECTED:
+                    await websocket.send_text(message)
+            except Exception as e:
+                logger.warning("Failed to send WebSocket frame: %s", e)
+                dead.append(websocket)
+        return dead
 
-        Args:
-            job_id: The job ID to send updates to
-            data: Update data (status, progress, result, etc.)
-        """
+    async def send_job_update(self, job_id: str, data: dict[str, Any]) -> None:
+        """Send one ``job_update`` frame to every socket connected to ``job_id``."""
         if job_id not in self.job_connections:
             return
-
-        message = json.dumps({
-            "type": "job_update",
-            "job_id": job_id,
-            "data": data,
-        })
-
-        # Create a copy to avoid modification during iteration
-        connections = list(self.job_connections.get(job_id, set()))
-        dead_connections = []
-
-        for websocket in connections:
-            try:
-                if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(message)
-            except Exception as e:
-                logger.warning("Failed to send job update: %s", e)
-                dead_connections.append(websocket)
-
-        # Clean up dead connections
-        for ws in dead_connections:
+        message = job_frame(job_id, data).model_dump_json()
+        dead = await self._send_text(list(self.job_connections.get(job_id, set())), message)
+        for ws in dead:
             await self.disconnect_job(ws, job_id)
 
-    async def send_user_notification(
-        self,
-        user_id: int,
-        notification: dict[str, Any],
-    ) -> None:
-        """
-        Send a notification to all websockets connected for a user.
-
-        Args:
-            user_id: The user ID to send notification to
-            notification: Notification data
-        """
+    async def send_user_notification(self, user_id: int, notification: dict[str, Any]) -> None:
+        """Send a ``notification`` frame. ``notification`` holds id, type, title, message, created_at."""
         if user_id not in self.user_connections:
             return
-
-        message = json.dumps({
-            "type": "notification",
-            "data": notification,
-        })
-
-        connections = list(self.user_connections.get(user_id, set()))
-        dead_connections = []
-
-        for websocket in connections:
-            try:
-                if websocket.client_state == WebSocketState.CONNECTED:
-                    await websocket.send_text(message)
-            except Exception as e:
-                logger.warning("Failed to send user notification: %s", e)
-                dead_connections.append(websocket)
-
-        for ws in dead_connections:
+        frame = UserNotificationFrame(data=UserNotificationPayload.model_validate(notification))
+        dead = await self._send_text(
+            list(self.user_connections.get(user_id, set())), frame.model_dump_json()
+        )
+        for ws in dead:
             await self.disconnect_user(ws, user_id)
 
     async def broadcast_job_completion(
@@ -148,27 +128,20 @@ class ConnectionManager:
         user_id: int,
         result: dict[str, Any],
     ) -> None:
-        """
-        Broadcast job completion to both job and user connections.
+        """Send the titled completion notification to user sockets.
 
-        Args:
-            job_id: The completed job ID
-            user_id: The user who owns the job
-            result: Job result data
+        The job socket gets its frame from the caller (``send_job_update``), once per state.
         """
-        # Send to job-specific connections
-        await self.send_job_update(job_id, {
-            "status": "completed",
-            "progress": 100,
-            "result": result,
-        })
-
-        # Send notification to user connections
-        await self.send_user_notification(user_id, {
-            "type": "job_completed",
-            "job_id": job_id,
-            "result": result,
-        })
+        await self.send_user_notification(
+            user_id,
+            {
+                "id": job_id,
+                "type": "job_completed",
+                "title": "Processing complete",
+                "message": "Your tour job has finished.",
+                "created_at": utc_now(),
+            },
+        )
 
     async def broadcast_job_error(
         self,
@@ -176,24 +149,17 @@ class ConnectionManager:
         user_id: int,
         error_message: str,
     ) -> None:
-        """
-        Broadcast job error to both job and user connections.
-
-        Args:
-            job_id: The failed job ID
-            user_id: The user who owns the job
-            error_message: Error message
-        """
-        await self.send_job_update(job_id, {
-            "status": "failed",
-            "error": error_message,
-        })
-
-        await self.send_user_notification(user_id, {
-            "type": "job_failed",
-            "job_id": job_id,
-            "error": error_message,
-        })
+        """Send the titled failure notification to user sockets. The job frame comes from the caller."""
+        await self.send_user_notification(
+            user_id,
+            {
+                "id": job_id,
+                "type": "job_failed",
+                "title": "Processing failed",
+                "message": error_message,
+                "created_at": utc_now(),
+            },
+        )
 
     def get_job_connection_count(self, job_id: str) -> int:
         """Get the number of connections for a job."""
@@ -204,5 +170,4 @@ class ConnectionManager:
         return len(self.user_connections.get(user_id, set()))
 
 
-# Global connection manager instance
 manager = ConnectionManager()

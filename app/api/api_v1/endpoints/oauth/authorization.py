@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 import anyio
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -41,7 +42,7 @@ async def authorize(
     code_challenge_method: str | None = None,
     resource: str | None = None,
     db: AsyncSession = Depends(get_db),
-):
+) -> RedirectResponse:
     """OAuth 2.1 Authorization Endpoint."""
     logger.info(
         "OAuth authorize request",
@@ -281,7 +282,15 @@ async def process_consent(
         )
 
 
-@auth_router.get("/mcp/oauth/callback", summary="OAuth callback")
+class OAuthCallbackResponse(BaseModel):
+    status: str
+    message: str
+    code_received: bool
+
+
+@auth_router.get(
+    "/mcp/oauth/callback", response_model=OAuthCallbackResponse, summary="OAuth callback"
+)
 async def oauth_callback(
     request: Request,
     code: str,

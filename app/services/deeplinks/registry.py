@@ -107,10 +107,13 @@ class AppLinkConfig:
     def scheme_url(self, entity: str, identifier: str) -> str:
         """Custom-scheme fallback URL, e.g. ``estate360://property/42``.
 
-        Matches how each app's DeepLinkService parses the host as the first
-        path segment (``estate360://property/42`` -> segments ``[property, 42]``).
+        Returns ``""`` when the app has no custom scheme. Matches how each
+        app's DeepLinkService parses the host as the first path segment
+        (``estate360://property/42`` -> segments ``[property, 42]``).
         Identifier is percent-encoded for the same reason as :meth:`https_path`.
         """
+        if not self.custom_scheme:
+            return ""
         return f"{self.custom_scheme}://{quote(entity, safe='')}/{quote(identifier, safe='')}"
 
     def aasa_paths(self) -> list[str]:
@@ -139,7 +142,10 @@ APP_REGISTRY: tuple[AppLinkConfig, ...] = (
         android_packages=("com.the360ghar.ghar360",),
         ios_bundle_id="com.the360ghar.ghar360",
         use_webcredentials=True,
-        custom_scheme="ghar360",
+        # No custom scheme. The ghar app parses HTTPS links only, and the
+        # ghar360 scheme is registered for the OAuth callback. An empty scheme
+        # keeps the fallback page from launching a link the app cannot route.
+        custom_scheme="",
         path_prefix="",  # flagship app: links at domain root (/p, /property)
         # NOTE: no `tour` entity. The ghar app's tour UX is "tap a tour badge
         # on a property card" — `TourView` consumes a tour *URL* (not an id)

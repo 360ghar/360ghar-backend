@@ -5,6 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -26,6 +27,21 @@ token_router = APIRouter()
 
 AUTH_CODE_REQUIRED_FIELDS = ("user_id", "client_id", "scope")
 REFRESH_TOKEN_REQUIRED_FIELDS = ("user_id", "scope")
+
+
+class OAuthTokenResponse(BaseModel):
+    """RFC 6749 section 5.1 token response, with the RFC 8707 resource echo."""
+
+    access_token: str
+    token_type: str
+    expires_in: int
+    refresh_token: str | None = None
+    scope: str | None = None
+    resource: str | None = None
+
+
+class OAuthRevokeResponse(BaseModel):
+    """RFC 7009: a successful revocation returns HTTP 200 with an empty JSON object."""
 
 
 def _invalid_grant(error_description: str) -> HTTPException:
@@ -72,7 +88,13 @@ def _oauth_storage_unavailable() -> HTTPException:
     )
 
 
-@token_router.post("/mcp/oauth/token", summary="OAuth token endpoint")
+@token_router.post(
+    "/mcp/oauth/token",
+    response_model=OAuthTokenResponse,
+    # Keeps the body as sent: the resource key appears only when it is set.
+    response_model_exclude_unset=True,
+    summary="OAuth token endpoint",
+)
 async def token_endpoint(
     request: Request,
     grant_type: str = Form(...),
@@ -350,7 +372,9 @@ async def token_endpoint(
         ) from None
 
 
-@token_router.post("/mcp/oauth/revoke", summary="Revoke OAuth token")
+@token_router.post(
+    "/mcp/oauth/revoke", response_model=OAuthRevokeResponse, summary="Revoke OAuth token"
+)
 async def revoke_token(
     token: str = Form(...),
     token_type_hint: str | None = Form(None),

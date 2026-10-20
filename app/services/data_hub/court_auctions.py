@@ -1,4 +1,5 @@
 """Court auction scraper — DRT Chandigarh and eCourts notices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.data_hub import CourtAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.utils import normalize_auction_property_type
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,8 @@ class CourtAuctionScraper(BaseScraper):
         for rec in records:
             try:
                 rec.setdefault("auction_date", date(1970, 1, 1))  # sentinel for unknown date
+                if "property_type" in rec:
+                    rec["property_type"] = normalize_auction_property_type(rec["property_type"])
                 values = {
                     k: v
                     for k, v in rec.items()

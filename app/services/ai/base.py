@@ -60,12 +60,11 @@ def _parse_reset_at_delta_seconds(body: str) -> float | None:
         return None
     stamp = reset_match.group(1).replace("T", " ")
     try:
-        reset_dt = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
+        reset_dt = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
     except ValueError:
         return None
-    # Providers emit naive wall-clock (often their region local time). Use
-    # local now as a best-effort; prefer multi-hour window when both exist.
-    delta = (reset_dt - datetime.now()).total_seconds()
+    # Providers send wall-clock times with no zone. Read them as UTC.
+    delta = (reset_dt - datetime.now(UTC)).total_seconds()
     return delta if delta > 0 else None
 
 
@@ -160,6 +159,7 @@ def _is_retryable_error(exc: BaseException) -> bool:
 
 class AIRole(str, Enum):
     """Message roles for AI conversations."""
+
     SYSTEM = "system"
     USER = "user"
     ASSISTANT = "assistant"
@@ -167,18 +167,21 @@ class AIRole(str, Enum):
 
 class AIMessage(BaseModel):
     """A message in an AI conversation."""
+
     role: AIRole
     content: str
 
 
 class VisionInput(BaseModel):
     """Input for vision-capable AI models."""
+
     image_base64: str = Field(..., description="Base64-encoded image data")
     mime_type: str = Field(..., description="Image MIME type (image/jpeg, image/png, image/webp)")
 
 
 class AIProviderConfig(BaseModel):
     """Configuration for an AI provider."""
+
     api_key: str = Field(..., description="API key for the provider")
     model: str = Field(..., description="Model name/ID to use")
     max_tokens: int = Field(default=4000, description="Maximum tokens in response")
@@ -249,6 +252,7 @@ class AIProvider(ABC):
         All exceptions are normalised to ``AIProviderError`` before
         propagating so callers only need to handle that single type.
         """
+
         @retry(
             stop=stop_after_attempt(AI_MAX_RETRIES),
             wait=_retry_wait,

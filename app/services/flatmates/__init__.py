@@ -26,6 +26,7 @@ from app.services.flatmates.interactions import (
     record_society_tag_vote,
 )
 from app.services.flatmates.matching import (
+    get_match_contact,
     list_incoming_likes,
     list_matches,
     list_outgoing_likes,
@@ -46,12 +47,14 @@ from app.services.flatmates.moderation import (
     prescreen_flatmate_listing,
 )
 from app.services.flatmates.profiles import (
+    count_unread_flatmates_notifications,
     get_bootstrap,
     get_flatmates_profile,
     get_profile_by_id,
     list_catalogs,
     list_discoverable_profiles,
     list_flatmates_notifications,
+    load_visible_peer,
     mark_all_flatmates_notifications_read,
     mark_flatmates_notification_read,
     update_flatmates_profile,
@@ -70,7 +73,6 @@ __all__ = [
     "score_viewer_owner_compatibility",
     "snapshot_user_for_compat",
     "user_has_lifestyle_profile",
-
     # profiles
     "get_flatmates_profile",
     "get_profile_by_id",
@@ -81,7 +83,10 @@ __all__ = [
     "mark_flatmates_notification_read",
     "mark_all_flatmates_notifications_read",
     "get_bootstrap",
+    "load_visible_peer",
+    "count_unread_flatmates_notifications",
     # matching
+    "get_match_contact",
     "record_swipe",
     "list_incoming_likes",
     "list_outgoing_likes",

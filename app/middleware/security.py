@@ -5,12 +5,10 @@ import hmac
 import uuid
 from datetime import datetime
 
-from fastapi import Request, status
-from starlette.responses import JSONResponse
+from fastapi import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.config import settings
-from app.core.cache import get_cache_manager
 from app.core.logging import RequestIDFilter as RequestIDFilter
 from app.core.logging import get_logger, reset_request_id, set_request_id
 from app.core.utils import make_tz_aware, utc_now
@@ -163,70 +161,6 @@ class SecurityHeadersMiddleware:
         await self.app(scope, receive, send_with_security_headers)
 
 
-class APIKeyMiddleware:
-    """API key validation for external API access.
-
-    Implemented as pure ASGI middleware to avoid BaseHTTPMiddleware
-    deprecation in Starlette 1.0+ and to support streaming responses.
-    """
-
-    def __init__(self, app: ASGIApp, required_paths: list[str] | None = None):
-        self.app = app
-        self.required_paths = required_paths or []
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-
-        if scope["type"] == "websocket":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "/")
-
-        # Check if path requires API key
-        if any(path.startswith(rp) for rp in self.required_paths):
-            headers = dict(scope.get("headers", []))
-            api_key = headers.get(b"x-api-key", b"").decode("utf-8", errors="ignore")
-
-            if not api_key:
-                response = JSONResponse(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    content={"detail": "API key required"},
-                )
-                await response(scope, receive, send)
-                return
-
-            if not await self.validate_api_key(api_key):
-                response = JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={"detail": "Invalid API key"},
-                )
-                await response(scope, receive, send)
-                return
-
-        await self.app(scope, receive, send)
-
-    async def validate_api_key(self, api_key: str) -> bool:
-        """Validate API key against stored keys"""
-        cache = get_cache_manager()
-
-        # Check cache first
-        cache_key = f"api_key:{hashlib.sha256(api_key.encode()).hexdigest()[:16]}"
-        cached = await cache.get(cache_key)
-        if cached is not None:
-            return bool(cached)
-
-        # In production, check against database
-        # For now, check against environment variable
-        valid = any(hmac.compare_digest(api_key, k.strip()) for k in settings.VALID_API_KEYS.split(",") if k.strip())
-
-        # Cache result
-        await cache.set(cache_key, valid, ttl=300)
-
-        return valid
-
 class RequestSignatureValidator:
     """Validate request signatures for webhook security"""
 
@@ -288,55 +222,3 @@ class RequestSignatureValidator:
 
         # Compare signatures
         return hmac.compare_digest(signature, expected_signature)
-
-class IPWhitelistMiddleware:
-    """IP whitelist middleware for admin endpoints.
-
-    Implemented as pure ASGI middleware to avoid BaseHTTPMiddleware
-    deprecation in Starlette 1.0+ and to support streaming responses.
-    """
-
-    def __init__(self, app: ASGIApp, whitelist: list[str] | None = None, paths: list[str] | None = None):
-        self.app = app
-        self.whitelist = whitelist or []
-        self.paths = paths or ["/admin"]
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-
-        if scope["type"] == "websocket":
-            await self.app(scope, receive, send)
-            return
-
-        path = scope.get("path", "/")
-
-        # Check if path requires IP whitelisting
-        if any(path.startswith(p) for p in self.paths):
-            client_ip = self._get_client_ip(scope)
-
-            if client_ip not in self.whitelist:
-                logger.warning("Unauthorized IP access attempt: %s", client_ip)
-                response = JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={"detail": "Access denied"},
-                )
-                await response(scope, receive, send)
-                return
-
-        await self.app(scope, receive, send)
-
-    def _get_client_ip(self, scope: Scope) -> str:
-        """Get real client IP address from ASGI scope."""
-        headers = dict(scope.get("headers", []))
-        forwarded = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="ignore")
-        if forwarded:
-            return str(forwarded.split(",")[0].strip())
-
-        real_ip = headers.get(b"x-real-ip", b"").decode("utf-8", errors="ignore")
-        if real_ip:
-            return str(real_ip)
-
-        client = scope.get("client")
-        return client[0] if client else "unknown"

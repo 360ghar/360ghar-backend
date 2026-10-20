@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime, time
 from typing import Any
 
 from app.core.database import AsyncSessionLocal
@@ -16,8 +16,6 @@ from app.mcp.chatgpt import get_widget_for_tool
 from app.mcp.chatgpt.pm_shared import (
     _format_rent_summary,
     _get_optional_user,
-    _serialize_rent_charge,
-    _serialize_rent_payment,
 )
 from app.mcp.chatgpt.response_formatter import (
     format_auth_required_response,
@@ -26,7 +24,9 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
-from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload
+from app.mcp.utils import serialize_rent_payment
+from app.models.enums import PaymentMethod
+from app.schemas.pagination import decode_cursor, encode_cursor
 
 logger = get_logger(__name__)
 
@@ -57,11 +57,11 @@ async def owner_rent_status(
 ) -> dict[str, Any]:
     """View rent charges and collection totals for the authenticated owner."""
     try:
-        from app.models.enums import RentChargeStatus
-        from app.services.pm_rent import list_rent_charges
+        from app.services.pm.rent_due import list_rent_charge_page
 
         limit = min(max(1, limit), 50)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        filters = {"property_id": property_id, "include_paid": include_paid}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -72,65 +72,26 @@ async def owner_rent_status(
                     message="To view rent status, please log in to your 360Ghar account.",
                 )
 
-            # list_rent_charges accepts a single RentChargeStatus, not a list.
-            # When excluding paid charges, query each unpaid status and merge.
-            next_payload = None
-            if include_paid:
-                charges, next_payload, _total = await list_rent_charges(
-                    db,
-                    actor=user,
-                    owner_id=user.id,
-                    property_id=property_id,
-                    status=None,
-                    cursor_payload=cursor_payload,
-                    limit=limit,
-                )
-            else:
-                unpaid_statuses = [RentChargeStatus.pending, RentChargeStatus.partial, RentChargeStatus.overdue]
-                all_charges: list = []
-                for i, s in enumerate(unpaid_statuses):
-                    batch, _next, _total = await list_rent_charges(
-                        db,
-                        actor=user,
-                        owner_id=user.id,
-                        property_id=property_id,
-                        status=s,
-                        cursor_payload=cursor_payload if i == 0 else {},
-                        limit=limit,
-                    )
-                    all_charges.extend(batch)
-                # Sort by due_date ascending (matching service default)
-                def _sort_key(c: Any) -> Any:
-                    charge_obj = c.get("charge") if isinstance(c, dict) and "charge" in c else c
-                    return getattr(charge_obj, "due_date", None) or ""
-
-                all_charges.sort(key=_sort_key)
-                charges = all_charges[:limit]
-                next_payload = offset_payload(limit) if len(charges) >= limit else None
-
-            serialized = [_serialize_rent_charge(c) for c in charges]
-
-            # Calculate totals
-            total_due = sum(c["balance"] for c in serialized)
-            total_paid = sum(c["amount_paid"] for c in serialized)
-            overdue_count = sum(1 for c in serialized if c["status"] == "overdue")
-
-            totals = {
-                "total_due": total_due,
-                "total_paid": total_paid,
-                "overdue_count": overdue_count,
-                "charges_count": len(serialized),
-            }
+            # One keyset query over the owner's charges. totals cover the full set, not the page.
+            page = await list_rent_charge_page(
+                db,
+                owner_ids=[user.id],
+                property_id=property_id,
+                unpaid_only=not include_paid,
+                cursor_payload=cursor_payload,
+                limit=limit,
+            )
+            next_cursor = encode_cursor(page.next_payload, filters) if page.next_payload else None
 
             return format_chatgpt_response(
                 data={
-                    "charges": serialized,
-                    "totals": totals,
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                    "has_more": next_payload is not None,
+                    "charges": page.items,
+                    "totals": page.totals,
+                    "next_cursor": next_cursor,
+                    "has_more": page.next_payload is not None,
                     "limit": limit,
                 },
-                content_summary=_format_rent_summary(serialized, totals),
+                content_summary=_format_rent_summary(page.items, page.totals),
                 widget_uri=get_widget_for_tool("owner_rent_status"),
             )
 
@@ -160,7 +121,7 @@ async def owner_rent_record_payment(
     rent_charge_id: int,
     amount: float,
     payment_date: str,
-    payment_method: str,
+    payment_method: PaymentMethod,
     transaction_id: str | None = None,
     notes: str | None = None,
 ) -> dict[str, Any]:
@@ -205,11 +166,14 @@ async def owner_rent_record_payment(
                     actor=user,
                     charge_id=rent_charge_id,
                     amount_paid=amount,
-                    paid_at=datetime.combine(pay_date, datetime.min.time()),
+                    paid_at=datetime.combine(pay_date, time.min, tzinfo=UTC),
                     payment_method=method,
                     reference=transaction_id,
                     notes=notes,
                 )
+                # Serialize before the commit. A failure here rolls the write back, so a
+                # retry cannot record a second payment.
+                saved = serialize_rent_payment(payment)
                 await db.commit()
             except Exception as e:
                 if "not found" in str(e).lower():
@@ -222,8 +186,7 @@ async def owner_rent_record_payment(
 
             return format_chatgpt_response(
                 data={
-                    "success": True,
-                    "payment": _serialize_rent_payment(payment),
+                    "payment": saved,
                 },
                 content_summary=f"Payment of ₹{amount:,.0f} recorded successfully via {payment_method} on {payment_date}.",
                 widget_uri=get_widget_for_tool("owner_rent_record_payment"),
@@ -256,13 +219,15 @@ async def owner_rent_history(
     lease_id: int | None = None,
     cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """View rent payment history for the authenticated owner's properties."""
     try:
         from app.services.pm_rent import list_rent_payments
 
         limit = min(max(1, limit), 50)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        filters = {"property_id": property_id, "lease_id": lease_id}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -273,7 +238,7 @@ async def owner_rent_history(
                     message="To view payment history, please log in to your 360Ghar account.",
                 )
 
-            payments, next_payload, _total = await list_rent_payments(
+            payments, next_payload, total = await list_rent_payments(
                 db,
                 actor=user,
                 owner_id=user.id,
@@ -281,21 +246,19 @@ async def owner_rent_history(
                 lease_id=lease_id,
                 cursor_payload=cursor_payload,
                 limit=limit,
+                with_total=include_total,
             )
 
-            serialized = [_serialize_rent_payment(p) for p in payments]
-            total_collected = sum(p["amount"] for p in serialized)
-
+            serialized = [serialize_rent_payment(p) for p in payments]
             return format_chatgpt_response(
                 data={
-                    "payments": serialized,
-                    "count": len(serialized),
-                    "total_collected": total_collected,
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                    "has_more": next_payload is not None,
+                    "items": serialized,
+                    "total": total,
                     "limit": limit,
+                    "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
+                    "has_more": next_payload is not None,
                 },
-                content_summary=f"Showing {len(serialized)} payments totaling ₹{total_collected:,.0f}.",
+                content_summary=f"Showing {len(serialized)} payments.",
                 widget_uri=get_widget_for_tool("owner_rent_history"),
             )
 

@@ -6,13 +6,13 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.config import settings
-from app.core.exceptions import BadRequestException, PropertyNotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException, PropertyNotFoundException
 from app.models.enums import (
     PG_FLATMATE_TYPES,
     ConversationStatus,
@@ -23,7 +23,7 @@ from app.models.enums import (
 )
 from app.models.properties import Property
 from app.models.social import UserBlock, UserMatch, UserReport
-from app.models.users import User
+from app.models.users import User, UserSwipe
 from app.schemas.flatmates import ReportCreate
 from app.schemas.pagination import offset_payload, read_offset
 from app.services.flatmates.helpers import _canonical_pair
@@ -281,7 +281,7 @@ async def list_blocks(
     limit: int = 20,
     with_total: bool = False,
 ) -> tuple[list[dict[str, Any]], dict | None, int | None]:
-    from app.services.flatmates.helpers import _build_peer_payload
+    from app.services.flatmates.helpers import _peer_display_name
 
     if cursor_payload is None:
         cursor_payload = {}
@@ -301,7 +301,7 @@ async def list_blocks(
         select(UserBlock, User)
         .join(User, User.id == UserBlock.blocked_user_id)
         .where(UserBlock.blocker_user_id == user_id)
-        .order_by(UserBlock.created_at.desc())
+        .order_by(UserBlock.created_at.desc(), UserBlock.id.desc())
         .offset(offset)
         .limit(limit + 1)
     )
@@ -313,7 +313,12 @@ async def list_blocks(
     items = [
         {
             "id": block.id,
-            "blocked_user": _build_peer_payload(blocked_user),
+            "blocked_user_id": blocked_user.id,
+            "blocked_user": {
+                "id": blocked_user.id,
+                "display_name": _peer_display_name(blocked_user),
+                "avatar_url": blocked_user.profile_image_url,
+            },
             "created_at": block.created_at,
         }
         for block, blocked_user in rows
@@ -321,18 +326,17 @@ async def list_blocks(
     return items, next_payload, total
 
 
-async def delete_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> dict[str, Any]:
+async def delete_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> None:
     stmt = select(UserBlock).where(
         UserBlock.blocker_user_id == user_id,
         UserBlock.blocked_user_id == blocked_user_id,
     )
     block = (await db.execute(stmt)).scalar_one_or_none()
     if block is None:
-        raise BadRequestException(detail="Blocked user not found")
+        raise NotFoundException(detail="Block not found", error_code="BLOCK_NOT_FOUND")
     await db.delete(block)
     await db.flush()
     await db.commit()
-    return {"ok": True, "blocked_user_id": blocked_user_id}
 
 
 async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> UserBlock:
@@ -344,13 +348,15 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
         UserBlock.blocker_user_id == user_id,
         UserBlock.blocked_user_id == blocked_user_id,
     )
-    existing = (await db.execute(stmt)).scalar_one_or_none()
-    if existing:
-        return existing
+    block = (await db.execute(stmt)).scalar_one_or_none()
+    if block is None:
+        block = UserBlock(blocker_user_id=user_id, blocked_user_id=blocked_user_id)
+        db.add(block)
 
-    block = UserBlock(blocker_user_id=user_id, blocked_user_id=blocked_user_id)
-    db.add(block)
-
+    # Block rule (decisions.md, Wave 3d). A block always leaves the pair closed, whether or
+    # not it ever matched. It stays closed after the unblock. It reopens only when both users
+    # like each other again (matching._reopen_blocked_pair). Posting a block that exists
+    # repeats these steps, so a block saved before this rule is closed too.
     from app.services.flatmates.conversations import find_1to1_conversation
 
     conversation = await find_1to1_conversation(db, user_id, blocked_user_id)
@@ -363,8 +369,27 @@ async def create_block(db: AsyncSession, user_id: int, blocked_user_id: int) -> 
         UserMatch.user_two_id == user_two_id,
     )
     match = (await db.execute(match_stmt)).scalar_one_or_none()
-    if match:
+    if match is None:
+        db.add(
+            UserMatch(
+                user_one_id=user_one_id,
+                user_two_id=user_two_id,
+                status=UserMatchStatus.blocked,
+            )
+        )
+    elif match.status == UserMatchStatus.active:
+        # An unmatched pair stays unmatched: a block does not weaken an unmatch.
         match.status = UserMatchStatus.blocked
+
+    # Likes from before the block never count. After the unblock both users like again.
+    await db.execute(
+        delete(UserSwipe).where(
+            or_(
+                and_(UserSwipe.user_id == user_id, UserSwipe.target_user_id == blocked_user_id),
+                and_(UserSwipe.user_id == blocked_user_id, UserSwipe.target_user_id == user_id),
+            )
+        )
+    )
 
     await db.flush()
     await db.commit()
@@ -444,7 +469,7 @@ def apply_stale_listing_pause(
         return False
 
     preferences = _listing_preferences(listing)
-    current_status = preferences.get("moderation_status", "live")
+    current_status = preferences.get("moderation_status", "pending_review")
     if current_status not in {None, "live"} and not getattr(listing, "is_available", False):
         return False
     if (
@@ -493,7 +518,7 @@ async def pause_stale_flatmate_listings(
                     Property.is_available.is_(True),
                     func.coalesce(
                         Property.listing_preferences["moderation_status"].as_string(),
-                        "live",
+                        "pending_review",
                     )
                     == "live",
                 ),

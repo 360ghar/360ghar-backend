@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.core.utils import utc_now
-from app.models.enums import LeaseStatus
+from app.mcp.utils import serialize_rent_payment
+from app.models.enums import PaymentMethod
 from app.models.pm_finance import RentPayment
 from app.models.pm_leases import Lease
-from app.models.properties import Property
-from app.schemas.pagination import encode_cursor, offset_payload, read_offset
-from app.schemas.user import User as UserSchema
-from app.services.pm_authz import assert_can_access_lease
+from app.schemas.pagination import encode_cursor, read_offset, trim_offset_lookahead
+from app.services.pm.rent_due import list_rent_charge_page
+from app.services.pm.rent_rules import business_today
 
 logger = get_logger(__name__)
-
-
-def _user_schema(user) -> UserSchema:
-    return UserSchema.model_validate(user)
 
 
 async def compute_rent_due_items(
@@ -33,174 +27,34 @@ async def compute_rent_due_items(
     overdue_only: bool = False,
     cursor_payload: dict | None = None,
     limit: int = 20,
+    filters: dict | None = None,
 ) -> dict:
-    """Compute rent-due items from active leases.
+    """Rent due now: unpaid charges due on or before today, from RentCharge rows.
 
-    Each item represents a lease with its current month's due date and
-    overdue status.
+    ``overdue_only`` applies the PM overdue rule before the page limit. ``totals`` holds
+    total_due, total_paid, overdue_count and charges_count over the full matching set.
+    ``filters`` binds the returned cursor to the request filters.
     """
     limit = min(max(1, limit), 100)
-    if cursor_payload is None:
-        cursor_payload = {}
-    offset = read_offset(cursor_payload)
-    today = utc_now().date()
-
-    base_stmt = select(Lease).where(Lease.status == LeaseStatus.active)
-
-    if owner_ids is not None:
-        base_stmt = base_stmt.where(Lease.owner_id.in_(owner_ids))
-    if property_id:
-        base_stmt = base_stmt.where(Lease.property_id == property_id)
-
-    base_stmt = base_stmt.order_by(Lease.created_at.desc())
-
-    # When filtering in Python (overdue_only), we need to fetch extra rows
-    # from the DB because some will be filtered out. Use a fetch loop to
-    # accumulate enough filtered items or exhaust the DB.
-    fetch_limit = limit if not overdue_only else limit * 3
-    current_offset = offset
-    items: list[dict[str, Any]] = []
-    total_db_rows_seen = 0
-    db_exhausted = False
-
-    while len(items) < limit and not db_exhausted:
-        stmt = base_stmt.offset(current_offset).limit(fetch_limit)
-        result = await db.execute(stmt)
-        leases = list(result.scalars().all())
-
-        if not leases:
-            db_exhausted = True
-            break
-
-        total_db_rows_seen += len(leases)
-
-        # Batch-load property titles to avoid N+1 queries
-        property_ids = {lease.property_id for lease in leases if lease.property_id}
-        prop_titles: dict[int, str] = {}
-        if property_ids:
-            prop_result = await db.execute(
-                select(Property.id, Property.title).where(Property.id.in_(property_ids))
-            )
-            prop_titles = {r[0]: r[1] or "Property" for r in prop_result.all()}
-
-        for lease in leases:
-            if len(items) >= limit:
-                break
-
-            payment_due_day = lease.payment_due_day or 1
-            grace_days = lease.grace_period_days or 5
-
-            day = min(payment_due_day, 28)
-            try:
-                due_date = today.replace(day=day)
-            except ValueError:
-                due_date = today.replace(day=28)
-
-            grace_day = min(payment_due_day + grace_days, 28)
-            try:
-                grace_end = today.replace(day=grace_day)
-            except ValueError:
-                grace_end = today.replace(day=28)
-
-            is_overdue = today > grace_end
-            is_due = today >= due_date
-
-            if overdue_only and not is_overdue:
-                continue
-
-            prop_title = prop_titles.get(lease.property_id, "Property")
-
-            items.append({
-                "lease_id": lease.id,
-                "property_id": lease.property_id,
-                "property_title": prop_title,
-                "owner_id": lease.owner_id,
-                "tenant_user_id": lease.tenant_user_id,
-                "monthly_rent": float(lease.monthly_rent or 0),
-                "due_date": due_date.isoformat(),
-                "grace_end": grace_end.isoformat(),
-                "is_overdue": is_overdue,
-                "is_due": is_due,
-                "payment_due_day": payment_due_day,
-            })
-
-        if len(leases) < fetch_limit:
-            db_exhausted = True
-        else:
-            current_offset += len(leases)
-
-    total_due = sum(i["monthly_rent"] for i in items if i["is_due"])
-    overdue_count = sum(1 for i in items if i["is_overdue"])
-
-    # has_more is true if we filled the page AND the DB might have more
-    has_more = len(items) >= limit and not db_exhausted
-    next_payload = offset_payload(offset + total_db_rows_seen) if has_more else None
-
-    return {
-        "items": items,
-        "total_due": total_due,
-        "overdue_count": overdue_count,
-        "next_cursor": encode_cursor(next_payload) if next_payload else None,
-        "has_more": next_payload is not None,
-        "limit": limit,
-    }
-
-
-async def record_rent_payment(
-    db: AsyncSession,
-    *,
-    actor,
-    lease_id: int,
-    amount: float,
-    payment_date: str,
-    payment_method: str,
-    transaction_reference: str | None = None,
-    notes: str | None = None,
-) -> dict:
-    """Record a rent payment for a lease."""
-    actor_schema = _user_schema(actor)
-
-    valid_methods = ("cash", "bank_transfer", "upi", "cheque", "online", "other")
-    if payment_method.lower() not in valid_methods:
-        return {
-            "error": True,
-            "message": f"Invalid payment method. Valid: {', '.join(valid_methods)}",
-        }
-
-    try:
-        lease = await assert_can_access_lease(db, actor=actor_schema, lease_id=lease_id)
-    except Exception as e:
-        return {"error": True, "message": str(e)}
-
-    try:
-        paid_at = datetime.fromisoformat(payment_date)
-    except (ValueError, TypeError):
-        return {"error": True, "message": "Invalid payment_date. Use ISO-8601."}
-
-    payment = RentPayment(
-        lease_id=lease_id,
-        property_id=lease.property_id,
-        owner_id=lease.owner_id,
-        amount_paid=amount,
-        paid_at=paid_at,
-        payment_method=payment_method.lower(),
-        reference=transaction_reference,
-        notes=notes,
+    today = business_today()
+    page = await list_rent_charge_page(
+        db,
+        owner_ids=owner_ids,
+        property_id=property_id,
+        unpaid_only=True,
+        overdue_only=overdue_only,
+        due_on_or_before=today,
+        cursor_payload=cursor_payload,
+        limit=limit,
+        today=today,
     )
-    db.add(payment)
-    await db.flush()
-    await db.refresh(payment)
-    await db.commit()
-
+    next_cursor = encode_cursor(page.next_payload, filters) if page.next_payload else None
     return {
-        "message": "Payment recorded successfully",
-        "payment": {
-            "id": payment.id,
-            "amount": float(payment.amount_paid or 0),
-            "payment_date": payment.paid_at.isoformat() if payment.paid_at else None,
-            "payment_method": payment.payment_method,
-            "reference": payment.reference,
-        },
+        "items": page.items,
+        "totals": page.totals,
+        "next_cursor": next_cursor,
+        "has_more": page.next_payload is not None,
+        "limit": limit,
     }
 
 
@@ -210,59 +64,127 @@ async def get_rent_history(
     tenant_user_id: int,
     cursor_payload: dict | None = None,
     limit: int = 20,
+    filters: dict | None = None,
+    include_total: bool = False,
 ) -> dict:
-    """Get rent payment history for a tenant."""
+    """One page of a tenant's rent payments, newest first.
+
+    ``filters`` binds the returned cursor. ``total`` is the count of all payments
+    when ``include_total`` is set, otherwise null. ``total_collected`` is the sum
+    over all payments, not over the page.
+    """
     limit = min(max(1, limit), 100)
     if cursor_payload is None:
         cursor_payload = {}
     offset = read_offset(cursor_payload)
 
-    lease_ids_result = await db.execute(
-        select(Lease.id).where(Lease.tenant_user_id == tenant_user_id)
-    )
-    lease_ids = [r[0] for r in lease_ids_result.all()]
-
+    lease_ids = [
+        r[0]
+        for r in (
+            await db.execute(select(Lease.id).where(Lease.tenant_user_id == tenant_user_id))
+        ).all()
+    ]
     if not lease_ids:
         return {
-            "payments": [],
-            "total": 0,
-            "total_collected": 0,
+            "items": [],
+            "total": 0 if include_total else None,
+            "total_collected": 0.0,
             "next_cursor": None,
             "has_more": False,
             "limit": limit,
         }
 
+    scope = RentPayment.lease_id.in_(lease_ids)
     stmt = (
         select(RentPayment)
-        .where(RentPayment.lease_id.in_(lease_ids))
-        .order_by(RentPayment.paid_at.desc())
+        .where(scope)
+        .order_by(RentPayment.paid_at.desc(), RentPayment.id.desc())
         .offset(offset)
-        .limit(limit)
+        .limit(limit + 1)
     )
-    result = await db.execute(stmt)
-    payments = result.scalars().all()
+    payments = list((await db.execute(stmt)).scalars().all())
+    page, next_payload = trim_offset_lookahead(payments, limit=limit, offset=offset)
 
-    items = []
-    for p in payments:
-        items.append({
-            "id": p.id,
-            "rent_charge_id": getattr(p, "charge_id", None),
-            "amount": float(p.amount_paid or 0),
-            "payment_date": p.paid_at.isoformat() if p.paid_at else None,
-            "payment_method": p.payment_method,
-            "transaction_id": p.reference,
-            "created_at": p.created_at.isoformat() if getattr(p, "created_at", None) else None,
-        })
-
-    total_collected = sum(float(p.get("amount") or 0) for p in items)
-
-    next_payload = offset_payload(offset + len(items)) if len(items) >= limit else None
+    total = None
+    if include_total:
+        total = (await db.execute(select(func.count(RentPayment.id)).where(scope))).scalar_one()
+    collected = (
+        await db.execute(select(func.coalesce(func.sum(RentPayment.amount_paid), 0)).where(scope))
+    ).scalar_one()
 
     return {
-        "payments": items,
-        "total": len(items),
-        "total_collected": total_collected,
-        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "items": [serialize_rent_payment(p) for p in page],
+        "total": total,
+        "total_collected": round(float(collected or 0), 2),
+        "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
         "has_more": next_payload is not None,
         "limit": limit,
     }
+
+
+async def record_lease_rent_payment(
+    db: AsyncSession,
+    *,
+    actor,
+    lease_id: int,
+    amount: float,
+    paid_at: datetime,
+    payment_method: PaymentMethod,
+    reference: str | None = None,
+    notes: str | None = None,
+) -> RentPayment:
+    """Settle the oldest unpaid rent charge of a lease with one payment.
+
+    Unpaid means pending, partial or overdue (a stored overdue charge is included).
+    A charge with no balance left is skipped. The actor must be able to access the
+    lease. The payment goes through ``services.pm_rent.record_rent_payment``, which
+    locks the charge and updates its status. Raises BadRequestException when the lease
+    has no unpaid charge. Flushes only; the caller commits, and serializes the payment
+    before it does.
+    """
+    from app.core.exceptions import BadRequestException
+    from app.models.pm_finance import RentCharge
+    from app.schemas.user import User as UserSchema
+    from app.services.pm.lifecycle import (
+        UNPAID_CHARGE_STATUSES,
+        charge_outstanding,
+        settled_paid_totals,
+    )
+    from app.services.pm.rent_rules import ZERO_MONEY
+    from app.services.pm_authz import assert_can_access_lease
+    from app.services.pm_rent import record_rent_payment
+
+    await assert_can_access_lease(db, actor=UserSchema.model_validate(actor), lease_id=lease_id)
+
+    unpaid = list(
+        (
+            await db.execute(
+                select(RentCharge)
+                .where(
+                    RentCharge.lease_id == lease_id,
+                    RentCharge.status.in_(UNPAID_CHARGE_STATUSES),
+                )
+                .order_by(RentCharge.due_date, RentCharge.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    paid = await settled_paid_totals(db, [c.id for c in unpaid])
+    charge = next(
+        (c for c in unpaid if charge_outstanding(c, paid.get(c.id, ZERO_MONEY)) > ZERO_MONEY),
+        None,
+    )
+    if charge is None:
+        raise BadRequestException(detail="This lease has no open rent charge")
+
+    return await record_rent_payment(
+        db,
+        actor=actor,
+        charge_id=charge.id,
+        amount_paid=amount,
+        paid_at=paid_at,
+        payment_method=payment_method,
+        reference=reference,
+        notes=notes,
+    )

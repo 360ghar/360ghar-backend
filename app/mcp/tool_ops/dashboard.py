@@ -88,3 +88,26 @@ def _empty_dashboard() -> dict:
         "maintenance": {"open": 0},
         "rent": {"expected_monthly": 0.0},
     }
+
+
+async def compute_portfolio_stats(
+    db: AsyncSession,
+    *,
+    owner_ids: list[int] | None,
+) -> dict:
+    """Portfolio stats over every property in scope, not over one page.
+
+    The owner and agent property lists and the dashboard overview all return this
+    shape. ``owner_ids=None`` means every owner.
+    """
+    metrics = await compute_dashboard_metrics(db, owner_ids=owner_ids)
+    properties = metrics["properties"]
+    return {
+        "total_properties": properties["total"],
+        "occupied": properties["occupied"],
+        "vacant": properties["vacant"],
+        "occupancy_rate": metrics["occupancy_rate"],
+        "total_monthly_income": metrics["rent"]["expected_monthly"],
+        "monthly_rent_expected": metrics["rent"]["expected_monthly"],
+        "open_maintenance_requests": metrics["maintenance"]["open"],
+    }

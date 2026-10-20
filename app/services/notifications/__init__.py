@@ -13,10 +13,13 @@ statements continue to work without changes.
 
 from app.services.notifications.crud import (
     _record_notification,
+    list_deliveries_for_user,
     list_notifications_for_user,
     mark_delivery_opened,
+    record_in_app_notification,
 )
 from app.services.notifications.fcm import (
+    APP_CHANNEL_IDS,
     FCM_SCOPE,
     _access_token,
     _fcm_credentials,
@@ -32,10 +35,9 @@ from app.services.notifications.helpers import (
     _supa,
 )
 from app.services.notifications.push import (
+    fcm_error_to_api_error,
     register_device_token,
-    send_bulk,
     send_to_token,
-    send_to_topic,
     send_to_user,
     unregister_device_token,
 )
@@ -43,9 +45,12 @@ from app.services.notifications.push import (
 __all__ = [
     # crud
     "_record_notification",
+    "list_deliveries_for_user",
     "list_notifications_for_user",
     "mark_delivery_opened",
+    "record_in_app_notification",
     # fcm
+    "APP_CHANNEL_IDS",
     "FCM_SCOPE",
     "_access_token",
     "_fcm_credentials",
@@ -59,10 +64,9 @@ __all__ = [
     "_run_sync",
     "_supa",
     # push
+    "fcm_error_to_api_error",
     "register_device_token",
-    "send_bulk",
     "send_to_token",
-    "send_to_topic",
     "send_to_user",
     "unregister_device_token",
 ]

@@ -5,10 +5,13 @@ import sys
 import time
 from collections.abc import AsyncGenerator
 from contextlib import suppress
+from enum import Enum
+from typing import TypeVar
 
 import sentry_sdk
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import TimeoutError as SATimeoutError
@@ -48,7 +51,27 @@ def _psycopg_connect_args(*, application_name: str) -> dict:
 
 # Base class for all models
 class Base(DeclarativeBase):
-    pass
+    # Server-side ``onupdate=func.now()`` columns (``updated_at``) are expired after
+    # an UPDATE unless fetched with RETURNING. A later sync attribute read in the
+    # async session then raises MissingGreenlet during response serialization.
+    __mapper_args__ = {"eager_defaults": True}
+
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
+
+
+def db_enum(enum_cls: type[_EnumT], name: str) -> SAEnum:
+    """Native PG enum column. Stores member values, not member names.
+
+    ``name`` is the existing PG type name. Unknown strings raise on write.
+    """
+    return SAEnum(
+        enum_cls,
+        name=name,
+        native_enum=True,
+        values_callable=lambda members: [member.value for member in members],
+        validate_strings=True,
+    )
 
 
 def _database_url_host_port(database_url: str) -> tuple[str | None, int | None]:
@@ -289,9 +312,13 @@ def _mark_session_needs_commit(session: Session, _flush_context: object) -> None
     session.info[_SESSION_NEEDS_COMMIT_KEY] = True
 
 
-@event.listens_for(Session, "after_commit")
-def _clear_session_needs_commit_on_commit(session: Session) -> None:
-    session.info.pop(_SESSION_NEEDS_COMMIT_KEY, None)
+@event.listens_for(Session, "after_transaction_end")
+def _clear_session_needs_commit_on_commit(session: Session, transaction: object) -> None:
+    # ``after_commit`` also fires when a SAVEPOINT is released, which dropped the
+    # flag and made get_db skip the real commit. Clear only when the outermost
+    # transaction ends (commit or rollback).
+    if getattr(transaction, "parent", None) is None:
+        session.info.pop(_SESSION_NEEDS_COMMIT_KEY, None)
 
 
 @event.listens_for(Session, "after_rollback")

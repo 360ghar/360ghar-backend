@@ -1,9 +1,8 @@
-"""
-WebSocket API Endpoints.
+"""WebSocket endpoints for AI job progress and user notifications.
 
-This module provides WebSocket endpoints for real-time updates:
-- AI job progress tracking
-- User notifications
+The token is not in the URL. The server accepts the socket, then waits for one
+``auth`` frame (see ``app.schemas.realtime``). Close codes: 4001 for a missing
+or invalid token, 4004 for a job the caller cannot see.
 
 NOTE: Active WebSocket connections keep the server alive because the
 underlying TCP connection generates outbound ACK packets. Railway's
@@ -11,15 +10,23 @@ serverless idle detection monitors outbound traffic, so any active
 WebSocket session will prevent scale-to-zero. This is expected —
 clients maintaining real-time connections need the server running.
 """
+
 import asyncio
 
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_supabase_token
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.core.websocket import manager
+from app.core.websocket import job_frame, manager
+from app.schemas.realtime import (
+    WS_CLOSE_NOT_FOUND,
+    WS_CLOSE_UNAUTHORIZED,
+    ClientAuthFrame,
+    ControlFrame,
+)
 from app.services import tour_ai
 from app.services.user import get_or_create_user_from_supabase
 
@@ -28,6 +35,8 @@ logger = get_logger(__name__)
 
 # Heartbeat interval in seconds
 HEARTBEAT_INTERVAL = 30
+# Time allowed between accept and the auth frame
+AUTH_TIMEOUT_SECONDS = 10.0
 
 
 async def resolve_websocket_user_id(token: str, db: AsyncSession) -> int | None:
@@ -55,84 +64,97 @@ async def resolve_websocket_user_id(token: str, db: AsyncSession) -> int | None:
         return None
 
 
-@router.websocket("/ws/jobs/{job_id}")
-async def websocket_job_updates(
-    websocket: WebSocket,
-    job_id: str,
-    token: str = Query(..., description="JWT access token"),
-):
+async def _read_auth_token(websocket: WebSocket) -> str | None:
+    """Read the first frame after accept. Returns the token, or None when the frame is missing or invalid.
+
+    A binary frame, a timeout and a disconnect are not valid auth frames.
     """
-    WebSocket endpoint for real-time AI job progress updates.
+    try:
+        message = await asyncio.wait_for(websocket.receive(), timeout=AUTH_TIMEOUT_SECONDS)
+    except (asyncio.TimeoutError, WebSocketDisconnect):
+        return None
+    raw = message.get("text")
+    if raw is None:
+        return None
+    try:
+        return ClientAuthFrame.model_validate_json(raw).token
+    except (ValidationError, ValueError):
+        return None
 
-    Connect to receive updates for a specific AI job including:
-    - Progress percentage
-    - Status changes
-    - Final results or errors
 
-    Query Parameters:
-        token: JWT access token for authentication
-
-    Messages sent:
-        {
-            "type": "job_update",
-            "job_id": "...",
-            "data": {
-                "status": "processing",
-                "progress": 50,
-                "result": null
-            }
-        }
-    """
+async def _authenticate(websocket: WebSocket) -> int | None:
+    """Read the auth frame and resolve the user. None means the caller must close with 4001."""
+    token = await _read_auth_token(websocket)
+    if token is None:
+        return None
     async for db in get_db():
-        user_id = await resolve_websocket_user_id(token, db)
-        if user_id is None:
-            await websocket.close(code=4001, reason="Invalid or expired token")
-            return
+        return await resolve_websocket_user_id(token, db)
+    return None
 
+
+async def _close(websocket: WebSocket, code: int, reason: str) -> None:
+    try:
+        await websocket.close(code=code, reason=reason)
+    except Exception:
+        logger.debug("WebSocket close failed (code %s)", code, exc_info=True)
+
+
+async def _serve(websocket: WebSocket, label: str) -> None:
+    """Answer ``ping`` and send heartbeats until the client leaves or a send fails."""
+    while True:
+        try:
+            message = await asyncio.wait_for(websocket.receive(), timeout=HEARTBEAT_INTERVAL)
+        except asyncio.TimeoutError:
+            try:
+                await websocket.send_text(ControlFrame(type="heartbeat").model_dump_json())
+            except Exception:
+                logger.debug("Heartbeat send failed for %s; closing", label, exc_info=True)
+                return
+            continue
+        if message["type"] == "websocket.disconnect":
+            raise WebSocketDisconnect(message.get("code", 1000))
+        # Binary frames are ignored. Only a text ping gets a reply.
+        if message.get("text") == "ping":
+            await websocket.send_text("pong")
+
+
+@router.websocket("/ws/jobs/{job_id}")
+async def websocket_job_updates(websocket: WebSocket, job_id: str):
+    """AI job progress. Frames: ``job_update`` (data: status, progress, error_message, result), ``heartbeat``.
+
+    First frame from the client: ``{"type": "auth", "token": "<JWT>"}``.
+    """
+    await websocket.accept()
+    user_id = await _authenticate(websocket)
+    if user_id is None:
+        await _close(websocket, WS_CLOSE_UNAUTHORIZED, "Invalid or expired token")
+        return
+
+    job = None
+    async for db in get_db():
         try:
             job = await tour_ai.get_ai_job(db, job_id, user_id)
         except HTTPException:
-            await websocket.close(code=4004, reason="Job not found or not authorized")
-            return
-
-        # Connect to job updates (accept websocket)
-        await manager.connect_job(websocket, job_id)
-
-        await websocket.send_json({
-            "type": "job_update",
-            "job_id": job_id,
-            "data": {
-                "status": job.status,
-                "progress": job.progress,
-                "result": job.result if hasattr(job, "result") else None,
-                "error_message": job.error_message,
-            },
-        })
+            job = None
         break
+    if job is None:
+        await _close(websocket, WS_CLOSE_NOT_FOUND, "Job not found or not authorized")
+        return
 
+    await manager.connect_job(websocket, job_id)
     try:
-
-        # Keep connection alive and handle incoming messages
-        while True:
-            try:
-                # Wait for message or timeout (heartbeat)
-                message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
-                )
-
-                # Handle ping/pong for keep-alive
-                if message == "ping":
-                    await websocket.send_text("pong")
-
-            except asyncio.TimeoutError:
-                # Send heartbeat
-                try:
-                    await websocket.send_json({"type": "heartbeat"})
-                except Exception:
-                    logger.debug("Heartbeat send failed for job %s; closing", job_id, exc_info=True)
-                    break
-
+        await websocket.send_text(
+            job_frame(
+                job_id,
+                {
+                    "status": job.status,
+                    "progress": job.progress,
+                    "error_message": job.error_message,
+                    "result": getattr(job, "result", None),
+                },
+            ).model_dump_json()
+        )
+        await _serve(websocket, f"job {job_id}")
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for job %s", job_id)
     except Exception as e:
@@ -142,128 +164,28 @@ async def websocket_job_updates(
 
 
 @router.websocket("/ws/user")
-async def websocket_user_updates(
-    websocket: WebSocket,
-    token: str = Query(..., description="JWT access token"),
-):
+async def websocket_user_updates(websocket: WebSocket):
+    """User notifications. Frames: ``notification`` (data: id, type, title, message, created_at), ``heartbeat``.
+
+    First frame from the client: ``{"type": "auth", "token": "<JWT>"}``.
     """
-    WebSocket endpoint for user-level notifications.
+    await websocket.accept()
+    user_id = await _authenticate(websocket)
+    if user_id is None:
+        await _close(websocket, WS_CLOSE_UNAUTHORIZED, "Invalid or expired token")
+        return
 
-    Connect to receive notifications including:
-    - AI job completions
-    - Tour updates
-    - System notifications
-
-    Query Parameters:
-        token: JWT access token for authentication
-
-    Messages sent:
-        {
-            "type": "notification",
-            "data": {
-                "type": "job_completed",
-                "job_id": "...",
-                "result": {...}
-            }
-        }
-    """
-    async for db in get_db():
-        user_id = await resolve_websocket_user_id(token, db)
-        if user_id is None:
-            await websocket.close(code=4001, reason="Invalid or expired token")
-            return
-
-        await manager.connect_user(websocket, user_id)
-        break
-
+    await manager.connect_user(websocket, user_id)
     try:
-        # Send welcome message
-        await websocket.send_json({
-            "type": "connected",
-            "message": "Connected to user notifications"
-        })
-
-        # Keep connection alive
-        while True:
-            try:
-                message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
-                )
-
-                if message == "ping":
-                    await websocket.send_text("pong")
-
-            except asyncio.TimeoutError:
-                try:
-                    await websocket.send_json({"type": "heartbeat"})
-                except Exception:
-                    logger.debug("Heartbeat send failed for user %s; closing", user_id, exc_info=True)
-                    break
-
+        await websocket.send_text(
+            ControlFrame(
+                type="connected", message="Connected to user notifications"
+            ).model_dump_json()
+        )
+        await _serve(websocket, f"user {user_id}")
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for user %s", user_id)
     except Exception as e:
         logger.error("WebSocket error for user %s: %s", user_id, e, exc_info=True)
     finally:
-        if user_id is not None:
-            await manager.disconnect_user(websocket, user_id)
-
-
-@router.websocket("/ws/tours/{tour_id}")
-async def websocket_tour_updates(
-    websocket: WebSocket,
-    tour_id: str,
-    token: str = Query(..., description="JWT access token"),
-):
-    """
-    WebSocket endpoint for tour-specific updates.
-
-    Connect to receive real-time updates for a specific tour:
-    - Scene processing status
-    - Hotspot changes (for collaborative editing)
-    - AI processing results
-
-    Query Parameters:
-        token: JWT access token for authentication
-    """
-    async for db in get_db():
-        user_id = await resolve_websocket_user_id(token, db)
-        if user_id is None:
-            await websocket.close(code=4001, reason="Invalid or expired token")
-            return
-        break
-
-    # Use tour_id as a "job_id" for connection management
-    connection_key = f"tour:{tour_id}"
-    await manager.connect_job(websocket, connection_key)
-
-    try:
-        await websocket.send_json({
-            "type": "connected",
-            "message": f"Connected to tour {tour_id} updates"
-        })
-
-        while True:
-            try:
-                message = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=HEARTBEAT_INTERVAL
-                )
-
-                if message == "ping":
-                    await websocket.send_text("pong")
-
-            except asyncio.TimeoutError:
-                try:
-                    await websocket.send_json({"type": "heartbeat"})
-                except Exception:
-                    logger.debug("Heartbeat send failed for tour %s; closing", tour_id, exc_info=True)
-                    break
-
-    except WebSocketDisconnect:
-        logger.debug("WebSocket disconnected for tour %s", tour_id)
-    except Exception as e:
-        logger.error("WebSocket error for tour %s: %s", tour_id, e, exc_info=True)
-    finally:
-        await manager.disconnect_job(websocket, connection_key)
+        await manager.disconnect_user(websocket, user_id)

@@ -3,24 +3,29 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.mcp.utils import serialize_maintenance_request
 from app.models.enums import (
-    LeaseStatus,
+    PRIORITY_TO_URGENCY,
     MaintenanceCategory,
     MaintenanceRequestStatus,
-    MaintenanceUrgency,
     WorkOrderStatus,
 )
-from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
-from app.schemas.pagination import encode_cursor, offset_payload, read_offset
+from app.models.users import User
+from app.schemas.pagination import encode_cursor, read_offset, trim_offset_lookahead
+from app.schemas.pm_maintenance import MaintenanceRequestUpdate
+from app.schemas.user import User as UserSchema
+from app.services.pm_maintenance import create_maintenance_request as create_pm_maintenance_request
+from app.services.pm_maintenance import update_maintenance_request as update_pm_maintenance_request
 
 logger = get_logger(__name__)
 
@@ -30,18 +35,48 @@ TOOL_OPS_OPERATION_FAILED = "OPERATION_FAILED"
 TOOL_OPS_INVALID_INPUT = "INVALID_INPUT"
 
 
-# Priority keyword → urgency enum mapping (used by create and update operations)
-_PRIORITY_TO_URGENCY: dict[str, MaintenanceUrgency] = {
-    "low": MaintenanceUrgency.low,
-    "medium": MaintenanceUrgency.medium,
-    "high": MaintenanceUrgency.high,
-    "urgent": MaintenanceUrgency.emergency,
-    "emergency": MaintenanceUrgency.emergency,
-}
-
 # Status keyword → SQLAlchemy filter expression (used by list operations)
 # Returns (filter_expression, normalized_status) or (None, error_message)
 StatusFilterResult = tuple[Any, str | None]
+
+
+MAINTENANCE_STATUS_VALUES = ("open", "in_progress", "scheduled", "completed", "cancelled")
+# Type of a status label argument. The JSON schema lists the valid values.
+MaintenanceStatusLabel = Literal["open", "in_progress", "scheduled", "completed", "cancelled"]
+# Priority label of a maintenance request. Maps to MaintenanceUrgency (PRIORITY_TO_URGENCY).
+MaintenancePriorityLabel = Literal["low", "medium", "high", "urgent", "emergency"]
+
+
+def maintenance_status_clause(status: str, model=None):
+    """SQL clause for one MCP status label. Mirrors the label in serialize_maintenance_request.
+
+    Precedence is the label's: cancelled, then completed, then scheduled, then in_progress,
+    then open. A row carries exactly one label, so a filter returns the rows the label shows.
+    Returns None for a value that is not a status label.
+    """
+    M = model or MaintenanceRequest
+    not_cancelled = M.work_order_status.is_distinct_from(WorkOrderStatus.cancelled)
+    completed = or_(
+        M.completed_at.is_not(None),
+        M.request_status.in_([MaintenanceRequestStatus.resolved, MaintenanceRequestStatus.closed]),
+    )
+    live = and_(not_cancelled, not_(completed))
+    not_scheduled = M.scheduled_for.is_(None)
+    if status == "cancelled":
+        return M.work_order_status == WorkOrderStatus.cancelled
+    if status == "completed":
+        return and_(not_cancelled, completed)
+    if status == "scheduled":
+        return and_(live, M.scheduled_for.is_not(None))
+    if status == "in_progress":
+        return and_(live, not_scheduled, M.work_order_status == WorkOrderStatus.in_progress)
+    if status == "open":
+        return and_(
+            live,
+            not_scheduled,
+            M.work_order_status.is_distinct_from(WorkOrderStatus.in_progress),
+        )
+    return None
 
 
 def build_maintenance_status_filter(
@@ -64,72 +99,95 @@ def build_maintenance_status_filter(
     if status is None:
         return stmt, None
 
-    M = model or MaintenanceRequest
     status_norm = status.lower().strip()
-
-    filter_map = {
-        "open": M.request_status == MaintenanceRequestStatus.open,
-        "in_progress": M.work_order_status == WorkOrderStatus.in_progress,
-        "scheduled": M.scheduled_for.is_not(None),
-        "completed": M.completed_at.is_not(None),
-        "cancelled": M.work_order_status == WorkOrderStatus.cancelled,
-    }
-
-    expr = filter_map.get(status_norm)
+    expr = maintenance_status_clause(status_norm, model)
     if expr is None:
-        return None, f"Invalid status: {status}. Valid: {', '.join(filter_map)}"
+        return None, f"Invalid status: {status}. Valid: {', '.join(MAINTENANCE_STATUS_VALUES)}"
 
     return stmt.where(expr), status_norm
 
 
-def apply_maintenance_status_update(
-    request: MaintenanceRequest,
+# Status label -> (request_status, work_order_status). One table for every MCP and agent caller.
+_STATUS_LABEL_STATES: dict[str, tuple[MaintenanceRequestStatus, WorkOrderStatus | None]] = {
+    "open": (MaintenanceRequestStatus.open, None),
+    "scheduled": (MaintenanceRequestStatus.work_order_created, WorkOrderStatus.assigned),
+    "in_progress": (MaintenanceRequestStatus.work_order_created, WorkOrderStatus.in_progress),
+    "completed": (MaintenanceRequestStatus.resolved, WorkOrderStatus.completed),
+    "cancelled": (MaintenanceRequestStatus.closed, WorkOrderStatus.cancelled),
+}
+
+
+def _parse_scheduled(value: str | datetime | None) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise ValueError(f"Invalid scheduled_date: {value}") from None
+
+
+async def update_maintenance_status(
+    db: AsyncSession,
     *,
+    actor: User | UserSchema,
+    request_id: int,
     status: str,
     notes: str | None = None,
-    scheduled_date: str | None = None,
+    scheduled_date: str | datetime | None = None,
+    vendor_name: str | None = None,
+    vendor_contact: str | None = None,
     estimated_cost: float | None = None,
     actual_cost: float | None = None,
-) -> None:
-    """Apply a status update to a MaintenanceRequest.
+) -> MaintenanceRequest:
+    """Move a maintenance request to a status label, through the PM service.
 
-    Maps high-level status keywords to the correct combination of
-    ``request_status`` and ``work_order_status`` enum values.
+    Every MCP and agent caller shares this function. It builds the same PATCH body as
+    ``PATCH /pm/maintenance/requests/{id}`` and calls
+    ``services.pm_maintenance.update_maintenance_request``, so the caller's rights and the
+    request and work order transition rules are the REST rules. ``open`` clears the
+    schedule and the completion time. ``completed`` sets the completion time once. Notes
+    are appended. Flushes only; the caller commits.
 
-    This is the single source of truth for status transitions.
+    Raises ValueError for an unknown label or a bad ``scheduled_date``, NotFoundException
+    for an unknown request, InsufficientPermissionsError when the caller may not update it,
+    and BadRequestException for a refused transition or a bad cost.
     """
     status_norm = status.lower().strip()
-
-    if status_norm == "open":
-        request.request_status = MaintenanceRequestStatus.open
-        request.work_order_status = None
-    elif status_norm == "scheduled":
-        request.request_status = MaintenanceRequestStatus.work_order_created
-        request.work_order_status = WorkOrderStatus.assigned
-        if scheduled_date:
-            request.scheduled_for = datetime.fromisoformat(scheduled_date)
-    elif status_norm == "in_progress":
-        request.request_status = MaintenanceRequestStatus.work_order_created
-        request.work_order_status = WorkOrderStatus.in_progress
-    elif status_norm == "completed":
-        request.request_status = MaintenanceRequestStatus.resolved
-        request.work_order_status = WorkOrderStatus.completed
-        if request.completed_at is None:
-            request.completed_at = utc_now()
-    elif status_norm == "cancelled":
-        request.request_status = MaintenanceRequestStatus.closed
-        request.work_order_status = WorkOrderStatus.cancelled
-    else:
+    states = _STATUS_LABEL_STATES.get(status_norm)
+    if states is None:
         raise ValueError(f"Invalid status: {status}")
+    request = await db.get(MaintenanceRequest, request_id)
+    if request is None:
+        raise NotFoundException(detail="Maintenance request not found")
 
-    # Optional field updates
+    fields: dict[str, Any] = {"request_status": states[0], "work_order_status": states[1]}
+    if status_norm == "open":
+        fields.update(scheduled_for=None, completed_at=None)
+    elif status_norm == "completed" and request.completed_at is None:
+        fields["completed_at"] = utc_now()
+    scheduled_for = _parse_scheduled(scheduled_date)
+    if scheduled_for is not None:
+        fields["scheduled_for"] = scheduled_for
     if notes:
-        existing = getattr(request, "completion_notes", "") or ""
-        request.completion_notes = f"{existing}\n{notes}".strip() if existing else notes
+        existing = request.completion_notes or ""
+        fields["completion_notes"] = f"{existing}\n{notes}".strip() if existing else notes
+    if vendor_name:
+        fields["vendor_name"] = vendor_name
+    if vendor_contact:
+        fields["vendor_contact"] = vendor_contact
     if estimated_cost is not None:
-        request.estimated_cost = estimated_cost
+        fields["estimated_cost"] = estimated_cost
     if actual_cost is not None:
-        request.actual_cost = actual_cost
+        fields["actual_cost"] = actual_cost
+
+    try:
+        body = MaintenanceRequestUpdate(**fields)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        raise BadRequestException(detail=f"{first['loc'][0]}: {first['msg']}") from None
+    return await update_pm_maintenance_request(db, actor=actor, request_id=request_id, body=body)  # type: ignore[arg-type]
 
 
 async def create_maintenance_request(
@@ -139,8 +197,8 @@ async def create_maintenance_request(
     property_id: int,
     title: str,
     description: str,
-    category: str,
-    priority: str,
+    category: MaintenanceCategory,
+    priority: MaintenancePriorityLabel,
 ) -> dict:
     """Create a maintenance request for a tenant.
 
@@ -151,48 +209,43 @@ async def create_maintenance_request(
         cat = MaintenanceCategory(category.lower())
     except ValueError:
         valid = [c.value for c in MaintenanceCategory]
-        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid category. Valid: {', '.join(valid)}"}
+        return {
+            "error": True,
+            "code": TOOL_OPS_INVALID_INPUT,
+            "message": f"Invalid category. Valid: {', '.join(valid)}",
+        }
 
     # Map priority to urgency
     priority_norm = priority.lower().strip()
-    urgency = _PRIORITY_TO_URGENCY.get(priority_norm)
+    urgency = PRIORITY_TO_URGENCY.get(priority_norm)
     if urgency is None:
-        valid = list(_PRIORITY_TO_URGENCY.keys())
-        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": f"Invalid priority. Valid: {', '.join(valid)}"}
+        valid = list(PRIORITY_TO_URGENCY.keys())
+        return {
+            "error": True,
+            "code": TOOL_OPS_INVALID_INPUT,
+            "message": f"Invalid priority. Valid: {', '.join(valid)}",
+        }
 
-    # Verify tenant has active lease on this property
-    lease = (
-        await db.execute(
-            select(Lease).where(
-                Lease.property_id == property_id,
-                Lease.tenant_user_id == tenant_user_id,
-                Lease.status == LeaseStatus.active,
-            )
+    # The PM service owns the lease check and the row. MCP and the agent share it.
+    actor = await db.get(User, tenant_user_id)
+    if actor is None:
+        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "User not found"}
+    try:
+        request = await create_pm_maintenance_request(
+            db,
+            actor=actor,
+            property_id=property_id,
+            category=cat,
+            urgency=urgency,
+            title=title,
+            description=description,
         )
-    ).scalar_one_or_none()
-
-    if not lease:
+    except InsufficientPermissionsError:
         return {
             "error": True,
             "code": TOOL_OPS_FORBIDDEN,
             "message": "No active lease found for this property. Only tenants can submit maintenance requests.",
         }
-
-    request = MaintenanceRequest(
-        property_id=property_id,
-        lease_id=lease.id,
-        owner_id=lease.owner_id,
-        tenant_user_id=tenant_user_id,
-        title=title,
-        description=description,
-        category=cat,
-        urgency=urgency,
-        request_status=MaintenanceRequestStatus.open,
-    )
-    db.add(request)
-    await db.flush()
-    await db.refresh(request)
-    await db.commit()
 
     return {
         "message": "Maintenance request created successfully",
@@ -209,8 +262,16 @@ async def list_maintenance_requests(
     status: str | None = None,
     cursor_payload: dict | None = None,
     limit: int = 20,
+    accessible_owner_ids: list[int] | None = None,
+    filters: dict | None = None,
+    include_total: bool = False,
 ) -> dict:
-    """List maintenance requests with optional filters."""
+    """One page of maintenance requests, newest first.
+
+    ``accessible_owner_ids`` is the caller's scope (None = no owner scope). ``filters``
+    binds the returned cursor. ``total`` is the count of matching rows when
+    ``include_total`` is set, otherwise null.
+    """
     limit = min(max(1, limit), 100)
     if cursor_payload is None:
         cursor_payload = {}
@@ -222,6 +283,8 @@ async def list_maintenance_requests(
         stmt = stmt.where(MaintenanceRequest.tenant_user_id == tenant_user_id)
     if owner_id:
         stmt = stmt.where(MaintenanceRequest.owner_id == owner_id)
+    if accessible_owner_ids is not None:
+        stmt = stmt.where(MaintenanceRequest.owner_id.in_(accessible_owner_ids))
     if property_id:
         stmt = stmt.where(MaintenanceRequest.property_id == property_id)
 
@@ -231,23 +294,24 @@ async def list_maintenance_requests(
         # Invalid status — status_result is the error message
         return {"error": True, "message": status_result}
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
-
-    result = await db.execute(stmt)
+    page_stmt = (
+        stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    )
+    result = await db.execute(page_stmt)
     requests = list(result.scalars().all())
+    page, next_payload = trim_offset_lookahead(requests, limit=limit, offset=offset)
 
-    has_more = len(requests) > limit
-    if has_more:
-        requests = requests[:limit]
-
-    items = [serialize_maintenance_request(r) for r in requests]
-
-    next_payload = offset_payload(offset + len(items)) if has_more else None
+    total = None
+    if include_total:
+        count_stmt = select(func.count()).select_from(stmt.order_by(None).subquery())
+        total = (await db.execute(count_stmt)).scalar_one()
 
     return {
-        "items": items,
-        "total": len(items),
-        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "items": [serialize_maintenance_request(r) for r in page],
+        "total": total,
+        "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
         "has_more": next_payload is not None,
         "limit": limit,
     }

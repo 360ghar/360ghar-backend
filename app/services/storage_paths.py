@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 from uuid import uuid4
@@ -13,6 +14,7 @@ class StorageFolder(Enum):
     PROPERTY_VIDEO = "properties/{property_id}/videos"
     PROPERTY_DOCUMENT = "properties/{property_id}/documents"
     TOUR_THUMBNAIL = "tours/{tour_id}/thumbnail"
+    TOUR_ORIGINAL = "tours/{tour_id}/originals"
     SCENE_ORIGINAL = "tours/{tour_id}/scenes/{scene_id}/original"
     SCENE_THUMBNAIL = "tours/{tour_id}/scenes/{scene_id}/thumbnail"
     SCENE_WEB = "tours/{tour_id}/scenes/{scene_id}/web"
@@ -22,6 +24,22 @@ class StorageFolder(Enum):
     GENERIC_UPLOAD = "uploads/{user_id}"
     AGENT_AVATAR = "agents/{agent_id}/avatars"
     BLOG_COVER = "blog-covers"
+
+
+# Folders whose files are private. Cloudinary stores them as type "authenticated".
+DOCUMENT_FOLDERS: frozenset[StorageFolder] = frozenset(
+    {
+        StorageFolder.PROPERTY_DOCUMENT,
+        StorageFolder.DOCUMENT_LEASE,
+        StorageFolder.DOCUMENT_MAINTENANCE,
+        StorageFolder.DOCUMENT_GENERAL,
+    }
+)
+
+
+def delivery_type_for_folder(folder: StorageFolder) -> str:
+    """Cloudinary delivery type for a folder. Documents are "authenticated"; the rest are "upload"."""
+    return "authenticated" if folder in DOCUMENT_FOLDERS else "upload"
 
 
 def sanitize_filename(filename: str, max_length: int = 50) -> str:
@@ -51,6 +69,7 @@ def generate_cloudinary_public_id(
     tour_id: str | None = None,
     scene_id: str | None = None,
     agent_id: int | None = None,
+    resource_type: str | None = None,
 ) -> str:
     file_uuid = str(uuid4())[:12]
     if original_filename:
@@ -60,6 +79,10 @@ def generate_cloudinary_public_id(
         file_name = f"{file_uuid}.{extension.lstrip('.')}"
     else:
         file_name = file_uuid
+
+    if resource_type in ("image", "video"):
+        # Cloudinary takes image and video public_ids without an extension. Raw files keep it.
+        file_name = os.path.splitext(file_name)[0]
 
     folder_path = folder.value
 

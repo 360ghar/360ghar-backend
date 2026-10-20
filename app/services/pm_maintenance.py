@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,9 +18,55 @@ from app.models.enums import (
 )
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
+from app.models.properties import Property
 from app.models.users import User
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
-from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
+from app.schemas.pm_maintenance import MaintenanceRequestUpdate
+from app.services.pm_authz import (
+    assert_assignable_agent,
+    assert_can_access_property,
+    assert_can_manage_owner_portfolio,
+    assert_owned_reference,
+)
+
+# Request status transitions. Same-status updates are allowed (clients may re-submit).
+REQUEST_TRANSITIONS: dict[str, set[str]] = {
+    "open": {"in_review", "work_order_created", "resolved", "closed"},
+    "in_review": {"work_order_created", "resolved", "closed", "open"},
+    "work_order_created": {"resolved", "closed"},
+    "resolved": {"closed", "open"},
+    "closed": set(),
+}
+WORK_ORDER_TRANSITIONS: dict[str, set[str]] = {
+    "created": {"assigned", "cancelled"},
+    "assigned": {"in_progress", "cancelled"},
+    "in_progress": {"completed", "cancelled"},
+    "completed": {"closed"},
+    "closed": set(),
+    "cancelled": set(),
+}
+
+
+async def _attach_labels(db: AsyncSession, requests: Sequence[MaintenanceRequest]) -> None:
+    """Set transient ``property_title`` and ``tenant_name`` per request from two queries."""
+    prop_ids = {r.property_id for r in requests}
+    tenant_ids = {r.tenant_user_id for r in requests if r.tenant_user_id is not None}
+    titles: dict[int, str | None] = {}
+    names: dict[int, str | None] = {}
+    if prop_ids:
+        prop_rows = (
+            await db.execute(select(Property.id, Property.title).where(Property.id.in_(prop_ids)))
+        ).all()
+        titles = dict(tuple(row) for row in prop_rows)
+    if tenant_ids:
+        user_rows = (
+            await db.execute(select(User.id, User.full_name).where(User.id.in_(tenant_ids)))
+        ).all()
+        names = dict(tuple(row) for row in user_rows)
+    for req in requests:
+        req.property_title = titles.get(req.property_id)  # type: ignore[attr-defined]
+        tenant_name = names.get(req.tenant_user_id) if req.tenant_user_id is not None else None
+        req.tenant_name = tenant_name  # type: ignore[attr-defined]
 
 
 async def create_maintenance_request(
@@ -32,11 +80,16 @@ async def create_maintenance_request(
     description: str | None = None,
     preferred_contact_method: str | None = None,
     availability_notes: str | None = None,
+    lease_id: int | None = None,
+    estimated_cost: float | None = None,
+    scheduled_for: datetime | None = None,
+    assigned_agent_id: int | None = None,
 ) -> MaintenanceRequest:
-    prop = await assert_can_access_property(db, actor=actor, property_id=property_id, allow_tenant=True)
+    prop = await assert_can_access_property(
+        db, actor=actor, property_id=property_id, allow_tenant=True
+    )
 
     owner_id = prop.owner_id
-    lease_id: int | None = None
     tenant_user_id: int | None = None
 
     # Determine whether caller is owner/RM/admin vs tenant
@@ -44,23 +97,35 @@ async def create_maintenance_request(
         pass
     elif actor.role == UserRole.agent.value:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=owner_id)
+    elif owner_id == actor.id:
+        # Owner creating a request
+        pass
     else:
-        if owner_id == actor.id:
-            # Owner creating a request
-            pass
-        else:
-            # Tenant creating a request: must have active lease
-            stmt = select(Lease).where(
-                Lease.property_id == property_id,
-                Lease.tenant_user_id == actor.id,
-                Lease.status == LeaseStatus.active,
+        # Tenant creating a request: must have an active lease on this property
+        stmt = select(Lease).where(
+            Lease.property_id == property_id,
+            Lease.tenant_user_id == actor.id,
+            Lease.status.in_([LeaseStatus.active, LeaseStatus.expiring_soon]),
+        )
+        res = await db.execute(stmt)
+        lease = res.scalar_one_or_none()
+        if not lease:
+            raise InsufficientPermissionsError(
+                "Tenant does not have an active lease for this property"
             )
-            res = await db.execute(stmt)
-            lease = res.scalar_one_or_none()
-            if not lease:
-                raise InsufficientPermissionsError("Tenant does not have an active lease for this property")
-            lease_id = lease.id
-            tenant_user_id = actor.id
+        lease_id = lease.id
+        tenant_user_id = actor.id
+
+    if lease_id is not None:
+        lease = await assert_owned_reference(
+            db, model=Lease, ref_id=lease_id, owner_id=owner_id, label="Lease"
+        )
+        if lease.property_id != property_id:
+            raise BadRequestException(detail="lease_id does not belong to this property")
+    if assigned_agent_id is not None:
+        await assert_assignable_agent(db, agent_id=assigned_agent_id, owner_id=owner_id)
+    if estimated_cost is not None and estimated_cost < 0:
+        raise BadRequestException(detail="estimated_cost must be >= 0")
 
     req = MaintenanceRequest(
         property_id=property_id,
@@ -74,10 +139,14 @@ async def create_maintenance_request(
         preferred_contact_method=preferred_contact_method,
         availability_notes=availability_notes,
         request_status=MaintenanceRequestStatus.open,
+        estimated_cost=estimated_cost,
+        scheduled_for=scheduled_for,
+        assigned_agent_id=assigned_agent_id,
     )
     db.add(req)
     await db.flush()
     await db.refresh(req)
+    await _attach_labels(db, [req])
     return req
 
 
@@ -109,7 +178,8 @@ async def list_maintenance_requests(
         # - owner: requests for their portfolio
         # - tenant: requests they created
         stmt = stmt.where(
-            (MaintenanceRequest.owner_id == actor.id) | (MaintenanceRequest.tenant_user_id == actor.id)
+            (MaintenanceRequest.owner_id == actor.id)
+            | (MaintenanceRequest.tenant_user_id == actor.id)
         )
 
     if property_id is not None:
@@ -126,11 +196,15 @@ async def list_maintenance_requests(
         count_stmt = select(func.count()).select_from(stmt.subquery())
         count_total = (await db.execute(count_stmt)).scalar_one()
 
-    predicate = keyset_filter(MaintenanceRequest.created_at, MaintenanceRequest.id, cursor_payload, descending=True)
+    predicate = keyset_filter(
+        MaintenanceRequest.created_at, MaintenanceRequest.id, cursor_payload, descending=True
+    )
     if predicate is not None:
         stmt = stmt.where(predicate)
 
-    stmt = stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc()).limit(limit + 1)
+    stmt = stmt.order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc()).limit(
+        limit + 1
+    )
     rows = list((await db.execute(stmt)).scalars().all())
 
     next_payload = None
@@ -138,7 +212,21 @@ async def list_maintenance_requests(
         rows = rows[:limit]
         last = rows[-1]
         next_payload = keyset_payload(keyset_sort_value(last.created_at), last.id)
+    await _attach_labels(db, rows)
     return rows, next_payload, count_total
+
+
+def _check_transition(
+    table: dict[str, set[str]], current: str | None, target: str, label: str
+) -> None:
+    if current is None or target == current:
+        return
+    allowed = table.get(current, set())
+    if target not in allowed:
+        raise BadRequestException(
+            detail=f"Cannot transition {label} from '{current}' to '{target}'. "
+            f"Allowed: {allowed or 'none (terminal state)'}"
+        )
 
 
 async def update_maintenance_request(
@@ -146,19 +234,9 @@ async def update_maintenance_request(
     *,
     actor: User,
     request_id: int,
-    request_status: MaintenanceRequestStatus | None = None,
-    assigned_agent_id: int | None = None,
-    work_order_status: WorkOrderStatus | None = None,
-    priority: str | None = None,
-    estimated_cost: float | None = None,
-    actual_cost: float | None = None,
-    scheduled_for: datetime | None = None,
-    completed_at: datetime | None = None,
-    closed_at: datetime | None = None,
-    completion_notes: str | None = None,
-    vendor_name: str | None = None,
-    vendor_contact: str | None = None,
+    body: MaintenanceRequestUpdate,
 ) -> MaintenanceRequest:
+    """Apply a PATCH. Only keys the client sent change; an explicit null clears a nullable field."""
     req = await db.get(MaintenanceRequest, request_id)
     if not req:
         raise NotFoundException(detail="Maintenance request not found")
@@ -168,76 +246,35 @@ async def update_maintenance_request(
         pass
     elif actor.role == UserRole.agent.value:
         await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=req.owner_id)
-    else:
-        if req.owner_id != actor.id:
-            raise InsufficientPermissionsError("Only the owner can update this request")
+    elif req.owner_id != actor.id:
+        raise InsufficientPermissionsError("Only the owner can update this request")
 
-    if request_status is not None:
-        # Validate status transition
-        ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-            "open": {"in_review", "work_order_created", "resolved", "closed"},
-            "in_review": {"work_order_created", "resolved", "closed", "open"},
-            "work_order_created": {"resolved", "closed"},
-            "resolved": {"closed", "open"},
-            "closed": set(),
-        }
-        current = req.request_status.value if hasattr(req.request_status, "value") else str(req.request_status)
-        target = request_status.value if hasattr(request_status, "value") else str(request_status)
-        # Allow idempotent updates (same status) — clients may re-submit.
-        if target != current:
-            allowed = ALLOWED_TRANSITIONS.get(current, set())
-            if target not in allowed:
-                raise BadRequestException(
-                    detail=f"Cannot transition from '{current}' to '{target}'. Allowed: {allowed or 'none (terminal state)'}"
-                )
-        req.request_status = request_status
-    if assigned_agent_id is not None:
-        req.assigned_agent_id = assigned_agent_id
-    if work_order_status is not None:
-        # Validate work order status transition
-        WO_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-            "created": {"assigned", "cancelled"},
-            "assigned": {"in_progress", "cancelled"},
-            "in_progress": {"completed", "cancelled"},
-            "completed": {"closed"},
-            "closed": set(),
-            "cancelled": set(),
-        }
-        wo_current = req.work_order_status.value if req.work_order_status and hasattr(req.work_order_status, "value") else None
-        if wo_current is not None:
-            wo_target = work_order_status.value if hasattr(work_order_status, "value") else str(work_order_status)
-            # Allow idempotent updates (same status) — clients may re-submit.
-            if wo_target != wo_current:
-                wo_allowed = WO_ALLOWED_TRANSITIONS.get(wo_current, set())
-                if wo_target not in wo_allowed:
-                    raise BadRequestException(
-                        detail=f"Cannot transition work order from '{wo_current}' to '{wo_target}'. Allowed: {wo_allowed or 'none (terminal state)'}"
-                    )
-        req.work_order_status = work_order_status
-    if priority is not None:
-        req.priority = priority
-    if estimated_cost is not None:
-        if estimated_cost < 0:
-            raise BadRequestException(detail="estimated_cost must be >= 0")
-        req.estimated_cost = estimated_cost
-    if actual_cost is not None:
-        if actual_cost < 0:
-            raise BadRequestException(detail="actual_cost must be >= 0")
-        req.actual_cost = actual_cost
-    if scheduled_for is not None:
-        req.scheduled_for = scheduled_for
-    if completed_at is not None:
-        req.completed_at = completed_at
-    if closed_at is not None:
-        req.closed_at = closed_at
-    if completion_notes is not None:
-        req.completion_notes = completion_notes
-    if vendor_name is not None:
-        req.vendor_name = vendor_name
-    if vendor_contact is not None:
-        req.vendor_contact = vendor_contact
+    sent = body.model_fields_set
+
+    if "request_status" in sent and body.request_status is not None:
+        current = getattr(req.request_status, "value", str(req.request_status))
+        _check_transition(REQUEST_TRANSITIONS, current, body.request_status.value, "request")
+    if "work_order_status" in sent and body.work_order_status is not None:
+        wo_current = (
+            getattr(req.work_order_status, "value", None) if req.work_order_status else None
+        )
+        _check_transition(
+            WORK_ORDER_TRANSITIONS, wo_current, body.work_order_status.value, "work order"
+        )
+    for name in ("estimated_cost", "actual_cost"):
+        value = getattr(body, name)
+        if name in sent and value is not None and value < 0:
+            raise BadRequestException(detail=f"{name} must be >= 0")
+    if "assigned_agent_id" in sent and body.assigned_agent_id is not None:
+        await assert_assignable_agent(db, agent_id=body.assigned_agent_id, owner_id=req.owner_id)
+
+    values: dict[str, Any] = {name: getattr(body, name) for name in sent}
+    for name, value in values.items():
+        if name == "request_status" and value is None:
+            continue
+        setattr(req, name, value)
 
     await db.flush()
     await db.refresh(req)
+    await _attach_labels(db, [req])
     return req
-

@@ -25,6 +25,7 @@ from app.mcp.chatgpt.response_formatter import (
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
+from app.schemas.pm_dashboard import DashboardOverview
 
 logger = get_logger(__name__)
 
@@ -69,20 +70,18 @@ async def owner_dashboard_overview() -> dict[str, Any]:
                     message="To view your dashboard, please log in to your 360Ghar account.",
                 )
 
-            dashboard = await get_dashboard_overview(db, actor=user, owner_id=user.id)
-
-            # Format summary
-            total_props = dashboard.get("properties", {}).get("total", 0)
-            occupied = dashboard.get("properties", {}).get("occupied", 0)
-            vacant = dashboard.get("properties", {}).get("vacant", 0)
-            monthly_income = dashboard.get("rent", {}).get("expected_monthly", 0)
-            collected = dashboard.get("rent", {}).get("collected_this_month", 0)
-            pending_maintenance = dashboard.get("maintenance", {}).get("open", 0)
+            # DashboardOverview turns the service's Decimal money into JSON numbers.
+            dashboard = DashboardOverview.model_validate(
+                await get_dashboard_overview(db, actor=user, owner_id=user.id)
+            ).model_dump()
 
             summary = (
-                f"Portfolio: {total_props} properties ({occupied} occupied, {vacant} vacant). "
-                f"Monthly rent: ₹{monthly_income:,.0f} expected, ₹{collected:,.0f} collected this month. "
-                f"{pending_maintenance} open maintenance requests."
+                f"Portfolio: {dashboard['total_properties']} properties "
+                f"({dashboard['occupied_properties']} occupied, "
+                f"{dashboard['vacant_properties']} vacant, "
+                f"{dashboard['under_maintenance_properties']} under maintenance). "
+                f"Rent: ₹{dashboard['monthly_revenue_current']:,.0f} collected this month, "
+                f"₹{dashboard['outstanding_rent_total']:,.0f} outstanding."
             )
 
             return format_chatgpt_response(

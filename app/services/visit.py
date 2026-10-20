@@ -10,6 +10,7 @@ from app.config import settings
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
 from app.core.exceptions import BadRequestException, ConflictException
 from app.core.logging import get_logger
+from app.models.agents import Agent
 from app.models.conversations import Conversation, ConversationParticipant
 from app.models.enums import (
     ConversationApp,
@@ -22,7 +23,6 @@ from app.models.properties import Property, PropertyAmenity, Visit
 from app.models.social import UserMatch
 from app.models.users import User
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
-from app.schemas.visit import Visit as VisitSchema
 from app.schemas.visit import VisitCreate, VisitUpdate
 
 logger = get_logger(__name__)
@@ -32,6 +32,7 @@ def _visit_load_options():
     return (
         selectinload(Visit.property).selectinload(Property.images),
         selectinload(Visit.property).selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+        selectinload(Visit.user),
         selectinload(Visit.counterparty_user),
         selectinload(Visit.agent),
     )
@@ -178,6 +179,15 @@ async def _ensure_no_visit_conflict(
             )
 
 
+def _require_utc_offset(value: datetime, field: str) -> datetime:
+    """Refuse a naive visit time. Read as UTC, 10:00 IST would be stored as 10:00 UTC (5h30m late)."""
+    if value.tzinfo is None:
+        raise BadRequestException(
+            detail=f"{field} needs a UTC offset, for example 2026-07-01T10:00:00+05:30"
+        )
+    return value
+
+
 async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
     """Create a new visit"""
     visit_data = visit.model_dump()
@@ -187,10 +197,7 @@ async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
     scheduled_date = visit_data.get("scheduled_date")
     if scheduled_date is None:
         raise BadRequestException(detail="scheduled_date is required")
-    if scheduled_date.tzinfo is None:
-        # Treat naive datetimes as UTC to avoid naive/aware comparison errors
-        scheduled_date = scheduled_date.replace(tzinfo=timezone.utc)
-        visit_data["scheduled_date"] = scheduled_date
+    scheduled_date = _require_utc_offset(scheduled_date, "scheduled_date")
     now = datetime.now(timezone.utc)
     if scheduled_date < now:
         raise BadRequestException(detail="scheduled_date must be in the future")
@@ -202,6 +209,10 @@ async def create_visit(db: AsyncSession, user_id: int, visit: VisitCreate):
     # --- Overlap detection: prevent double-booking the user ---
     property_id = visit_data["property_id"]
     await _ensure_no_visit_conflict(db, user_id, property_id, scheduled_date)
+
+    # The visit's agent is the owner's assigned agent (the agent route and the admin filters use it).
+    owner = await db.get(User, user_id)
+    visit_data["agent_id"] = owner.agent_id if owner is not None else None
 
     db_visit = Visit(**visit_data)
     db.add(db_visit)
@@ -296,7 +307,7 @@ async def get_user_upcoming_visits(
         .where(
             or_(Visit.user_id == user_id, Visit.counterparty_user_id == user_id),
             Visit.scheduled_date > now,
-            Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled])
+            Visit.status.in_([VisitStatus.requested, VisitStatus.confirmed, VisitStatus.reschedule_suggested])
         )
     )
     count_total = None
@@ -369,9 +380,9 @@ async def get_user_past_visits(
 
 # Valid status transitions: only these changes are allowed via the generic update.
 _VALID_STATUS_TRANSITIONS: dict[VisitStatus, set[VisitStatus]] = {
-    VisitStatus.scheduled: {VisitStatus.confirmed, VisitStatus.cancelled},
+    VisitStatus.requested: {VisitStatus.confirmed, VisitStatus.cancelled},
     VisitStatus.confirmed: {VisitStatus.cancelled},
-    VisitStatus.rescheduled: {VisitStatus.confirmed, VisitStatus.cancelled},
+    VisitStatus.reschedule_suggested: {VisitStatus.confirmed, VisitStatus.cancelled},
     # terminal states -- no further transitions allowed via update
     VisitStatus.completed: set(),
     VisitStatus.cancelled: set(),
@@ -405,23 +416,6 @@ async def update_visit(db: AsyncSession, visit_id: int, visit_update: VisitUpdat
                 raise BadRequestException(
                     detail=f"Cannot transition from '{visit.status.value}' to '{new_label}'"
                 )
-
-    # --- Re-validate scheduling conflicts if scheduled_date changes ---
-    new_scheduled_date = update_data.get("scheduled_date")
-    if new_scheduled_date is not None:
-        if new_scheduled_date.tzinfo is None:
-            new_scheduled_date = new_scheduled_date.replace(tzinfo=timezone.utc)
-            update_data["scheduled_date"] = new_scheduled_date
-
-        now = datetime.now(timezone.utc)
-        if new_scheduled_date < now:
-            raise BadRequestException(detail="scheduled_date must be in the future")
-
-        if new_scheduled_date != visit.scheduled_date:
-            await _ensure_no_visit_conflict(
-                db, visit.user_id, visit.property_id, new_scheduled_date,
-                exclude_visit_id=visit.id,
-            )
 
     old_status = visit.status
     for field, value in update_data.items():
@@ -521,15 +515,18 @@ async def reschedule_visit(db: AsyncSession, visit_id: int, new_date: datetime, 
         return None
 
     # Ensure new date is timezone-aware and in the future
-    if new_date.tzinfo is None:
-        new_date = new_date.replace(tzinfo=timezone.utc)
+    new_date = _require_utc_offset(new_date, "new_date")
     now = datetime.now(timezone.utc)
     if new_date < now:
         return None
 
+    await _ensure_no_visit_conflict(
+        db, visit.user_id, visit.property_id, new_date, exclude_visit_id=visit.id,
+    )
+
     visit.rescheduled_from = visit.scheduled_date
     visit.scheduled_date = new_date
-    visit.status = VisitStatus.rescheduled
+    visit.status = VisitStatus.reschedule_suggested
     if reason:
         # Store reason; field name kept for compatibility
         visit.cancellation_reason = reason
@@ -550,18 +547,23 @@ async def get_agent_visits(
     cursor_payload: dict,
     limit: int = 20,
     with_total: bool = False,
-) -> tuple[list[VisitSchema], dict | None, int | None]:
-    """Get visits handled by a specific agent (keyset-paginated)."""
+    party_user_id: int | None = None,
+) -> tuple[list[Visit], dict | None, int | None]:
+    """Get visits handled by an agent (keyset-paginated).
+
+    ``party_user_id`` narrows the list to visits where that user is the visitor or the
+    counterparty. Customers pass their own id, so they see only their own visits.
+    """
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-    stmt = (
-        select(Visit)
-        .options(*_visit_load_options())
-        .where(Visit.agent_id == agent_id)
-    )
+    where = [Visit.agent_id == agent_id]
+    if party_user_id is not None:
+        where.append(or_(Visit.user_id == party_user_id, Visit.counterparty_user_id == party_user_id))
+
+    stmt = select(Visit).options(*_visit_load_options()).where(*where)
 
     count_total = None
     if with_total:
-        count_stmt = select(func.count()).where(Visit.agent_id == agent_id)
+        count_stmt = select(func.count(Visit.id)).where(*where)
         count_result = await execute_with_transient_retry(
             db,
             lambda: db.execute(count_stmt),
@@ -585,8 +587,7 @@ async def get_agent_visits(
         rows = rows[:limit]
         next_payload = keyset_payload(keyset_sort_value(rows[-1].scheduled_date), rows[-1].id)
 
-    items = [VisitSchema.model_validate(r, from_attributes=True) for r in rows]
-    return items, next_payload, count_total
+    return rows, next_payload, count_total
 
 async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str | None = None, feedback: str | None = None):
     """Mark a visit as completed.
@@ -605,7 +606,7 @@ async def mark_visit_completed(db: AsyncSession, visit_id: int, notes: str | Non
     if not visit:
         return False
 
-    completable_statuses = {VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled}
+    completable_statuses = {VisitStatus.requested, VisitStatus.confirmed, VisitStatus.reschedule_suggested}
     if visit.status not in completable_statuses:
         return False
 
@@ -632,7 +633,7 @@ async def get_user_property_visit_stats(db: AsyncSession, user_id: int, property
             Visit.user_id == user_id,
             Visit.property_id == property_id,
             Visit.scheduled_date >= now,
-            Visit.status.in_([VisitStatus.scheduled, VisitStatus.confirmed, VisitStatus.rescheduled]),
+            Visit.status.in_([VisitStatus.requested, VisitStatus.confirmed, VisitStatus.reschedule_suggested]),
         )
         .order_by(Visit.scheduled_date.asc())
     )
@@ -649,27 +650,45 @@ async def get_all_visits(
     cursor_payload: dict,
     limit: int = 20,
     with_total: bool = False,
-    status: str | None = None,
+    status: VisitStatus | None = None,
     filter_agent_id: int | None = None,
     property_id: int | None = None,
     user_id: int | None = None,
+    q: str | None = None,
 ) -> tuple[list, dict | None, int | None]:
-    """Global visit listing with optional filters and keyset pagination."""
+    """Global visit listing with optional filters and keyset pagination.
+
+    ``q`` matches the property title, the visitor's name or the agent's name.
+    """
     await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
     Owner = aliased(User)
 
     stmt = select(Visit).options(*_visit_load_options())
     filters = []
-    if status:
+    if status is not None:
         filters.append(Visit.status == status)
-    if property_id:
+    if property_id is not None:
         filters.append(Visit.property_id == property_id)
-    if user_id:
+    if user_id is not None:
         filters.append(Visit.user_id == user_id)
 
+    needs_visitor = filter_agent_id is not None or q is not None
+    if needs_visitor:
+        stmt = stmt.outerjoin(User, Visit.user_id == User.id)
     if filter_agent_id is not None:
-        stmt = stmt.outerjoin(User, Visit.user_id == User.id).outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
+        stmt = stmt.outerjoin(Property, Visit.property_id == Property.id).outerjoin(Owner, Property.owner_id == Owner.id)
         filters.append(or_(User.agent_id == filter_agent_id, Owner.agent_id == filter_agent_id, Visit.agent_id == filter_agent_id))
+    if q:
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.outerjoin(Property, Visit.property_id == Property.id) if filter_agent_id is None else stmt
+        stmt = stmt.outerjoin(Agent, Visit.agent_id == Agent.id)
+        filters.append(
+            or_(
+                Property.title.ilike(pattern),
+                User.full_name.ilike(pattern),
+                Agent.name.ilike(pattern),
+            )
+        )
 
     if filters:
         stmt = stmt.where(and_(*filters))

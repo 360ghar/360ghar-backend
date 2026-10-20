@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import and_, func, or_, select
@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.utils import utc_now
-from app.models.enums import FlatmatesProfileStatus, UserMatchStatus
+from app.models.enums import FlatmatesProfileStatus, ListingGenderPreference, UserMatchStatus
 from app.models.properties import Property
 from app.models.social import UserBlock, UserMatch
 from app.models.users import User
@@ -19,9 +19,24 @@ from app.utils.geo import wkt_point
 
 logger = get_logger(__name__)
 
+# A match in one of these states is closed: no match, conversation or message until it reopens.
+# Unmatch never reopens. A block reopens only after an unblock and a new like from both users.
+CLOSED_MATCH_STATUSES = (UserMatchStatus.unmatched, UserMatchStatus.blocked)
+
 
 def _canonical_pair(user_id: int, other_user_id: int) -> tuple[int, int]:
     return (user_id, other_user_id) if user_id < other_user_id else (other_user_id, user_id)
+
+
+def live_listing_predicate() -> Any:
+    """SQL predicate: the listing is approved. A missing moderation_status reads as pending_review."""
+    return (
+        func.coalesce(
+            Property.listing_preferences["moderation_status"].as_string(),
+            "pending_review",
+        )
+        == "live"
+    )
 
 
 def _flatmates_preferences(user: User) -> dict[str, Any]:
@@ -75,7 +90,7 @@ def resolve_profile_age(user: User) -> int | None:
         return user.flatmates_age
     if user.date_of_birth is None:
         return None
-    today = date.today()
+    today = datetime.now(UTC).date()
     born = user.date_of_birth.date() if hasattr(user.date_of_birth, "date") else user.date_of_birth
     return today.year - born.year - ((today.month, today.day) < (born.month, born.day))
 
@@ -90,9 +105,18 @@ def _profile_gender(prefs: dict[str, Any]) -> str | None:
     return str(raw).strip() if raw is not None and str(raw).strip() else None
 
 
+# Profiles saved before the shared enum used these values. "other" has no listing
+# equivalent and reads as unset.
+_LEGACY_GENDER_PREFERENCE = {"no_preference": "any", "male_only": "male", "female_only": "female"}
+_GENDER_PREFERENCE_VALUES = {member.value for member in ListingGenderPreference}
+
+
 def _profile_gender_preference(prefs: dict[str, Any]) -> str | None:
     raw = prefs.get("gender_preference")
-    return str(raw).strip() if raw is not None and str(raw).strip() else None
+    if raw is None:
+        return None
+    value = _LEGACY_GENDER_PREFERENCE.get(str(raw).strip(), str(raw).strip())
+    return value if value in _GENDER_PREFERENCE_VALUES else None
 
 
 def _profile_non_negotiables(prefs: dict[str, Any]) -> list[str]:
@@ -146,6 +170,17 @@ def _build_profile_payload(user: User) -> dict[str, Any]:
     }
 
 
+def _peer_display_name(user: User) -> str | None:
+    """Full name, or the first name only when the user set hide_last_name in privacy settings."""
+    raw_privacy = getattr(user, "privacy_settings", None)
+    privacy = raw_privacy if isinstance(raw_privacy, dict) else {}
+    name = user.full_name
+    parts = name.split() if name else []
+    if parts and privacy.get("hide_last_name") is True:
+        return parts[0]
+    return name
+
+
 def _build_peer_payload(
     user: User,
     current_user: User | None = None,
@@ -154,7 +189,7 @@ def _build_peer_payload(
     prefs = _flatmates_preferences(user)
     payload: dict[str, Any] = {
         "id": user.id,
-        "full_name": user.full_name,
+        "full_name": _peer_display_name(user),
         "profile_image_url": user.profile_image_url,
         "mode": user.flatmates_mode,
         "city": user.flatmates_city,
@@ -186,7 +221,6 @@ def _build_peer_payload(
         ),
         "match_percentage": None,
         "top_matches": [],
-        "phone_number": user.phone,
     }
 
     if current_user is not None and current_user.id != user.id:
@@ -195,102 +229,63 @@ def _build_peer_payload(
         payload["top_matches"] = compat["top_match_chips"]
 
     if property_obj is not None:
-        # Build image_urls from the related PropertyImage rows (already eager-loaded).
-        image_urls: list[str] = []
-        for img in getattr(property_obj, "images", []) or []:
-            if img and getattr(img, "image_url", None):
-                image_urls.append(img.image_url)
-        # Fallback: if no related images, but main_image_url is set, expose it as a single-item list.
-        if not image_urls and property_obj.main_image_url:
-            image_urls = [property_obj.main_image_url]
-
-        amenities: list[str] = []
-        for pa in getattr(property_obj, "property_amenities", []) or []:
-            amenity = getattr(pa, "amenity", None)
-            if amenity and getattr(amenity, "title", None):
-                amenities.append(amenity.title)
-
-        # UI-facing aliases derived from columns + listing_preferences so the
-        # keys consumed by the swipe card / profile sheet line up with real
-        # data. All additive (added via setdefault below) — never overwrite.
-        listing_prefs = (
-            property_obj.listing_preferences
-            if isinstance(property_obj.listing_preferences, dict)
-            else {}
-        )
-        sharing_type = listing_prefs.get("sharing_type")
-        available_from_iso = (
-            property_obj.available_from.isoformat()
-            if property_obj.available_from is not None
-            else None
-        )
-
-        enrichment: dict[str, Any] = {
-            "property_id": property_obj.id,
-            "property_title": property_obj.title,
-            "main_image_url": property_obj.main_image_url,
-            "image_urls": image_urls,
-            "video_tour_url": property_obj.video_tour_url,
-            "virtual_tour_url": property_obj.virtual_tour_url,
-            "monthly_rent": (
-                float(property_obj.monthly_rent)
-                if property_obj.monthly_rent is not None
-                else None
-            ),
-            "security_deposit": (
-                float(property_obj.security_deposit)
-                if property_obj.security_deposit is not None
-                else None
-            ),
-            "maintenance_charges": (
-                float(property_obj.maintenance_charges)
-                if property_obj.maintenance_charges is not None
-                else None
-            ),
-            "latitude": property_obj.latitude,
-            "longitude": property_obj.longitude,
-            "locality": property_obj.locality,
-            "sub_locality": property_obj.sub_locality,
-            "landmark": property_obj.landmark,
-            "city": property_obj.city,
-            "features": list(property_obj.features or []),
-            "amenities": amenities,
-            "bedrooms": property_obj.bedrooms,
-            "bathrooms": property_obj.bathrooms,
-            "balconies": property_obj.balconies,
-            "floor_number": property_obj.floor_number,
-            "total_floors": property_obj.total_floors,
-            "area_sqft": property_obj.area_sqft,
-            "listing_preferences": listing_prefs,
-            # ── UI-consumed aliases (additive) ────────────────────────────
-            "maintenance": (
-                float(property_obj.maintenance_charges)
-                if property_obj.maintenance_charges is not None
-                else None
-            ),
-            "floor": (
-                str(property_obj.floor_number)
-                if property_obj.floor_number is not None
-                else None
-            ),
-            "flat_config": (
-                f"{property_obj.bedrooms} BHK"
-                if property_obj.bedrooms is not None
-                else None
-            ),
-            "furnishing": list(property_obj.features or []),
-            "flat_amenities": amenities,
-            "society_amenities": [],
-            "room_type": str(sharing_type) if sharing_type is not None else None,
-            "society_name": property_obj.sub_locality or property_obj.landmark or None,
-            "available_from": available_from_iso,
-        }
-
-        # Only ADD new keys - never overwrite anything already on the payload
-        for key, value in enrichment.items():
-            payload.setdefault(key, value)
+        payload["listing"] = _build_peer_listing(property_obj)
 
     return payload
+
+
+def _build_peer_listing(property_obj: Property) -> dict[str, Any]:
+    """Listing summary for a room-poster peer. Validated by PeerListingSummary."""
+    # Build image_urls from the related PropertyImage rows (already eager-loaded).
+    image_urls: list[str] = []
+    for img in getattr(property_obj, "images", []) or []:
+        if img and getattr(img, "image_url", None):
+            image_urls.append(img.image_url)
+    # Fallback: if no related images, but main_image_url is set, expose it as a single-item list.
+    if not image_urls and property_obj.main_image_url:
+        image_urls = [property_obj.main_image_url]
+
+    amenities: list[str] = []
+    for pa in getattr(property_obj, "property_amenities", []) or []:
+        amenity = getattr(pa, "amenity", None)
+        if amenity and getattr(amenity, "title", None):
+            amenities.append(amenity.title)
+
+    listing_prefs = (
+        property_obj.listing_preferences
+        if isinstance(property_obj.listing_preferences, dict)
+        else {}
+    )
+    sharing_type = listing_prefs.get("sharing_type")
+    return {
+        "property_id": property_obj.id,
+        "title": property_obj.title,
+        "main_image_url": property_obj.main_image_url,
+        "image_urls": image_urls,
+        "monthly_rent": property_obj.monthly_rent,
+        "security_deposit": property_obj.security_deposit,
+        "maintenance_charges": property_obj.maintenance_charges,
+        "available_from": (
+            property_obj.available_from.date() if property_obj.available_from is not None else None
+        ),
+        "room_type": str(sharing_type) if sharing_type is not None else None,
+        "bedrooms": property_obj.bedrooms,
+        "bathrooms": property_obj.bathrooms,
+        "balconies": property_obj.balconies,
+        "area_sqft": property_obj.area_sqft,
+        "floor_number": property_obj.floor_number,
+        "total_floors": property_obj.total_floors,
+        "city": property_obj.city,
+        "locality": property_obj.locality,
+        "sub_locality": property_obj.sub_locality,
+        "landmark": property_obj.landmark,
+        "latitude": property_obj.latitude,
+        "longitude": property_obj.longitude,
+        "features": [str(feature) for feature in property_obj.features or []],
+        "amenities": amenities,
+        "video_tour_url": property_obj.video_tour_url,
+        "virtual_tour_url": property_obj.virtual_tour_url,
+    }
 
 
 def _build_property_context(property_obj: Property | None) -> dict[str, Any] | None:
@@ -323,6 +318,30 @@ async def _is_blocked(db: AsyncSession, user_id: int, other_user_id: int) -> boo
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none() is not None
+
+
+async def _pair_match_status(
+    db: AsyncSession, user_id: int, other_user_id: int
+) -> UserMatchStatus | None:
+    """Status of the canonical pair's UserMatch row, or None when the pair has no row."""
+    user_one_id, user_two_id = _canonical_pair(user_id, other_user_id)
+    return (
+        await db.execute(
+            select(UserMatch.status).where(
+                UserMatch.user_one_id == user_one_id,
+                UserMatch.user_two_id == user_two_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _is_closed_match(db: AsyncSession, user_id: int, other_user_id: int) -> bool:
+    """Return True when the pair's UserMatch row is unmatched or blocked.
+
+    A request cannot reopen a closed pair. An unmatch is final. A block ends only through
+    an unblock followed by a new like from both users (matching._reopen_blocked_pair).
+    """
+    return await _pair_match_status(db, user_id, other_user_id) in CLOSED_MATCH_STATUSES
 
 
 def _notification_type(row: dict[str, Any]) -> str:
@@ -382,6 +401,8 @@ async def _ensure_match(
     )
     stmt = insert_stmt.on_conflict_do_update(
         index_elements=["user_one_id", "user_two_id"],
+        # A closed pair stays closed here. A blocked pair reopens only in matching._reopen_blocked_pair.
+        where=UserMatch.status.not_in(CLOSED_MATCH_STATUSES),
         set_={
             "status": UserMatchStatus.active,
             "updated_at": now,
@@ -391,8 +412,18 @@ async def _ensure_match(
             ),
         },
     ).returning(UserMatch.id)
-    result = await db.execute(stmt)
-    match_id = result.scalar_one()
+    match_id = (await db.execute(stmt)).scalar_one_or_none()
+    if match_id is None:
+        # The conflict row is closed (unmatched or blocked), so the upsert wrote nothing.
+        # Return it unchanged.
+        match_id = (
+            await db.execute(
+                select(UserMatch.id).where(
+                    UserMatch.user_one_id == user_one_id,
+                    UserMatch.user_two_id == user_two_id,
+                )
+            )
+        ).scalar_one()
     match = await db.get(UserMatch, match_id)
     if match is None:
         raise RuntimeError("Failed to load user match")

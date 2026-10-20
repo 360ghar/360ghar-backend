@@ -1,10 +1,11 @@
 """Aggregator e-auction scraper — BankEAuctions.com and eAuctionsIndia.com."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,7 +79,7 @@ def _parse_date(val: str) -> date | None:
     """Try common Indian date formats."""
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y", "%d %b %Y"):
         try:
-            return datetime.strptime(val.strip(), fmt).date()
+            return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
         except ValueError:
             continue
     return None
@@ -116,7 +117,9 @@ class AggregatorEauctionsScraper(BaseScraper):
                     records.append(record)
 
         # Strategy 2: Card/listing divs (common on aggregator sites)
-        for card in soup.find_all(["div", "article"], class_=re.compile(r"auction|listing|property|card", re.I)):
+        for card in soup.find_all(
+            ["div", "article"], class_=re.compile(r"auction|listing|property|card", re.I)
+        ):
             text = card.get_text(separator=" ", strip=True)
             if not text or len(text) < 10:
                 continue
@@ -129,13 +132,21 @@ class AggregatorEauctionsScraper(BaseScraper):
                 "raw_data": {"card_text": text[:1000]},
             }
             # Try price extraction from card text
-            price_match = re.search(r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*([\d,]+(?:\.\d+)?)", text, re.I)
+            price_match = re.search(
+                r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*([\d,]+(?:\.\d+)?)",
+                text,
+                re.I,
+            )
             if price_match:
                 price = _parse_price(price_match.group(1))
                 if price is not None:
                     record["reserve_price"] = price
             # Try date extraction
-            date_match = re.search(r"(?:Auction\s*Date|Bid\s*Date|Sale\s*Date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})", text, re.I)
+            date_match = re.search(
+                r"(?:Auction\s*Date|Bid\s*Date|Sale\s*Date)[:\s]*(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})",
+                text,
+                re.I,
+            )
             if date_match:
                 parsed = _parse_date(date_match.group(1))
                 if parsed:

@@ -8,9 +8,10 @@ Tools for property owners to manage their properties:
 - Update property
 - Toggle availability
 """
+
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from app.core.exceptions import (
     InsufficientPermissionsError,
@@ -36,6 +37,7 @@ from app.mcp.tool_ops import (
     create_property,
     get_property_detail,
     list_properties_enriched,
+    list_properties_filters,
     toggle_property_availability,
     update_property_fields,
 )
@@ -43,6 +45,7 @@ from app.mcp.tool_ops import (
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.pagination import decode_cursor
 from app.utils.validators import ValidationUtils
 
@@ -81,8 +84,9 @@ PROPERTY_DETAILS_META = build_widget_tool_meta(
 async def owner_properties_list(
     cursor: str | None = None,
     limit: int = 20,
-    occupancy: str | None = None,
+    occupancy: Literal["occupied", "vacant"] | None = None,
     q: str | None = None,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List all properties owned by the current user.
 
@@ -91,6 +95,7 @@ async def owner_properties_list(
         limit: Items per page (default 20, max 100)
         occupancy: Filter by 'occupied' or 'vacant'
         q: Search query for title/address
+        include_total: Set true to get the count of matching properties
     """
     try:
         async for db in get_db():
@@ -107,7 +112,13 @@ async def owner_properties_list(
                 )
 
             clamped_limit = min(max(1, limit), 100)
-            cursor_payload = decode_cursor(cursor) if cursor else None
+            cursor_payload = (
+                decode_cursor(
+                    cursor, list_properties_filters(owner_id=user.id, occupancy=occupancy, q=q)
+                )
+                if cursor
+                else None
+            )
             result = await list_properties_enriched(
                 db,
                 actor=user,
@@ -116,6 +127,7 @@ async def owner_properties_list(
                 q=q,
                 cursor_payload=cursor_payload,
                 limit=clamped_limit,
+                include_total=include_total,
             )
             return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
@@ -138,8 +150,8 @@ async def owner_properties_list(
 )
 async def owner_properties_create(
     title: str,
-    property_type: str,
-    purpose: str,
+    property_type: PropertyType,
+    purpose: PropertyPurpose,
     full_address: str,
     city: str,
     locality: str,
@@ -193,7 +205,9 @@ async def owner_properties_create(
 
             # Coerce amenity_ids from string to list if needed
             if isinstance(amenity_ids, str):
-                amenity_ids = [int(x.strip()) for x in amenity_ids.split(",") if x.strip().isdigit()]
+                amenity_ids = [
+                    int(x.strip()) for x in amenity_ids.split(",") if x.strip().isdigit()
+                ]
             elif amenity_ids is not None and not isinstance(amenity_ids, list):
                 amenity_ids = [int(amenity_ids)] if str(amenity_ids).isdigit() else None
 
@@ -226,7 +240,7 @@ async def owner_properties_create(
                 floor_number=floor_number,
                 total_floors=total_floors,
                 max_occupancy=max_occupancy,
-                minimum_stay_days=minimum_stay_days,
+                minimum_stay_days=minimum_stay_days if minimum_stay_days is not None else 1,
                 main_image_url=main_image_url,
                 virtual_tour_url=virtual_tour_url,
                 amenity_ids=amenity_ids,
@@ -339,10 +353,13 @@ async def owner_properties_update(
                 )
 
             if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-                logger.warning("Non-absolute main_image_url in owner_properties_update: %s", main_image_url)
+                logger.warning(
+                    "Non-absolute main_image_url in owner_properties_update: %s", main_image_url
+                )
 
             updates = {
-                k: v for k, v in {
+                k: v
+                for k, v in {
                     "title": title,
                     "description": description,
                     "base_price": base_price,
@@ -351,7 +368,8 @@ async def owner_properties_update(
                     "is_available": is_available,
                     "max_occupancy": max_occupancy,
                     "main_image_url": main_image_url,
-                }.items() if v is not None
+                }.items()
+                if v is not None
             }
 
             try:
@@ -365,9 +383,23 @@ async def owner_properties_update(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
+
+            if result.get("error"):
+                code = result.get("code", "")
+                if code == TOOL_OPS_NOT_FOUND:
+                    return not_found_response("Property", property_id)
+                if code == TOOL_OPS_FORBIDDEN:
+                    return MCPResponse.failure(
+                        MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                        result.get("message", "Access denied"),
+                    ).model_dump()
+                if code == MCPErrorCode.INVALID_INPUT.value:
+                    return MCPResponse.failure(
+                        MCPErrorCode.INVALID_INPUT, result.get("message", "Invalid input")
+                    ).model_dump()
+                return internal_error_response(result.get("message", "Failed to update property"))
 
             return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
@@ -419,8 +451,7 @@ async def owner_properties_toggle_availability(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             return MCPResponse.success(result).model_dump()

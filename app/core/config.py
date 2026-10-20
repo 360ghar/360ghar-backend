@@ -48,6 +48,7 @@ class Settings(BaseSettings):
             "CLOUDINARY_API_SECRET",
             "DATABASE_URL",
             "EMAIL_SMTP_PASSWORD",
+            "GEMINI_API_KEY",
             "GOOGLE_API_KEY",
             "GOOGLE_APPLICATION_CREDENTIALS",
             "PERPLEXITY_API_KEY",
@@ -88,6 +89,8 @@ class Settings(BaseSettings):
     # ── Public URLs ─────────────────────────────────────────────────────────────
     PUBLIC_BASE_URL: str | None = None  # e.g., https://xyz.ngrok-free.app (OAuth/MCP)
     PUBLIC_APP_URL: str | None = None  # e.g., https://360viewer.360ghar.com (share previews)
+    # Shown as the contact for a listing when its owner's number is hidden and no agent is assigned.
+    COMPANY_CONTACT_NUMBER: str | None = None
 
     # ── CORS ─────────────────────────────────────────────────────────────────────
     # Set CORS_ORIGINS_STR via env to override the default list (comma-separated).
@@ -262,6 +265,8 @@ class Settings(BaseSettings):
     DAYTONA_SANDBOX_TIMEOUT_SECONDS: int = 900
     # Gemini model used by the agent script inside the sandbox.
     DAYTONA_AGENT_GEMINI_MODEL: str = "gemini-2.5-flash"
+    # Gemini key injected into the Daytona sandbox agent only. Not an app LLM provider.
+    GEMINI_API_KEY: str | None = None
 
     # ── AI Providers ─────────────────────────────────────────────────────────────
     # Agnes AI (OpenAI-compatible) — chat, vision, agent and image generation
@@ -330,14 +335,12 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 50
 
     # ── Reverse-proxy / IP extraction ──────────────────────────────────────────
-    # Number of trusted reverse-proxy hops in front of the app. X-Forwarded-For
-    # is a comma-separated chain appended to by each proxy. To get the real
-    # client IP we take the entry that is ``TRUSTED_PROXY_HOPS`` from the right
-    # (0 = peer address is the client, 1 = one proxy in front, etc.). Default 1
-    # works for Railway's single-layer proxy; bump if you chain CDN + app.
-    # Setting this >0 is REQUIRED for rate limiters to be effective — without
-    # it a client can spoof a different X-Forwarded-For on every request and
-    # bypass the per-IP limit.
+    # Number of trusted reverse-proxy hops in front of the app. Each proxy appends
+    # the address it received the request from to X-Forwarded-For, so the client IP
+    # is the entry TRUSTED_PROXY_HOPS from the right (1 = one proxy in front). 0
+    # ignores the header. Entries to the left are client-supplied. Bump this if you
+    # chain a CDN and the app. A wrong value lets a client send a new
+    # X-Forwarded-For on each request and bypass the per-IP limit.
     TRUSTED_PROXY_HOPS: int = 1
 
     # ── Tax & Service Rates ────────────────────────────────────────────────────
@@ -371,7 +374,7 @@ class Settings(BaseSettings):
     # AndroidManifest intent-filters and iOS associated-domains. The backend must
     # be reachable at this host (directly or via reverse-proxy) for Android App
     # Link / iOS Universal Link verification to succeed.
-    DEEPLINK_DOMAIN: str = "the360ghar.com"
+    DEEPLINK_DOMAIN: str = "360ghar.com"
     # Apple Developer Team ID used to build the AASA appID values (TEAMID.bundle_id).
     # MUST be overridden in production with the real 10-character Team ID.
     DEEPLINK_APPLE_TEAM_ID: str = "TEAMID"

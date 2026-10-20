@@ -6,20 +6,20 @@ event recording, and realtime dashboard metrics.
 """
 
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.utils import utc_now
-from app.models.enums import TourStatus
-from app.models.tours import Scene, Tour, TourAnalyticsEvent
+from app.models.enums import TourEventType, TourStatus
+from app.models.tours import MediaFile, Scene, Tour, TourAnalyticsEvent
 from app.schemas.tour import (
     DailyView,
     DashboardStats,
     DeviceBreakdown,
-    HeatmapPoint,
+    RealtimeViewBucket,
     TourAnalytics,
 )
 from app.services.tour.helpers import (
@@ -29,6 +29,9 @@ from app.services.tour.helpers import (
 from app.services.tour.tours import get_tour
 
 logger = get_logger(__name__)
+
+# ponytail: one plan limit for every user. Read a plan record once plans exist.
+TOUR_STORAGE_LIMIT_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 
 
 async def get_tour_analytics(
@@ -62,7 +65,6 @@ async def get_tour_analytics(
     country_counts: dict = {}
     daily_views_map: dict = {}
     unique_sessions: set = set()
-    heatmap_points: list[HeatmapPoint] = []
     share_breakdown: dict = {}
     session_starts: dict = {}
     session_durations: list[float] = []
@@ -78,18 +80,6 @@ async def get_tour_analytics(
 
         if event.event_type == "hotspot_click" and event.hotspot_id:
             hotspot_clicks[event.hotspot_id] = hotspot_clicks.get(event.hotspot_id, 0) + 1
-
-        if event.event_type == "heatmap":
-            heatmap_points.append(
-                HeatmapPoint(
-                    scene_id=event.scene_id,
-                    yaw=float(event_payload.get("yaw", 0.0)) if event_payload.get("yaw") is not None else None,
-                    pitch=float(event_payload.get("pitch", 0.0)) if event_payload.get("pitch") is not None else None,
-                    x=float(event_payload.get("x", 0.0)) if event_payload.get("x") is not None else None,
-                    y=float(event_payload.get("y", 0.0)) if event_payload.get("y") is not None else None,
-                    intensity=float(event_payload.get("intensity", 1.0)),
-                )
-            )
 
         if event.event_type == "share":
             platform = event_payload.get("platform") or event_payload.get("channel") or "unknown"
@@ -114,7 +104,8 @@ async def get_tour_analytics(
             daily_views_map[date_str] = daily_views_map.get(date_str, 0) + 1
 
     daily_views = [
-        DailyView(date=date, views=views) for date, views in sorted(daily_views_map.items())
+        DailyView(date=date.fromisoformat(day), views=views)
+        for day, views in sorted(daily_views_map.items())
     ]
 
     avg_session_duration = (
@@ -130,7 +121,6 @@ async def get_tour_analytics(
         avg_session_duration=avg_session_duration,
         scene_views=scene_views,
         hotspot_clicks=hotspot_clicks,
-        heatmap_points=heatmap_points,
         share_breakdown=share_breakdown,
         session_durations=session_durations,
         device_breakdown=DeviceBreakdown(**device_counts),
@@ -173,10 +163,17 @@ async def get_dashboard_stats(db: AsyncSession, user_id: int) -> DashboardStats:
     scenes_result = await db.execute(scenes_query)
     total_scenes = scenes_result.scalar() or 0
 
-    # Storage calculation would require file tracking
-    # For now, estimate based on scene count (average 10MB per scene)
-    storage_used = total_scenes * 10 * 1024 * 1024  # 10MB per scene
-    storage_limit = 5 * 1024 * 1024 * 1024  # 5GB default
+    # Measured: the sum of the user's stored media file sizes.
+    storage_used = int(
+        (
+            await db.execute(
+                select(func.coalesce(func.sum(MediaFile.file_size), 0)).where(
+                    MediaFile.user_id == user_id
+                )
+            )
+        ).scalar_one()
+    )
+    storage_limit = TOUR_STORAGE_LIMIT_BYTES
 
     return DashboardStats(
         total_tours=total_tours,
@@ -191,89 +188,112 @@ async def get_dashboard_stats(db: AsyncSession, user_id: int) -> DashboardStats:
 async def get_tour_heatmap(
     db: AsyncSession,
     tour_id: str,
+    user_id: int,
     scene_id: str | None = None,
     start_date: date | None = None,
     end_date: date | None = None,
-) -> dict[str, list[dict[str, Any]]]:
+) -> list[dict[str, Any]]:
+    """Aggregate view directions into a flat list of points, one per 5-degree cell per scene.
+
+    Owner only: a published tour is readable by others, but its heatmap is not.
+    Source: scene_view events, which carry numeric ``yaw`` and ``pitch`` in event_data.
+    Each point has ``intensity`` scaled to 0-1 within its scene, and ``count``.
     """
-    Get aggregated heatmap data for a tour.
+    tour = await get_tour(db, tour_id, user_id, include_scenes=False)
+    _ensure_tour_ownership(tour, user_id, "access the heatmap for")
 
-    Returns heatmap points grouped by scene with aggregated intensity values
-    for visualization of user interaction patterns.
-
-    Args:
-        db: Database session
-        tour_id: Tour ID to get heatmap for
-        scene_id: Optional scene ID to filter by
-        start_date: Optional start date for filtering
-        end_date: Optional end date for filtering
-
-    Returns:
-        Dictionary with scene_ids as keys and lists of heatmap points
-    """
-    # Query heatmap events
-    conditions = [TourAnalyticsEvent.tour_id == tour_id, TourAnalyticsEvent.event_type == "heatmap"]
+    conditions = [
+        TourAnalyticsEvent.tour_id == tour_id,
+        TourAnalyticsEvent.event_type == TourEventType.scene_view.value,
+        TourAnalyticsEvent.scene_id.is_not(None),
+    ]
 
     if scene_id:
         conditions.append(TourAnalyticsEvent.scene_id == scene_id)
 
     if start_date:
         conditions.append(
-            TourAnalyticsEvent.created_at >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+            TourAnalyticsEvent.created_at
+            >= datetime.combine(start_date, time.min, tzinfo=timezone.utc)
         )
 
     if end_date:
         conditions.append(
-            TourAnalyticsEvent.created_at <= datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+            TourAnalyticsEvent.created_at
+            <= datetime.combine(end_date, time.max, tzinfo=timezone.utc)
         )
 
-    query = select(TourAnalyticsEvent).where(and_(*conditions))
-    result = await db.execute(query)
-    events = result.scalars().all()
+    result = await db.execute(select(TourAnalyticsEvent).where(and_(*conditions)))
 
-    # Group heatmap points by scene and aggregate by grid cells
-    scene_heatmaps: dict[str, dict[str, dict[str, Any]]] = {}
+    cells: dict[tuple[str, float, float], int] = {}
+    for event in result.scalars().all():
+        data = event.event_data or {}
+        yaw, pitch = data.get("yaw"), data.get("pitch")
+        # Rows written before the typed contract may hold non-numeric values; skip them.
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in (yaw, pitch)):
+            continue
+        yaw_f, pitch_f = float(cast(float, yaw)), float(cast(float, pitch))
+        key = (
+            str(event.scene_id),
+            float(round(yaw_f / 5) * 5),
+            float(round(pitch_f / 5) * 5),
+        )
+        cells[key] = cells.get(key, 0) + 1
 
-    for event in events:
-        event_data = event.event_data or {}
-        scene_key = event.scene_id or "unknown"
+    peak: dict[str, int] = {}
+    for (cell_scene, _, _), count in cells.items():
+        peak[cell_scene] = max(peak.get(cell_scene, 0), count)
 
-        if scene_key not in scene_heatmaps:
-            scene_heatmaps[scene_key] = {}
+    return [
+        {
+            "scene_id": cell_scene,
+            "yaw": yaw_cell,
+            "pitch": pitch_cell,
+            "intensity": count / peak[cell_scene],
+            "count": count,
+        }
+        for (cell_scene, yaw_cell, pitch_cell), count in cells.items()
+    ]
 
-        # Create grid cell key (rounded to nearest 5 degrees for aggregation)
-        yaw = event_data.get("yaw", 0)
-        pitch = event_data.get("pitch", 0)
-        grid_key = f"{round(yaw / 5) * 5}_{round(pitch / 5) * 5}"
 
-        if grid_key not in scene_heatmaps[scene_key]:
-            scene_heatmaps[scene_key][grid_key] = {
-                "yaw": round(yaw / 5) * 5,
-                "pitch": round(pitch / 5) * 5,
-                "intensity": 0,
-                "count": 0,
-            }
+# A repeat of one event by the same viewer inside this window is not counted again.
+VIEW_DEDUPE_WINDOW_S = 30 * 60
+EVENT_DEDUPE_WINDOW_S = 10
 
-        # Aggregate intensity
-        scene_heatmaps[scene_key][grid_key]["intensity"] += event_data.get("intensity", 1)
-        scene_heatmaps[scene_key][grid_key]["count"] += 1
 
-    # Convert to output format with normalized intensity
-    output: dict[str, list[dict[str, Any]]] = {}
+async def is_repeat_viewer_event(
+    db: AsyncSession,
+    *,
+    tour_id: str,
+    event_type: str,
+    scene_id: str | None,
+    hotspot_id: str | None,
+    ip_address: str | None,
+    window_s: int,
+) -> bool:
+    """True when this client IP already sent the same event for this tour inside the window.
 
-    for scene_key, grid_cells in scene_heatmaps.items():
-        points = list(grid_cells.values())
-
-        # Normalize intensity to 0-1 range
-        if points:
-            max_intensity = max(p["intensity"] for p in points)
-            if max_intensity > 0:
-                for p in points:
-                    p["intensity"] = p["intensity"] / max_intensity
-
-        output[scene_key] = points
-
-    return output
+    The viewer is the server-side client IP. A session id from the client is not used:
+    the client can change it on every request, so it would let one viewer count many times.
+    """
+    conditions = [
+        TourAnalyticsEvent.tour_id == tour_id,
+        TourAnalyticsEvent.event_type == event_type,
+        TourAnalyticsEvent.created_at >= utc_now() - timedelta(seconds=window_s),
+        TourAnalyticsEvent.scene_id.is_(None)
+        if scene_id is None
+        else TourAnalyticsEvent.scene_id == scene_id,
+        TourAnalyticsEvent.hotspot_id.is_(None)
+        if hotspot_id is None
+        else TourAnalyticsEvent.hotspot_id == hotspot_id,
+        TourAnalyticsEvent.ip_address.is_(None)
+        if ip_address is None
+        else TourAnalyticsEvent.ip_address == ip_address,
+    ]
+    found = (
+        await db.execute(select(TourAnalyticsEvent.id).where(and_(*conditions)).limit(1))
+    ).first()
+    return found is not None
 
 
 async def record_analytics_event(
@@ -380,7 +400,7 @@ async def get_dashboard_realtime_stats(
     )
 
     bucket_minutes = 5
-    buckets: dict = {}
+    buckets: dict[datetime, int] = {}
     for event in events:
         if event.event_type != "view":
             continue
@@ -389,10 +409,11 @@ async def get_dashboard_realtime_stats(
             second=0,
             microsecond=0,
         )
-        key = bucket_start.isoformat()
-        buckets[key] = buckets.get(key, 0) + 1
+        buckets[bucket_start] = buckets.get(bucket_start, 0) + 1
 
-    recent_views = [DailyView(date=ts, views=count) for ts, count in sorted(buckets.items())]
+    recent_views = [
+        RealtimeViewBucket(timestamp=ts, views=count) for ts, count in sorted(buckets.items())
+    ]
 
     return {
         "active_sessions": len(active_sessions),

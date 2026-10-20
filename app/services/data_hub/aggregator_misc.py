@@ -5,12 +5,13 @@
 4. AuctionBazaar.com (auctionbazaar.com)
 
 Each sub-source is scraped independently with graceful failure."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -63,7 +64,9 @@ class AggregatorMiscAuctionScraper(BaseScraper):
             except Exception as e:
                 logger.warning(
                     "Failed to scrape %s (%s): %s",
-                    source_cfg["name"], source_cfg["url"], e,
+                    source_cfg["name"],
+                    source_cfg["url"],
+                    e,
                 )
             await asyncio.sleep(2)
 
@@ -96,7 +99,11 @@ class AggregatorMiscAuctionScraper(BaseScraper):
                     "bank_name": source_cfg["bank_name"],
                     "property_description": cells[0] if cells else "",
                     "source_url": link_url,
-                    "raw_data": {"headers": headers, "cells": cells, "aggregator": source_cfg["name"]},
+                    "raw_data": {
+                        "headers": headers,
+                        "cells": cells,
+                        "aggregator": source_cfg["name"],
+                    },
                 }
 
                 for i, h in enumerate(headers):
@@ -131,14 +138,19 @@ class AggregatorMiscAuctionScraper(BaseScraper):
                 # Fill defaults
                 if not record.get("full_address"):
                     record["full_address"] = " ".join(cells)
-                record.setdefault("city", self._detect_city(record.get("full_address", "")) or "Gurugram")
+                record.setdefault(
+                    "city", self._detect_city(record.get("full_address", "")) or "Gurugram"
+                )
 
                 if record.get("property_description"):
                     records.append(record)
 
         # --- Strategy 2: Card-based listings ---
         if not records:
-            for card in soup.find_all(["div", "article", "li"], class_=re.compile(r"auction|listing|card|property|item", re.I)):
+            for card in soup.find_all(
+                ["div", "article", "li"],
+                class_=re.compile(r"auction|listing|card|property|item", re.I),
+            ):
                 text = card.get_text(separator=" ", strip=True)
                 if not text or len(text) < 20:
                     continue
@@ -155,13 +167,17 @@ class AggregatorMiscAuctionScraper(BaseScraper):
                     "raw_data": {"text": text[:1000], "aggregator": source_cfg["name"]},
                 }
                 # Try to extract price from card text
-                price_match = re.search(r"[₹Rs\.]?\s*([\d,]+(?:\.\d+)?)\s*(?:Lakh|Crore|Cr|L)?", text, re.I)
+                price_match = re.search(
+                    r"[₹Rs\.]?\s*([\d,]+(?:\.\d+)?)\s*(?:Lakh|Crore|Cr|L)?", text, re.I
+                )
                 if price_match:
                     try:
                         amount_str = price_match.group(1).replace(",", "")
                         amount = float(amount_str)
                         # Handle Lakh/Crore multipliers
-                        multiplier_match = re.search(r"(Lakh|Crore|Cr|L)\b", text[price_match.start():], re.I)
+                        multiplier_match = re.search(
+                            r"(Lakh|Crore|Cr|L)\b", text[price_match.start() :], re.I
+                        )
                         if multiplier_match:
                             mult = multiplier_match.group(1).lower()
                             if mult in ("crore", "cr"):
@@ -181,7 +197,16 @@ class AggregatorMiscAuctionScraper(BaseScraper):
         """Detect city from listing content."""
         text_lower = text.lower()
         city_keywords = {
-            "Delhi": ["delhi", "new delhi", "narela", "jhilmil", "nangloi", "dwarka", "rohini", "saket"],
+            "Delhi": [
+                "delhi",
+                "new delhi",
+                "narela",
+                "jhilmil",
+                "nangloi",
+                "dwarka",
+                "rohini",
+                "saket",
+            ],
             "Gurugram": ["gurugram", "gurgaon", "sector"],
             "Noida": ["noida", "greater noida"],
             "Faridabad": ["faridabad"],
@@ -204,7 +229,7 @@ class AggregatorMiscAuctionScraper(BaseScraper):
         """Attempt multiple date formats."""
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
             try:
-                return datetime.strptime(val.strip(), fmt).date()
+                return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
             except ValueError:
                 continue
         return date(1970, 1, 1)
