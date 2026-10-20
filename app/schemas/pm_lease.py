@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from decimal import Decimal
-from typing import Any
+from datetime import date
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.enums import LeaseStatus
+from app.schemas.base import Money, UtcDateTime, WriteModel
+
+CREATE_LEASE_STATUSES = (LeaseStatus.draft, LeaseStatus.pending_signature, LeaseStatus.active)
 
 
-class LeaseCreate(BaseModel):
+class LeaseCreate(WriteModel):
     owner_id: int | None = Field(default=None, description="Owner id (agent/admin only)")
     property_id: int
     tenant_user_id: int | None = None
@@ -21,17 +23,29 @@ class LeaseCreate(BaseModel):
     start_date: date
     end_date: date
 
-    monthly_rent: float
-    security_deposit: float
+    monthly_rent: Annotated[Money, Field(gt=0)]
+    security_deposit: Annotated[Money, Field(ge=0)]
 
-    late_fee_amount: float | None = None
-    late_fee_percentage: float | None = None
-    grace_period_days: int = 5
-    payment_due_day: int = 1
+    late_fee_amount: Annotated[Money | None, Field(ge=0)] = None
+    late_fee_percentage: float | None = Field(default=None, ge=0, le=100)
+    grace_period_days: int | None = Field(
+        default=None, ge=0, description="Default: the managed property's grace period."
+    )
+    payment_due_day: int | None = Field(
+        default=None, ge=1, le=28, description="Default: the managed property's due day."
+    )
 
     lease_terms: dict[str, Any] | None = None
     special_clauses: str | None = None
     lease_document_id: int | None = None
+
+    @field_validator("status")
+    @classmethod
+    def create_status_only(cls, value: LeaseStatus) -> LeaseStatus:
+        # Ended leases come from renew, terminate and the daily job, never from create.
+        if value not in CREATE_LEASE_STATUSES:
+            raise ValueError("status must be draft, pending_signature or active")
+        return value
 
 
 class Lease(BaseModel):
@@ -45,21 +59,21 @@ class Lease(BaseModel):
     status: LeaseStatus
     start_date: date
     end_date: date
-    monthly_rent: Decimal
-    security_deposit: Decimal
-    late_fee_amount: Decimal | None = None
+    monthly_rent: Money
+    security_deposit: Money
+    late_fee_amount: Money | None = None
     late_fee_percentage: float | None = None
     grace_period_days: int
     payment_due_day: int
     lease_terms: dict[str, Any] | None = None
     special_clauses: str | None = None
-    signed_by_tenant_at: datetime | None = None
-    signed_by_owner_at: datetime | None = None
+    signed_by_tenant_at: UtcDateTime | None = None
+    signed_by_owner_at: UtcDateTime | None = None
     termination_date: date | None = None
     termination_reason: str | None = None
     lease_document_id: int | None = None
-    created_at: datetime
-    updated_at: datetime | None = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -71,21 +85,20 @@ class Lease(BaseModel):
         return v
 
 
-class LeaseUploadSigned(BaseModel):
+class LeaseUploadSigned(WriteModel):
     lease_document_id: int
     signed_by_owner: bool = True
     signed_by_tenant: bool = False
 
 
-class LeaseRenew(BaseModel):
+class LeaseRenew(WriteModel):
     start_date: date
     end_date: date
-    monthly_rent: float | None = None
-    security_deposit: float | None = None
+    monthly_rent: Annotated[Money | None, Field(gt=0)] = None
+    security_deposit: Annotated[Money | None, Field(ge=0)] = None
     make_active: bool = False
 
 
-class LeaseTerminate(BaseModel):
+class LeaseTerminate(WriteModel):
     termination_date: date | None = None
     reason: str | None = None
-

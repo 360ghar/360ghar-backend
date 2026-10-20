@@ -3,13 +3,14 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.agent import Agent as AgentSchema
+from app.schemas.base import WriteModel
 
 
-class OwnerRMAssignmentUpdate(BaseModel):
+class OwnerRMAssignmentUpdate(WriteModel):
     agent_id: int | None = Field(default=None, description="Agent id to assign; null to unassign")
 
 
-class OwnerRMAssignmentCreate(BaseModel):
+class OwnerRMAssignmentCreate(WriteModel):
     owner_user_id: int | None = Field(
         default=None,
         description="Owner user id (required for admin; ignored for owner role)",

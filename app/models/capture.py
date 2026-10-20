@@ -5,6 +5,7 @@ A CaptureSession represents one property walkthrough from the mobile capture app
 Rooms / waypoints live in the plan JSON for Phase 0; frames are stored relationally
 so progressive upload can attach media + pose metadata.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -15,9 +16,8 @@ from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, Uniqu
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
+from app.core.database import Base, db_enum
 from app.models.enums import CaptureSessionStatus
 
 if TYPE_CHECKING:
@@ -41,17 +41,14 @@ class CaptureSession(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     user_id: Mapped[int] = mapped_column(
+        Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[CaptureSessionStatus] = mapped_column(
-        SQLEnum(
-            CaptureSessionStatus,
-            name="capture_session_status",
-            values_callable=lambda enum_cls: [member.value for member in enum_cls],
-        ),
+        db_enum(CaptureSessionStatus, "capture_session_status"),
         default=CaptureSessionStatus.draft,
         nullable=False,
     )

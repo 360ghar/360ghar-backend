@@ -1,11 +1,124 @@
-"""Admin flatmates response serialization helpers."""
+"""Admin flatmates response models and serialization helpers."""
+
+from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel, Field
+
+from app.models.enums import (
+    ListingModerationStatus,
+    ReportAction,
+    UserReportReason,
+    UserReportStatus,
+)
 from app.models.properties import Property
 from app.models.social import UserReport
 from app.models.users import User
+from app.schemas.base import Money, UtcDateTime
 from app.services.flatmates.helpers import age_bucket_for_age, resolve_profile_age
+
+
+class FlatmateAdminUser(BaseModel):
+    id: int
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    profile_image_url: str | None = None
+    flatmates_smoking: str | None = None
+    flatmates_drinking: str | None = None
+    native_place: str | None = None
+    linkedin_url: str | None = None
+    age_bucket: str | None = None
+
+
+class FlatmateAdminImage(BaseModel):
+    id: int
+    image_url: str
+    caption: str | None = None
+    display_order: int | None = None
+    is_main_image: bool | None = None
+
+
+class FlatmateListingAdmin(BaseModel):
+    id: int
+    title: str | None = None
+    description: str | None = None
+    property_type: str | None = None
+    purpose: str | None = None
+    property_status: str | None = None
+    # The queue filters on these values, so every row carries one of the four enum values.
+    moderation_status: ListingModerationStatus
+    status: ListingModerationStatus
+    monthly_rent: Money | None = None
+    security_deposit: Money | None = None
+    maintenance_charges: Money | None = None
+    area_sqft: float | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    features: list[str] = Field(default_factory=list)
+    images: list[FlatmateAdminImage] = Field(default_factory=list)
+    image_urls: list[str] = Field(default_factory=list)
+    city: str | None = None
+    locality: str | None = None
+    sub_locality: str | None = None
+    main_image_url: str | None = None
+    owner_id: int | None = None
+    owner: FlatmateAdminUser | None = None
+    is_available: bool | None = None
+    tags: list[str] = Field(default_factory=list)
+    gender_preference: str | None = None
+    sharing_type: str | None = None
+    available_from: UtcDateTime | None = None
+    listing_preferences: dict[str, Any] = Field(default_factory=dict)
+    ai_prescreen_result: str | None = None
+    ai_prescreen_flags: list[dict[str, Any]] = Field(default_factory=list)
+    ai_flag_reason: str | None = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime | None = None
+
+
+class FlatmateReportAdmin(BaseModel):
+    id: int
+    reporter_user_id: int
+    reported_user_id: int
+    conversation_id: int | None = None
+    property_id: int | None = None
+    reason: UserReportReason
+    status: UserReportStatus
+    # Reporter's text. Moderator output is in moderator_notes.
+    notes: str | None = None
+    moderator_notes: str | None = None
+    moderated_by: int | None = None
+    moderated_at: UtcDateTime | None = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime | None = None
+    reporter: FlatmateAdminUser | None = None
+    reported_user: FlatmateAdminUser | None = None
+
+
+class ListingModerationResult(BaseModel):
+    listing_id: int
+    action: str
+    status: str
+    reason: str | None = None
+
+
+class ReportModerationResult(BaseModel):
+    report_id: int
+    action: ReportAction
+    status: UserReportStatus
+    moderator_notes: str | None = None
+
+
+class ListingPrescreenResult(BaseModel):
+    listing_id: int
+    prescreen_result: str
+    flags: list[dict[str, Any]] = Field(default_factory=list)
+    flagged: bool
+    flag_reason: str | None = None
+    photo_count: int
+    prescreened_at: UtcDateTime
 
 
 def serialize_user_summary(user: User | None) -> dict[str, Any] | None:
@@ -88,6 +201,10 @@ def serialize_flatmate_listing(listing: Property) -> dict[str, Any]:
         "owner_id": listing.owner_id,
         "owner": serialize_user_summary(listing.__dict__.get("owner")),
         "is_available": listing.is_available,
+        "tags": [str(tag) for tag in (listing.tags or [])],
+        "gender_preference": preferences.get("gender_preference"),
+        "sharing_type": preferences.get("sharing_type"),
+        "available_from": listing.available_from,
         "listing_preferences": preferences,
         "ai_prescreen_result": preferences.get("ai_prescreen_result"),
         "ai_prescreen_flags": preferences.get("ai_prescreen_flags") or [],
@@ -111,8 +228,9 @@ def serialize_report(
         "reason": report.reason,
         "status": report.status,
         "notes": report.notes,
-        "description": report.notes,
-        "admin_notes": report.notes,
+        "moderator_notes": getattr(report, "moderator_notes", None),
+        "moderated_by": getattr(report, "moderated_by", None),
+        "moderated_at": getattr(report, "moderated_at", None),
         "created_at": report.created_at,
         "updated_at": report.updated_at,
         "reporter": serialize_user_summary(user_map.get(report.reporter_user_id)),

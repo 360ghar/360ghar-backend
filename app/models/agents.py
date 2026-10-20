@@ -4,11 +4,22 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
+from app.core.database import Base, db_enum
 from app.models.enums import AgentType, ExperienceLevel
 
 if TYPE_CHECKING:
@@ -20,8 +31,13 @@ class AgentInteraction(Base):
     __tablename__ = "agent_interactions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    agent_id: Mapped[int] = mapped_column(Integer, ForeignKey("agents.id"), nullable=False)
-    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    # CASCADE matches the database: an interaction is a child record of its agent and its user.
+    agent_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     interaction_type: Mapped[str] = mapped_column(String(50), nullable=False)  # chat, call, email
     message: Mapped[str] = mapped_column(Text, nullable=False)
     response: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -36,17 +52,17 @@ class AgentInteraction(Base):
 class Agent(Base):
     __tablename__ = "agents"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     contact_number: Mapped[str | None] = mapped_column(String, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    languages: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    agent_type: Mapped[AgentType] = mapped_column(SQLEnum(AgentType, name='agent_type'), nullable=False)
-    experience_level: Mapped[ExperienceLevel] = mapped_column(SQLEnum(ExperienceLevel, name='experience_level'), nullable=False)
+    languages: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    agent_type: Mapped[AgentType] = mapped_column(db_enum(AgentType, 'agent_type'), nullable=False)
+    experience_level: Mapped[ExperienceLevel] = mapped_column(db_enum(ExperienceLevel, 'experience_level'), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
-    working_hours: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    working_hours: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     total_users_assigned: Mapped[int] = mapped_column(Integer, default=0)
     user_satisfaction_rating: Mapped[float] = mapped_column(Float, default=0.0)
     is_seed_data: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))

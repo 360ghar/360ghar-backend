@@ -1,24 +1,19 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.models.enums import BookingStatus, PaymentStatus
-
-
-def _to_utc(dt: datetime) -> datetime:
-    """Normalize a datetime to a UTC-aware value for safe comparison.
-
-    Pydantic keeps parsed datetimes as-is: a client sending ``"2026-07-01T10:00:00Z"``
-    yields an aware datetime, while ``"2026-07-01T10:00:00"`` yields a naive one.
-    Comparing them raises ``TypeError`` ("can't compare offset-naive and
-    offset-aware datetimes") and escapes the model_validator as a 500.
-    """
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+from app.schemas.base import Money, NotNullable, PatchModel, PublicUserRef, UtcDateTime, WriteModel
 
 
 class BookingBase(BaseModel):
@@ -27,12 +22,12 @@ class BookingBase(BaseModel):
         description="ID of the property to book",
         examples=[1],
     )
-    check_in_date: datetime = Field(
+    check_in_date: UtcDateTime = Field(
         ...,
         description="Check-in date and time (ISO 8601)",
         examples=["2026-07-01T12:00:00Z"],
     )
-    check_out_date: datetime = Field(
+    check_out_date: UtcDateTime = Field(
         ...,
         description="Check-out date and time (must be after check-in)",
         examples=["2026-07-05T11:00:00Z"],
@@ -60,39 +55,59 @@ class BookingBase(BaseModel):
     )
     special_requests: str | None = None
 
-class BookingCreate(BookingBase):
+
+class BookingCreate(WriteModel, BookingBase):
     guest_details: dict[str, Any] | None = None
+    user_id: int | None = Field(
+        default=None,
+        description="Guest (owner) of the booking. Admins and agents may set it. Other callers always own the booking.",
+    )
 
     @model_validator(mode="after")
     def validate_dates(self) -> BookingCreate:
-        self.check_in_date = _to_utc(self.check_in_date)
-        self.check_out_date = _to_utc(self.check_out_date)
         if self.check_out_date <= self.check_in_date:
-            raise ValueError('Check-out date must be after check-in date')
+            raise ValueError("Check-out date must be after check-in date")
         return self
 
-class BookingUpdate(BaseModel):
-    check_in_date: datetime | None = None
-    check_out_date: datetime | None = None
-    guests: int | None = Field(None, gt=0)
-    primary_guest_name: str | None = None
-    primary_guest_phone: str | None = None
-    primary_guest_email: EmailStr | None = None
+
+class BookingUpdate(PatchModel):
+    """Booking edit. Guests edit their own fields. Only admins and agents may set internal_notes."""
+
+    check_in_date: Annotated[UtcDateTime | None, NotNullable] = None
+    check_out_date: Annotated[UtcDateTime | None, NotNullable] = None
+    guests: Annotated[int | None, NotNullable] = None
+    primary_guest_name: Annotated[str | None, NotNullable] = None
+    primary_guest_phone: Annotated[str | None, NotNullable] = None
+    primary_guest_email: Annotated[EmailStr | None, NotNullable] = None
     special_requests: str | None = None
     guest_details: dict[str, Any] | None = None
-    notes: str | None = None
+    internal_notes: str | None = Field(
+        default=None,
+        description="Staff only. Sending it as a guest returns 403.",
+    )
 
-class BookingCancel(BaseModel):
+    @field_validator("guests")
+    @classmethod
+    def guests_positive(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("Input should be greater than 0")
+        return value
+
+
+class BookingCancel(WriteModel):
     booking_id: int
-    reason: str
+    # Whitespace is stripped before the length check, so "   " is rejected.
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
 
-class BookingPayment(BaseModel):
+
+class BookingPayment(WriteModel):
     booking_id: int
     payment_method: str
     transaction_id: str
-    amount: float
+    amount: Money
 
-class BookingReview(BaseModel):
+
+class BookingReview(WriteModel):
     booking_id: int
     guest_rating: int  # 1-5 stars
     guest_review: str | None = None
@@ -101,62 +116,103 @@ class BookingReview(BaseModel):
     @classmethod
     def validate_rating(cls, v: int) -> int:
         if v < 1 or v > 5:
-            raise ValueError('Rating must be between 1 and 5')
+            raise ValueError("Rating must be between 1 and 5")
         return v
 
-class Booking(BookingBase):
+
+class BookingPropertySummary(BaseModel):
+    """The property a booking is for: enough to show a booking card."""
+
+    id: int
+    title: str
+    city: str | None = None
+    country: str | None = None
+    cover_image_url: str | None = None
+
+
+class Booking(BaseModel):
+    """Booking as the guest sees it. Staff-only fields are in BookingStaff."""
+
     id: int
     user_id: int
+    property_id: int
     booking_reference: str
+    check_in_date: UtcDateTime
+    check_out_date: UtcDateTime
     nights: int
-    base_amount: float
-    taxes_amount: float
-    service_charges: float
-    discount_amount: float
-    total_amount: float
+    guests: int
+    base_amount: Money
+    taxes_amount: Money
+    service_charges: Money
+    discount_amount: Money
+    total_amount: Money
     booking_status: BookingStatus
     payment_status: PaymentStatus
+    primary_guest_name: str
+    primary_guest_phone: str
+    primary_guest_email: str
+    special_requests: str | None = None
     guest_details: dict[str, Any] | None = None
-    internal_notes: str | None = None
-    actual_check_in: datetime | None = None
-    actual_check_out: datetime | None = None
+    actual_check_in: UtcDateTime | None = None
+    actual_check_out: UtcDateTime | None = None
     early_check_in: bool
     late_check_out: bool
-    cancellation_date: datetime | None = None
+    cancellation_date: UtcDateTime | None = None
     cancellation_reason: str | None = None
-    refund_amount: float | None = None
+    refund_amount: Money | None = None
     payment_method: str | None = None
     transaction_id: str | None = None
-    payment_date: datetime | None = None
+    payment_date: UtcDateTime | None = None
     guest_rating: int | None = None
     guest_review: str | None = None
-    host_rating: int | None = None
-    host_review: str | None = None
-    created_at: datetime
-    updated_at: datetime | None = None
+    property: BookingPropertySummary | None = None
+    guest: PublicUserRef | None = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
-class BookingAvailability(BaseModel):
+
+class BookingStaff(Booking):
+    """Booking as admins and agents see it. Adds internal notes."""
+
+    internal_notes: str | None = None
+
+
+class BookingAvailability(WriteModel):
     property_id: int = Field(..., gt=0)
-    check_in_date: datetime
-    check_out_date: datetime
+    check_in_date: UtcDateTime
+    check_out_date: UtcDateTime
     guests: int = Field(..., gt=0)
 
     @model_validator(mode="after")
     def validate_dates(self) -> BookingAvailability:
-        if _to_utc(self.check_out_date) <= _to_utc(self.check_in_date):
+        if self.check_out_date <= self.check_in_date:
             raise ValueError("Check-out date must be after check-in date")
         return self
 
+
+class BookingOccupancyCheck(WriteModel):
+    """No dates: overlapping bookings are allowed, so only the guest count is checked."""
+
+    property_id: int = Field(..., gt=0)
+    guests: int = Field(..., gt=0)
+
+
+class BookingOccupancyResult(BaseModel):
+    occupancy_ok: bool
+    reason: str | None = None
+    max_occupancy: int | None = None
+
+
 class BookingPricing(BaseModel):
     property_id: int
-    check_in_date: datetime
-    check_out_date: datetime
+    check_in_date: UtcDateTime
+    check_out_date: UtcDateTime
     guests: int
     nights: int
-    base_amount: float
-    taxes_amount: float
-    service_charges: float
-    discount_amount: float
-    total_amount: float
+    base_amount: Money
+    taxes_amount: Money
+    service_charges: Money
+    discount_amount: Money
+    total_amount: Money

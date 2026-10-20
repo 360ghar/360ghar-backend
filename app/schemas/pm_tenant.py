@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.models.enums import TenantStatus
 from app.schemas.pm_lease import Lease as LeaseSchema
 
 
@@ -10,6 +11,8 @@ class TenantSummary(BaseModel):
     full_name: str | None = None
     phone: str | None = None
     email: str | None = None
+    status: TenantStatus = TenantStatus.active
+    property_name: str | None = None
     active_leases_count: int = 0
 
 
@@ -19,4 +22,3 @@ class TenantDetail(BaseModel):
     phone: str | None = None
     email: str | None = None
     leases: list[LeaseSchema] = []
-

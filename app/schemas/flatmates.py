@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import date
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -15,7 +15,10 @@ from app.models.enums import (
     FlatmatesSmokingType,
     FoodHabits,
     GuestsPolicy,
+    ListingGenderPreference,
     MessageType,
+    ModerationAction,
+    ReportAction,
     SleepSchedule,
     SwipeAction,
     SwipeTargetType,
@@ -25,45 +28,33 @@ from app.models.enums import (
     VisitStatus,
     WorkStyle,
 )
+from app.schemas.base import Money, NotNullable, PatchModel, PublicUserRef, UtcDateTime, WriteModel
 from app.schemas.property import Property as PropertySchema
 from app.utils.validators import ValidationUtils
 
-
-class DiscoverProfilesQuery(BaseModel):
-    """Query parameters for the discovery profiles endpoint."""
-
-    city: str | None = None
-    budget_min: int | None = Field(default=None, ge=0)
-    budget_max: int | None = Field(default=None, ge=0)
-    move_in: str | None = None
-    age_min: int | None = Field(default=None, ge=18, le=100)
-    age_max: int | None = Field(default=None, ge=18, le=100)
-    limit: int = Field(default=20, ge=1, le=100)
-    offset: int = Field(default=0, ge=0)
-
-    @model_validator(mode="after")
-    def validate_age_range(self):
-        if (
-            self.age_min is not None
-            and self.age_max is not None
-            and self.age_max < self.age_min
-        ):
-            raise ValueError("age_max must be greater than or equal to age_min")
-        return self
+# Answer index -> max length. Mirrors the column type: q1 and q3 are TEXT, q2 is VARCHAR(32).
+QNA_MAX_LENGTH: dict[int, int | None] = {0: None, 1: 32, 2: None}
 
 
-class FlatmatesProfileUpdate(BaseModel):
+class FlatmatesProfileUpdate(PatchModel):
+    """Body for PUT, PATCH and POST /flatmates/profile.
+
+    Login phone and email are not writable here. Email changes go through Supabase.
+    Phone changes go through /users/me/phone.
+    """
+
     full_name: str | None = None
     profile_image_url: str | None = None
     mode: FlatmatesMode | None = None
-    profile_status: FlatmatesProfileStatus | None = None
-    onboarding_completed: bool | None = None
+    # Users may only set draft or active. Moderation sets paused, pending_review and rejected.
+    profile_status: Annotated[FlatmatesProfileStatus | None, NotNullable] = None
+    onboarding_completed: Annotated[bool | None, NotNullable] = None
     bio: str | None = None
     age: int | None = Field(default=None, ge=18, le=100)
     profession: str | None = None
-    budget_min: float | None = Field(default=None, ge=0)
-    budget_max: float | None = Field(default=None, ge=0)
-    move_in_timeline: str | None = None
+    budget_min: Money | None = Field(default=None, ge=0)
+    budget_max: Money | None = Field(default=None, ge=0)
+    move_in_timeline: str | None = Field(default=None, max_length=64)
     city: str | None = None
     locality: str | None = None
     sleep_schedule: SleepSchedule | None = None
@@ -74,12 +65,19 @@ class FlatmatesProfileUpdate(BaseModel):
     native_place: str | None = Field(default=None, max_length=120)
     linkedin_url: str | None = Field(default=None, max_length=255)
     guests_policy: GuestsPolicy | None = None
-    email: str | None = None
-    phone: str | None = None
     work_style: WorkStyle | None = None
     gender: str | None = None
-    gender_preference: str | None = None
+    gender_preference: ListingGenderPreference | None = None
     preferences: dict[str, Any] | None = None
+
+    @field_validator("profile_status")
+    @classmethod
+    def user_settable_status(
+        cls, v: FlatmatesProfileStatus | None
+    ) -> FlatmatesProfileStatus | None:
+        if v is not None and v not in (FlatmatesProfileStatus.draft, FlatmatesProfileStatus.active):
+            raise ValueError("profile_status can only be set to draft or active")
+        return v
 
     @field_validator("native_place", mode="before")
     @classmethod
@@ -129,8 +127,8 @@ class FlatmatesProfile(BaseModel):
     bio: str | None = None
     age: int | None = None
     profession: str | None = None
-    budget_min: float | None = None
-    budget_max: float | None = None
+    budget_min: Money | None = None
+    budget_max: Money | None = None
     move_in_timeline: str | None = None
     city: str | None = None
     locality: str | None = None
@@ -145,9 +143,9 @@ class FlatmatesProfile(BaseModel):
     guests_policy: GuestsPolicy | None = None
     work_style: WorkStyle | None = None
     gender: str | None = None
-    gender_preference: str | None = None
+    gender_preference: ListingGenderPreference | None = None
     preferences: dict[str, Any] = Field(default_factory=dict)
-    last_active_at: datetime | None = None
+    last_active_at: UtcDateTime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -176,21 +174,51 @@ class FlatmatesBootstrap(BaseModel):
     realtime: FlatmatesRealtimeConfig
 
 
+class PeerListingSummary(BaseModel):
+    """Listing that a room-poster peer offers. Present only when the peer has an active listing."""
+
+    property_id: int
+    title: str | None = None
+    main_image_url: str | None = None
+    image_urls: list[str] = Field(default_factory=list)
+    monthly_rent: Money | None = None
+    security_deposit: Money | None = None
+    maintenance_charges: Money | None = None
+    available_from: date | None = None
+    room_type: str | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    balconies: int | None = None
+    area_sqft: float | None = None
+    floor_number: int | None = None
+    total_floors: int | None = None
+    city: str | None = None
+    locality: str | None = None
+    sub_locality: str | None = None
+    landmark: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    features: list[str] = Field(default_factory=list)
+    amenities: list[str] = Field(default_factory=list)
+    video_tour_url: str | None = None
+    virtual_tour_url: str | None = None
+
+
 class FlatmatesPeer(BaseModel):
+    """Public view of another flatmates user. Never carries phone or email."""
+
     id: int
     full_name: str | None = None
     profile_image_url: str | None = None
     mode: FlatmatesMode | None = None
     city: str | None = None
     locality: str | None = None
-    # Exact age is never exposed on peer payloads (privacy bucket only); the
-    # field is retained as always-null for backward compatibility.
-    age: int | None = None
+    # Exact age is never exposed on peer payloads (privacy bucket only).
     age_bucket: str | None = None
     profession: str | None = None
     bio: str | None = None
-    budget_min: float | None = None
-    budget_max: float | None = None
+    budget_min: Money | None = None
+    budget_max: Money | None = None
     move_in_timeline: str | None = None
     sleep_schedule: str | None = None
     cleanliness: str | None = None
@@ -202,13 +230,21 @@ class FlatmatesPeer(BaseModel):
     guests_policy: str | None = None
     work_style: str | None = None
     gender: str | None = None
-    gender_preference: str | None = None
+    gender_preference: ListingGenderPreference | None = None
     non_negotiables: list[str] = Field(default_factory=list)
     has_pets: bool = False
     party_habit: str | None = None
     match_percentage: float | None = None
     top_matches: list[str] = Field(default_factory=list)
-    phone_number: str | None = None
+    listing: PeerListingSummary | None = None
+
+
+class MatchContactOut(BaseModel):
+    """Login phone of the other user in a mutual match. Served only by GET /matches/{id}/contact."""
+
+    match_id: int
+    peer_user_id: int
+    phone: str | None = None
 
 
 class ConversationPropertyContext(BaseModel):
@@ -216,7 +252,7 @@ class ConversationPropertyContext(BaseModel):
     title: str
     locality: str | None = None
     city: str | None = None
-    monthly_rent: float | None = None
+    monthly_rent: Money | None = None
     main_image_url: str | None = None
     owner_name: str | None = None
     owner_image_url: str | None = None
@@ -244,17 +280,25 @@ class ConversationSummary(BaseModel):
     peer: FlatmatesPeer
     context_property: ConversationPropertyContext | None = None
     last_message_preview: str | None = None
-    last_message_at: datetime | None = None
+    last_message_at: UtcDateTime | None = None
     unread_count: int = 0
-    matched_at: datetime | None = None
+    matched_at: UtcDateTime | None = None
     qna: ConversationQnAState | None = None
 
 
-class MessageCreate(BaseModel):
+class MessageCreate(WriteModel):
     body: str | None = None
     attachment_url: str | None = None
     message_type: MessageType = MessageType.text
     metadata: dict[str, Any] | None = None
+
+    @field_validator("message_type")
+    @classmethod
+    def user_message_types_only(cls, v: MessageType) -> MessageType:
+        # System and visit_request messages are written by the server only.
+        if v not in (MessageType.text, MessageType.image):
+            raise ValueError("message_type must be text or image")
+        return v
 
     @model_validator(mode="after")
     def validate_content(self):
@@ -266,17 +310,14 @@ class MessageCreate(BaseModel):
 class MessageOut(BaseModel):
     id: int
     conversation_id: int
-    sender_id: int
+    # System messages have no sender.
+    sender_id: int | None = None
     body: str | None = None
     attachment_url: str | None = None
     message_type: MessageType
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        validation_alias="message_metadata",
-        serialization_alias="metadata",
-    )
-    read_at: datetime | None = None
-    created_at: datetime
+    metadata: dict[str, Any] | None = Field(default=None, validation_alias="message_metadata")
+    read_at: UtcDateTime | None = None
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -286,14 +327,21 @@ class MatchSummary(BaseModel):
     status: UserMatchStatus
     peer: FlatmatesPeer
     context_property: ConversationPropertyContext | None = None
-    created_at: datetime
+    created_at: UtcDateTime
+
+
+class MatchStatusOut(BaseModel):
+    """Result of unmatching a match or a user pair."""
+
+    id: int
+    status: UserMatchStatus
 
 
 class IncomingLikeSummary(BaseModel):
     id: int
     peer: FlatmatesPeer
     context_property: ConversationPropertyContext | None = None
-    created_at: datetime
+    created_at: UtcDateTime
 
 
 class OutgoingLikeSummary(BaseModel):
@@ -302,10 +350,10 @@ class OutgoingLikeSummary(BaseModel):
     peer: FlatmatesPeer | None = None
     property: PropertySchema | None = None
     context_property: ConversationPropertyContext | None = None
-    created_at: datetime
+    created_at: UtcDateTime
 
 
-class SwipeRequest(BaseModel):
+class SwipeRequest(WriteModel):
     target_type: SwipeTargetType
     action: SwipeAction
     property_id: int | None = None
@@ -330,7 +378,7 @@ class SwipeResult(BaseModel):
     did_match: bool = False
 
 
-class ProfileViewEventCreate(BaseModel):
+class ProfileViewEventCreate(WriteModel):
     target_user_id: int = Field(gt=0)
     context_property_id: int | None = Field(default=None, gt=0)
     duration_seconds: int = Field(ge=0, le=60 * 60)
@@ -346,12 +394,12 @@ class ProfileViewEventOut(BaseModel):
     source: str
     duration_seconds: int
     scroll_depth_percent: int | None = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class SocietyTagVoteCreate(BaseModel):
+class SocietyTagVoteCreate(WriteModel):
     tag: str = Field(min_length=1, max_length=80)
     vote: Literal["up", "down"]
 
@@ -365,7 +413,7 @@ class SocietyTagVoteOut(BaseModel):
     disputed: bool = False
 
 
-class ReportCreate(BaseModel):
+class ReportCreate(WriteModel):
     reported_user_id: int
     reason: UserReportReason
     conversation_id: int | None = None
@@ -380,21 +428,26 @@ class ReportOut(BaseModel):
     reason: UserReportReason
     status: UserReportStatus
     notes: str | None = None
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
 
-class BlockCreate(BaseModel):
+class BlockCreate(WriteModel):
     blocked_user_id: int
-    unmatch_only: bool = False
+
+
+class UnmatchPairRequest(WriteModel):
+    """Unmatch a pair without blocking. Use POST /flatmates/unmatch."""
+
+    peer_user_id: int
 
 
 class BlockOut(BaseModel):
     id: int
     blocker_user_id: int
     blocked_user_id: int
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -407,63 +460,86 @@ class FlatmatesNotificationOut(BaseModel):
     is_read: bool = False
     reference_id: int | None = None
     route: str | None = None
-    created_at: datetime
+    created_at: UtcDateTime
 
 
-class FlatmatesNotificationUpdate(BaseModel):
-    is_read: bool | None = None
-    mark_all_read: bool | None = None
+class FlatmatesNotificationUpdate(WriteModel):
+    """Body for PUT /flatmates/notifications/{id}. Sets the read state of one item."""
+
+    is_read: bool = True
 
 
-class FlatmateVisitUpdate(BaseModel):
+class FlatmatesNotificationBulkUpdate(WriteModel):
+    """Body for PUT /flatmates/notifications. Only marking all as read is supported."""
+
+    mark_all_read: Literal[True] = True
+
+
+class NotificationsMarkedRead(BaseModel):
+    updated: int
+
+
+class NotificationUnreadCount(BaseModel):
+    unread_count: int
+
+
+class FlatmateVisitUpdate(WriteModel):
     status: VisitStatus | None = None
-    scheduled_date: datetime | None = None
+    scheduled_date: UtcDateTime | None = None
 
 
-class QnAAnswers(BaseModel):
+class FlatmateVisitOut(BaseModel):
+    id: int
+    status: VisitStatus
+
+
+class QnAAnswers(WriteModel):
     answers: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_keys(self):
-        for key in self.answers:
+        for key, text in self.answers.items():
             try:
                 idx = int(key)
             except ValueError as exc:
                 raise ValueError(f"Answer index must be an integer, got '{key}'") from exc
             if idx < 0 or idx > 2:
                 raise ValueError(f"Answer index must be between 0 and 2, got {idx}")
+            max_length = QNA_MAX_LENGTH[idx]
+            if max_length is not None and len(text) > max_length:
+                raise ValueError(f"Answer {idx} must be at most {max_length} characters")
         return self
 
 
-class MessageListResponse(BaseModel):
-    """Paginated message list envelope."""
-    messages: list[MessageOut]
-    total: int
-    has_more: bool
-
-
 class BlockedUserOut(BaseModel):
-    """Block record with nested peer data for the blocked user."""
+    """One block row. ``blocked_user`` is the public identity of the blocked user."""
+
     id: int
-    blocked_user: FlatmatesPeer
-    created_at: datetime | None = None
+    blocked_user_id: int
+    blocked_user: PublicUserRef
+    created_at: UtcDateTime | None = None
 
 
-class ConversationCreate(BaseModel):
+class ConversationCreate(WriteModel):
     """Payload for creating (or retrieving) a conversation with a peer."""
+
     peer_user_id: int
     initial_message: str | None = None
+    match_id: int | None = None
+    context_property_id: int | None = None
 
 
-class ListingModerationAction(BaseModel):
+class ListingModerationAction(WriteModel):
     """Payload for moderating a flatmates listing (approve, reject, or request edit)."""
-    action: Literal["approve", "reject", "request_edit"]
+
+    action: ModerationAction
     reason: str = ""
 
 
-class ReportModerationAction(BaseModel):
+class ReportModerationAction(WriteModel):
     """Payload for moderating a user report (dismiss, warn, suspend, or escalate)."""
-    action: Literal["dismiss", "warn_user", "suspend_user", "escalate"]
+
+    action: ReportAction
     notes: str = ""
 
 

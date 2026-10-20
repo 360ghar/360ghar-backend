@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.schemas.base import UtcDateTime, WriteModel
 
 _MOBILE = re.compile(r"^[6-9]\d{9}$")
 
@@ -22,7 +24,7 @@ def normalize_mobile(value: str) -> str:
     return digits
 
 
-class LeadCreate(BaseModel):
+class LeadCreate(WriteModel):
     property_id: int | None = None
     name: str | None = Field(None, max_length=100)
     phone: str
@@ -43,5 +45,22 @@ class LeadCreate(BaseModel):
         return v or None
 
 
-class LeadCreated(BaseModel):
-    received: bool = True
+class LeadOut(BaseModel):
+    """The stored callback request. id is null when the honeypot dropped the request."""
+
+    id: int | None
+
+
+class LeadRead(BaseModel):
+    """A stored callback request, as the admin list returns it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    property_id: int | None
+    user_id: int | None
+    name: str | None
+    phone: str
+    note: str | None
+    source: str
+    created_at: UtcDateTime

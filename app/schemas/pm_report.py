@@ -1,35 +1,40 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel
+
+from app.schemas.base import Money
 
 
 class RentRollItem(BaseModel):
     property_id: int
     title: str
-    occupancy: str
+    occupancy: Literal["occupied", "vacant"]
     tenant_user_id: int | None = None
-    monthly_rent: float | None = None
+    monthly_rent: Money | None = None
     lease_end_date: date | None = None
 
 
 class IncomeReport(BaseModel):
-    total_income: float
-    start: datetime | None = None
-    end: datetime | None = None
+    """start and end are inclusive calendar days in UTC."""
+
+    total_income: Money
+    start: date | None = None
+    end: date | None = None
 
 
 class ExpenseReport(BaseModel):
-    total_expenses: float
+    total_expenses: Money
     start: date | None = None
     end: date | None = None
 
 
 class PnLReport(BaseModel):
-    total_income: float
-    total_expenses: float
-    net_income: float
+    total_income: Money
+    total_expenses: Money
+    net_income: Money
     start: date | None = None
     end: date | None = None
 
@@ -42,4 +47,3 @@ class OccupancyReport(BaseModel):
 
 class MaintenanceReport(BaseModel):
     total_requests: int
-

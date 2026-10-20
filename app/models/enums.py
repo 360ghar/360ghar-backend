@@ -71,11 +71,11 @@ class PaymentStatus(str, Enum):
 
 
 class VisitStatus(str, Enum):
-    scheduled = "requested"
+    requested = "requested"
     confirmed = "confirmed"
     completed = "completed"
     cancelled = "cancelled"
-    rescheduled = "reschedule_suggested"
+    reschedule_suggested = "reschedule_suggested"
 
 
 class FlatmatesMode(str, Enum):
@@ -113,16 +113,6 @@ class FoodHabits(str, Enum):
     no_preference = "no_preference"
 
 
-class SmokingDrinking(str, Enum):
-    # Kept for backward compatibility with already-shipped app builds that
-    # still write/read the combined flatmates_smoking_drinking column. New
-    # code uses FlatmatesSmokingType + FlatmatesDrinkingType instead.
-    neither = "neither"
-    smoke_outside = "smoke_outside"
-    drink_occasionally = "drink_occasionally"
-    both_fine = "both_fine"
-
-
 class FlatmatesSmokingType(str, Enum):
     never = "never"
     occasionally = "occasionally"
@@ -146,6 +136,28 @@ class VentilationType(str, Enum):
     good = "good"
     average = "average"
     poor = "poor"
+
+
+class FurnishingLevel(str, Enum):
+    """Stored in properties.furnishing_level (VARCHAR); the wire values are these."""
+
+    furnished = "furnished"
+    semi_furnished = "semi_furnished"
+    unfurnished = "unfurnished"
+
+
+class MoveInTimeline(str, Enum):
+    """Query value for GET /properties move_in. ``flexible`` applies no filter."""
+
+    immediate = "immediate"
+    within_1_week = "within_1_week"
+    within_2_weeks = "within_2_weeks"
+    this_month = "this_month"
+    next_month = "next_month"
+    within_1_month = "within_1_month"
+    within_2_months = "within_2_months"
+    within_3_months = "within_3_months"
+    flexible = "flexible"
 
 
 class GuestsPolicy(str, Enum):
@@ -290,11 +302,28 @@ class UserRole(str, Enum):
     admin = "admin"
 
 
+class DevicePlatform(str, Enum):
+    """Push-notification device platform. Sent by the mobile and web clients."""
+
+    android = "android"
+    ios = "ios"
+    web = "web"
+
+
+class AppKey(str, Enum):
+    """Client app identifier used by app versions, version checks and onboarding."""
+
+    ghar = "ghar"
+    estate = "estate"
+    flatmates = "flatmates"
+    stays = "stays"
+
+
 class AuthMethod(str, Enum):
     """Last authentication method used by a user.
 
     Mirrors the client-side login state-machine. Stored as a TEXT column with a
-    DB-level CHECK constraint (see migration 20260606000000); not a PG enum.
+    DB-level CHECK constraint (see 20260621000001_core_identity.sql); not a PG enum.
     """
 
     google = "google"
@@ -316,13 +345,28 @@ class ManagedPropertyStatus(str, Enum):
     archived = "archived"
 
 
-class TenantStatus(str, Enum):
+class RentalApplicationStatus(str, Enum):
     applicant = "applicant"
     approved = "approved"
-    active = "active"
-    notice_period = "notice_period"
-    vacated = "vacated"
     rejected = "rejected"
+
+
+class ApplicationFieldType(str, Enum):
+    """Input type of a custom question on a rental application form."""
+
+    text = "text"
+    textarea = "textarea"
+    number = "number"
+    date = "date"
+    boolean = "boolean"
+    select = "select"
+
+
+class TenantStatus(str, Enum):
+    """Tenancy state shown on the tenant summary. Computed from the tenant's leases."""
+
+    active = "active"
+    vacated = "vacated"
 
 
 class LeaseStatus(str, Enum):
@@ -342,6 +386,13 @@ class PaymentMethod(str, Enum):
     cheque = "cheque"
     online = "online"
     other = "other"
+
+
+class RentPaymentStatus(str, Enum):
+    """pending: a tenant claim that does not change the charge. settled: counts toward the balance."""
+
+    pending = "pending"
+    settled = "settled"
 
 
 class RentChargeStatus(str, Enum):
@@ -369,6 +420,16 @@ class MaintenanceUrgency(str, Enum):
     high = "high"
     medium = "medium"
     low = "low"
+
+
+# Priority keyword from users and widgets -> stored urgency. "urgent" is the widget label.
+PRIORITY_TO_URGENCY: dict[str, MaintenanceUrgency] = {
+    "low": MaintenanceUrgency.low,
+    "medium": MaintenanceUrgency.medium,
+    "high": MaintenanceUrgency.high,
+    "urgent": MaintenanceUrgency.emergency,
+    "emergency": MaintenanceUrgency.emergency,
+}
 
 
 class MaintenanceCategory(str, Enum):
@@ -442,6 +503,33 @@ class TourVisibility(str, Enum):
     public = "public"
 
 
+class StorageFolderType(str, Enum):
+    """Client folder type for every upload endpoint. Unknown values are a 422.
+
+    Maps to the internal StorageFolder in app/services/storage_paths.py.
+    """
+
+    AVATAR = "avatar"
+    PROPERTY_IMAGE = "property_image"
+    PROPERTY_VIDEO = "property_video"
+    PROPERTY_DOCUMENT = "property_document"
+    TOUR_THUMBNAIL = "tour_thumbnail"
+    TOUR_ORIGINAL = "tour_original"
+    SCENE = "scene"
+    DOCUMENT_LEASE = "document_lease"
+    DOCUMENT_MAINTENANCE = "document_maintenance"
+    DOCUMENT_GENERAL = "document_general"
+    GENERIC = "generic"
+
+
+class UploadStatus(str, Enum):
+    """Lifecycle of a media row: a direct upload is pending until confirmed."""
+
+    pending = "pending"
+    complete = "complete"
+    failed = "failed"
+
+
 class CaptureSessionStatus(str, Enum):
     """Lifecycle of a mobile guided-capture session.
 
@@ -495,6 +583,20 @@ class ScraperStatus(str, Enum):
     success = "success"
     partial = "partial"
     failed = "failed"
+
+
+class AuctionPropertyType(str, Enum):
+    """Normalized property type of a bank or court auction. Ingest maps scraper text to this set."""
+    residential = "residential"
+    commercial = "commercial"
+    industrial = "industrial"
+    plot = "plot"
+
+
+class AuctionKind(str, Enum):
+    """Which auction table a row comes from. Bank and court ids are separate sequences."""
+    bank = "bank"
+    court = "court"
 
 
 class AuctionSource(str, Enum):
@@ -565,11 +667,37 @@ class AIJobStatus(str, Enum):
 
 
 class AIJobType(str, Enum):
-    scene_analysis = "scene_analysis"
-    hotspot_generation = "hotspot_generation"
-    floor_plan_processing = "floor_plan_processing"
+    """Job types the tour AI services write to ai_jobs.job_type."""
+
+    analyze_scene = "analyze_scene"
+    analyze_scenes = "analyze_scenes"
+    generate_description = "generate_description"
+    generate_descriptions = "generate_descriptions"
+    generate_tour = "generate_tour"
+    optimize_tour = "optimize_tour"
+    spatial_connect = "spatial_connect"
+    analyze_floor_plan = "analyze_floor_plan"
+    suggest_hotspots = "suggest_hotspots"
+    suggest_tour_hotspots = "suggest_tour_hotspots"
     panorama_stitch = "panorama_stitch"
-    generate_3d_world = "generate_3d_world"
+
+
+class TourEventType(str, Enum):
+    """Analytics event types. Viewers post the first group; like and unlike are written by the like routes."""
+
+    view = "view"
+    scene_view = "scene_view"
+    hotspot_click = "hotspot_click"
+    share = "share"
+    fullscreen_enter = "fullscreen_enter"
+    fullscreen_exit = "fullscreen_exit"
+    vr_enter = "vr_enter"
+    vr_exit = "vr_exit"
+    session_start = "session_start"
+    session_end = "session_end"
+    session_duration = "session_duration"
+    like = "like"
+    unlike = "unlike"
 
 
 class CustomDomainVerificationStatus(str, Enum):
@@ -600,6 +728,7 @@ class ListingModerationStatus(str, Enum):
     """Status values stored in listing_preferences JSON for flatmate listings."""
     pending_review = "pending_review"
     live = "live"
+    paused = "paused"
     rejected = "rejected"
 
 

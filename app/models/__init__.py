@@ -61,6 +61,7 @@ from .enums import (
     PropertyPurpose,
     PropertyStatus,
     PropertyType,
+    RentalApplicationStatus,
     RentChargeStatus,
     ScraperStatus,
     SwipeAction,
@@ -77,7 +78,6 @@ from .enums import (
     WorkOrderStatus,
 )
 from .leads import Lead
-from .payments import PaymentMethod
 from .pm_documents import Document
 from .pm_finance import Expense, RentCharge, RentPayment
 from .pm_inspections import InspectionChecklist
@@ -96,19 +96,15 @@ from .social import (
 )
 from .tours import (
     AIJob,
-    CacheEntry,
     CustomDomain,
     FloorPlan,
     Hotspot,
     MediaFile,
     Scene,
-    SearchIndex,
     Tour,
     TourAnalyticsEvent,
-    TourBranding,
+    TourLike,
     TourLocation,
-    UserSession,
-    VideoMetadata,
 )
 from .users import User, UserSearchHistory, UserSwipe
 
@@ -124,8 +120,6 @@ __all__ = [
     "Lead",
     # Bookings
     "Booking",
-    # Payments
-    "PaymentMethod",
     # Core
     "BugReport",
     "Page",
@@ -160,14 +154,10 @@ __all__ = [
     "TourAnalyticsEvent",
     "AIJob",
     "MediaFile",
-    "UserSession",
     "TourLocation",
-    "SearchIndex",
-    "CacheEntry",
     "FloorPlan",
-    "TourBranding",
+    "TourLike",
     "CustomDomain",
-    "VideoMetadata",
     # Guided capture
     "CaptureSession",
     "CaptureFrame",
@@ -236,6 +226,7 @@ __all__ = [
     "PropertyPurpose",
     "PropertyStatus",
     "PropertyType",
+    "RentalApplicationStatus",
     "RentChargeStatus",
     "ScraperStatus",
     "SwipeAction",

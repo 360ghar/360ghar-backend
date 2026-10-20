@@ -4,21 +4,21 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
-    JSON,
+    BigInteger,
     Boolean,
     DateTime,
-    Float,
     ForeignKey,
     Index,
+    Numeric,
     String,
     Text,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
-from app.models.enums import TenantStatus
+from app.core.database import Base, db_enum
+from app.models.enums import RentalApplicationStatus
 
 if TYPE_CHECKING:
     from app.models.pm_documents import Document
@@ -34,21 +34,22 @@ class RentalApplicationForm(Base):
         Index("idx_rental_application_forms_slug", "slug", unique=True),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     property_id: Mapped[int | None] = mapped_column(
-        ForeignKey("properties.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("properties.id", ondelete="SET NULL"), nullable=True
     )
 
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    application_fee_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    required_document_types: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    questions: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    config: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    application_fee_amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    required_document_types: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    questions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
@@ -72,33 +73,36 @@ class RentalApplication(Base):
         Index("idx_rental_applications_submitted_at", "submitted_at"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     form_id: Mapped[int] = mapped_column(
-        ForeignKey("rental_application_forms.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("rental_application_forms.id", ondelete="CASCADE"), nullable=False
     )
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id"), nullable=False)
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    property_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("properties.id", ondelete="CASCADE"), nullable=False
+    )
+    owner_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
 
-    status: Mapped[TenantStatus] = mapped_column(
-        SQLEnum(TenantStatus, name="tenant_status"), default=TenantStatus.applicant
+    status: Mapped[RentalApplicationStatus] = mapped_column(
+        db_enum(RentalApplicationStatus, "rental_application_status"),
+        default=RentalApplicationStatus.applicant,
     )
 
-    applicant_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
     applicant_full_name: Mapped[str | None] = mapped_column(String, nullable=True)
     applicant_phone: Mapped[str | None] = mapped_column(String, nullable=True)
     applicant_email: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    answers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    application_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    emergency_contacts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    answers: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    application_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    emergency_contacts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decision_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     decided_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -111,12 +115,7 @@ class RentalApplication(Base):
     )
     property: Mapped[Property] = relationship("Property")
     owner: Mapped[User] = relationship("User", foreign_keys=[owner_id])
-    applicant_user: Mapped[User | None] = relationship(
-        "User", foreign_keys=[applicant_user_id]
-    )
-    decided_by: Mapped[User | None] = relationship(
-        "User", foreign_keys=[decided_by_user_id]
-    )
+    decided_by: Mapped[User | None] = relationship("User", foreign_keys=[decided_by_user_id])
 
     documents: Mapped[list[Document]] = relationship(
         "Document",
