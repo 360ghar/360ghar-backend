@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from httpx import AsyncClient
 
+from app.core.cache.backends.memory import InMemoryCacheBackend
+from app.core.cache.manager import CacheManager
 from app.services.ai.image_gen.schemas import ImageGenResponse
 
 
@@ -30,14 +32,8 @@ async def test_generate_is_rate_limited_per_ip(client: AsyncClient):
     fake = ImageGenResponse(success=True, image="data:image/png;base64,aGVsbG8=")
     headers = {"X-Forwarded-For": "203.0.113.77"}
     body = {"mode": "text-to-image", "prompt": "A calm bedroom with teak furniture"}
-    store: dict[str, int] = {}
-
-    class _MemoryCache:
-        async def get(self, key):
-            return store.get(key)
-
-        async def set(self, key, value, ttl=None):
-            store[key] = value
+    cache = CacheManager(backend=InMemoryCacheBackend(max_size=100, default_ttl=60))
+    await cache.connect()
 
     with (
         patch(
@@ -45,7 +41,7 @@ async def test_generate_is_rate_limited_per_ip(client: AsyncClient):
             new_callable=AsyncMock,
             return_value=fake,
         ),
-        patch("app.middleware.rate_limit.get_cache_manager", return_value=_MemoryCache()),
+        patch("app.middleware.rate_limit.get_cache_manager", return_value=cache),
     ):
         codes = [
             (
@@ -142,3 +138,15 @@ async def test_ratio_outside_the_allowed_list_is_rejected(client: AsyncClient):
     assert bad.status_code == 422
     assert good.status_code == 200
     assert generate.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_oversized_body_is_rejected_before_parsing(client: AsyncClient):
+    response = await client.post(
+        "/api/v1/design-studio/generate",
+        content=b"x" * 7_300_000,
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"

@@ -51,6 +51,7 @@ async def test_text_to_image_payload(client):
     assert body["size"] == "1K"
     assert body["ratio"] == "1:1"
     assert body["extra_body"] == {"response_format": "b64_json"}
+    assert body["return_base64"] is True
     assert "response_format" not in body
     assert "image" not in body["extra_body"]
     assert kwargs["headers"]["Authorization"] == "Bearer test-key"
@@ -76,6 +77,7 @@ async def test_image_to_image_sends_data_url_in_extra_body(client):
     }
     assert body["ratio"] == "16:9"
     assert "response_format" not in body
+    assert "return_base64" not in body
 
 
 @pytest.mark.asyncio
@@ -136,6 +138,26 @@ async def test_missing_key_returns_service_unavailable(client):
 
     assert result.code == "SERVICE_UNAVAILABLE"
     client.post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_network_failure_maps_to_service_unavailable(client):
+    client.post.side_effect = httpx.ConnectError("connection refused")
+
+    result = await service.generate_image(_txt())
+
+    assert result.code == "SERVICE_UNAVAILABLE"
+    assert "refused" not in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_timeout_maps_to_timeout_code(client):
+    client.post.side_effect = httpx.ReadTimeout("slow")
+
+    result = await service.generate_image(_txt())
+
+    assert result.code == "TIMEOUT"
+    assert client.post.await_count == 1
 
 
 def test_invalid_ratio_is_rejected():

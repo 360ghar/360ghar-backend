@@ -85,7 +85,7 @@ async def generate_design_image(
         status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
         if result.code == "QUOTA_EXCEEDED":
             status_code = status.HTTP_429_TOO_MANY_REQUESTS
-        elif result.code == "SERVICE_UNAVAILABLE":
+        elif result.code in ("SERVICE_UNAVAILABLE", "TIMEOUT"):
             status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         elif result.code == "CONTENT_BLOCKED":
             status_code = status.HTTP_422_UNPROCESSABLE_ENTITY

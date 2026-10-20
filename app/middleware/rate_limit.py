@@ -201,9 +201,6 @@ class EndpointRateLimiter:
     def __init__(self, calls: int = 10, period: int = 60):
         self.calls = calls
         self.period = period
-        # ponytail: per-process lock makes get+set atomic within one worker;
-        # move to an atomic cache INCR if the API runs several instances.
-        self._lock = asyncio.Lock()
 
     def __call__(self, func: Callable) -> Callable:
         async def wrapper(request: Request, *args, **kwargs):
@@ -229,13 +226,11 @@ class EndpointRateLimiter:
         return f"ip:{get_client_ip(request)}"
 
     async def check_rate_limit(self, client_id: str, endpoint: str) -> bool:
-        """Check rate limit for specific endpoint"""
+        """Count this call in a fixed window and return False once the window is full.
+
+        ``cache.incr`` is atomic on Redis and in memory, so concurrent calls cannot
+        overshoot the cap, and the window starts at the first call.
+        """
         cache = get_cache_manager()
         key = f"endpoint_limit:{endpoint}:{client_id}"
-
-        async with self._lock:
-            count = await cache.get(key) or 0
-            if count >= self.calls:
-                return False
-            await cache.set(key, count + 1, ttl=self.period)
-        return True
+        return await cache.incr(key, ttl=self.period) <= self.calls

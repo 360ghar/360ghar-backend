@@ -95,6 +95,9 @@ async def generate_image(request: ImageGenRequest) -> ImageGenResponse:
         return _failure("TIMEOUT", exc)
     except _AgnesImageError as exc:
         return _failure(_map_error_code(exc), exc)
+    except httpx.RequestError as exc:
+        # Network failure after the retries: Agnes is unreachable, not a bad request.
+        return _failure("SERVICE_UNAVAILABLE", exc)
     except Exception as exc:
         return _failure("GENERATION_FAILED", exc)
 
@@ -143,13 +146,17 @@ def _build_payload(request: ImageGenRequest) -> dict[str, Any]:
         mime = request.mime_type or "image/jpeg"
         extra_body["image"] = [f"data:{mime};base64,{request.image}"]
 
-    return {
+    payload: dict[str, Any] = {
         "model": settings.AGNES_IMAGE_MODEL,
         "prompt": f"{instruction}\n\n{request.prompt}",
         "size": _IMAGE_SIZE,
         "ratio": request.ratio,
         "extra_body": extra_body,
     }
+    if not is_img2img:
+        # Agnes documents base64 output for text-to-image as a top-level flag.
+        payload["return_base64"] = True
+    return payload
 
 
 async def _call_agnes(payload: dict[str, Any]) -> dict[str, Any]:

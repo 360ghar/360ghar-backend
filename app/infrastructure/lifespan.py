@@ -602,15 +602,15 @@ def _register_data_hub_jobs(app: FastAPI) -> None:
 
 
 async def _shutdown_ai_providers() -> None:
-    """Close cached AI provider HTTP clients."""
-    try:
-        from app.services.ai import close_all_providers
-        from app.services.ai_agent.agent_service import close_agnes_client
+    """Close cached AI provider HTTP clients. Each close runs even if the other fails."""
+    from app.services.ai import close_all_providers
+    from app.services.ai_agent.agent_service import close_agnes_client
 
-        await close_all_providers()
-        await close_agnes_client()
-    except Exception as e:
-        logger.warning("Failed to close AI providers: %s", e)
+    for close in (close_all_providers, close_agnes_client):
+        try:
+            await close()
+        except Exception as e:
+            logger.warning("Failed to close %s: %s", close.__name__, e)
 
 
 async def _shutdown_shared_http_clients() -> None:

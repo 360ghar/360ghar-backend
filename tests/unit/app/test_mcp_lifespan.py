@@ -657,3 +657,26 @@ async def test_production_schema_drift_records_startup_degradation(
             ),
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_agnes_client_closes_even_when_provider_close_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.services.ai as ai_module
+    import app.services.ai_agent.agent_service as agent_module
+
+    closed: list[str] = []
+
+    async def failing_close() -> None:
+        raise RuntimeError("boom")
+
+    async def agnes_close() -> None:
+        closed.append("agnes")
+
+    monkeypatch.setattr(ai_module, "close_all_providers", failing_close)
+    monkeypatch.setattr(agent_module, "close_agnes_client", agnes_close)
+
+    await lifespan_module._shutdown_ai_providers()
+
+    assert closed == ["agnes"]

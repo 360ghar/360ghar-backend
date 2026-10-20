@@ -134,6 +134,29 @@ class RedisCacheBackend:
             self.stats.errors += 1
             return False
 
+    async def incr(self, key: str, ttl: int | None = None) -> int:
+        """Atomically add 1 to an integer counter and return it.
+
+        INCR and the first EXPIRE run in one Lua call, so a crash cannot leave a counter
+        without a TTL. The TTL of a live counter is not extended (fixed window).
+        Returns 0 when Redis is down, so callers fail open.
+        """
+        if not self._client:
+            return 0
+
+        try:
+            ttl = ttl if ttl is not None else self._default_ttl
+            lua_script = """
+            local n = redis.call('INCR', KEYS[1])
+            if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+            return n
+            """
+            return int(await self._client.eval(lua_script, 1, self._make_key(key), ttl))  # type: ignore[misc]
+        except Exception as e:
+            logger.error("Redis incr error for %s: %s", key, e)
+            self.stats.errors += 1
+            return 0
+
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically retrieve value and delete key from Redis.
 

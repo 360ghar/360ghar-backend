@@ -154,6 +154,29 @@ class InMemoryCacheBackend:
             self.stats.errors += 1
             return False
 
+    async def incr(self, key: str, ttl: int | None = None) -> int:
+        """Atomically add 1 to an integer counter and return it.
+
+        A missing or expired key starts at 1 and gets ``ttl`` seconds. The TTL of a
+        live counter is not extended, so the counter is a fixed window.
+        """
+        ttl = ttl if ttl is not None else self._default_ttl
+        async with self._lock:
+            entry = self._cache.get(key)
+            if entry is not None and not entry.is_expired() and isinstance(entry.value, int):
+                entry.value += 1
+                self._cache.move_to_end(key)
+                return int(entry.value)
+            self._cache.pop(key, None)
+            while len(self._cache) >= self._max_size:
+                self._cache.popitem(last=False)
+            self._cache[key] = CacheEntry(
+                value=1,
+                expires_at=time.time() + ttl if ttl > 0 else None,
+                created_at=time.time(),
+            )
+            return 1
+
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically get value and delete key under the same lock.
 

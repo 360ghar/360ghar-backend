@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.middleware.body_limit import BodyLimitMiddleware
 from app.middleware.cache_control import CacheControlMiddleware
 from app.middleware.etag import ETagMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -81,6 +82,9 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
         period=60,
         scope="global",
     )
+
+    # Inside the rate limiter: a rate-limited client is turned away before its body is read.
+    app.add_middleware(BodyLimitMiddleware)
 
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CacheControlMiddleware)
