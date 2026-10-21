@@ -53,7 +53,7 @@ scripts/import_localities.py  # loads the snapshot into the localities table
 
 ## Property summaries
 
-`entity_type: property` uses the same runner. The fact sheet comes from the listing row. The owner's title and description go to the model only inside a `<listing_text>` block marked as quoted data, and the hash includes them. The body adds `who_it_suits`, `pros`, `cons` and, on the English row, `image_alts` for up to 3 photos (only `res.cloudinary.com`, described by the vision model). If a photo fails, the body carries `image_alts_pending` and the next run retries. Set `CONTENT_ON_WRITE_ENABLED=true` to run it in the background on listing create and update.
+`entity_type: property` uses the same runner. The fact sheet comes from the listing row. The owner's title and description go to the model only inside a `<listing_text>` block marked as quoted data, and the hash includes them and the first three photo URLs. The entity name sent outside the block is a generic label ("apartment in Sector 85, Gurugram"). Capitalised words from the title may be used as names in the output. The body adds `who_it_suits`, `pros`, `cons` and, on the English row, `image_alts` for up to 3 photos (only `res.cloudinary.com`, described by the vision model). If a photo fails, the body carries `image_alts_pending` and the next run retries. Set `CONTENT_ON_WRITE_ENABLED=true` to run it in the background on listing create and update.
 
 ## Weekly market digest
 

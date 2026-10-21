@@ -20,7 +20,7 @@ from app.core.database import get_bg_session_factory
 from app.core.logging import get_logger
 from app.models.properties import PropertyImage
 from app.schemas.tour import ALLOWED_FRAME_HOSTS
-from app.services.ai.base import AIMessage, AIProvider, AIRole, VisionInput
+from app.services.ai.base import AIMessage, AIProvider, AIProviderError, AIRole, VisionInput
 from app.services.content import runner
 from app.services.content.facts import FactSheet
 from app.services.content.numbers import normalize_digits
@@ -104,6 +104,12 @@ async def enrich_property(
             )
         except runner.BudgetExceeded:
             raise
+        except AIProviderError as exc:
+            if runner.is_quota_error(exc):
+                raise  # the batch stops on a rate limit instead of asking for the next photo
+            logger.warning("alt text skipped for %s: %s", url, exc)
+            pending = True
+            continue
         except Exception as exc:  # noqa: BLE001 - one bad photo must not lose the whole summary
             logger.warning("alt text skipped for %s: %s", url, exc)
             pending = True

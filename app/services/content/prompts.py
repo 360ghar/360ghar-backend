@@ -78,8 +78,9 @@ _SHAPES = {
     ),
     "digest": (
         "summary: 40 to 60 words, plain prose, the week in brief.\n"
-        "sections: 2 to 4 objects with heading and body. One section per kind of change in the facts "
-        "(new RERA registrations, bank auctions, circle rate updates). Each body is 2 to 4 sentences.\n"
+        "sections: 1 to 4 objects with heading and body. One section per kind of change that appears "
+        "in the facts (new RERA registrations, bank auctions, circle rate updates). Write no section "
+        "for a kind that is missing. Each body is 2 to 4 sentences.\n"
         "meta_description: at most 155 characters."
     ),
     "property": (

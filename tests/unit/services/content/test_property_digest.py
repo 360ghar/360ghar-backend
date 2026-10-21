@@ -330,3 +330,65 @@ async def test_write_triggered_runs_share_one_throttle(monkeypatch):
     await property_summary.generate_property_content(1)
     await property_summary.generate_property_content(2)
     assert len(seen) == 2 and seen[0] is seen[1]
+
+
+async def test_digest_skips_at_exactly_two_changes(db_session, test_admin_user, monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    for i in range(2):
+        db_session.add(ReraProject(rera_number=f"RC/two/{i}", project_name=f"Two Project {i}", location="Sector 56",
+                                   district="Gurugram"))
+    await db_session.flush()
+    provider = FakeProvider([{}])
+    res = await digest.generate_market_digest(db_session, provider)
+    assert res["status"] == "skipped" and res["changes"] == 2 and not provider.calls
+
+
+async def test_only_the_first_three_allowed_photos_are_described(db_session, test_user, monkeypatch):
+    prop = await make_property(db_session, test_user)
+    urls = [f"https://res.cloudinary.com/x/{n}.jpg" for n in "abcde"]
+    urls.insert(1, "https://evil.example.com/z.jpg")
+    for i, url in enumerate(urls):
+        db_session.add(PropertyImage(property_id=prop.id, image_url=url, display_order=i))
+    await db_session.flush()
+    sheet = await facts.build_property_sheet(db_session, prop.id)
+    got = []
+
+    async def fake_download(url):
+        got.append(url)
+        return "aGVsbG8=", "image/jpeg"
+
+    class Provider(FakeProvider):
+        async def complete_json(self, messages, vision_input=None, json_schema=None):
+            if vision_input is not None:
+                return {"alt": "A bright living room"}
+            return await super().complete_json(messages, vision_input, json_schema)
+
+    monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", fake_download)
+    await runner.run_batch(db_session, Provider([compose_property(sheet)]), entity_type="property", locales=["en"],
+                           slugs=[str(prop.id)])
+    assert got == urls[0:1] + urls[2:4]
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    assert [a["url"] for a in row.body["image_alts"]] == got
+
+
+async def test_quota_error_while_describing_a_photo_stops_the_batch(db_session, test_user, monkeypatch):
+    from app.services.ai.base import AIProviderError
+
+    prop = await make_property(db_session, test_user)
+    db_session.add(PropertyImage(property_id=prop.id, image_url="https://res.cloudinary.com/x/a.jpg"))
+    await db_session.flush()
+    sheet = await facts.build_property_sheet(db_session, prop.id)
+
+    async def fake_download(url):
+        return "aGVsbG8=", "image/jpeg"
+
+    class Provider(FakeProvider):
+        async def complete_json(self, messages, vision_input=None, json_schema=None):
+            if vision_input is not None:
+                raise AIProviderError("usage limit reached", provider="Agnes AI", status_code=429)
+            return await super().complete_json(messages, vision_input, json_schema)
+
+    monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", fake_download)
+    stats = await runner.run_batch(db_session, Provider([compose_property(sheet)]), entity_type="property",
+                                   locales=["en"], slugs=[str(prop.id)])
+    assert stats.stopped_reason == "rate_limited" and stats.generated == 0
