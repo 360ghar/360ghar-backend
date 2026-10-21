@@ -17,6 +17,7 @@ _CACHEABLE_PATH_PREFIXES = (
     "/api/v1/amenities",
     "/api/v1/faqs/public",
     "/api/v1/localities",
+    "/api/v1/content",
     "/api/v1/data-hub",
 )
 
