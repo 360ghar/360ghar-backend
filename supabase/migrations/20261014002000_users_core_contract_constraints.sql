@@ -18,6 +18,10 @@
 
 UPDATE app_versions SET app = 'ghar' WHERE app = 'ghar360';
 
+-- Seed rows from 2025 use the old long slugs (found in prod, 48 rows).
+UPDATE app_versions SET app = 'ghar' WHERE app = '360ghar_real_estate';
+UPDATE app_versions SET app = 'stays' WHERE app = '360ghar_short_stays';
+
 UPDATE app_versions SET platform = lower(platform) WHERE platform <> lower(platform);
 
 UPDATE faqs SET display_order = 0 WHERE display_order IS NULL;

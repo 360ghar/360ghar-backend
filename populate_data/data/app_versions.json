@@ -1,6 +1,6 @@
 [
   {
-    "app": "360ghar_real_estate",
+    "app": "ghar",
     "platform": "ios",
     "version": "1.0.0",
     "build_number": 1,
@@ -11,7 +11,7 @@
     "min_supported_version": null
   },
   {
-    "app": "360ghar_real_estate",
+    "app": "ghar",
     "platform": "android",
     "version": "1.0.0",
     "build_number": 1,
@@ -22,7 +22,7 @@
     "min_supported_version": null
   },
   {
-    "app": "360ghar_real_estate",
+    "app": "ghar",
     "platform": "web",
     "version": "1.0.0",
     "build_number": null,
@@ -33,7 +33,7 @@
     "min_supported_version": null
   },
   {
-    "app": "360ghar_short_stays",
+    "app": "stays",
     "platform": "ios",
     "version": "1.0.0",
     "build_number": 1,
@@ -44,7 +44,7 @@
     "min_supported_version": null
   },
   {
-    "app": "360ghar_short_stays",
+    "app": "stays",
     "platform": "android",
     "version": "1.0.0",
     "build_number": 1,
@@ -55,7 +55,7 @@
     "min_supported_version": null
   },
   {
-    "app": "360ghar_short_stays",
+    "app": "stays",
     "platform": "web",
     "version": "1.0.0",
     "build_number": null,
