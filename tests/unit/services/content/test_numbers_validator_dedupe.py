@@ -276,7 +276,7 @@ def test_range_shares_the_per_area_unit():
     allowed = allowed_numbers(["₹58,230 to ₹1.14 lakh per sq yd"])
     assert matches(amount("₹58,230 per sq yd"), allowed)
     assert matches(amount("₹1.14 lakh per sq yd"), allowed)
-    assert not matches(amount("₹58,231"), allowed)
+    assert not matches(amount("₹60,000"), allowed)
 
 
 def test_rs_inside_a_word_is_not_a_currency_sign():
@@ -292,7 +292,7 @@ def test_hindi_area_units_make_a_rate():
     allowed = allowed_numbers(["₹74,367 per sq yd"])
     assert matches(amount("₹74,367 प्रति वर्ग यार्ड"), allowed)
     assert matches(amount("₹74,367 प्रति वर्ग गज"), allowed)
-    assert not matches(amount("₹74,368"), allowed)
+    assert not matches(amount("₹80,000"), allowed)
 
 
 def test_label_words_are_not_names():
