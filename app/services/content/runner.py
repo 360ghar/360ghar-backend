@@ -35,8 +35,19 @@ MIN_FACTS_TO_GENERATE = 3
 ENTITY_TYPES = ("locality", "property")
 
 # Optional per-type step that adds to the body after validation (property image alt text).
-Enricher = Callable[[AsyncSession, AIProvider, FactSheet], Awaitable[dict[str, Any]]]
-ENRICHERS: dict[str, Enricher] = {}
+# It returns the extra body keys and the number of model calls it made.
+Throttle = Callable[[], Awaitable[None]]
+Enricher = Callable[
+    [AsyncSession, AIProvider, FactSheet, str, Throttle], Awaitable[tuple[dict[str, Any], int]]
+]
+
+
+def _enricher(entity_type: str) -> Enricher | None:
+    if entity_type == "property":
+        from app.services.content.property_summary import enrich_property
+
+        return enrich_property
+    return None
 
 
 @dataclass
@@ -89,11 +100,25 @@ def is_quota_error(exc: AIProviderError) -> bool:
     return exc.status_code == 429 or "usage limit" in text or "quota" in text
 
 
+def make_throttle(interval: float) -> Throttle:
+    """An awaitable that keeps at least ``interval`` seconds between the calls that await it."""
+    last = 0.0
+
+    async def wait() -> None:
+        nonlocal last
+        gap = interval - (time.monotonic() - last)
+        if gap > 0:
+            await asyncio.sleep(gap)
+        last = time.monotonic()
+
+    return wait
+
+
 async def generate(
     provider: AIProvider,
     sheet: FactSheet,
     locale: str,
-    throttle: Callable[[], Awaitable[None]] | None = None,
+    throttle: Throttle | None = None,
 ) -> Generation:
     """Call the model up to MAX_ATTEMPTS times, feeding validator errors back each time."""
     previous: dict[str, Any] | None = None
@@ -204,15 +229,7 @@ async def run_batch(
     """Generate content for up to ``max_entities`` changed entities, then stop."""
     stats = RunStats()
     started = time.monotonic()
-    last_call = 0.0
-
-    async def throttle() -> None:
-        nonlocal last_call
-        wait = min_interval - (time.monotonic() - last_call)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        last_call = time.monotonic()
-
+    throttle = make_throttle(min_interval)
     existing = {
         (slug, loc): (h, v, st)
         for slug, loc, h, v, st in (
@@ -225,7 +242,7 @@ async def run_batch(
         ).all()
     }
     siblings = {loc: await _siblings(db, entity_type, loc) for loc in locales}
-    enrich = ENRICHERS.get(entity_type)
+    enrich = _enricher(entity_type)
     todo = await _entity_slugs(db, entity_type, after, slugs, city)
     consecutive_errors = 0
     entities_done = 0
@@ -282,7 +299,9 @@ async def run_batch(
             score, twin = dedupe.max_similarity(dedupe.content_text(body), others) if gen.ok else (0.0, None)
             status, indexable, notes = decide(sheet, gen, score, twin)
             if gen.ok and status in ("auto", "needs_review") and enrich:
-                body = {**body, **await enrich(db, provider, sheet)}
+                extra, extra_calls = await enrich(db, provider, sheet, locale, throttle)
+                body = {**body, **extra}
+                stats.calls += extra_calls
             await _store(
                 db,
                 {
