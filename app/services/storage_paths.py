@@ -24,6 +24,9 @@ class StorageFolder(Enum):
     GENERIC_UPLOAD = "uploads/{user_id}"
     AGENT_AVATAR = "agents/{agent_id}/avatars"
     BLOG_COVER = "blog-covers"
+    # Server-generated imagery (house-style art and OG cards). Not a client upload folder.
+    AI_ART = "generated/art"
+    OG_CARD = "generated/og"
 
 
 # Folders whose files are private. Cloudinary stores them as type "authenticated".

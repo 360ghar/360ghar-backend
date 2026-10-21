@@ -8,6 +8,7 @@ from .ai_conversations import AIConversation, AIConversationMessage
 from .blogs import BlogCategory, BlogPost, BlogPostCategory, BlogPostTag, BlogTag
 from .bookings import Booking
 from .capture import CaptureFrame, CaptureSession
+from .content import ContentBlock, GeneratedImage, Locality
 from .conversations import Conversation, ConversationParticipant, Message
 from .core import FAQ, AppVersion, BugReport, Page
 from .data_hub import (
@@ -118,6 +119,10 @@ __all__ = [
     "AgentInteraction",
     # Leads
     "Lead",
+    # AI content
+    "ContentBlock",
+    "GeneratedImage",
+    "Locality",
     # Bookings
     "Booking",
     # Core
