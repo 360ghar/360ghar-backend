@@ -51,7 +51,6 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
-!app/core/cache/
 
 # Translations
 *.mo
@@ -190,6 +189,7 @@ blog_verify_full.png
 
 # Disk cache files
 cache/
+!app/core/cache/
 
 # Local audit run artifacts — contain live Supabase admin JWTs and must
 # never be committed. Regenerated on demand by the audit script.
