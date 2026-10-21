@@ -36,6 +36,7 @@ _AREA_UNITS = (
 # Indian (1,25,000) or western (12,345) grouping, else plain digits. "5,10" is two numbers.
 _NUMBER = r"(?:\d{1,2}(?:,\d{2})+,\d{3}|\d{1,3}(?:,\d{3})+)(?:\.\d+)?|\d+(?:\.\d+)?"
 _TOKEN_RE = re.compile(
+    rf"(?:(?P<pre_per>per\s+|प्रति\s+)(?P<pre_area>{_AREA_UNITS})\s*[:,]?\s*)?"
     r"(?P<cur>₹|(?<![A-Za-z])(?:rs\.?|inr)(?![A-Za-z]))?\s*"
     rf"(?P<num>{_NUMBER})"
     r"(?:\s*(?P<mult>lakhs?|lacs?|crores?|cr\b|thousand|million|billion|k\b|लाख|करोड़|करोड|हज़ार|हजार))?"
@@ -65,6 +66,7 @@ class Amount:
     kind: str  # plain | money | area | rate | km | pct
     text: str
     approx: bool = False  # a converted value: use the 0.5 percent tolerance
+    raw: float | None = None  # a rate as written (per sq yd), before conversion to per sq ft
 
 
 # Allowed numbers by kind.
@@ -89,7 +91,9 @@ def extract_amounts(text: str) -> list[Amount]:
     text = normalize_digits(text)
     matches = list(_TOKEN_RE.finditer(text))
     mults: list[str | None] = [m.group("mult") for m in matches]
-    areas: list[tuple[str | None, str | None]] = [(m.group("area"), m.group("per")) for m in matches]
+    areas: list[tuple[str | None, str | None]] = [
+        (m.group("area") or m.group("pre_area"), m.group("per") or m.group("pre_per")) for m in matches
+    ]
     # "2.5 - 8 crore", "₹58,230 to ₹1.14 lakh per sq yd": the first number shares the unit of the second.
     for i in range(len(matches) - 1):
         gap = text[matches[i].end() : matches[i + 1].start()]
@@ -109,7 +113,7 @@ def extract_amounts(text: str) -> list[Amount]:
             sqft_factor = _AREA_TO_SQFT[_area_key(area)]
             converted = sqft_factor != 1.0  # a conversion makes the value approximate
             if per or m.group("cur"):
-                out.append(Amount(value / sqft_factor, "rate", m.group(0).strip(), converted))  # per sq ft
+                out.append(Amount(value / sqft_factor, "rate", m.group(0).strip(), converted, raw=value))  # per sq ft
             else:
                 out.append(Amount(value * sqft_factor, "area", m.group(0).strip(), converted))  # sq ft
             continue
@@ -138,6 +142,10 @@ def allowed_numbers(displays: list[str]) -> Allowed:
     for display in displays:
         for amount in extract_amounts(display):
             allowed.setdefault(amount.kind, []).append((amount.value, amount.approx))
+            if amount.kind == "rate" and amount.raw is not None:
+                # "plot ₹1.72 lakh and commercial ₹1.10 lakh per sq yd": a list shares one unit,
+                # so a bare amount equal to a stated rate is the same number.
+                allowed.setdefault("money", []).append((amount.raw, False))
     return allowed
 
 
