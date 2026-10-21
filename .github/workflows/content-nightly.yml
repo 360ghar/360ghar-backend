@@ -1,0 +1,68 @@
+name: Content nightly
+
+# Calls the backend to generate AI content for localities (and later properties) whose
+# facts changed. Needs two repository secrets: BACKEND_BASE_URL (for example
+# https://api.360ghar.com, no trailing slash) and CRON_SECRET (same value as the backend
+# CRON_SECRET setting). Without them the run skips with a notice.
+
+on:
+  schedule:
+    - cron: "30 20 * * *" # 02:00 IST
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Regenerate even when the facts are unchanged"
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: content-nightly
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      ENTITY_TYPES: "locality"
+      FORCE: ${{ inputs.force && 'true' || 'false' }}
+    steps:
+      - name: Check secrets
+        id: gate
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::notice::BACKEND_BASE_URL or CRON_SECRET is not set. Skipping the content run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate content in batches
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          for entity in $ENTITY_TYPES; do
+            after=""
+            for round in $(seq 1 60); do
+              payload=$(jq -nc --arg e "$entity" --arg a "$after" --argjson f "$FORCE" \
+                '{entity_type: $e, max_entities: 10, force: $f} + (if $a == "" then {} else {after: $a} end)')
+              status=$(curl -sS -o resp.json -w '%{http_code}' --max-time 330 -X POST \
+                -H "X-Cron-Secret: $CRON_SECRET" -H 'Content-Type: application/json' \
+                -d "$payload" "$BACKEND_BASE_URL/api/v1/admin/content/run")
+              if [ "$status" != "200" ]; then
+                echo "::error::content run failed for $entity with HTTP $status: $(jq -c '.error // .' resp.json)"
+                exit 1
+              fi
+              jq -r --arg e "$entity" --argjson r "$round" \
+                '"\($e) round \($r): generated \(.generated), skipped \(.skipped), failed \(.failed), review \(.needs_review), rejected \(.rejected), calls \(.calls), stop \(.stopped_reason // "none")"' resp.json
+              if [ "$(jq -r .done resp.json)" = "true" ]; then break; fi
+              reason=$(jq -r '.stopped_reason // ""' resp.json)
+              if [ "$reason" = "rate_limited" ] || [ "$reason" = "provider_errors" ]; then
+                echo "::notice::$entity stopped early ($reason). The next nightly run resumes it."
+                break
+              fi
+              after=$(jq -r '.next_after // ""' resp.json)
+            done
+          done
