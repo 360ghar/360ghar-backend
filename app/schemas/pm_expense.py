@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.enums import ExpenseCategory
 from app.schemas.base import Money, NotNullable, PatchModel, UtcDateTime, WriteModel
+from app.schemas.property import BASE_PRICE_MAX
 
 
 class ExpenseCreate(WriteModel):
@@ -14,7 +15,7 @@ class ExpenseCreate(WriteModel):
     property_id: int
     category: ExpenseCategory
     title: str | None = Field(default=None, max_length=200)
-    amount: Annotated[Money, Field(gt=0)]
+    amount: Annotated[Money, Field(gt=0, le=BASE_PRICE_MAX)]
     expense_date: date
     description: str | None = None
     notes: str | None = None
@@ -25,7 +26,7 @@ class ExpenseUpdate(PatchModel):
     property_id: Annotated[int | None, NotNullable] = None
     category: Annotated[ExpenseCategory | None, NotNullable] = None
     title: str | None = Field(default=None, max_length=200)
-    amount: Annotated[Money | None, NotNullable, Field(gt=0)] = None
+    amount: Annotated[Money | None, NotNullable, Field(gt=0, le=BASE_PRICE_MAX)] = None
     expense_date: Annotated[date | None, NotNullable] = None
     description: str | None = None
     notes: str | None = None

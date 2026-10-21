@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.core.cache.counters import FixedWindowCounters
 from app.core.cache.interface import CacheStats
 from app.core.logging import get_logger
 
@@ -51,6 +52,7 @@ class DiskCacheBackend:
         self._max_entry_bytes = max_entry_bytes
         self._cleanup_interval = cleanup_interval
         self._entries: OrderedDict[str, DiskCacheEntry] = OrderedDict()
+        self._counters = FixedWindowCounters()
         self._lock = asyncio.Lock()
         self._cleanup_task: asyncio.Task[None] | None = None
         self._available = False
@@ -170,6 +172,14 @@ class DiskCacheBackend:
         self.stats.sets += 1
         return True
 
+    async def incr(self, key: str, ttl: int | None = None) -> int:
+        """Add 1 to a counter and return it (fixed window of ``ttl`` s, not extended).
+
+        The entry index of this backend is per process, so counters are too. They are
+        held in memory, apart from the LRU files, and are not shared across workers.
+        """
+        return self._counters.incr(key, ttl if ttl is not None else self._default_ttl)
+
     async def get_and_delete(self, key: str) -> Any | None:
         value = await self.get(key)
         if value is not None:
@@ -178,6 +188,7 @@ class DiskCacheBackend:
 
     async def delete(self, key: str) -> bool:
         async with self._lock:
+            self._counters.delete(key)
             return await self._delete_locked(key)
 
     async def delete_pattern(self, pattern: str) -> int:
@@ -202,6 +213,7 @@ class DiskCacheBackend:
             keys = list(self._entries)
             for key in keys:
                 await self._delete_locked(key)
+            self._counters.clear()
         logger.info("Disk cache cleared: %s entries", len(keys))
         return True
 

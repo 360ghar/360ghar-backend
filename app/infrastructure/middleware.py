@@ -63,6 +63,10 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
         cors_origins = settings.CORS_ORIGINS
         cors_credentials = True
 
+    # Added first, so it is the innermost of these three: the rate limiter counts a 413,
+    # and CORS adds its headers to it so browsers can read the error.
+    app.add_middleware(BodyLimitMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -82,9 +86,6 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
         period=60,
         scope="global",
     )
-
-    # Inside the rate limiter: a rate-limited client is turned away before its body is read.
-    app.add_middleware(BodyLimitMiddleware)
 
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CacheControlMiddleware)

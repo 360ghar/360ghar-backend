@@ -43,7 +43,10 @@ async def create_lead(db: AsyncSession, data: LeadCreate, user_id: int | None) -
     if data.website:
         logger.info("Lead dropped: honeypot filled")
         return None
-    if data.property_id is not None and await db.get(Property, data.property_id) is None:
+    # An id outside BIGINT cannot be bound to the primary key, so it is simply not found.
+    if data.property_id is not None and (
+        not 0 < data.property_id < 2**63 or await db.get(Property, data.property_id) is None
+    ):
         raise PropertyNotFoundException(property_id=data.property_id)
     lead = Lead(
         property_id=data.property_id,

@@ -17,7 +17,7 @@ _DOMAIN_PATTERN = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA
 def normalize_domain(value: str) -> str:
     """Strip the scheme and trailing slash, check the format, and lower-case the result."""
     value = re.sub(r"^https?://", "", value).rstrip("/")
-    if not re.match(_DOMAIN_PATTERN, value):
+    if not re.fullmatch(_DOMAIN_PATTERN, value):
         raise ValueError("Invalid domain format")
     return value.lower()
 

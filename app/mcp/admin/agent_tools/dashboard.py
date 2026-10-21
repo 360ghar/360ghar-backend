@@ -19,6 +19,7 @@ from app.mcp.admin.agent_tools.common import (
 )
 from app.mcp.apps_sdk import build_widget_tool_meta
 from app.models.enums import UserRole
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 
 AGENT_DASHBOARD_META = build_widget_tool_meta(
     widget_uri="ui://widget/ownerdashboardwidget.html",
@@ -91,7 +92,9 @@ async def agent_dashboard_overview(
             total_properties = prop_result.scalar() or 0
 
             # Count active leases
-            lease_stmt = select(func.count(Lease.id)).where(Lease.status == LeaseStatus.active)
+            lease_stmt = select(func.count(Lease.id)).where(
+                Lease.status.in_(OCCUPIED_LEASE_STATUSES)
+            )
             if owner_filter:
                 lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_filter))
             lease_result = await db.execute(lease_stmt)

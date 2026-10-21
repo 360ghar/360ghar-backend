@@ -13,6 +13,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.cache.counters import FixedWindowCounters
 from app.core.cache.interface import CacheStats
 from app.core.logging import get_logger
 
@@ -66,6 +67,7 @@ class InMemoryCacheBackend:
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max_size = max_size
+        self._counters = FixedWindowCounters()
         self._default_ttl = default_ttl
         self._cleanup_interval = cleanup_interval
         self._max_entry_bytes = max_entry_bytes
@@ -155,27 +157,11 @@ class InMemoryCacheBackend:
             return False
 
     async def incr(self, key: str, ttl: int | None = None) -> int:
-        """Atomically add 1 to an integer counter and return it.
+        """Add 1 to a counter and return it (fixed window of ``ttl`` s, not extended).
 
-        A missing or expired key starts at 1 and gets ``ttl`` seconds. The TTL of a
-        live counter is not extended, so the counter is a fixed window.
+        Counters live apart from the LRU entries, so other cache traffic cannot evict them.
         """
-        ttl = ttl if ttl is not None else self._default_ttl
-        async with self._lock:
-            entry = self._cache.get(key)
-            if entry is not None and not entry.is_expired() and isinstance(entry.value, int):
-                entry.value += 1
-                self._cache.move_to_end(key)
-                return int(entry.value)
-            self._cache.pop(key, None)
-            while len(self._cache) >= self._max_size:
-                self._cache.popitem(last=False)
-            self._cache[key] = CacheEntry(
-                value=1,
-                expires_at=time.time() + ttl if ttl > 0 else None,
-                created_at=time.time(),
-            )
-            return 1
+        return self._counters.incr(key, ttl if ttl is not None else self._default_ttl)
 
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically get value and delete key under the same lock.
@@ -201,6 +187,7 @@ class InMemoryCacheBackend:
     async def delete(self, key: str) -> bool:
         """Delete single key."""
         async with self._lock:
+            self._counters.delete(key)
             if key in self._cache:
                 del self._cache[key]
                 self.stats.deletes += 1
@@ -240,6 +227,7 @@ class InMemoryCacheBackend:
         async with self._lock:
             count = len(self._cache)
             self._cache.clear()
+            self._counters.clear()
         logger.info("In-memory cache cleared: %s entries", count)
         return True
 

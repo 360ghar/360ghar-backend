@@ -68,6 +68,8 @@ class CourtAuctionScraper(BaseScraper):
                         rec["borrower_name"] = val
                     elif "property" in h and "description" in h:
                         rec["property_description"] = val
+                    elif "property" in h and "type" in h:
+                        rec["property_type"] = val
                     elif "reserve" in h:
                         try:
                             rec["reserve_price"] = float(

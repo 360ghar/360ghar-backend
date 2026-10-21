@@ -44,6 +44,7 @@ async def list_amenities(page: CursorParams = Depends(), db: AsyncSession = Depe
         for item in await get_amenities_cached(db)
     ]
     amenities = sorted(rows, key=lambda a: (a.title, a.id))
+    total = len(amenities) if page.include_total else None
     validate_keyset_payload(cursor_payload, "text", id_kind="int4")
     keyset = read_keyset(cursor_payload)
     if keyset is not None:
@@ -55,4 +56,6 @@ async def list_amenities(page: CursorParams = Depends(), db: AsyncSession = Depe
         sort_value=lambda a: keyset_sort_value(a.title),
         item_id=lambda a: a.id,
     )
-    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, filters=binding)
+    return build_cursor_page(
+        items, limit=page.limit, next_payload=next_payload, total=total, filters=binding
+    )

@@ -105,7 +105,9 @@ async def _ensure_conversation(
     existing_id = (
         await db.execute(
             select(ConversationParticipant.conversation_id)
+            .join(Conversation, Conversation.id == ConversationParticipant.conversation_id)
             .where(
+                Conversation.app == ConversationApp.flatmates,
                 ConversationParticipant.conversation_id.in_(user_conv_ids),
                 ConversationParticipant.conversation_id.in_(other_conv_ids),
             )
@@ -543,7 +545,9 @@ async def find_1to1_conversation(
     conv_id = (
         await db.execute(
             select(ConversationParticipant.conversation_id)
+            .join(Conversation, Conversation.id == ConversationParticipant.conversation_id)
             .where(
+                Conversation.app == ConversationApp.flatmates,
                 ConversationParticipant.conversation_id.in_(user_conv_ids),
                 ConversationParticipant.conversation_id.in_(other_conv_ids),
             )

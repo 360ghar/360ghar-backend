@@ -45,7 +45,11 @@ async def run_pm_daily_lifecycle() -> dict:
 
 
 def start_pm_scheduler(app: FastAPI) -> None:
-    """Register the daily PM job on the shared scheduler."""
+    """Register the daily PM job on the shared scheduler.
+
+    The scheduler is skipped when SERVERLESS_ENABLED=true. Run
+    ``python -m scripts.run_pm_lifecycle`` from a Railway cron job in that mode.
+    """
     del app
     scheduler = get_scheduler()
 
@@ -57,7 +61,7 @@ def start_pm_scheduler(app: FastAPI) -> None:
 
     scheduler.add_job(
         job_wrapper,
-        CronTrigger(hour=TRIGGER_HOUR, minute=TRIGGER_MINUTE),
+        CronTrigger(hour=TRIGGER_HOUR, minute=TRIGGER_MINUTE, timezone=scheduler.timezone),
         id=JOB_ID,
         replace_existing=True,
         max_instances=1,

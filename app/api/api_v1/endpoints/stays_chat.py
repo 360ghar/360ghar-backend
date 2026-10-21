@@ -33,18 +33,19 @@ async def list_messages(
 ) -> dict[str, Any]:
     """Messages in the booking chat, newest first. Only the guest and the host."""
     binding: dict[str, Any] = {"booking_id": booking_id}
-    rows, next_payload = await list_booking_messages(
+    rows, next_payload, total = await list_booking_messages(
         db,
         booking_id,
         current_user.id,
         cursor_payload=page.decoded(binding),
         limit=page.limit,
+        with_total=page.include_total,
     )
     return build_cursor_page(
         [BookingMessageOut.model_validate(row) for row in rows],
         limit=page.limit,
         next_payload=next_payload,
-        total=None,
+        total=total,
         filters=binding,
     )
 

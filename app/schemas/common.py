@@ -1,6 +1,6 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.schemas.base import NotNullable, PatchModel, WriteModel
 
@@ -48,6 +48,18 @@ class PrivacySettings(BaseModel):
     show_email: bool = False
     allow_location_tracking: bool = True
     data_sharing_consent: bool = False
+
+    @field_validator("profile_visibility", mode="before")
+    @classmethod
+    def _unknown_visibility_is_private(cls, value: object) -> object:
+        """A stored legacy value (such as "friends") reads as the most restrictive option.
+
+        Without this the whole blob fails validation and falls back to "public", which would
+        expose a profile the user had restricted.
+        """
+        if isinstance(value, str) and value not in ("public", "agents_only", "private"):
+            return "private"
+        return value
 
 
 class PrivacySettingsPatch(PatchModel):

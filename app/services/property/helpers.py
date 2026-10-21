@@ -56,7 +56,7 @@ def derive_furnishing_level(preferences: Any) -> str | None:
         level = room.get("furnishing_level") if isinstance(room, dict) else None
         if level is None:
             continue
-        if level not in _FURNISHING_RANK:
+        if not isinstance(level, str) or level not in _FURNISHING_RANK:
             raise ValidationException(
                 detail=(
                     f"listing_preferences.rooms[{index}].furnishing_level must be one of: "

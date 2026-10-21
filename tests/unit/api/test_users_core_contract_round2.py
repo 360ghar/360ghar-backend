@@ -58,7 +58,7 @@ def test_stored_blobs_read_typed_and_drop_keys_outside_the_contract() -> None:
     assert set(dumped["notification_settings"]) == set(NotificationSettings.model_fields)
     assert dumped["notification_settings"]["push_notifications"] is False
     assert dumped["privacy_settings"]["show_phone"] is True
-    assert dumped["privacy_settings"]["profile_visibility"] == "public"
+    assert dumped["privacy_settings"]["profile_visibility"] == "private"
     assert "legacy" not in dumped["privacy_settings"]
 
 

@@ -275,7 +275,8 @@ async def _run_tour_generation(
             # Null unless spatial linking runs, so the client can tell "no report"
             # from "linked nothing".
             spatial_summary: dict[str, Any] | None = None
-            if options.get("spatial"):
+            # A single scene has nothing to link, so it takes the per-scene metadata path.
+            if options.get("spatial") and total_scenes >= 2:
                 if settings.USE_DAYTONA_SANDBOX:
                     created_hotspots, generated, spatial_summary = await _apply_spatial_tour_plan(
                         db,
@@ -284,6 +285,8 @@ async def _run_tour_generation(
                         apply_to_scenes=apply_to_scenes,
                         fallback_title=tour.title,
                         fallback_description=tour.description,
+                        generate_titles=generate_titles,
+                        generate_descriptions=generate_descriptions,
                     )
                 else:
                     created_hotspots, spatial_summary = await _apply_spatial_navigation(
@@ -292,6 +295,8 @@ async def _run_tour_generation(
                         provider,
                         apply_to_scenes=apply_to_scenes,
                         downloaded_panoramas=downloaded_panoramas,
+                        generate_titles=generate_titles,
+                        generate_descriptions=generate_descriptions,
                     )
                 await update_job_status(db, job_id, "processing", 85)
             else:
@@ -416,6 +421,8 @@ async def _apply_spatial_navigation(
     provider: Any,
     apply_to_scenes: bool = True,
     downloaded_panoramas: dict[str, tuple[str, str]] | None = None,
+    generate_titles: bool = True,
+    generate_descriptions: bool = True,
 ) -> tuple[list[str], dict[str, Any]]:
     """Build Matterport-style spatial navigation hotspots for a tour.
 
@@ -475,9 +482,9 @@ async def _apply_spatial_navigation(
 
         # Fill title, description, room type, and initial view from the analysis.
         if apply_to_scenes:
-            if gs.get("title"):
+            if generate_titles and gs.get("title"):
                 db_scene.title = gs["title"]
-            if gs.get("description"):
+            if generate_descriptions and gs.get("description"):
                 db_scene.description = gs["description"]
             updates: dict[str, Any] = {"room_type": gs.get("room_type")}
             if "initial_view" not in (db_scene.scene_metadata or {}):
@@ -537,6 +544,8 @@ async def _apply_spatial_tour_plan(
     apply_to_scenes: bool = True,
     fallback_title: str = "Virtual Tour",
     fallback_description: str | None = None,
+    generate_titles: bool = True,
+    generate_descriptions: bool = True,
 ) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
     """Generate one tour.json-style plan and save it to the current DB tour."""
     from uuid import uuid4
@@ -662,9 +671,9 @@ async def _apply_spatial_tour_plan(
             continue
 
         if apply_to_scenes:
-            if planned_scene.get("title"):
+            if generate_titles and planned_scene.get("title"):
                 db_scene.title = planned_scene["title"]
-            if planned_scene.get("description"):
+            if generate_descriptions and planned_scene.get("description"):
                 db_scene.description = planned_scene["description"]
             plan_metadata = planned_scene.get("metadata")
             updates = dict(plan_metadata) if isinstance(plan_metadata, dict) else {}

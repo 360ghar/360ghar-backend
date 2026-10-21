@@ -10,6 +10,7 @@ from app.models.enums import LeaseStatus, MaintenanceRequestStatus
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,9 @@ async def compute_dashboard_metrics(
     total_properties = (await db.execute(prop_stmt)).scalar() or 0
 
     # Active leases
-    lease_stmt = select(func.count(Lease.id)).where(Lease.status == LeaseStatus.active)
+    lease_stmt = select(func.count(Lease.id)).where(
+        Lease.status.in_(OCCUPIED_LEASE_STATUSES)
+    )
     if owner_ids is not None:
         lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     active_leases = (await db.execute(lease_stmt)).scalar() or 0

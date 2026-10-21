@@ -87,7 +87,9 @@ async def owner_leases_list(
             # Stats cover every lease in the owner's scope, not this page.
             from app.mcp.tool_ops.leases import lease_portfolio_stats
 
-            stats = await lease_portfolio_stats(db, accessible_owner_ids=[user.id])
+            stats = await lease_portfolio_stats(
+                db, property_id=property_id, accessible_owner_ids=[user.id]
+            )
             active_count = stats["active_leases"]
             total_rent = stats["total_monthly_rent"]
 

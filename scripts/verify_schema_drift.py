@@ -470,6 +470,25 @@ def check_drift(*, database_url: str, allowlist: Path = DEFAULT_ALLOWLIST) -> li
     return problems
 
 
+def _read_reasons(path: Path) -> dict[str, str]:
+    """Map each allowlist entry to the comment lines directly above it, so a rewrite keeps them."""
+    reasons: dict[str, str] = {}
+    if not path.is_file():
+        return reasons
+    pending: list[str] = []
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line:
+            pending = []
+        elif line.startswith("#"):
+            pending.append(line)
+        else:
+            if pending:
+                reasons[line] = "\n".join(pending)
+            pending = []
+    return reasons
+
+
 def verify_schema_drift(*, env_file: str | None = None, write_allowlist: bool = False) -> int:
     env_path = Path(env_file) if env_file else None
     if env_path is not None:
@@ -508,8 +527,14 @@ def verify_schema_drift(*, env_file: str | None = None, write_allowlist: bool = 
             "# One line per difference: table.column: kind: detail\n"
             "# Remove a line when its difference is fixed. Regenerate with:\n"
             "#   uv run python scripts/verify_schema_drift.py --write-allowlist\n"
+            "# Every line needs a one-line reason in the comment directly above it.\n"
         )
-        DEFAULT_ALLOWLIST.write_text(header + "\n".join(sorted(set(drift.diffs))) + "\n")
+        reasons = _read_reasons(DEFAULT_ALLOWLIST)
+        body = ""
+        for entry in sorted(set(drift.diffs)):
+            reason = reasons.get(entry, "# TODO: add a one-line reason for this entry.")
+            body += f"\n{reason}\n{entry}\n"
+        DEFAULT_ALLOWLIST.write_text(header + body)
         print(f"Wrote {len(set(drift.diffs))} entries to {DEFAULT_ALLOWLIST}")
         if drift.errors:
             print("ERROR: fix MISSING_TABLE_EXEMPTIONS:")

@@ -10,7 +10,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, and_, cast, literal, or_
+from sqlalchemy import BigInteger, DateTime, Integer, and_, cast, false, literal, or_
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.exceptions import BadRequestException
@@ -39,15 +39,23 @@ def keyset_after(
     """Rows that come after the cursor in the order (key_1 ... key_n, id).
 
     Each cursor value is cast to its key's SQL type, so timestamps and numbers
-    compare correctly.
+    compare correctly. A NULL cursor value follows Postgres order (NULL last for ASC,
+    first for DESC).
     """
     terms: list[ColumnElement[bool]] = []
     equal_so_far: list[ColumnElement[bool]] = []
     for (expr, sql_type, desc), value in zip(key_specs, cursor_values, strict=True):
-        rhs = cast(value, sql_type)
-        after = expr < rhs if desc else expr > rhs
+        # Postgres sorts NULL last for ASC and first for DESC. A NULL never matches =, < or >,
+        # so a NULL on either side is compared with IS NULL / IS NOT NULL.
+        if value is None:
+            after = expr.is_not(None) if desc else false()
+            same = expr.is_(None)
+        else:
+            rhs = cast(value, sql_type)
+            after = expr < rhs if desc else or_(expr > rhs, expr.is_(None))
+            same = expr == rhs
         terms.append(and_(*equal_so_far, after) if equal_so_far else after)
-        equal_so_far.append(expr == rhs)
+        equal_so_far.append(same)
     # properties.id is bigint. An Integer bind renders as ::INTEGER and overflows past int4,
     # so the cursor id is bound as BIGINT.
     cursor_id_bind = literal(cursor_id, BigInteger())

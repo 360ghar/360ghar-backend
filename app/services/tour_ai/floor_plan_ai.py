@@ -69,11 +69,24 @@ async def analyze_floor_plan(
         rooms.append({
             "label": str(r.get("label") or room_type).strip(),
             "room_type": room_type,
-            "x_fraction": float(r.get("x_fraction") or 0.5),
-            "y_fraction": float(r.get("y_fraction") or 0.5),
-            "confidence": float(r.get("confidence") or 0.5),
+            "x_fraction": _unit_float(r.get("x_fraction"), 0.5),
+            "y_fraction": _unit_float(r.get("y_fraction"), 0.5),
+            "confidence": _unit_float(r.get("confidence"), 0.5),
         })
     return rooms
+
+
+def _unit_float(value: Any, default: float) -> float:
+    """Model output as a float in [0, 1]. Only a missing or non-numeric value takes the default."""
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    if number != number:  # NaN
+        return default
+    return min(1.0, max(0.0, number))
 
 
 def match_rooms_to_scenes(

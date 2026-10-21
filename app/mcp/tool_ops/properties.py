@@ -22,13 +22,14 @@ from app.mcp.utils import (
     serialize_property_basic,
     serialize_property_full,
 )
-from app.models.enums import LeaseStatus, PropertyPurpose, PropertyType
+from app.models.enums import PropertyPurpose, PropertyType
 from app.models.pm_leases import Lease
 from app.models.properties import PropertyAmenity
 from app.models.users import User as UserModel
 from app.schemas.pagination import encode_cursor
 from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 from app.services.pm_authz import assert_can_access_property
 from app.services.pm_properties import (
     create_managed_property,
@@ -70,7 +71,7 @@ async def enrich_properties_with_lease_info(
         lease_stmt = (
             select(Lease.property_id, UserModel.full_name)
             .join(UserModel, UserModel.id == Lease.tenant_user_id)
-            .where(Lease.property_id.in_(property_ids), Lease.status == LeaseStatus.active)
+            .where(Lease.property_id.in_(property_ids), Lease.status.in_(OCCUPIED_LEASE_STATUSES))
         )
         lease_result = await db.execute(lease_stmt)
         for prop_id, tenant_name in lease_result.all():

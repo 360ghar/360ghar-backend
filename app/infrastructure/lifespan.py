@@ -545,7 +545,8 @@ def _register_scheduler_jobs(app: FastAPI) -> None:
     if settings.SERVERLESS_ENABLED:
         logger.info(
             "Serverless mode enabled — skipping in-process schedulers "
-            "to allow scale-to-zero. Move cron work to Railway cron jobs."
+            "to allow scale-to-zero. Move cron work to Railway cron jobs "
+            "(PM lifecycle: python -m scripts.run_pm_lifecycle)."
         )
         return
 

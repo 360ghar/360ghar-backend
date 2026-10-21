@@ -78,6 +78,7 @@ class ClientRegistrationResponse(BaseModel):
 @registration_router.post(
     "/mcp/oauth/register",
     response_model=ClientRegistrationResponse,
+    status_code=201,
     summary="Register OAuth client",
 )
 async def register_client(

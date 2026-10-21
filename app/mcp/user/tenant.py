@@ -298,6 +298,10 @@ async def tenant_maintenance_list(
     except AuthRequiredError:
         raise
     except Exception as e:
+        if getattr(e, "error_code", None) == "INVALID_CURSOR":
+            return invalid_input_response(
+                "Invalid cursor for this filter. Start again without a cursor."
+            )
         logger.error("Error in tenant.maintenance.list: %s", e, exc_info=True)
         return internal_error_response("Failed to list maintenance requests.")
     return {}

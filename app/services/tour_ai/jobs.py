@@ -70,8 +70,14 @@ async def update_job_status(
     terminal job ignores the write, so a late worker cannot move it out of that state.
     """
     # populate_existing: the worker session keeps AIJob in its identity map, and a
-    # cancel from another session must be seen on the next write.
-    query = select(AIJob).where(AIJob.id == job_id).execution_options(populate_existing=True)
+    # cancel from another session must be seen on the next write. FOR UPDATE makes the
+    # status check and the write atomic with cancel_ai_job, which locks the same row.
+    query = (
+        select(AIJob)
+        .where(AIJob.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     db_result = await db.execute(query)
     job = db_result.scalar_one_or_none()
 
@@ -83,6 +89,11 @@ async def update_job_status(
     if job.status in TERMINAL_JOB_STATUSES:
         logger.info("AI job %s is %s; ignoring %s update", job_id, job.status, status)
         return job
+
+    if result and status == "completed":
+        # Completed results must match the schema for the job type (see schemas.tour).
+        # Validate before any field changes, so a failure leaves the job as it was.
+        result = validate_ai_result(job.job_type, result)
 
     job.status = status
     job.progress = progress
@@ -96,9 +107,6 @@ async def update_job_status(
     if status in ("completed", "failed", "cancelled"):
         job.completed_at = utc_now()
 
-    if result and status == "completed":
-        # Completed results must match the schema for the job type (see schemas.tour).
-        result = validate_ai_result(job.job_type, result)
     if result:
         job.result = result
 
@@ -187,9 +195,19 @@ async def get_user_ai_jobs(
 
 async def cancel_ai_job(db: AsyncSession, job_id: str, user_id: int) -> bool:
     """Cancel an AI job."""
-    job = await get_ai_job(db, job_id, user_id)
+    job = (
+        await db.execute(
+            select(AIJob)
+            .where(AIJob.id == job_id, AIJob.user_id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise NotFoundException(detail="AI job not found")
 
-    if job.status in ("completed", "failed", "cancelled"):
+    if job.status in TERMINAL_JOB_STATUSES:
+        await db.rollback()  # release the row lock
         return False
 
     job.status = "cancelled"

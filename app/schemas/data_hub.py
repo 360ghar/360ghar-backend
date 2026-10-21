@@ -138,9 +138,9 @@ class BankAuctionResponse(BaseModel):
 
 class AuctionAlertCreate(WriteModel):
     # Null city or keyword means no filter on that field.
-    city: str | None = None
+    city: str | None = Field(default=None, max_length=100)
     keyword: str | None = None
-    bank_name: str | None = None
+    bank_name: str | None = Field(default=None, max_length=200)
     property_type: AuctionPropertyType | None = None
     min_price: Money | None = None
     max_price: Money | None = None

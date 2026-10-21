@@ -34,7 +34,9 @@ MEDIA_DIR = SEED_DIR / "media"
 BATCH_SIZE = 50
 
 # Stored in a NOT NULL media column when a ``media/...`` ref cannot be resolved (for
-# example ``--skip-media``). Nullable columns get NULL instead. Real uploads replace it.
+# example ``--skip-media``). Nullable columns get NULL instead. The URL is an image for
+# every media type, including documents, and re-seeding does not overwrite an existing row.
+# Use ``--skip-media`` on a throwaway database only; reset it before a run with real media.
 SKIP_MEDIA_PLACEHOLDER_URL = "https://placehold.co/2048x1024.jpg"
 
 
