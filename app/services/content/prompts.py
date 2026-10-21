@@ -8,7 +8,7 @@ from typing import Any
 from app.services.ai.base import AIMessage, AIRole
 from app.services.content.facts import FactSheet
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 LOCALE_NAMES = {"en": "English", "hi": "Hindi (Devanagari script)"}
 
@@ -71,7 +71,7 @@ SCHEMAS: dict[str, dict[str, Any]] = {
 
 _SHAPES = {
     "locality": (
-        "summary: 40 to 60 words, plain prose.\n"
+        "summary: 45 to 55 words, plain prose. Count the words before you answer.\n"
         "highlights: 3 to 5 short bullet strings, each a different fact.\n"
         "faqs: 4 to 6 objects with question and answer. Answer each from the facts only.\n"
         "meta_description: at most 155 characters."
@@ -84,7 +84,7 @@ _SHAPES = {
         "meta_description: at most 155 characters."
     ),
     "property": (
-        "summary: 40 to 60 words, plain prose.\n"
+        "summary: 45 to 55 words, plain prose. Count the words before you answer.\n"
         "who_it_suits: one or two sentences.\n"
         "pros: 2 to 4 short strings. cons: 1 to 3 short strings. Each must rest on a listed fact.\n"
         "meta_description: at most 155 characters."
