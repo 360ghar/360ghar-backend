@@ -395,3 +395,13 @@ async def test_quota_error_while_describing_a_photo_stops_the_batch(db_session, 
     # The paid-for text is kept and marked, so the next run only has to describe the photos.
     row = (await db_session.execute(select(ContentBlock))).scalar_one()
     assert row.review_status == "auto" and row.body["enrichment_pending"] is True
+
+
+async def test_runner_alone_registers_the_property_enricher(db_session, monkeypatch):
+    import sys
+
+    monkeypatch.delitem(runner.ENRICHERS, "property")
+    monkeypatch.delitem(sys.modules, "app.services.content.property_summary")
+    monkeypatch.delattr("app.services.content.property_summary", raising=False)
+    await runner.run_batch(db_session, FakeProvider([{}]), entity_type="property", locales=["en"], slugs=["999999"])
+    assert "property" in runner.ENRICHERS

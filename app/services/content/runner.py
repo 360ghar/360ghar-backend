@@ -278,6 +278,10 @@ async def run_batch(
         ).all()
     }
     siblings = {loc: await _siblings(db, entity_type, loc) for loc in locales}
+    if entity_type == "property":
+        # Importing the module registers its enricher. A caller that imports only the runner
+        # (a script, a test) must still get alt text.
+        from app.services.content import property_summary  # noqa: F401
     enrich = ENRICHERS.get(entity_type)
     todo = await _entity_slugs(db, entity_type, after, slugs, city)
     consecutive_errors = 0
