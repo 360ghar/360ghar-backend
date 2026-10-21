@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
@@ -21,6 +22,16 @@ COMPANY_CONTACT = "+918000000000"
 @pytest.fixture(autouse=True)
 def _company_number(monkeypatch):
     monkeypatch.setattr(settings, "COMPANY_CONTACT_NUMBER", COMPANY_CONTACT)
+
+
+@pytest.fixture(autouse=True)
+def _no_list_cache(monkeypatch):
+    """The property list is cached by its filters. A shared Redis would serve the page of an
+    earlier test, which does not hold this test's new property."""
+    monkeypatch.setattr(
+        "app.services.property.search.PropertyCacheManager.get_cached_properties",
+        AsyncMock(return_value=None),
+    )
 
 
 @pytest.mark.parametrize(
