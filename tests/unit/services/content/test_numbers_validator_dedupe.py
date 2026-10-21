@@ -90,7 +90,8 @@ def test_commas_only_group_digits():
 
 def test_spelled_numbers_are_checked_like_digits():
     allowed = allowed_numbers(["3 BHK"])
-    assert all(matches(a, allowed) for a in extract_amounts("three bedrooms"))
+    three = extract_amounts("three bedrooms")
+    assert [a.value for a in three] == [3.0] and all(matches(a, allowed) for a in three)
     assert not all(matches(a, allowed) for a in extract_amounts("twenty towers"))
     assert not all(matches(a, allowed) for a in extract_amounts("ten crore"))
     assert extract_amounts("one of the homes") == []

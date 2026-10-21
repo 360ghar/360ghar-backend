@@ -17,9 +17,10 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import quote, unquote
 
 import sqlalchemy as sa
-from sqlalchemy.engine import make_url
+from sqlalchemy.engine import URL, make_url
 
 SNAPSHOT = Path(__file__).resolve().parents[1] / "app/services/content/data/locality_seed.json"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -55,6 +56,17 @@ def snapshot_rows() -> list[dict[str, object]]:
     ]
 
 
+def parse_url(raw: str) -> URL:
+    """Parse a database URL. A password with an unescaped @ or other special characters is
+    percent-encoded first (the host never contains @). make_url keeps IPv6 brackets."""
+    scheme, _, rest = raw.partition("://")
+    creds, at, hostpart = rest.rpartition("@")
+    user, colon, password = creds.partition(":")
+    if at and colon:
+        raw = f"{scheme}://{user}:{quote(unquote(password), safe='')}@{hostpart}"
+    return make_url(raw)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-remote", action="store_true")
@@ -63,7 +75,7 @@ def main() -> None:
     raw = os.environ.get("DATABASE_URL")
     if not raw:
         sys.exit("DATABASE_URL is not set")
-    url = make_url(raw)  # handles percent-encoded passwords and bracketed IPv6 hosts
+    url = parse_url(raw)
     local = url.host in LOCAL_HOSTS
     if not local and not args.allow_remote:
         sys.exit("Refusing a non-local database. Pass --allow-remote to override.")
