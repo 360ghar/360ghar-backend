@@ -1,0 +1,49 @@
+name: Market digest weekly
+
+# Asks the backend to write the weekly Gurugram market digest from data-hub changes.
+# Needs the repository secrets BACKEND_BASE_URL and CRON_SECRET. Without them the run
+# skips with a notice. The backend skips the post when fewer than 3 changes happened and
+# saves a draft instead of a published post when the text does not validate.
+
+on:
+  schedule:
+    - cron: "30 3 * * 1" # Monday 09:00 IST
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: market-digest-weekly
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Check secrets
+        id: gate
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::notice::BACKEND_BASE_URL or CRON_SECRET is not set. Skipping the market digest."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write the digest
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o resp.json -w '%{http_code}' --max-time 300 -X POST \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            "$BACKEND_BASE_URL/api/v1/admin/content/market-digest")
+          if [ "$status" != "200" ]; then
+            echo "::error::market digest failed with HTTP $status: $(jq -c '.error // .' resp.json)"
+            exit 1
+          fi
+          jq -r '"digest: \(.status) (\(.reason // "ok")), changes \(.changes), post \(.post_slug // "none")"' resp.json
+          if [ "$(jq -r .status resp.json)" = "draft" ]; then
+            echo "::notice::The digest did not validate and was saved as a draft. Review it in the blog admin."
+          fi
