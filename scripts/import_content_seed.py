@@ -55,12 +55,19 @@ def main(web_repo: Path) -> None:
     # The landmark file also covers other cities that are not in the locality list, and one
     # Gurugram road under a "-gurgaon" slug. Report what is left out.
     landmark_map: dict[str, list[dict[str, str]]] = {}
+    for item in landmarks:  # exact slugs first, so a "-gurgaon" alias never replaces them
+        if item["slug"] in places_by_slug:
+            landmark_map[item["slug"]] = item["landmarks"]
     for item in landmarks:
-        slug = item["slug"] if item["slug"] in places_by_slug else item["slug"].removesuffix("-gurgaon")
-        if slug in places_by_slug:
-            landmark_map[slug] = item["landmarks"]
-        else:
+        if item["slug"] in places_by_slug:
+            continue
+        slug = item["slug"].removesuffix("-gurgaon")
+        if slug not in places_by_slug:
             print(f"skipped landmarks for {item['slug']}: not in the locality list")
+        elif slug in landmark_map:
+            print(f"skipped landmarks for {item['slug']}: {slug} already has its own entry")
+        else:
+            landmark_map[slug] = item["landmarks"]
     snapshot = {
         "source": f"360ghar-web-ui@{sha}" if sha else "360ghar-web-ui",
         "generated_on": datetime.now(UTC).date().isoformat(),

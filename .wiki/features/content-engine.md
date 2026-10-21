@@ -2,7 +2,7 @@
 
 Active contributors: Saksham
 
-The content engine writes short, factual text for locality pages and property listings. A fact sheet holds the only facts the model may use. The model returns JSON. A validator rejects any number or name that is not in the fact sheet, and the runner stores only what passes.
+The content engine writes short, factual text for locality pages and property listings. A fact sheet holds the only facts the model may use. The model returns JSON. A validator checks every number and name against the fact sheet. The runner stores every result with a `review_status`, and only `auto` and `approved` blocks reach the public API.
 
 ## Directory layout
 

@@ -173,14 +173,32 @@ async def test_description_change_regenerates_but_identical_text_does_not(db_ses
 
     prop = await PropertyFactory.create(
         db_session, owner=test_user, purpose=PropertyPurpose.buy, base_price=Decimal("8500000"),
-        city="Gurugram", locality="Sector 85", description="Corner flat", bedrooms=3,
+        city="Gurugram", locality="Sector 85", description="Corner flat", bedrooms=3, bathrooms=2,
+        area_sqft=Decimal("1214"),
     )
-    first = await facts.build_property_sheet(db_session, prop.id)
-    same = await facts.build_property_sheet(db_session, prop.id)
-    assert first.facts_hash() == same.facts_hash()
+
+    async def output():
+        shown = {f.key: f.display for f in (await facts.build_property_sheet(db_session, prop.id)).facts}
+        return {
+            "summary": (f"This {shown['kind']} in {shown['location']} is priced at {shown['price']}. It has "
+                        f"{shown['bedrooms']} and {shown['bathrooms']} bathrooms with {shown['area']} of space. "
+                        "Review the listing and plan a visit to see the home in person before you decide anything."),
+            "who_it_suits": f"A family that needs {shown['bedrooms']}.",
+            "pros": [f"Priced at {shown['price']}", f"Area of {shown['area']}"],
+            "cons": [f"Has {shown['bathrooms']} bathrooms"],
+            "meta_description": f"{shown['kind']} in {shown['location']}.",
+        }
+
+    async def run():
+        return await runner.run_batch(db_session, FakeProvider([await output()]), entity_type="property",
+                                      locales=["en"], slugs=[str(prop.id)])
+
+    assert (await run()).generated == 1
+    again = await run()
+    assert (again.generated, again.skipped) == (0, 1)
     prop.description = "Corner flat with a park view"
     await db_session.flush()
-    assert (await facts.build_property_sheet(db_session, prop.id)).facts_hash() != first.facts_hash()
+    assert (await run()).generated == 1
 
 
 async def test_property_price_follows_the_purpose(db_session, test_user):
@@ -351,3 +369,65 @@ async def test_property_entity_name_is_not_the_owner_title_and_photos_change_the
     db_session.add(PropertyImage(property_id=prop.id, image_url="https://res.cloudinary.com/x/b.jpg", display_order=5))
     await db_session.flush()
     assert (await facts.build_property_sheet(db_session, prop.id)).facts_hash() != first.facts_hash()
+
+
+async def test_enrichment_runs_only_on_kept_content_and_budget_exit_keeps_the_body(db_session, sector_data, monkeypatch):
+    sheet = await build(db_session)
+    seen = []
+
+    async def enricher(db, provider, sheet_, locale, before_call):
+        seen.append(locale)
+        await before_call()
+        return {"extra": True}
+
+    monkeypatch.setitem(runner.ENRICHERS, "locality", enricher)
+    # A duplicate is rejected before any enrichment call is made.
+    out = compose(sheet)
+    db_session.add(ContentBlock(entity_type="locality", slug="other", locale="en", body=out, facts_hash="x",
+                                prompt_version=runner.PROMPT_VERSION, review_status="auto"))
+    await db_session.flush()
+    stats = await runner.run_batch(db_session, FakeProvider([out]), entity_type="locality", locales=["en"],
+                                   slugs=["sector-56"])
+    assert stats.rejected == 1 and seen == []
+
+    # Budget runs out inside the enricher: the validated body is stored and marked for a later run.
+    await db_session.execute(ContentBlock.__table__.delete())
+    stats = await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality",
+                                   locales=["en"], slugs=["sector-56"], max_calls=1)
+    assert stats.stopped_reason == "call_limit"
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    assert row.review_status == "auto" and row.body["enrichment_pending"] is True and "extra" not in row.body
+    # The next run sees the pending flag and enriches even though the facts did not change.
+    stats = await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality",
+                                   locales=["en"], slugs=["sector-56"])
+    await db_session.refresh(row)
+    assert row.body.get("extra") is True and "enrichment_pending" not in row.body
+
+
+async def test_failure_note_does_not_move_last_modified(db_session, sector_data):
+    sheet = await build(db_session)
+    await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality", locales=["en"])
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    old = row.updated_at.replace(year=2020)
+    await db_session.execute(ContentBlock.__table__.update().values(updated_at=old))
+    await db_session.commit()
+    bad = FakeProvider([compose(sheet, highlights=["Guaranteed returns", "b", "c"])])
+    await runner.run_batch(db_session, bad, entity_type="locality", locales=["en"], force=True)
+    await db_session.refresh(row)
+    assert row.errors and row.updated_at == old
+
+
+async def test_throttle_spaces_concurrent_callers():
+    import asyncio
+    import time
+
+    wait = runner.make_throttle(0.05)
+    stamps = []
+
+    async def call():
+        await wait()
+        stamps.append(time.monotonic())
+
+    await asyncio.gather(*(call() for _ in range(4)))
+    gaps = [b - a for a, b in zip(sorted(stamps), sorted(stamps)[1:], strict=False)]
+    assert all(g >= 0.04 for g in gaps)
