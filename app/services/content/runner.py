@@ -102,13 +102,15 @@ def is_quota_error(exc: AIProviderError) -> bool:
 def make_throttle(interval: float) -> Throttle:
     """An awaitable that keeps at least ``interval`` seconds between the calls that await it."""
     last = 0.0
+    lock = asyncio.Lock()  # callers queue, so two of them never wake on the same gap
 
     async def wait() -> None:
         nonlocal last
-        gap = interval - (time.monotonic() - last)
-        if gap > 0:
-            await asyncio.sleep(gap)
-        last = time.monotonic()
+        async with lock:
+            gap = interval - (time.monotonic() - last)
+            if gap > 0:
+                await asyncio.sleep(gap)
+            last = time.monotonic()
 
     return wait
 
@@ -211,7 +213,7 @@ async def _note_failure(db: AsyncSession, entity_type: str, slug: str, locale: s
     await db.execute(
         update(ContentBlock)
         .where(ContentBlock.entity_type == entity_type, ContentBlock.slug == slug, ContentBlock.locale == locale)
-        .values(errors=notes)
+        .values(errors=notes, updated_at=ContentBlock.updated_at)  # a note must not move last-modified
     )
     await db.commit()
 
@@ -270,7 +272,7 @@ async def run_batch(
                 select(
                     ContentBlock.slug, ContentBlock.locale, ContentBlock.facts_hash,
                     ContentBlock.prompt_version, ContentBlock.review_status,
-                    ContentBlock.body.has_key("image_alts_pending"),
+                    ContentBlock.body.has_key("enrichment_pending"),
                 ).where(ContentBlock.entity_type == entity_type)
             )
         ).all()
@@ -321,9 +323,6 @@ async def run_batch(
                 continue
             try:
                 gen = await generate(provider, sheet, locale, before_call)
-                extra: dict[str, Any] = {}
-                if gen.ok and enrich:
-                    extra = await enrich(db, provider, sheet, locale, before_call)
             except BudgetExceeded as exc:
                 stats.stopped_reason = exc.reason
                 return stats
@@ -341,10 +340,19 @@ async def run_batch(
                 continue
             consecutive_errors = 0
             worked = True
-            body = {**(gen.output or {}), **extra}
+            body = dict(gen.output or {})
             others = {k: v for k, v in siblings[locale].items() if k != slug}
             score, twin = dedupe.max_similarity(dedupe.content_text(body), others) if gen.ok else (0.0, None)
             status, indexable, notes = decide(sheet, gen, score, twin)
+            budget_hit: str | None = None
+            if enrich and status in ("auto", "needs_review"):
+                # Only content that will be kept is enriched. If the budget runs out part way, the
+                # validated body is still stored (it cost model calls) and marked for a later run.
+                try:
+                    body |= await enrich(db, provider, sheet, locale, before_call)
+                except BudgetExceeded as exc:
+                    body["enrichment_pending"] = True
+                    budget_hit = exc.reason
             if status == "failed" and prior and prior[2] in (*SERVED_STATUSES, "needs_review"):
                 await _note_failure(db, entity_type, slug, locale, notes)
             else:
@@ -361,6 +369,10 @@ async def run_batch(
                 )
                 if status in ("auto", "needs_review"):
                     siblings[locale][slug] = dedupe.shingles(dedupe.content_text(body))
+            if budget_hit:
+                stats.generated += 1
+                stats.stopped_reason = budget_hit
+                return stats
             stats.generated += status in ("auto", "needs_review")
             stats.failed += status == "failed"
             stats.rejected += status == "rejected"
