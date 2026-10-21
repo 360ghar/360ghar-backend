@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_admin
@@ -38,8 +38,6 @@ from app.services.content.runner import make_provider
 
 router = APIRouter()
 
-_RUN_LOCK = "content_run"
-_DIGEST_LOCK = "content_digest"
 REVIEW_STATUSES = ("auto", "needs_review", "approved", "rejected", "failed")
 
 
@@ -51,15 +49,12 @@ REVIEW_STATUSES = ("auto", "needs_review", "approved", "rejected", "failed")
 )
 async def run_content(body: ContentRunRequest, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
     """One bounded batch. Entities whose facts are unchanged are skipped, so repeating a call
-    is cheap and safe. Call again with ``next_after`` until ``done`` is true."""
+    is cheap and safe. Call again with ``next_after`` until ``done`` is true. Overlapping calls
+    only waste quota: each result is an upsert on (entity, slug, locale)."""
     try:
         provider = make_provider()
     except ValueError as exc:
         raise ServiceUnavailableException(str(exc), error_code="AI_NOT_CONFIGURED") from exc
-    got = (await db.execute(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": _RUN_LOCK})).scalar_one()
-    if not got:
-        await provider.close()
-        raise ConflictException("A content run is already in progress", error_code="CONTENT_RUN_IN_PROGRESS")
     try:
         stats = await runner.run_batch(
             db,
@@ -77,7 +72,6 @@ async def run_content(body: ContentRunRequest, db: AsyncSession = Depends(get_db
             retry_failed=body.retry_failed,
         )
     finally:
-        await db.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": _RUN_LOCK})
         await provider.close()
     return stats.as_dict()
 
@@ -96,16 +90,11 @@ async def run_market_digest(db: AsyncSession = Depends(get_db)) -> dict[str, Any
         provider = make_provider()
     except ValueError as exc:
         raise ServiceUnavailableException(str(exc), error_code="AI_NOT_CONFIGURED") from exc
-    got = (await db.execute(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": _DIGEST_LOCK})).scalar_one()
-    if not got:
-        await provider.close()
-        raise ConflictException("A digest run is already in progress", error_code="CONTENT_RUN_IN_PROGRESS")
     try:
         return await digest.generate_market_digest(
             db, provider, throttle=runner.make_throttle(settings.CONTENT_MIN_CALL_INTERVAL_S)
         )
     finally:
-        await db.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": _DIGEST_LOCK})
         await provider.close()
 
 
