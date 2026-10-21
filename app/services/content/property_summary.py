@@ -82,7 +82,7 @@ async def enrich_property(
     """Alt text for the first photos. English row only: the alt text is not locale specific.
 
     A photo that cannot be downloaded or described is skipped. When that happens the body gets
-    ``image_alts_pending`` so the next run tries again even though the facts did not change.
+    ``enrichment_pending`` so the next run tries again even though the facts did not change.
     """
     if locale != "en":
         return {}
@@ -119,7 +119,7 @@ async def enrich_property(
             alts.append({"url": url, "alt": alt})
     extra: dict[str, Any] = {"image_alts": alts} if alts else {}
     if pending:
-        extra["image_alts_pending"] = True
+        extra["enrichment_pending"] = True
     return extra
 
 

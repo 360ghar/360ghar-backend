@@ -260,7 +260,7 @@ async def test_failed_photo_marks_alts_pending_and_next_run_retries(db_session, 
     provider = Provider([compose_property(sheet)])
     await runner.run_batch(db_session, provider, entity_type="property", locales=["en"], slugs=[str(prop.id)])
     row = (await db_session.execute(select(ContentBlock))).scalar_one()
-    assert row.review_status == "auto" and row.body["image_alts_pending"] is True and len(row.body["image_alts"]) == 1
+    assert row.review_status == "auto" and row.body["enrichment_pending"] is True and len(row.body["image_alts"]) == 1
 
     async def fine(url):
         return "aGVsbG8=", "image/jpeg"
@@ -268,7 +268,7 @@ async def test_failed_photo_marks_alts_pending_and_next_run_retries(db_session, 
     monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", fine)
     await runner.run_batch(db_session, provider, entity_type="property", locales=["en"], slugs=[str(prop.id)])
     await db_session.refresh(row)
-    assert "image_alts_pending" not in row.body and len(row.body["image_alts"]) == 2
+    assert "enrichment_pending" not in row.body and len(row.body["image_alts"]) == 2
 
 
 async def test_digest_ignores_other_cities(db_session, test_admin_user, monkeypatch):
