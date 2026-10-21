@@ -198,6 +198,7 @@ class DiskCacheBackend:
             for key in keys:
                 await self._delete_locked(key)
             counters_deleted = self._counters.delete_pattern(pattern)
+        self.stats.deletes += counters_deleted
         return len(keys) + counters_deleted
 
     async def exists(self, key: str) -> bool:
