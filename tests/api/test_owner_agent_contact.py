@@ -27,9 +27,14 @@ def _company_number(monkeypatch):
 @pytest.fixture(autouse=True)
 def _no_list_cache(monkeypatch):
     """The property list is cached by its filters. A shared Redis would serve the page of an
-    earlier test, which does not hold this test's new property."""
+    earlier test, which does not hold this test's new property, and would keep this test's
+    rolled-back rows for the next one. Reads and writes are both off."""
     monkeypatch.setattr(
         "app.services.property.search.PropertyCacheManager.get_cached_properties",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "app.services.property.search.PropertyCacheManager.cache_properties",
         AsyncMock(return_value=None),
     )
 
