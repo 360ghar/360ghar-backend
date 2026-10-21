@@ -51,6 +51,14 @@ scripts/import_localities.py  # loads the snapshot into the localities table
 
 `.github/workflows/content-nightly.yml` calls the run endpoint nightly. It needs the repository secrets `BACKEND_BASE_URL` and `CRON_SECRET`, and skips with a notice when they are empty.
 
+## Property summaries
+
+`entity_type: property` uses the same runner. The fact sheet comes from the listing row. The owner's title and description go to the model only inside a `<listing_text>` block marked as quoted data, and the hash includes them. The body adds `who_it_suits`, `pros`, `cons` and, on the English row, `image_alts` for up to 3 photos (only `res.cloudinary.com`, described by the vision model). If a photo fails, the body carries `image_alts_pending` and the next run retries. Set `CONTENT_ON_WRITE_ENABLED=true` to run it in the background on listing create and update.
+
+## Weekly market digest
+
+`POST /api/v1/admin/content/market-digest` (`X-Cron-Secret`) builds a Gurugram fact sheet from data-hub rows in the last 7 days (new RERA registrations, new bank auctions, updated circle rate rows). Fewer than 3 changes: skipped. The text goes through the validator and is saved with `create_blog_post` as the `AUTO_BLOG_PUBLISHER_USER_ID` admin: published when it validates and `MARKET_DIGEST_AUTO_PUBLISH` is on, otherwise a draft (tagged `needs-review` when validation failed). One post per ISO week. `.github/workflows/market-digest-weekly.yml` calls it on Mondays.
+
 ## Entry points for modification
 
 - New fact: add it in `facts.py` with a `group`. Only `price`, `circle_rate` and `rera` count as key facts.
