@@ -30,6 +30,8 @@ logger = get_logger(__name__)
 
 MAX_ATTEMPTS = 3  # first try plus two retries with the errors fed back
 MAX_CONSECUTIVE_PROVIDER_ERRORS = 3
+# A sheet with fewer facts cannot support a 40-word summary without padding. No model call.
+MIN_FACTS_TO_GENERATE = 3
 ENTITY_TYPES = ("locality", "property")
 
 # Optional per-type step that adds to the body after validation (property image alt text).
@@ -41,6 +43,7 @@ ENRICHERS: dict[str, Enricher] = {}
 class RunStats:
     generated: int = 0
     skipped: int = 0
+    thin: int = 0
     failed: int = 0
     needs_review: int = 0
     rejected: int = 0
@@ -239,6 +242,10 @@ async def run_batch(
             break
         sheet = await build_sheet(db, entity_type, slug)
         if sheet is None:
+            stats.next_after = slug
+            continue
+        if sheet.fact_count < MIN_FACTS_TO_GENERATE:
+            stats.thin += 1
             stats.next_after = slug
             continue
         digest = sheet.facts_hash()
