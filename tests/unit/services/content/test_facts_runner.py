@@ -314,3 +314,16 @@ async def test_malformed_property_cursor_or_id_is_a_value_error(db_session):
     for kwargs in ({"after": "12abc"}, {"slugs": ["x"]}, {"after": "9" * 40}):
         with pytest.raises(ValueError):
             await runner.run_batch(db_session, FakeProvider([{}]), entity_type="property", locales=["en"], **kwargs)
+
+
+async def test_circle_rate_uses_only_the_newest_revision(db_session, sector_data):
+    from decimal import Decimal
+
+    from app.models.data_hub import CircleRate
+
+    db_session.add(CircleRate(district="Gurugram", sector="Sector 56", property_type="residential",
+                              rate_per_sqyd=Decimal("30000"), revision_year=2019, slug="cr-sector-56-2019"))
+    await db_session.flush()
+    sheet = await build(db_session)
+    fact = next(f for f in sheet.facts if f.key == "circle_rate_residential")
+    assert fact.display == "₹45,000 per sq yd" and "2024" in fact.label and fact.as_of == "2024-04-01"

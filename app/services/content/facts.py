@@ -247,25 +247,27 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
                        ", ".join(f"{b} BHK" for b in beds), "360 Ghar listings", now, "listing"))
 
     # Government circle rates, one fact per land use (a residential rate is not a commercial one).
+    # Only the newest revision counts: an older revision is an obsolete rate.
+    matched = and_(
+        func.lower(CircleRate.district).in_(cities),
+        or_(func.lower(CircleRate.sector).in_(names), func.lower(CircleRate.colony).in_(names)),
+        CircleRate.rate_per_sqyd.is_not(None),
+    )
+    newest = (await db.execute(select(func.max(CircleRate.revision_year)).where(matched))).scalar()
     circle = (
         await db.execute(
             select(
                 CircleRate.property_type, func.min(CircleRate.rate_per_sqyd),
-                func.max(CircleRate.rate_per_sqyd), func.max(CircleRate.revision_year),
-                func.max(CircleRate.source_url),
+                func.max(CircleRate.rate_per_sqyd), func.max(CircleRate.source_url),
             )
-            .where(
-                func.lower(CircleRate.district).in_(cities),
-                or_(func.lower(CircleRate.sector).in_(names), func.lower(CircleRate.colony).in_(names)),
-                CircleRate.rate_per_sqyd.is_not(None),
-            )
+            .where(matched, CircleRate.revision_year == newest)
             .group_by(CircleRate.property_type)
             .order_by(CircleRate.property_type.desc())
         )
     ).all()
-    for ptype, lo, hi, year, url in circle:
-        sheet.add(Fact(f"circle_rate_{ptype}", f"Government circle rate, {ptype} (revision {year})",
-                       f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{year}-04-01",
+    for ptype, lo, hi, url in circle:
+        sheet.add(Fact(f"circle_rate_{ptype}", f"Government circle rate, {ptype} (revision {newest})",
+                       f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{newest}-04-01",
                        "circle_rate", url))
 
     # RERA registered projects whose location names this place.
