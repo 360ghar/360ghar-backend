@@ -118,12 +118,13 @@ def check_names(text: str, allowed_words: set[str]) -> list[str]:
             if known(m.group(0)):
                 continue
             if m.start() == 0:
-                # The first word is capitalised by grammar. It is a name only when a second
-                # capitalised word follows it directly, or it is a known city.
+                # The first word is capitalised by grammar. It is a name only when another
+                # unknown capitalised word follows it directly ("Sobha City"), or it is a known
+                # city. "Weekly Gurugram" passes: the second word is an allowed name.
                 follows = (
                     len(found) > 1
                     and sentence[m.end() : found[1].start()].strip() == ""
-                    and found[1].group(0).lower() not in _COMMON
+                    and not known(found[1].group(0))
                 )
                 if not follows and _POSSESSIVE.sub("", m.group(0)).lower() not in _CITIES:
                     continue
