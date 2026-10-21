@@ -66,7 +66,16 @@ export function parseDateOnly(value: string | null | undefined): Date | null {
   if (!match) return null;
   const [, year, month, day] = match;
   const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  if (Number.isNaN(parsed.getTime())) return null;
+  // Date.UTC rolls 2026-02-31 into March. Reject a date that did not survive the round trip.
+  if (
+    parsed.getUTCFullYear() !== Number(year) ||
+    parsed.getUTCMonth() !== Number(month) - 1 ||
+    parsed.getUTCDate() !== Number(day)
+  ) {
+    return null;
+  }
+  return parsed;
 }
 
 const PLACEHOLDER = '-';

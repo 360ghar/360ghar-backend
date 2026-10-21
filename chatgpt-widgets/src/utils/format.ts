@@ -10,11 +10,25 @@ export function formatRupees(amount: number | null | undefined): string {
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 
+/** 12345 -> "123.45". */
+function hundredths(n: number): string {
+  return `${Math.floor(n / 100)}.${String(n % 100).padStart(2, '0')}`;
+}
+
 /** Rupees with lakh and crore units for large sums, for example "₹1.20 Cr". */
 export function formatRupeesCompact(amount: number | null | undefined): string {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return PLACEHOLDER;
-  if (amount >= 10_000_000) return `₹${(amount / 10_000_000).toFixed(2)} Cr`;
-  if (amount >= 100_000) return `₹${(amount / 100_000).toFixed(2)} L`;
+  if (amount >= 100_000) {
+    // Integer paise and integer division, so toFixed on a binary quotient cannot round a
+    // value down (100500 is 1.01 L, not 1.00 L). Round half up to hundredths of a lakh.
+    const paise = Math.round(amount * 100);
+    const lakhHundredths = Math.floor((paise + 50_000) / 100_000);
+    // 100.00 L is shown as 1.00 Cr, so the unit changes where the rounded lakh reaches 100.
+    if (lakhHundredths >= 10_000) {
+      return `₹${hundredths(Math.floor((paise + 5_000_000) / 10_000_000))} Cr`;
+    }
+    return `₹${hundredths(lakhHundredths)} L`;
+  }
   return `₹${amount.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 }
 

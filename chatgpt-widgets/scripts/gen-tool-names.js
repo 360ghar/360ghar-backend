@@ -14,7 +14,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.resolve(here, '..', 'src', 'generated');
 const names = JSON.parse(fs.readFileSync(path.join(dir, 'tool-names.json'), 'utf8'));
 
-if (!Array.isArray(names) || names.some((n) => typeof n !== 'string' || n.includes('.'))) {
+if (!Array.isArray(names) || names.some((n) => typeof n !== 'string' || !/^[a-z0-9_]+$/.test(n))) {
   throw new Error('tool-names.json must be a list of underscore tool names');
 }
 
@@ -23,7 +23,7 @@ const out = [
   '// Regenerate: npm run api:types',
   '',
   'export const TOOL_NAMES = [',
-  ...names.map((n) => `  '${n}',`),
+  ...names.map((n) => `  ${JSON.stringify(n)},`),
   '] as const;',
   '',
   'export type ToolName = (typeof TOOL_NAMES)[number];',
