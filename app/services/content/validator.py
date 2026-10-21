@@ -104,12 +104,13 @@ def check_numbers(text: str, sheet: FactSheet, allowed: Allowed) -> list[str]:
     ]
 
 
-def check_names(text: str, allowed_words: set[str]) -> list[str]:
+def check_names(text: str, allowed_words: set[str], label_words: frozenset[str] = frozenset()) -> list[str]:
     bad: list[str] = []
 
     def known(word: str) -> bool:
         w = _POSSESSIVE.sub("", word).lower()
-        return w in allowed_words or w in _COMMON or (w.endswith("s") and w[:-1] in allowed_words)
+        # Names must match exactly. A plural is accepted only for the plain words of fact labels.
+        return w in allowed_words or w in _COMMON or (w.endswith("s") and w[:-1] in label_words)
 
     for sentence in _SENTENCE_SPLIT.split(text):
         sentence = sentence.strip()
@@ -173,13 +174,13 @@ def validate(output: dict[str, Any], sheet: FactSheet, locale: str) -> Validatio
     allowed = sheet.allowed_numbers()
     # Names, plus the plain words of the fact labels ("Government", "Circle", "Nearby"): a writer
     # may capitalise those mid-sentence, and they are not names.
-    allowed_words = {w.lower() for n in sheet.allowed_names() for w in _WORD.findall(n)}
-    allowed_words |= {w.lower() for f in sheet.facts for w in _WORD.findall(f.label)}
+    label_words = frozenset(w.lower() for f in sheet.facts for w in _WORD.findall(f.label))
+    allowed_words = {w.lower() for n in sheet.allowed_names() for w in _WORD.findall(n)} | label_words
     for path, text in _texts(output):
         for pattern in BANNED:
             found = pattern.search(text)
             if found:
                 result.errors.append(f"{path}: banned claim '{found.group(0)}'")
         result.errors += [f"{path}: {e}" for e in check_numbers(text, sheet, allowed)]
-        result.errors += [f"{path}: {e}" for e in check_names(text, allowed_words)]
+        result.errors += [f"{path}: {e}" for e in check_names(text, allowed_words, label_words)]
     return result

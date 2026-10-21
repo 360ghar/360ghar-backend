@@ -431,3 +431,20 @@ async def test_throttle_spaces_concurrent_callers():
     await asyncio.gather(*(call() for _ in range(4)))
     gaps = [b - a for a, b in zip(sorted(stamps), sorted(stamps)[1:], strict=False)]
     assert all(g >= 0.04 for g in gaps)
+
+
+async def test_rejected_or_review_regeneration_keeps_the_served_block(db_session, sector_data):
+    sheet = await build(db_session)
+    await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality", locales=["en"])
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    served = dict(row.body)
+    # A neighbour that repeats the new text makes the regeneration a duplicate.
+    fresh = compose(sheet, meta_description="Fresh text for Sector 56.")
+    db_session.add(ContentBlock(entity_type="locality", slug="twin", locale="en", body=fresh, facts_hash="x",
+                                prompt_version=runner.PROMPT_VERSION, review_status="auto"))
+    await db_session.flush()
+    stats = await runner.run_batch(db_session, FakeProvider([fresh]), entity_type="locality", locales=["en"],
+                                   slugs=["sector-56"], force=True)
+    assert stats.rejected == 1
+    await db_session.refresh(row)
+    assert row.review_status == "auto" and row.body == served and row.errors

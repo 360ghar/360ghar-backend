@@ -325,3 +325,17 @@ def test_plural_of_a_label_word_is_not_a_name():
     assert validator.validate(out, sheet, "en").ok
     out["meta_description"] = "Sector 56, Gurugram: Taxes and Fees."
     assert not validator.validate(out, sheet, "en").ok
+
+
+def test_gaj_is_square_yards_and_per_needs_a_word_boundary():
+    allowed = allowed_numbers(["₹45,000 per sq yd"])
+    assert matches(amount("₹45,000 per gaj"), allowed)
+    assert [a.kind for a in extract_amounts("Upper sq ft 5,000")] != ["rate"]
+    assert not [a for a in extract_amounts("Upper sq ft 5,000") if a.kind == "rate"]
+
+
+def test_plural_is_for_label_words_only_not_for_names():
+    sheet = make_sheet()
+    out = good_locality()
+    out["meta_description"] = "Sector 56, Gurugrams metro."
+    assert any("'Gurugrams'" in e for e in validator.validate(out, sheet, "en").errors)

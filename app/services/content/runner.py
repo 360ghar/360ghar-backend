@@ -365,7 +365,9 @@ async def run_batch(
                         budget_hit = "rate_limited"
                     else:
                         frozen = True
-            if status == "failed" and prior and prior[2] in (*SERVED_STATUSES, "needs_review"):
+            if status != "auto" and prior and prior[2] in SERVED_STATUSES:
+                # A served block is never replaced by content that would not be served (failed,
+                # rejected as a duplicate, or held for review). Record why and keep serving it.
                 await _note_failure(db, entity_type, slug, locale, notes)
             else:
                 await _store(

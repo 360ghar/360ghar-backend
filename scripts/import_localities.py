@@ -80,7 +80,7 @@ def main() -> None:
     if not local and not args.allow_remote:
         sys.exit("Refusing a non-local database. Pass --allow-remote to override.")
     url = url.set(drivername="postgresql+psycopg")
-    if not local:
+    if not local and "sslmode" not in url.query:  # keep a stricter mode the operator chose
         url = url.update_query_dict({"sslmode": "require"})
     rows = snapshot_rows()
     engine = sa.create_engine(url)

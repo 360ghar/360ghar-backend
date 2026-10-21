@@ -29,7 +29,22 @@ def test_parse_url_keeps_host_and_password(raw, host, password):
 def test_snapshot_rows_cover_every_place_with_landmarks_as_json():
     rows = import_localities.snapshot_rows()
     assert len(rows) > 1000 and all(r["slug"] and r["city"] for r in rows)
+    import json
+
+    assert all(isinstance(json.loads(r["landmarks"]), list) and isinstance(json.loads(r["aliases"]), list) for r in rows)
     with_landmarks = [r for r in rows if r["landmarks"] != "[]"]
     assert with_landmarks and {r["place_type"] for r in rows} <= {
         "locality", "sector", "society", "village", "road", "township", "phase",
     }
+
+
+def test_remote_url_gets_ssl_unless_the_operator_set_a_mode(monkeypatch):
+    seen = []
+    monkeypatch.setattr(import_localities.sa, "create_engine", lambda url: seen.append(url) or (_ for _ in ()).throw(SystemExit))
+    monkeypatch.setattr(import_localities, "snapshot_rows", lambda: [])
+    for raw in ("postgresql://u:p@db.example.com/x", "postgresql://u:p@db.example.com/x?sslmode=verify-full"):
+        monkeypatch.setenv("DATABASE_URL", raw)
+        monkeypatch.setattr(sys, "argv", ["import_localities.py", "--allow-remote"])
+        with pytest.raises(SystemExit):
+            import_localities.main()
+    assert seen[0].query["sslmode"] == "require" and seen[1].query["sslmode"] == "verify-full"
