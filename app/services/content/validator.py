@@ -24,7 +24,7 @@ META_MAX_CHARS = 155
 COUNTS = {
     "locality": {"highlights": (3, 5), "faqs": (4, 6)},
     "property": {"pros": (2, 4), "cons": (1, 3)},
-    "digest": {"sections": (2, 4)},
+    "digest": {"sections": (1, 4)},
 }
 
 BANNED = [
@@ -171,7 +171,10 @@ def validate(output: dict[str, Any], sheet: FactSheet, locale: str) -> Validatio
         return result
 
     allowed = sheet.allowed_numbers()
+    # Names, plus the plain words of the fact labels ("Government", "Circle", "Nearby"): a writer
+    # may capitalise those mid-sentence, and they are not names.
     allowed_words = {w.lower() for n in sheet.allowed_names() for w in _WORD.findall(n)}
+    allowed_words |= {w.lower() for f in sheet.facts for w in _WORD.findall(f.label)}
     for path, text in _texts(output):
         for pattern in BANNED:
             found = pattern.search(text)
