@@ -9,6 +9,8 @@ from unittest.mock import patch
 
 import pytest
 
+from app.core.cache.backends.memory import InMemoryCacheBackend
+from app.core.cache.manager import CacheManager
 from app.core.exceptions import BadRequestException
 from app.models.agents import Agent
 from app.models.enums import AgentType, DocumentType, ExperienceLevel, LeaseStatus, UserRole
@@ -132,18 +134,12 @@ async def test_public_submit_is_rate_limited_per_client(test_app, db_session):
         assert form.status_code == 201, form.text
         slug = form.json()["slug"]
 
-    store: dict[str, int] = {}
-
-    class _MemoryCache:
-        async def get(self, key):
-            return store.get(key)
-
-        async def set(self, key, value, ttl=None):
-            store[key] = value
+    cache = CacheManager(backend=InMemoryCacheBackend(max_size=100, default_ttl=60))
+    await cache.connect()
 
     applicant = await _client(test_app, await _user(db_session, name="Applicant"))
     responses = []
-    with patch("app.middleware.rate_limit.get_cache_manager", return_value=_MemoryCache()):
+    with patch("app.middleware.rate_limit.get_cache_manager", return_value=cache):
         async with applicant as public:
             for _ in range(11):
                 responses.append(

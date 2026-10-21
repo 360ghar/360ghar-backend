@@ -17,6 +17,7 @@ os.environ["SENTRY_DSN"] = ""
 os.environ.setdefault("ENVIRONMENT", "test")
 
 from collections.abc import AsyncGenerator
+from unittest.mock import patch
 
 import pytest_asyncio
 import sentry_sdk
@@ -76,6 +77,7 @@ IS_CI = os.getenv("CI", "false").lower() == "true"
 # =============================================================================
 # Database Fixtures
 # =============================================================================
+
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def test_engine():
@@ -171,6 +173,7 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 # Application Fixtures
 # =============================================================================
 
+
 @pytest_asyncio.fixture(scope="function")
 async def test_app(db_session: AsyncSession):
     """
@@ -248,3 +251,24 @@ pytest_plugins = [
     "tests.fixtures.data",
     "tests.fixtures.common",
 ]
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def _isolated_rate_limit_cache():
+    """Give each test its own rate-limit counters and a set Agnes key.
+
+    A shared Redis keeps counters across tests (CI), so per-IP limits would trip
+    unrelated tests. Tests that need a specific cache patch it themselves.
+    """
+    from app.config import settings
+    from app.core.cache.backends.memory import InMemoryCacheBackend
+    from app.core.cache.manager import CacheManager
+
+    cache = CacheManager(backend=InMemoryCacheBackend(max_size=1000, default_ttl=60))
+    await cache.connect()
+    key = settings.AGNES_AI_API_KEY or "test-agnes-key"
+    with (
+        patch("app.middleware.rate_limit.get_cache_manager", return_value=cache),
+        patch.object(settings, "AGNES_AI_API_KEY", key),
+    ):
+        yield
