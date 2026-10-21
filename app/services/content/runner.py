@@ -353,6 +353,14 @@ async def run_batch(
                 except BudgetExceeded as exc:
                     body["enrichment_pending"] = True
                     budget_hit = exc.reason
+                except AIProviderError as exc:
+                    logger.warning("content enrichment provider error: %s", exc)
+                    stats.provider_errors += 1
+                    body["enrichment_pending"] = True
+                    if is_quota_error(exc):
+                        budget_hit = "rate_limited"
+                    else:
+                        frozen = True
             if status == "failed" and prior and prior[2] in (*SERVED_STATUSES, "needs_review"):
                 await _note_failure(db, entity_type, slug, locale, notes)
             else:
