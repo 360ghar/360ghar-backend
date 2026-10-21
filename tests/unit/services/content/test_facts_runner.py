@@ -163,3 +163,154 @@ async def test_thin_sheets_make_no_model_call(db_session):
     stats = await runner.run_batch(db_session, provider, entity_type="locality", locales=["en"])
     assert (stats.thin, stats.calls, stats.generated) == (1, 0, 0) and not provider.calls
     assert stats.done
+
+
+async def test_description_change_regenerates_but_identical_text_does_not(db_session, test_user):
+    from decimal import Decimal
+
+    from app.models.enums import PropertyPurpose
+    from tests.fixtures.factories import PropertyFactory
+
+    prop = await PropertyFactory.create(
+        db_session, owner=test_user, purpose=PropertyPurpose.buy, base_price=Decimal("8500000"),
+        city="Gurugram", locality="Sector 85", description="Corner flat", bedrooms=3,
+    )
+    first = await facts.build_property_sheet(db_session, prop.id)
+    same = await facts.build_property_sheet(db_session, prop.id)
+    assert first.facts_hash() == same.facts_hash()
+    prop.description = "Corner flat with a park view"
+    await db_session.flush()
+    assert (await facts.build_property_sheet(db_session, prop.id)).facts_hash() != first.facts_hash()
+
+
+async def test_property_price_follows_the_purpose(db_session, test_user):
+    from decimal import Decimal
+
+    from app.models.enums import PropertyPurpose
+    from tests.fixtures.factories import PropertyFactory
+
+    cases = {
+        PropertyPurpose.short_stay: dict(daily_rate=Decimal("4500"), base_price=Decimal("9000000"), monthly_rent=None),
+        PropertyPurpose.rent: dict(monthly_rent=None, base_price=Decimal("9000000"), daily_rate=None),
+    }
+    short = await PropertyFactory.create(db_session, owner=test_user, purpose=PropertyPurpose.short_stay,
+                                         **cases[PropertyPurpose.short_stay])
+    shown = {f.key: f.display for f in (await facts.build_property_sheet(db_session, short.id)).facts}
+    assert shown["price"] == "₹4,500 per night"
+    rent = await PropertyFactory.create(db_session, owner=test_user, purpose=PropertyPurpose.rent,
+                                        **cases[PropertyPurpose.rent])
+    rent.monthly_rent = None
+    rent.base_price = Decimal("9000000")
+    await db_session.flush()
+    keys = {f.key for f in (await facts.build_property_sheet(db_session, rent.id)).facts}
+    assert "price" not in keys  # a rental without a rent never quotes its sale price
+
+
+async def test_call_budget_is_enforced_before_each_call(db_session, sector_data):
+    sheet = await build(db_session)
+    bad = compose(sheet, highlights=["Guaranteed returns", "b", "c"])
+    provider = FakeProvider([bad])
+    stats = await runner.run_batch(db_session, provider, entity_type="locality", locales=["en"], max_calls=2)
+    assert stats.stopped_reason == "call_limit" and stats.calls == 2 and len(provider.calls) == 2
+    assert (await db_session.execute(select(ContentBlock))).first() is None and not stats.done
+
+
+async def test_time_budget_is_enforced_before_each_call(db_session, sector_data):
+    sheet = await build(db_session)
+    provider = FakeProvider([compose(sheet, highlights=["Guaranteed returns", "b", "c"])])
+    stats = await runner.run_batch(db_session, provider, entity_type="locality", locales=["en"], max_seconds=-1)
+    assert stats.stopped_reason == "time_budget" and not provider.calls
+
+
+async def test_failed_regeneration_keeps_the_served_block(db_session, sector_data):
+    sheet = await build(db_session)
+    await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality", locales=["en"])
+    before = (await db_session.execute(select(ContentBlock))).scalar_one()
+    served_body, stamp = dict(before.body), before.generated_at
+    bad = FakeProvider([compose(sheet, highlights=["Guaranteed returns", "b", "c"])])
+    stats = await runner.run_batch(db_session, bad, entity_type="locality", locales=["en"], force=True)
+    assert stats.failed == 1
+    await db_session.refresh(before)
+    assert before.review_status == "auto" and before.body == served_body and before.generated_at == stamp
+    assert before.errors and any("banned" in e for e in before.errors)
+
+
+async def test_regeneration_moves_the_timestamps(db_session, sector_data):
+    sheet = await build(db_session)
+    await runner.run_batch(db_session, FakeProvider([compose(sheet)]), entity_type="locality", locales=["en"])
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    long_ago = row.generated_at.replace(year=2020)
+    row.generated_at = row.updated_at = long_ago
+    await db_session.flush()
+    await runner.run_batch(db_session, FakeProvider([compose(sheet, meta_description="New text for Sector 56.")]),
+                           entity_type="locality", locales=["en"], force=True)
+    await db_session.refresh(row)
+    assert row.generated_at > long_ago and row.updated_at > long_ago
+
+
+async def test_provider_error_freezes_the_cursor_and_initial_cursor_is_kept(db_session, sector_data):
+    err = AIProviderError("boom", provider="Agnes AI", status_code=500)
+    stats = await runner.run_batch(db_session, FakeProvider([err]), entity_type="locality", locales=["en"],
+                                   after="sector-1")
+    assert stats.provider_errors >= 1 and stats.next_after == "sector-1" and not stats.done
+    db_session.add(Locality(slug="sector-99", name="Sector 99", city="Gurugram", place_type="sector"))
+    await db_session.flush()
+    sheet = await build(db_session)
+    stats = await runner.run_batch(db_session, FakeProvider([err, compose(sheet)]), entity_type="locality",
+                                   locales=["en"], after="sector-1")
+    assert stats.next_after == "sector-1" and not stats.done  # sector-56 failed once, so the cursor stays
+
+
+async def test_thin_but_valid_sheet_is_stored_noindex(db_session):
+    db_session.add(Locality(slug="mid", name="Mid Sector", city="Gurugram", place_type="sector",
+                            landmarks=[{"name": "Mid Metro", "type": "metro", "distance": "1 km"},
+                                       {"name": "Mid Mall", "type": "mall", "distance": "2 km"}]))
+    await db_session.flush()
+    sheet = await facts.build_locality_sheet(db_session, await db_session.get(Locality, "mid"))
+    assert sheet.fact_count == 3 and not sheet.meets_threshold
+    out = {
+        "summary": ("Mid Sector is a sector in Gurugram. Mid Metro, a metro station, is 1 km away, and Mid Mall, "
+                    "a mall, is 2 km away. The facts available for this place are limited to its location and "
+                    "these nearby places, so this page lists only what is known and nothing more than that."),
+        "highlights": ["Mid Metro is 1 km away", "Mid Mall is 2 km away", "Located in Gurugram"],
+        "faqs": [{"question": f"Question {w}?", "answer": a} for w, a in zip(
+            "abcd", ["Mid Metro is 1 km away.", "Mid Mall is 2 km away.", "It is in Gurugram.", "It is a sector."],
+            strict=True)],
+        "meta_description": "Mid Sector, Gurugram: nearby metro and mall.",
+    }
+    stats = await runner.run_batch(db_session, FakeProvider([out]), entity_type="locality", locales=["en"])
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    assert stats.generated == 1, stats.items
+    assert row.review_status == "auto" and row.indexable is False and row.fact_count == 3 and not row.key_fact
+
+
+async def test_similar_but_not_identical_goes_to_review(db_session, sector_data):
+    sheet = await build(db_session)
+    out = compose(sheet)
+    from app.services.content import dedupe
+
+    # A neighbour that is the same text with every n-th word replaced: a partial overlap.
+    own = dedupe.content_text(out)
+    candidates = []
+    for n in range(6, 40):
+        words = [w if i % n else f"zz{i}" for i, w in enumerate(own.split())]
+        body = {"summary": " ".join(words)}
+        score, _ = dedupe.max_similarity(own, {"x": dedupe.shingles(dedupe.content_text(body))})
+        if dedupe.REVIEW_AT <= score < dedupe.REJECT_AT:
+            candidates.append(body)
+    assert candidates
+    neighbour = candidates[0]
+    db_session.add(ContentBlock(entity_type="locality", slug="other", locale="en", body=neighbour, facts_hash="x",
+                                prompt_version=runner.PROMPT_VERSION, review_status="auto"))
+    await db_session.flush()
+    stats = await runner.run_batch(db_session, FakeProvider([out]), entity_type="locality", locales=["en"],
+                                   slugs=["sector-56"])
+    assert stats.needs_review == 1
+    row = (await db_session.execute(select(ContentBlock).where(ContentBlock.slug == "sector-56"))).scalar_one()
+    assert row.review_status == "needs_review" and not row.indexable
+
+
+async def test_malformed_property_cursor_or_id_is_a_value_error(db_session):
+    for kwargs in ({"after": "12abc"}, {"slugs": ["x"]}, {"after": "9" * 40}):
+        with pytest.raises(ValueError):
+            await runner.run_batch(db_session, FakeProvider([{}]), entity_type="property", locales=["en"], **kwargs)
