@@ -391,7 +391,7 @@ async def test_quota_error_while_describing_a_photo_stops_the_batch(db_session, 
     monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", fake_download)
     stats = await runner.run_batch(db_session, Provider([compose_property(sheet)]), entity_type="property",
                                    locales=["en"], slugs=[str(prop.id)])
-    assert stats.stopped_reason == "rate_limited" and stats.provider_errors == 1
+    assert stats.stopped_reason == "rate_limited" and stats.provider_errors == 1 and stats.generated == 1
     # The paid-for text is kept and marked, so the next run only has to describe the photos.
     row = (await db_session.execute(select(ContentBlock))).scalar_one()
     assert row.review_status == "auto" and row.body["enrichment_pending"] is True
