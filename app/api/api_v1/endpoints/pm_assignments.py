@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
@@ -18,7 +18,12 @@ from app.services.pm_assignments import set_owner_relationship_manager
 router = APIRouter()
 
 
-@router.post("", response_model=OwnerRMAssignmentResponse, summary="Assign RM to owner")
+@router.post(
+    "",
+    response_model=OwnerRMAssignmentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Assign RM to owner",
+)
 async def create_rm_assignment(
     payload: OwnerRMAssignmentCreate,
     current_user: UserSchema = Depends(get_current_active_user),
@@ -52,7 +57,9 @@ async def create_rm_assignment(
     )
 
 
-@router.patch("/{owner_user_id}", response_model=OwnerRMAssignmentResponse, summary="Update RM assignment")
+@router.patch(
+    "/{owner_user_id}", response_model=OwnerRMAssignmentResponse, summary="Update RM assignment"
+)
 async def update_rm_assignment(
     owner_user_id: int,
     payload: OwnerRMAssignmentUpdate,

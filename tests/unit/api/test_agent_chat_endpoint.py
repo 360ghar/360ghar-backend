@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -8,23 +8,53 @@ from fastapi import HTTPException
 from app.api.api_v1.endpoints.agent_chat import (
     agent_chat,
     delete_conversation,
-    get_conversation_messages,
     get_widget_html,
     list_conversations,
 )
-from app.schemas.ai_agent import AgentChatRequest
+from app.schemas.ai_agent import (
+    AgentChatRequest,
+    ConversationInfoFrame,
+    DoneFrame,
+    ErrorFrame,
+    TextChunkFrame,
+    ToolCallEndFrame,
+    ToolCallStartFrame,
+    WidgetFrame,
+    make_widget_data,
+)
 from app.schemas.pagination import CursorParams, offset_payload
+
+_FRAME_TYPES = {
+    "conversation_info": ConversationInfoFrame,
+    "text_chunk": TextChunkFrame,
+    "tool_call_start": ToolCallStartFrame,
+    "tool_call_end": ToolCallEndFrame,
+    "widget": WidgetFrame,
+    "done": DoneFrame,
+    "error": ErrorFrame,
+}
+
+
+def _frame(name: str, data: dict):
+    """Build the typed frame the agent service yields for ``(name, data)``."""
+    if name == "widget":
+        return WidgetFrame(
+            data=make_widget_data(data["widget_name"], data.get("structured_content") or {})
+        )
+    frame_cls = _FRAME_TYPES[name]
+    data_cls = frame_cls.model_fields["data"].annotation
+    return frame_cls(data=data_cls(**data))
 
 
 class _FakeService:
-    """Yields ``(event_name, data)`` pairs, matching ``stream_events``."""
+    """Yields typed frames, matching ``stream_events``."""
 
     def __init__(self, events):
         self._events = events
 
     async def stream_events(self, **_kwargs):
         for name, data in self._events:
-            yield (name, data)
+            yield _frame(name, data)
 
 
 class _ErrorService:
@@ -34,8 +64,9 @@ class _ErrorService:
         raise RuntimeError("stream exploded")
 
 
-def _history_row(role: str, content: str):
+def _history_row(role: str, content: str, row_id: int = 1):
     return SimpleNamespace(
+        id=row_id,
         role=role,
         content=content,
         tool_name=None,
@@ -62,7 +93,7 @@ async def test_agent_chat_persists_widget_and_assistant_messages():
 
     with (
         patch(
-            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_or_create_conversation",
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
             new=AsyncMock(return_value=SimpleNamespace(id=10)),
         ),
         patch(
@@ -112,7 +143,7 @@ async def test_agent_chat_persists_empty_assistant_when_only_widget_event():
 
     with (
         patch(
-            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_or_create_conversation",
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
             new=AsyncMock(return_value=SimpleNamespace(id=11)),
         ),
         patch(
@@ -164,7 +195,7 @@ async def test_agent_chat_text_chunk_cannot_clobber_persisted_response():
 
     with (
         patch(
-            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_or_create_conversation",
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
             new=AsyncMock(return_value=SimpleNamespace(id=12)),
         ),
         patch(
@@ -206,7 +237,7 @@ async def test_agent_chat_stream_error_emits_error_event():
 
     with (
         patch(
-            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_or_create_conversation",
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
             new=AsyncMock(return_value=SimpleNamespace(id=13)),
         ),
         patch(
@@ -230,7 +261,8 @@ async def test_agent_chat_stream_error_emits_error_event():
         stream_text = await _collect_sse(response)
 
     assert "STREAM_ERROR" in stream_text
-    assert "stream exploded" in stream_text
+    assert "stream exploded" not in stream_text
+    assert "could not finish this reply" in stream_text
     assert len(mock_add_message.await_args_list) == 1
     assert mock_add_message.await_args_list[0].kwargs["role"] == "user"
 
@@ -266,58 +298,6 @@ async def test_list_conversations_delegates_to_store_and_respects_pagination():
         limit=25,
         with_total=True,
     )
-
-
-@pytest.mark.asyncio
-async def test_get_conversation_messages_success_maps_widget_fields():
-    db = AsyncMock()
-    current_user = SimpleNamespace(id=5)
-    conv = SimpleNamespace(id=33, user_id=5)
-    now = datetime.now(timezone.utc)
-    message_row = SimpleNamespace(
-        id=1,
-        role="widget",
-        content=None,
-        tool_name="OwnerDashboardWidget",
-        tool_args=None,
-        tool_result={"cards": 2},
-        created_at=now,
-    )
-    query_result = SimpleNamespace(scalar_one_or_none=lambda: conv)
-    db.execute = AsyncMock(return_value=query_result)
-
-    with patch(
-        "app.api.api_v1.endpoints.agent_chat.conversation_store.get_history",
-        new=AsyncMock(return_value=[message_row]),
-    ):
-        result = await get_conversation_messages(
-            conversation_id=33,
-            current_user=current_user,
-            db=db,
-            limit=100,
-        )
-
-    assert len(result) == 1
-    assert result[0].widget_name == "OwnerDashboardWidget"
-    assert result[0].widget_data == {"cards": 2}
-
-
-@pytest.mark.asyncio
-async def test_get_conversation_messages_raises_404_when_not_owned():
-    db = AsyncMock()
-    current_user = SimpleNamespace(id=5)
-    query_result = SimpleNamespace(scalar_one_or_none=lambda: None)
-    db.execute = AsyncMock(return_value=query_result)
-
-    with pytest.raises(HTTPException) as exc:
-        await get_conversation_messages(
-            conversation_id=999,
-            current_user=current_user,
-            db=db,
-            limit=100,
-        )
-
-    assert exc.value.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -385,3 +365,83 @@ async def test_get_widget_html_not_found_raises_404():
             await get_widget_html("MissingWidget")
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_foreign_or_unknown_conversation_is_404():
+    """Another user's conversation id must not be reused (or silently replaced)."""
+    db = AsyncMock()
+    current_user = SimpleNamespace(id=1)
+
+    with (
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_owned_conversation",
+            new=AsyncMock(return_value=None),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
+            new=AsyncMock(),
+        ) as mock_create,
+    ):
+        with pytest.raises(HTTPException) as exc:
+            await agent_chat(
+                body=AgentChatRequest(message="hi", conversation_id=999),
+                current_user=current_user,
+                db=db,
+            )
+
+    assert exc.value.status_code == 404
+    mock_create.assert_not_awaited()
+
+
+class _HangingService:
+    """Yields a widget and some text, then waits as if the model were still streaming."""
+
+    async def stream_events(self, **_kwargs):
+        yield _frame("widget", {"widget_name": "OwnerDashboardWidget", "structured_content": {"a": 1}})
+        yield _frame("text_chunk", {"text": "Partial "})
+        yield _frame("text_chunk", {"text": "reply"})
+        await asyncio.sleep(3600)
+
+
+@pytest.mark.asyncio
+async def test_agent_chat_disconnect_before_done_persists_partial_reply():
+    import asyncio as _asyncio
+
+    db = AsyncMock()
+    with (
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.create_conversation",
+            new=AsyncMock(return_value=SimpleNamespace(id=10)),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.get_history",
+            new=AsyncMock(return_value=[_history_row("user", "hello")]),
+        ),
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.conversation_store.add_message",
+            new_callable=AsyncMock,
+        ) as mock_add_message,
+        patch(
+            "app.api.api_v1.endpoints.agent_chat.get_agent_service",
+            return_value=_HangingService(),
+        ),
+    ):
+        response = await agent_chat(
+            body=AgentChatRequest(message="Show dashboard"),
+            current_user=SimpleNamespace(id=1),
+            db=db,
+        )
+
+        async def _read():
+            async for _ in response.body_iterator:
+                pass
+
+        task = _asyncio.create_task(_read())
+        await _asyncio.sleep(0.2)  # the widget and both chunks are consumed
+        task.cancel()  # the client is gone
+        with pytest.raises(_asyncio.CancelledError):
+            await task
+
+    rows = [(c.kwargs["role"], c.kwargs.get("content")) for c in mock_add_message.await_args_list]
+    assert rows == [("user", "Show dashboard"), ("widget", None), ("assistant", "Partial reply")]

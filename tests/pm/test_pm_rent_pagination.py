@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -296,8 +296,12 @@ async def test_payments_desc_order_newest_first(
     paid_ats = [item["paid_at"] for item in items]
     assert paid_ats == sorted(paid_ats, reverse=True)
     # Should be the two newest of the 3 seeded payments
+    # Wire times are UTC with a Z suffix (UtcDateTime), so compare the UTC form.
     seeded_paid_ats = sorted(
-        (p.paid_at.isoformat().replace("+00:00", "Z") for p in seeded_rent_payments),
+        (
+            p.paid_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+            for p in seeded_rent_payments
+        ),
         reverse=True,
     )
     assert paid_ats[0] == seeded_paid_ats[0]

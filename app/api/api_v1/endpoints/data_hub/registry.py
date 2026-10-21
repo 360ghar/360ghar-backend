@@ -1,6 +1,6 @@
 """Registry lookup endpoints — Jamabandi, zoning, colony approvals, gazette."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import and_, func, select
@@ -14,6 +14,7 @@ from app.models.data_hub import (
     GazetteNotification,
     ZoningData,
 )
+from app.models.enums import GazetteType
 from app.schemas.data_hub import (
     ColonyApprovalResponse,
     GazetteNotificationResponse,
@@ -47,16 +48,21 @@ async def jamabandi_captcha(
 ):
     """Proxy the Jamabandi CAPTCHA image."""
     from app.services.data_hub.jamabandi import JamabandiScraper
+
     scraper = JamabandiScraper()
     try:
         img_bytes = await scraper.get_captcha_bytes()
     except Exception as exc:
         logger.error("Failed to fetch Jamabandi captcha: %s", exc)
-        raise HTTPException(status_code=502, detail="Could not fetch captcha from Jamabandi") from None
+        raise HTTPException(
+            status_code=502, detail="Could not fetch captcha from Jamabandi"
+        ) from None
     return Response(content=img_bytes, media_type="image/png")
 
 
-@router.post("/jamabandi/lookup", response_model=JamabandiLookupResponse, summary="Lookup jamabandi record")
+@router.post(
+    "/jamabandi/lookup", response_model=JamabandiLookupResponse, summary="Lookup jamabandi record"
+)
 async def jamabandi_lookup(
     req: JamabandiLookupRequest,
     db: AsyncSession = Depends(get_db),
@@ -64,27 +70,31 @@ async def jamabandi_lookup(
 ):
     """Look up a land record (Nakal) via Jamabandi."""
     from app.services.data_hub.jamabandi import JamabandiScraper
+
     scraper = JamabandiScraper()
     result = await scraper.lookup(
         db,
         tehsil=req.tehsil,
         village=req.village,
         khasra_number=req.khasra_number,
-        captcha_token=req.captcha_token,
+        captcha_text=req.captcha_text,
     )
     if result is None:
-        raise HTTPException(status_code=502, detail="Jamabandi lookup failed — check captcha or try again")
+        raise HTTPException(
+            status_code=502, detail="Jamabandi lookup failed — check captcha or try again"
+        )
 
     return JamabandiLookupResponse(
         tehsil=result["tehsil"],
         village=result["village"],
         khasra_number=result["khasra_number"],
         owner_names=result.get("owner_names") or [],
-        area_acres=result.get("area_kanal"),
+        area_kanal=result.get("area_kanal"),
+        area_marla=result.get("area_marla"),
         mutation_status=result.get("mutation_status"),
         encumbrance=result.get("encumbrance_details"),
         raw_data=None,
-        fetched_at=result.get("fetched_at") or datetime.utcnow(),
+        fetched_at=result.get("fetched_at") or datetime.now(UTC),
         is_cached=result.get("is_cached", False),
     )
 
@@ -94,23 +104,10 @@ async def jamabandi_lookup(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/zoning/sectors", response_model=list[str], summary="List zoning sectors")
-async def list_zoning_sectors(db: AsyncSession = Depends(get_db)):
-    """List distinct sectors from zoning data."""
-    from sqlalchemy import distinct
-
-    result = await db.execute(
-        select(distinct(ZoningData.sector)).order_by(ZoningData.sector)
-    )
-    return [r for r in result.scalars().all() if r]
-
-
 @router.get("/zoning/{slug}", response_model=ZoningDataResponse, summary="Get zoning data")
 async def get_zoning(slug: str, db: AsyncSession = Depends(get_db)):
     """Get zoning data for a specific sector by slug."""
-    result = await db.execute(
-        select(ZoningData).where(ZoningData.slug == slug)
-    )
+    result = await db.execute(select(ZoningData).where(ZoningData.slug == slug))
     row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Zoning data not found")
@@ -124,6 +121,7 @@ async def list_zoning(
     db: AsyncSession = Depends(get_db),
 ):
     """List zoning data with optional sector filter."""
+    filters_payload = {"sector": sector}
     filters = []
     if sector:
         filters.append(ZoningData.sector.ilike(f"%{sector}%"))
@@ -134,7 +132,7 @@ async def list_zoning(
         count_q = count_q.where(and_(*filters))
         data_q = data_q.where(and_(*filters))
 
-    cursor_payload = page.decoded()
+    cursor_payload = page.decoded(filters_payload)
     offset = read_offset(cursor_payload)
     rows, total = await _safe_list_query(
         db, ZoningData, count_q, data_q, offset, page.limit, with_total=page.include_total
@@ -142,7 +140,9 @@ async def list_zoning(
     has_more = len(rows) > page.limit
     items = rows[: page.limit]
     next_payload = offset_payload(offset + page.limit) if has_more else None
-    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
+    return build_cursor_page(
+        items, limit=page.limit, next_payload=next_payload, total=total, filters=filters_payload
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +150,11 @@ async def list_zoning(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/colony-approvals", response_model=CursorPage[ColonyApprovalResponse], summary="List colony approvals")
+@router.get(
+    "/colony-approvals",
+    response_model=CursorPage[ColonyApprovalResponse],
+    summary="List colony approvals",
+)
 async def list_colony_approvals(
     page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
@@ -174,21 +178,25 @@ async def list_colony_approvals(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/gazette", response_model=CursorPage[GazetteNotificationResponse], summary="List gazette notifications")
+@router.get(
+    "/gazette",
+    response_model=CursorPage[GazetteNotificationResponse],
+    summary="List gazette notifications",
+)
 async def list_gazette(
-    type: str | None = Query(None, description="Notification type filter"),
+    type: GazetteType | None = Query(None, description="Notification type filter"),
     q: str | None = Query(None, description="Search title or summary"),
     page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """List gazette notifications with optional type and text search filters."""
+    filters_payload = {"type": type, "q": q}
     filters = []
     if type:
-        filters.append(GazetteNotification.notification_type == type)
+        filters.append(GazetteNotification.notification_type == type.value)
     if q:
         filters.append(
-            GazetteNotification.title.ilike(f"%{q}%")
-            | GazetteNotification.summary.ilike(f"%{q}%")
+            GazetteNotification.title.ilike(f"%{q}%") | GazetteNotification.summary.ilike(f"%{q}%")
         )
 
     count_q = select(func.count()).select_from(GazetteNotification)
@@ -197,7 +205,7 @@ async def list_gazette(
         count_q = count_q.where(and_(*filters))
         data_q = data_q.where(and_(*filters))
 
-    cursor_payload = page.decoded()
+    cursor_payload = page.decoded(filters_payload)
     offset = read_offset(cursor_payload)
     rows, total = await _safe_list_query(
         db, GazetteNotification, count_q, data_q, offset, page.limit, with_total=page.include_total
@@ -205,16 +213,6 @@ async def list_gazette(
     has_more = len(rows) > page.limit
     items = rows[: page.limit]
     next_payload = offset_payload(offset + page.limit) if has_more else None
-    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
-
-
-@router.get("/gazette/{gazette_id}", response_model=GazetteNotificationResponse, summary="Get gazette notification")
-async def get_gazette(gazette_id: int, db: AsyncSession = Depends(get_db)):
-    """Get a single gazette notification by ID."""
-    result = await db.execute(
-        select(GazetteNotification).where(GazetteNotification.id == gazette_id)
+    return build_cursor_page(
+        items, limit=page.limit, next_payload=next_payload, total=total, filters=filters_payload
     )
-    row = result.scalar_one_or_none()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Gazette notification not found")
-    return row

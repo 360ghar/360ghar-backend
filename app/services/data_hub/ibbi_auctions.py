@@ -1,10 +1,11 @@
 """IBBI auction scraper — Insolvency and Bankruptcy Board of India liquidation auction notices."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -131,7 +132,7 @@ class IBBIAuctionScraper(BaseScraper):
         """Attempt multiple date formats."""
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
             try:
-                return datetime.strptime(val.strip(), fmt).date()
+                return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
             except ValueError:
                 continue
         return date(1970, 1, 1)

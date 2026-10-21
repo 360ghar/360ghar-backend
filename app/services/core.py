@@ -1,14 +1,18 @@
 from __future__ import annotations
 
-from sqlalchemy import and_, desc, func, select, update
+import re
+
+from sqlalchemy import ColumnElement, and_, desc, func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import NotFoundException, ValidationException
+from app.core.exceptions import ConflictException, NotFoundException, ValidationException
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.models.core import FAQ, AppVersion, BugReport, Page
-from app.models.enums import BugSeverity, BugStatus, BugType
+from app.models.enums import BugSeverity, BugStatus, BugType, UserRole
+from app.models.users import User
 from app.schemas.core import (
     AppVersionCheckRequest,
     AppVersionCheckResponse,
@@ -37,17 +41,28 @@ from app.schemas.pagination import (
 logger = get_logger(__name__)
 
 
+def _version_key(version: str) -> tuple[int, ...]:
+    """Numeric parts of a dotted version, without trailing zeros.
+
+    "1.10.0" sorts above "1.9.0", and "1.0.0" equals "1.0".
+    """
+    # ponytail: pre-release tags ("2.0.0-beta") compare as their digits. Use packaging.version when pre-releases ship.
+    parts = [int(part) for part in re.findall(r"\d+", version)]
+    while parts and parts[-1] == 0:
+        parts.pop()
+    return tuple(parts)
+
+
 class CoreService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     # Bug Report Methods
-    async def create_bug_report(self, bug_data: BugReportCreate, user_id: int | None = None) -> BugReportResponse:
+    async def create_bug_report(
+        self, bug_data: BugReportCreate, user_id: int | None = None
+    ) -> BugReportResponse:
         """Create a new bug report"""
-        bug_report = BugReport(
-            user_id=user_id,
-            **bug_data.model_dump()
-        )
+        bug_report = BugReport(user_id=user_id, **bug_data.model_dump())
 
         self.db.add(bug_report)
         await self.db.commit()
@@ -92,7 +107,9 @@ class CoreService:
                 await self.db.execute(select(func.count()).select_from(stmt.subquery()))
             ).scalar_one()
 
-        predicate = keyset_filter(BugReport.created_at, BugReport.id, cursor_payload, descending=True)
+        predicate = keyset_filter(
+            BugReport.created_at, BugReport.id, cursor_payload, descending=True
+        )
         if predicate is not None:
             stmt = stmt.where(predicate)
 
@@ -108,10 +125,11 @@ class CoreService:
 
     async def get_bug_report_by_id(self, bug_id: int) -> BugReportResponse:
         """Get a specific bug report by ID"""
-        query = select(BugReport).options(
-            selectinload(BugReport.user),
-            selectinload(BugReport.assignee)
-        ).where(BugReport.id == bug_id)
+        query = (
+            select(BugReport)
+            .options(selectinload(BugReport.user), selectinload(BugReport.assignee))
+            .where(BugReport.id == bug_id)
+        )
 
         result = await self.db.execute(query)
         bug_report = result.scalar_one_or_none()
@@ -121,11 +139,18 @@ class CoreService:
 
         return BugReportResponse.model_validate(bug_report)
 
+    async def _require_assignee(self, user_id: int) -> None:
+        """A bug can be assigned only to an existing admin or agent (422 otherwise)."""
+        role = (
+            await self.db.execute(select(User.role).where(User.id == user_id))
+        ).scalar_one_or_none()
+        if role not in (UserRole.admin, UserRole.agent):
+            raise ValidationException(
+                "assigned_to must be an existing admin or agent user", error_code="INVALID_ASSIGNEE"
+            )
+
     async def update_bug_report(
-        self,
-        bug_id: int,
-        update_data: BugReportUpdate,
-        updated_by: int | None = None
+        self, bug_id: int, update_data: BugReportUpdate, updated_by: int | None = None
     ) -> BugReportResponse:
         """Update a bug report"""
         # Get the bug report
@@ -134,16 +159,19 @@ class CoreService:
         # Prepare update data
         update_dict = update_data.model_dump(exclude_unset=True)
 
+        assignee_id = update_dict.get("assigned_to")
+        if assignee_id is not None:
+            await self._require_assignee(assignee_id)
+
         # If status is being changed to resolved, set resolved_at
-        if update_dict.get('status') == BugStatus.resolved and bug_report.status != BugStatus.resolved:
-            update_dict['resolved_at'] = utc_now()
+        if (
+            update_dict.get("status") == BugStatus.resolved
+            and bug_report.status != BugStatus.resolved
+        ):
+            update_dict["resolved_at"] = utc_now()
 
         # Update the bug report
-        query = (
-            update(BugReport)
-            .where(BugReport.id == bug_id)
-            .values(**update_dict)
-        )
+        query = update(BugReport).where(BugReport.id == bug_id).values(**update_dict)
 
         await self.db.execute(query)
         await self.db.commit()
@@ -152,31 +180,49 @@ class CoreService:
         return await self.get_bug_report_by_id(bug_id)
 
     # Page Methods
-    async def create_page(self, page_data: PageCreate, created_by: int | None = None) -> PageResponse:
+    async def create_page(
+        self, page_data: PageCreate, created_by: int | None = None
+    ) -> PageResponse:
         """Create a new page"""
-        # Check if unique_name already exists
-        existing_page = await self.get_page_by_unique_name(page_data.unique_name)
-        if existing_page:
-            raise ValidationException(f"Page with unique_name '{page_data.unique_name}' already exists")
-
-        page = Page(
-            created_by=created_by,
-            **page_data.model_dump()
+        # unique_name is unique across all rows, including soft-deleted (inactive) pages.
+        taken = await self.db.execute(
+            select(Page.id).where(Page.unique_name == page_data.unique_name)
         )
+        if taken.scalar_one_or_none() is not None:
+            raise ConflictException(
+                f"Page with unique_name '{page_data.unique_name}' already exists",
+                error_code="PAGE_EXISTS",
+            )
+
+        page = Page(created_by=created_by, **page_data.model_dump())
 
         self.db.add(page)
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError:
+            await self.db.rollback()
+            raise ConflictException(
+                f"Page with unique_name '{page_data.unique_name}' already exists",
+                error_code="PAGE_EXISTS",
+            ) from None
         await self.db.refresh(page)
 
         return PageResponse.model_validate(page)
 
-    async def get_page_by_unique_name(self, unique_name: str) -> PageResponse | None:
-        """Get a page by its unique name. Pure read; does NOT modify view_count."""
-        query = select(Page).options(
-            selectinload(Page.creator),
-            selectinload(Page.updater)
-        ).where(
-            and_(Page.unique_name == unique_name, Page.is_active)
+    async def get_page_by_unique_name(
+        self, unique_name: str, *, include_inactive: bool = False
+    ) -> PageResponse | None:
+        """Get a page by its unique name. Pure read; does NOT modify view_count.
+
+        Inactive (soft-deleted) pages are hidden unless ``include_inactive`` is set (admin reads).
+        """
+        conditions: list[ColumnElement[bool]] = [Page.unique_name == unique_name]
+        if not include_inactive:
+            conditions.append(Page.is_active.is_(True))
+        query = (
+            select(Page)
+            .options(selectinload(Page.creator), selectinload(Page.updater))
+            .where(and_(*conditions))
         )
 
         result = await self.db.execute(query)
@@ -278,16 +324,11 @@ class CoreService:
         return rows, next_pg, count_total
 
     async def update_page(
-        self,
-        unique_name: str,
-        update_data: PageUpdate,
-        updated_by: int | None = None
+        self, unique_name: str, update_data: PageUpdate, updated_by: int | None = None
     ) -> PageResponse:
         """Update a page"""
         # Check if page exists
-        existing_page = await self.db.execute(
-            select(Page).where(Page.unique_name == unique_name)
-        )
+        existing_page = await self.db.execute(select(Page).where(Page.unique_name == unique_name))
         page = existing_page.scalar_one_or_none()
 
         if not page:
@@ -297,34 +338,26 @@ class CoreService:
         update_dict = update_data.model_dump(exclude_unset=True)
 
         if updated_by:
-            update_dict['updated_by'] = updated_by
+            update_dict["updated_by"] = updated_by
 
         # updated_at onupdate only fires for ORM flushes; this is a Core UPDATE.
-        update_dict['updated_at'] = utc_now()
+        update_dict["updated_at"] = utc_now()
 
         # Update the page
-        query = (
-            update(Page)
-            .where(Page.unique_name == unique_name)
-            .values(**update_dict)
-        )
+        query = update(Page).where(Page.unique_name == unique_name).values(**update_dict)
 
         await self.db.execute(query)
         await self.db.commit()
 
-        # Return updated page
-        updated_page = await self.get_page_by_unique_name(unique_name)
+        # Return the updated page. An update may set is_active=false; the row must still be readable.
+        updated_page = await self.get_page_by_unique_name(unique_name, include_inactive=True)
         if updated_page is None:
             raise NotFoundException(f"Page with unique_name '{unique_name}' not found after update")
         return updated_page
 
     async def delete_page(self, unique_name: str) -> bool:
         """Soft delete a page by setting is_active to False"""
-        query = (
-            update(Page)
-            .where(Page.unique_name == unique_name)
-            .values(is_active=False)
-        )
+        query = update(Page).where(Page.unique_name == unique_name).values(is_active=False)
 
         result = await self.db.execute(query)
         await self.db.commit()
@@ -334,7 +367,7 @@ class CoreService:
     # App Version Methods
     async def create_app_version(self, version_data: AppVersionCreate) -> AppVersionResponse:
         """Create a new app version entry"""
-        app_version = AppVersion(**version_data.model_dump())
+        app_version = AppVersion(**version_data.model_dump(mode="json"))
 
         self.db.add(app_version)
         await self.db.commit()
@@ -342,14 +375,16 @@ class CoreService:
 
         return AppVersionResponse.model_validate(app_version)
 
-    async def check_for_updates(self, check_data: AppVersionCheckRequest) -> AppVersionCheckResponse:
+    async def check_for_updates(
+        self, check_data: AppVersionCheckRequest
+    ) -> AppVersionCheckResponse:
         """Check if there's an available update for the given app, platform, and version"""
         query = (
             select(AppVersion)
             .where(
                 and_(
-                    AppVersion.app == check_data.app,
-                    AppVersion.platform == check_data.platform,
+                    AppVersion.app == check_data.app.value,
+                    AppVersion.platform == check_data.platform.value,
                     AppVersion.is_active,
                 )
             )
@@ -366,12 +401,23 @@ class CoreService:
         current_version = check_data.current_version
         latest_version = latest_version_entry.version
 
-        # Simple version comparison (consider using proper semver comparison in production)
-        update_available = latest_version != current_version
+        # Compare numeric parts, so "1.10.0" is newer than "1.9.0". A client ahead of the latest is not offered an update.
+        update_available = _version_key(latest_version) > _version_key(current_version)
+
+        # Same version name: a newer build of the latest release is an update.
+        latest_build = latest_version_entry.build_number
+        if (
+            not update_available
+            and check_data.build_number is not None
+            and latest_build is not None
+            and _version_key(latest_version) == _version_key(current_version)
+            and latest_build > check_data.build_number
+        ):
+            update_available = True
 
         min_supported = latest_version_entry.min_supported_version
         is_below_min = False
-        if min_supported and current_version < min_supported:
+        if min_supported and _version_key(current_version) < _version_key(min_supported):
             is_below_min = True
             update_available = True
 
@@ -380,7 +426,9 @@ class CoreService:
             is_mandatory=latest_version_entry.is_mandatory or is_below_min,
             latest_version=latest_version,
             download_url=latest_version_entry.download_url,
-            release_notes=str(latest_version_entry.release_notes) if latest_version_entry.release_notes is not None else None,
+            release_notes=str(latest_version_entry.release_notes)
+            if latest_version_entry.release_notes is not None
+            else None,
             min_supported_version=min_supported,
         )
 
@@ -416,10 +464,14 @@ class CoreService:
             ).scalar_one()
 
         rows = (
-            await self.db.execute(
-                query.order_by(desc(AppVersion.created_at)).offset(offset).limit(limit + 1)
+            (
+                await self.db.execute(
+                    query.order_by(desc(AppVersion.created_at)).offset(offset).limit(limit + 1)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         has_more = len(rows) > limit
         rows = rows[:limit]
@@ -429,9 +481,7 @@ class CoreService:
         return versions, next_payload, total
 
     async def update_app_version(
-        self,
-        version_id: int,
-        update_data: AppVersionUpdate
+        self, version_id: int, update_data: AppVersionUpdate
     ) -> AppVersionResponse:
         """Update an app version entry"""
         existing_version = await self.db.execute(
@@ -442,13 +492,9 @@ class CoreService:
         if not app_version:
             raise NotFoundException(f"App version with ID {version_id} not found")
 
-        update_dict = update_data.model_dump(exclude_unset=True)
+        update_dict = update_data.model_dump(mode="json", exclude_unset=True)
 
-        query = (
-            update(AppVersion)
-            .where(AppVersion.id == version_id)
-            .values(**update_dict)
-        )
+        query = update(AppVersion).where(AppVersion.id == version_id).values(**update_dict)
 
         await self.db.execute(query)
         await self.db.commit()
@@ -494,7 +540,11 @@ class CoreService:
             ).scalar_one()
 
         offset = read_offset(cursor_payload)
-        stmt = stmt.order_by(FAQ.display_order.asc(), desc(FAQ.created_at)).offset(offset).limit(limit + 1)
+        stmt = (
+            stmt.order_by(FAQ.display_order.asc(), desc(FAQ.created_at))
+            .offset(offset)
+            .limit(limit + 1)
+        )
         rows = list((await self.db.execute(stmt)).scalars().all())
 
         next_pg: dict | None = None
@@ -509,18 +559,14 @@ class CoreService:
         result = await self.db.execute(query)
         faq = result.scalar_one_or_none()
         if not faq:
-            raise NotFoundException(f"FAQ with ID {faq_id} not found")
+            raise NotFoundException(f"FAQ with ID {faq_id} not found", error_code="FAQ_NOT_FOUND")
         return FAQResponse.model_validate(faq)
 
     async def update_faq(self, faq_id: int, update_data: FAQUpdate) -> FAQResponse:
         # Ensure exists
         _ = await self.get_faq_by_id(faq_id)
         update_dict = update_data.model_dump(exclude_unset=True)
-        query = (
-            update(FAQ)
-            .where(FAQ.id == faq_id)
-            .values(**update_dict)
-        )
+        query = update(FAQ).where(FAQ.id == faq_id).values(**update_dict)
         await self.db.execute(query)
         await self.db.commit()
         # Return updated
@@ -532,11 +578,7 @@ class CoreService:
         """Soft delete an FAQ by setting is_active to False"""
         # Ensure exists
         _ = await self.get_faq_by_id(faq_id)
-        query = (
-            update(FAQ)
-            .where(FAQ.id == faq_id)
-            .values(is_active=False)
-        )
+        query = update(FAQ).where(FAQ.id == faq_id).values(is_active=False)
         result = await self.db.execute(query)
         await self.db.commit()
         return bool(result.rowcount)  # type: ignore[attr-defined]

@@ -8,13 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from tenacity import stop_after_attempt, wait_none
 
-from app.services.ai import AIProviderError, AIProviderType
 from app.services.ai.base import AIProvider, AIProviderConfig
 from app.services.tour_ai import helpers as tour_ai_helpers
 
 
 class _FakeProvider(AIProvider):
-    """Minimal AIProvider stand-in for fallback tests."""
+    """Minimal AIProvider stand-in for tests."""
 
     def __init__(self, name: str, complete_json_result: dict[str, Any] | None = None,
                  complete_json_exc: Exception | None = None) -> None:
@@ -97,108 +96,9 @@ async def test_download_image_as_base64_accepts_real_image():
     assert base64.b64decode(image_base64) == real_bytes
 
 
-def test_resolve_fallback_provider_picks_glm_for_gemini_primary():
-    primary = _FakeProvider("Gemini")
-    glm_fallback = _FakeProvider("GLM")
-    with patch("app.services.tour_ai.helpers.get_ai_provider", return_value=glm_fallback) as m:
-        out = tour_ai_helpers._resolve_fallback_provider(primary)
-    assert out is glm_fallback
-    m.assert_called_once_with(AIProviderType.GLM)
-
-
-def test_resolve_fallback_provider_picks_gemini_for_glm_primary():
-    primary = _FakeProvider("GLM-4.7")
-    gemini_fallback = _FakeProvider("Gemini")
-    with patch("app.services.tour_ai.helpers.get_ai_provider", return_value=gemini_fallback) as m:
-        out = tour_ai_helpers._resolve_fallback_provider(primary)
-    assert out is gemini_fallback
-    m.assert_called_once_with(AIProviderType.GEMINI)
-
-
-def test_resolve_fallback_provider_returns_none_when_fallback_unconfigured():
-    primary = _FakeProvider("Gemini")
-    with patch("app.services.tour_ai.helpers.get_ai_provider", side_effect=ValueError("no key")):
-        out = tour_ai_helpers._resolve_fallback_provider(primary)
-    assert out is None
-
-
 async def test_complete_json_with_retry_returns_primary_result_when_it_succeeds():
     primary = _FakeProvider("Gemini", complete_json_result={"score": 9})
     out = await tour_ai_helpers._complete_json_with_retry(primary, messages=[])
     assert out == {"score": 9}
 
 
-async def test_complete_json_with_retry_falls_back_when_primary_raises():
-    primary = _FakeProvider(
-        "Gemini",
-        complete_json_exc=AIProviderError("boom", provider="Gemini"),
-    )
-    fallback = _FakeProvider("GLM", complete_json_result={"score": 7})
-    with patch("app.services.tour_ai.helpers.get_ai_provider", return_value=fallback):
-        out = await tour_ai_helpers._complete_json_with_retry(primary, messages=[])
-    assert out == {"score": 7}
-
-
-async def test_complete_json_with_retry_reraises_when_no_fallback_available():
-    primary = _FakeProvider(
-        "Gemini",
-        complete_json_exc=AIProviderError("boom", provider="Gemini"),
-    )
-    with patch("app.services.tour_ai.helpers.get_ai_provider", side_effect=ValueError("no key")):
-        with pytest.raises(AIProviderError):
-            await tour_ai_helpers._complete_json_with_retry(primary, messages=[])
-
-
-async def test_complete_json_with_retry_propagates_fallback_error_when_fallback_also_fails():
-    primary = _FakeProvider(
-        "Gemini",
-        complete_json_exc=AIProviderError("primary boom", provider="Gemini"),
-    )
-    fallback = _FakeProvider(
-        "GLM",
-        complete_json_exc=AIProviderError("fallback boom", provider="GLM"),
-    )
-    with patch("app.services.tour_ai.helpers.get_ai_provider", return_value=fallback):
-        with pytest.raises(AIProviderError, match="fallback boom"):
-            await tour_ai_helpers._complete_json_with_retry(primary, messages=[])
-
-
-async def test_complete_json_with_retry_does_not_outer_retry_hard_quota():
-    """Hard-quota errors must fail over once, not thrash outer tenacity."""
-    primary = _FakeProvider(
-        "Gemini",
-        complete_json_exc=AIProviderError(
-            "hard",
-            provider="Gemini",
-            status_code=429,
-            retryable=False,
-        ),
-    )
-    fallback = _FakeProvider(
-        "GLM",
-        complete_json_exc=AIProviderError(
-            "also hard",
-            provider="GLM",
-            status_code=429,
-            retryable=False,
-        ),
-    )
-    # Restore multi-attempt stop for this test; wait stays zero.
-    fn = tour_ai_helpers._complete_json_with_retry
-    fn.retry.stop = stop_after_attempt(3)
-
-    call_count = {"n": 0}
-    original = primary.complete_json
-
-    async def counting_complete_json(*args, **kwargs):
-        call_count["n"] += 1
-        return await original(*args, **kwargs)
-
-    primary.complete_json = counting_complete_json  # type: ignore[method-assign]
-
-    with patch("app.services.tour_ai.helpers.get_ai_provider", return_value=fallback):
-        with pytest.raises(AIProviderError, match="also hard"):
-            await tour_ai_helpers._complete_json_with_retry(primary, messages=[])
-
-    # Outer retry must not re-invoke primary for non-retryable errors.
-    assert call_count["n"] == 1

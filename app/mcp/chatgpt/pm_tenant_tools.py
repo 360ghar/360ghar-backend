@@ -63,6 +63,13 @@ async def tenant_rent_dues() -> dict[str, Any]:
         from app.models.enums import RentChargeStatus
         from app.models.pm_finance import RentCharge
         from app.models.pm_leases import Lease
+        from app.services.pm.lifecycle import (
+            charge_outstanding,
+            effective_status,
+            pending_late_fee,
+            settled_paid_totals,
+        )
+        from app.services.pm.rent_rules import ZERO_MONEY, business_today, grace_days, money
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -87,7 +94,8 @@ async def tenant_rent_dues() -> dict[str, Any]:
 
             # Get outstanding charges
             charges_stmt = (
-                select(RentCharge)
+                select(RentCharge, Lease)
+                .join(Lease, Lease.id == RentCharge.lease_id)
                 .where(
                     RentCharge.lease_id.in_(lease_ids),
                     RentCharge.status.in_(
@@ -101,11 +109,35 @@ async def tenant_rent_dues() -> dict[str, Any]:
                 .order_by(RentCharge.due_date)
             )
 
-            charges_result = await db.execute(charges_stmt)
-            charges = charges_result.scalars().all()
+            charge_rows = list((await db.execute(charges_stmt)).all())
 
-            serialized = [_serialize_rent_charge(c) for c in charges]
-            total_due = sum(c["balance"] for c in serialized)
+            paid_by_charge = await settled_paid_totals(db, [c.id for c, _ in charge_rows])
+            today = business_today()
+            serialized = []
+            balance_sum = ZERO_MONEY
+            for charge, lease in charge_rows:
+                paid = paid_by_charge.get(charge.id, ZERO_MONEY)
+                # The late fee the daily job has not assessed yet counts, as in the rent-due list.
+                pending_fee = pending_late_fee(charge, lease, paid, today)
+                balance = charge_outstanding(charge, paid) + pending_fee
+                # Read-time status (the daily job may not have run). A repaid charge is not due.
+                status = effective_status(
+                    charge.status,
+                    charge.due_date,
+                    grace_days(lease.grace_period_days),
+                    balance,
+                    today,
+                )
+                if status == RentChargeStatus.paid:
+                    continue
+                serialized.append(
+                    _serialize_rent_charge(
+                        charge, amount_paid=paid, status=status, pending_fee=pending_fee
+                    )
+                )
+                balance_sum += balance
+            # Sum the Decimal balances. The JSON number is made once, here.
+            total_due = float(money(balance_sum))
             overdue_count = sum(1 for c in serialized if c["status"] == "overdue")
 
             if total_due == 0:

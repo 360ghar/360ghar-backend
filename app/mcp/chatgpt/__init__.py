@@ -13,6 +13,7 @@ Widgets:
 - VisitSchedulerWidget, VisitListWidget
 - LeaseDetailsWidget, MaintenanceWidget, OwnerDashboardWidget
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -40,8 +41,6 @@ WIDGETS: dict[str, dict[str, Any]] = {
         "tools": [
             "discovery_search",
             "discovery_recommendations",
-            "guest_property_search",
-            "guest_property_recommendations",
         ],
         "title": "Property Search Results",
         "description": "Grid view of property search results with filtering",
@@ -49,7 +48,6 @@ WIDGETS: dict[str, dict[str, Any]] = {
     "PropertyDetailsWidget": {
         "tools": [
             "discovery_property_get",
-            "guest_property_details",
             "owner_properties_get",
             "agent_properties_get",
         ],

@@ -22,6 +22,9 @@ class _Scalars:
 
 
 class _EmptyResult:
+    def all(self):
+        return []
+
     def scalars(self):
         return _Scalars()
 
@@ -164,17 +167,17 @@ async def test_windows_min_filter_appends_windows_count_ge(mock_db_session):
 
 
 @pytest.mark.asyncio
-async def test_has_lift_looks_up_lift_amenity_and_filters_by_id(mock_db_session):
+async def test_has_lift_matches_both_lift_and_elevator_amenities(mock_db_session):
     filters = UnifiedPropertyFilter(has_lift=True)
     with _SearchHarness(mock_db_session) as harness:
         await get_unified_properties_optimized(harness.db, filters, None, {}, 10)
 
-    # Amenity lookup resolves 'Lift'/'Elevator' case-insensitively (the seed
-    # ships both rows with the same icon).
+    # The seed ships both a 'Lift' and an 'Elevator' row. A listing tagged with either
+    # one matches, so the filter is a set match and not a single amenity id.
     assert "lower(amenities.title) IN ('lift', 'elevator')" in harness.sql
-    # Properties are then restricted to those linked to the lift amenity.
     assert "properties.id IN (SELECT property_amenities.property_id" in harness.sql
-    assert "property_amenities.amenity_id = 5" in harness.sql
+    assert "JOIN amenities ON amenities.id = property_amenities.amenity_id" in harness.sql
+    assert "amenity_id = 5" not in harness.sql
 
 
 @pytest.mark.asyncio

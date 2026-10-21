@@ -34,14 +34,22 @@ Active contributors: Saksham, Ravi
 |---|---|
 | `PERPLEXITY_API_KEY`, `PERPLEXITY_MODEL` | Perplexity Sonar for blog generation. |
 | `SERPAPI_API_KEY`, `SERPAPI_SEARCH_ENDPOINT` | SerpAPI for blog cover image search. |
-| `GOOGLE_API_KEY` | Google API key for Gemini and embeddings. |
-| `GEMINI_MODEL`, `GEMINI_EMBED_MODEL` | Gemini chat/vision model and embedding model for pgvector sync. |
-| `GLM_API_KEY`, `GLM_API_URL`, `GLM_MODEL` | ZhipuAI GLM for vastu and AI agent. |
-| `VASTU_DEFAULT_PROVIDER` | Default vastu provider (`glm`). |
-| `GROQ_API_KEY`, `GROQ_MODEL` | Groq for the AI agent fallback chain. |
-| `AI_AGENT_MODEL`, `AI_AGENT_API_BASE` | Primary AI agent model (GLM); API key from `GLM_API_KEY`. |
-| `AI_AGENT_FALLBACK_MODEL`, `..._API_BASE` | First fallback (Gemini); API key from `GOOGLE_API_KEY`. |
-| `AI_AGENT_FALLBACK2_MODEL` | Second fallback (Groq); model + key from `GROQ_MODEL` / `GROQ_API_KEY`. |
+| `GOOGLE_API_KEY` | Google API key for Gemini embeddings only. |
+| `AGNES_AI_API_KEY` | Agnes AI key. Required for vastu, tour AI, the AI agent and design-studio image generation. |
+| `AGNES_API_BASE`, `AGNES_TEXT_MODEL`, `AGNES_IMAGE_MODEL` | Optional. Defaults: `https://apihub.agnes-ai.com/v1`, `agnes-3.0-flash`, `agnes-image-2.5-flash`. |
+| `GEMINI_EMBED_MODEL` | Gemini embedding model for pgvector sync (key: `GOOGLE_API_KEY`). |
+
+## Daytona sandbox (virtual tour generation)
+
+| Variable | Purpose |
+|---|---|
+| `DAYTONA_API_KEY` | Daytona API key. Required (hard error) for sandbox tour generation when `USE_DAYTONA_SANDBOX=true`. |
+| `DAYTONA_API_URL` | Daytona API base (default `https://app.daytona.io/api`). |
+| `DAYTONA_TARGET` | Daytona region target (default `us`). |
+| `USE_DAYTONA_SANDBOX` | When `true`, spatial tour plan generation runs inside an isolated Daytona sandbox (Gemini agent). When `false`, spatial mode falls back to the in-process navigation hotspot pipeline. |
+| `DAYTONA_SANDBOX_TIMEOUT_SECONDS` | Per-job sandbox timeout (default `900`). |
+| `DAYTONA_AGENT_GEMINI_MODEL` | Gemini model used by the agent script inside the sandbox (default `gemini-2.5-flash`). |
+| `GEMINI_API_KEY` | Legacy alias for the Gemini key; also injected into the sandbox agent for tour generation. |
 
 ## Notifications
 
@@ -83,6 +91,7 @@ Active contributors: Saksham, Ravi
 | `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES` | App-level secret and JWT config (informational - Supabase controls actual token expiry). |
 | `PUBLIC_BASE_URL` | Public API URL for OAuth metadata, MCP resource URIs, share previews. Required in production. |
 | `PUBLIC_APP_URL` | Frontend URL for share previews. |
+| `COMPANY_CONTACT_NUMBER` | Company phone shown as a listing contact to viewers who are not the owner or an admin, when the listing has no assigned agent. Unset means no fallback contact. |
 | `SENTRY_DSN` | Sentry project DSN. When unset, error tracking is disabled. |
 | `SENTRY_ENABLE_TRACING` | Enables Sentry performance tracing. Defaults to `false` so small-tier deployments send errors only unless explicitly opted in. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Performance sample rate used only when `SENTRY_ENABLE_TRACING=true`. Defaults to `0.05` when tracing is enabled and no explicit rate is set. |

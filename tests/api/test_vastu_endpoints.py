@@ -27,65 +27,72 @@ def make_test_image_bytes(fmt: str = "PNG") -> bytes:
     return buf.getvalue()
 
 
-def create_mock_vastu_response(
-    success: bool = True,
-    vastu_score: int = 7,
-) -> VastuAnalyzeResponse:
+def create_mock_vastu_response(vastu_score: int = 7) -> VastuAnalyzeResponse:
     """Create a mock vastu analysis response."""
-    if success:
-        floor_plan_analysis = FloorPlanAnalysis(
-            plot_shape="rectangular",
-            rooms=[],
-            entrance=None,
-            kitchen=None,
-            toilets=None,
-            staircase=None,
-            balconies=None,
-            open_spaces=None,
-            center_area=None,
-            compass_visible=False,
-        )
-        data = VastuAnalysisResult(
-            floor_plan_analysis=floor_plan_analysis,
-            vastu_score=vastu_score,
-            score_explanation="Good overall layout",
-            assumptions=["North is at top"],
-            room_analysis=[],
-            major_defects=[],
-            remedies=[],
-            improvements=[],
-            disclaimer="For informational purposes only.",
-            analysis_confidence=0.9,
-            warnings=[],
-            is_valid_floor_plan=True,
-        )
-        return VastuAnalyzeResponse(
-            success=True,
-            data=data,
-            report_markdown="# Vastu Report",
-            error=None,
-            has_warnings=False,
-            warning_count=0,
-            critical_warnings=False,
-            provider_used="gemini",
-            analyzed_at=utc_now_iso(),
-        )
-    else:
-        return VastuAnalyzeResponse(
-            success=False,
-            data=None,
-            report_markdown=None,
-            error="Analysis failed",
-            has_warnings=False,
-            warning_count=0,
-            critical_warnings=False,
-            provider_used="gemini",
-            analyzed_at=utc_now_iso(),
-        )
+    floor_plan_analysis = FloorPlanAnalysis(
+        plot_shape="rectangular",
+        rooms=[],
+        entrance=None,
+        kitchen=None,
+        toilets=None,
+        staircase=None,
+        balconies=None,
+        open_spaces=None,
+        center_area=None,
+        compass_visible=False,
+    )
+    data = VastuAnalysisResult(
+        floor_plan_analysis=floor_plan_analysis,
+        vastu_score=vastu_score,
+        score_explanation="Good overall layout",
+        assumptions=["North is at top"],
+        room_analysis=[],
+        major_defects=[],
+        remedies=[],
+        improvements=[],
+        disclaimer="For informational purposes only.",
+        analysis_confidence=0.9,
+        warnings=[],
+        is_valid_floor_plan=True,
+    )
+    return VastuAnalyzeResponse(
+        data=data,
+        report_markdown="# Vastu Report",
+        has_warnings=False,
+        warning_count=0,
+        critical_warnings=False,
+        provider_used="agnes",
+        analyzed_at=utc_now_iso(),
+    )
 
 
 class TestVastuAnalyzeEndpoint:
     """Tests for POST /api/v1/vastu/analyze endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_unusable_model_output_is_502_with_envelope(self, client: AsyncClient):
+        """An unusable LLM result is a 502 in the shared error envelope, never a 200 or a 500."""
+        from app.core.exceptions import ExternalServiceError
+
+        with patch(
+            "app.api.api_v1.endpoints.vastu.analyze_vastu",
+            new_callable=AsyncMock,
+            side_effect=ExternalServiceError(
+                "The analysis service returned an unusable result. Please try again.",
+                error_code="VASTU_UNUSABLE_OUTPUT",
+            ),
+        ):
+            files = {
+                "image": ("floor_plan.png", BytesIO(make_test_image_bytes("PNG")), "image/png")
+            }
+            response = await client.post(
+                "/api/v1/vastu/analyze", files=files, data={"north_direction": "up"}
+            )
+
+        assert response.status_code == 502
+        error = response.json()["error"]
+        assert error["code"] == "VASTU_UNUSABLE_OUTPUT"
+        assert "success" not in response.json()
 
     @pytest.mark.asyncio
     async def test_analyze_floor_plan_success(self, client: AsyncClient):
@@ -94,7 +101,7 @@ class TestVastuAnalyzeEndpoint:
             "app.api.api_v1.endpoints.vastu.analyze_vastu",
             new_callable=AsyncMock,
         ) as mock_analyze:
-            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=7)
+            mock_analyze.return_value = create_mock_vastu_response(vastu_score=7)
 
             # Create test image data
             image_content = make_test_image_bytes("PNG")
@@ -112,7 +119,7 @@ class TestVastuAnalyzeEndpoint:
 
             assert response.status_code == 200
             resp_data = response.json()
-            assert resp_data["success"] is True
+            assert "success" not in resp_data
             assert resp_data["data"]["vastu_score"] == 7
 
     @pytest.mark.asyncio
@@ -172,7 +179,8 @@ class TestVastuAnalyzeEndpoint:
             data=data,
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 422
+        assert "error" in response.json()
 
     @pytest.mark.asyncio
     async def test_analyze_invalid_provider(self, client: AsyncClient):
@@ -217,7 +225,7 @@ class TestVastuAnalyzeEndpoint:
             "app.api.api_v1.endpoints.vastu.analyze_vastu",
             new_callable=AsyncMock,
         ) as mock_analyze:
-            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=8)
+            mock_analyze.return_value = create_mock_vastu_response(vastu_score=8)
 
             image_content = make_test_image_bytes("PNG")
 
@@ -240,35 +248,11 @@ class TestVastuAnalyzeEndpoint:
             "app.api.api_v1.endpoints.vastu.analyze_vastu",
             new_callable=AsyncMock,
         ) as mock_analyze:
-            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=6)
+            mock_analyze.return_value = create_mock_vastu_response(vastu_score=6)
 
             image_content = make_test_image_bytes("JPEG")
             files = {"image": ("floor_plan.jpg", BytesIO(image_content), "image/jpeg")}
             data = {"north_direction": "up"}
-
-            response = await client.post(
-                "/api/v1/vastu/analyze",
-                files=files,
-                data=data,
-            )
-
-            assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_analyze_with_glm_provider(self, client: AsyncClient):
-        """Test analysis with GLM provider."""
-        with patch(
-            "app.api.api_v1.endpoints.vastu.analyze_vastu",
-            new_callable=AsyncMock,
-        ) as mock_analyze:
-            mock_analyze.return_value = create_mock_vastu_response(success=True, vastu_score=7)
-
-            image_content = make_test_image_bytes("PNG")
-            files = {"image": ("floor_plan.png", BytesIO(image_content), "image/png")}
-            data = {
-                "north_direction": "up",
-                "provider": "glm",
-            }
 
             response = await client.post(
                 "/api/v1/vastu/analyze",
@@ -292,3 +276,13 @@ class TestVastuHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["service"] == "vastu-analyzer"
         assert "providers" in data
+
+
+@pytest.fixture(autouse=True)
+def _no_vastu_rate_limit(test_app):
+    """The 5/min limiter would trip across this file when CI uses a shared cache."""
+    from app.api.api_v1.endpoints import vastu
+
+    test_app.dependency_overrides[vastu._check_analyze_rate_limit] = lambda: None
+    yield
+    test_app.dependency_overrides.pop(vastu._check_analyze_rate_limit, None)

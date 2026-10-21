@@ -4,6 +4,7 @@ Hotspot API Endpoints.
 This module provides REST API endpoints for managing hotspots within scenes,
 including CRUD operations and position updates.
 """
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,26 +23,6 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/{hotspot_id}", response_model=Hotspot, summary="Get hotspot")
-async def get_hotspot(
-    hotspot_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: UserSchema = Depends(get_current_active_user),
-):
-    """
-    Get a hotspot by ID.
-    """
-    hotspot = await tour_service.get_hotspot(db=db, hotspot_id=hotspot_id, user_id=current_user.id)
-    if not hotspot:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotspot not found"
-        )
-
-    return hotspot
-
-
-@router.put("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
 @router.patch("/{hotspot_id}", response_model=Hotspot, summary="Update hotspot")
 async def update_hotspot(
     hotspot_id: str,
@@ -54,9 +35,7 @@ async def update_hotspot(
 
     Can update type, position, target scene, title, description, icon, and custom data.
     Only the fields provided in the request body will be updated.
-
-    Note: Both PUT and PATCH are supported for backward compatibility.
-    PATCH is the recommended method for partial updates.
+    An explicit null clears a nullable field.
     """
     hotspot = await tour_service.update_hotspot(
         db=db,
@@ -66,8 +45,7 @@ async def update_hotspot(
     )
     if not hotspot:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotspot not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Hotspot not found or not authorized"
         )
     return hotspot
 
@@ -88,8 +66,7 @@ async def delete_hotspot(
     )
     if not success:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotspot not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Hotspot not found or not authorized"
         )
     return None
 
@@ -114,7 +91,6 @@ async def update_hotspot_position(
     )
     if not hotspot:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Hotspot not found or not authorized"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Hotspot not found or not authorized"
         )
     return hotspot

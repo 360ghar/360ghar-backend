@@ -1170,7 +1170,7 @@
                 "events"
               ]
             },
-            "description": "Track an analytics event for a public tour. Event types: view, scene_view, hotspot_click, share, fullscreen_enter, fullscreen_exit, vr_enter, vr_exit, heatmap, session_start, session_end, like, unlike."
+            "description": "Track an analytics event for a public tour. Event types: scene_view, hotspot_click, share, fullscreen_enter, fullscreen_exit, vr_enter, vr_exit, session_start, session_end, session_duration. view is counted by GET /public/tours/{id}. like and unlike use the like routes."
           },
           "response": []
         },

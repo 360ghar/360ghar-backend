@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -17,12 +28,14 @@ class BlogCategory(Base):
         Index("ux_blog_categories_name", "name", unique=True),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     posts: Mapped[list[BlogPost]] = relationship(
         back_populates="categories",
@@ -38,11 +51,13 @@ class BlogTag(Base):
         Index("ux_blog_tags_name", "name", unique=True),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     posts: Mapped[list[BlogPost]] = relationship(
         back_populates="tags",
@@ -56,25 +71,42 @@ class BlogPost(Base):
     __table_args__ = (
         Index("ux_blog_posts_slug", "slug", unique=True),
         Index("ix_blog_posts_created_at", "created_at"),
-        Index("idx_blog_posts_preview_token", "preview_token"),
+        Index("ix_blog_posts_active", "active"),
+        Index("idx_blog_posts_status", "status"),
+        Index("idx_blog_posts_published_at", "published_at"),
+        Index("ix_blog_posts_focus_keyword", "focus_keyword"),
+        Index("ix_blog_posts_seo_metadata", "seo_metadata", postgresql_using="gin"),
+        Index(
+            "idx_blog_posts_preview_token",
+            "preview_token",
+            postgresql_where=text("preview_token IS NOT NULL"),
+        ),
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived', 'scheduled')",
+            name="blog_posts_status_check",
+        ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     title: Mapped[str] = mapped_column(String, nullable=False)
     slug: Mapped[str] = mapped_column(String, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
     cover_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, default=False)
-    author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    author_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
 
     # Lifecycle status (draft / published / archived / scheduled). Kept in sync
     # with ``active`` in the service layer (active == (status == published)).
-    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    status: Mapped[str] = mapped_column(String, default="draft", nullable=False)
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    preview_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    preview_token: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # SEO fields
     meta_title: Mapped[str | None] = mapped_column(String(60), nullable=True)
@@ -94,7 +126,9 @@ class BlogPost(Base):
     sources: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
 
     # Flexible SEO metadata: schema_markup, keyword_analysis, trending_score, etc.
-    seo_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    seo_metadata: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
 
     categories: Mapped[list[BlogCategory]] = relationship(
         back_populates="posts",
@@ -110,23 +144,25 @@ class BlogPost(Base):
 
 class BlogPostCategory(Base):
     __tablename__ = "blog_post_categories"
-    __table_args__ = (
-        Index("ux_blog_post_category_unique", "post_id", "category_id", unique=True),
-    )
+    __table_args__ = (Index("ux_blog_post_category_unique", "post_id", "category_id", unique=True),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    post_id: Mapped[int] = mapped_column(ForeignKey("blog_posts.id", ondelete="CASCADE"))
-    category_id: Mapped[int] = mapped_column(ForeignKey("blog_categories.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("blog_posts.id", ondelete="CASCADE")
+    )
+    category_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("blog_categories.id", ondelete="CASCADE")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class BlogPostTag(Base):
     __tablename__ = "blog_post_tags"
-    __table_args__ = (
-        Index("ux_blog_post_tag_unique", "post_id", "tag_id", unique=True),
-    )
+    __table_args__ = (Index("ux_blog_post_tag_unique", "post_id", "tag_id", unique=True),)
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    post_id: Mapped[int] = mapped_column(ForeignKey("blog_posts.id", ondelete="CASCADE"))
-    tag_id: Mapped[int] = mapped_column(ForeignKey("blog_tags.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    post_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("blog_posts.id", ondelete="CASCADE")
+    )
+    tag_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("blog_tags.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

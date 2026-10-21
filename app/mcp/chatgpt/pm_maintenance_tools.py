@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 
 from app.core.database import AsyncSessionLocal
+from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.logging import get_logger
 from app.mcp.apps_sdk import (
     MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
@@ -18,10 +18,24 @@ from app.mcp.chatgpt.response_formatter import (
     format_auth_required_response,
     format_chatgpt_response,
 )
+from app.mcp.tool_ops.maintenance import (
+    MAINTENANCE_STATUS_VALUES,
+    MaintenancePriorityLabel,
+    MaintenanceStatusLabel,
+    maintenance_status_clause,
+    update_maintenance_status,
+)
 
 # Import the user MCP server to register tools
 from app.mcp.user.server import user_mcp
-from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload, read_offset
+from app.mcp.utils import serialize_maintenance_request
+from app.models.enums import PRIORITY_TO_URGENCY
+from app.schemas.pagination import (
+    decode_cursor,
+    encode_cursor,
+    read_offset,
+    trim_offset_lookahead,
+)
 
 logger = get_logger(__name__)
 
@@ -42,26 +56,32 @@ MAINTENANCE_META = build_widget_tool_meta(
         "destructiveHint": False,
         "securitySchemes": MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
     },
-    meta=MAINTENANCE_META,
 )
 async def owner_maintenance_list(
     property_id: int | None = None,
-    status: str | None = None,
-    priority: str | None = None,
+    status: MaintenanceStatusLabel | None = None,
+    priority: MaintenancePriorityLabel | None = None,
     cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
-    """List maintenance requests for the authenticated owner's properties."""
-    try:
-        from sqlalchemy import select
+    """List maintenance requests for the authenticated owner's properties.
 
-        from app.mcp.utils import serialize_maintenance_request
-        from app.models.enums import MaintenanceRequestStatus, MaintenanceUrgency, WorkOrderStatus
+    ``stats`` counts every matching request, not only the page. ``total`` is the count
+    of matching requests when ``include_total`` is set, otherwise null.
+    """
+    try:
+        from sqlalchemy import func, or_, select
+
+        from app.models.enums import MaintenanceUrgency
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
 
         limit = min(max(1, limit), 50)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        status_norm = status.lower().strip() if status else None
+        priority_norm = priority.lower().strip() if priority else None
+        filters = {"property_id": property_id, "status": status_norm, "priority": priority_norm}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
         offset = read_offset(cursor_payload)
 
         async with AsyncSessionLocal() as db:
@@ -80,71 +100,65 @@ async def owner_maintenance_list(
 
             if not owner_property_ids:
                 return format_chatgpt_response(
-                    data={"items": [], "total": 0, "stats": {}},
+                    data={
+                        "items": [],
+                        "total": 0 if include_total else None,
+                        "stats": {},
+                    },
                     content_summary="You don't have any properties to show maintenance requests for.",
                     widget_uri=get_widget_for_tool("owner_maintenance_list"),
                 )
 
-            # Build maintenance query
-            stmt = select(MaintenanceRequest).where(
-                MaintenanceRequest.property_id.in_(owner_property_ids)
-            )
-
+            scope: list[Any] = [MaintenanceRequest.property_id.in_(owner_property_ids)]
             if property_id:
-                stmt = stmt.where(MaintenanceRequest.property_id == property_id)
-
-            if status:
-                status_norm = status.lower().strip()
-                if status_norm == "open":
-                    stmt = stmt.where(
-                        MaintenanceRequest.request_status == MaintenanceRequestStatus.open
-                    )
-                elif status_norm == "in_progress":
-                    stmt = stmt.where(
-                        MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress
-                    )
-                elif status_norm == "scheduled":
-                    stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
-                elif status_norm == "completed":
-                    stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
-                elif status_norm == "cancelled":
-                    stmt = stmt.where(
-                        MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled
-                    )
-
-            if priority:
-                priority_norm = priority.lower().strip()
-                urgency_map = {
-                    "low": MaintenanceUrgency.low,
-                    "medium": MaintenanceUrgency.medium,
-                    "high": MaintenanceUrgency.high,
-                    "urgent": MaintenanceUrgency.emergency,
-                    "emergency": MaintenanceUrgency.emergency,
-                }
-                urgency = urgency_map.get(priority_norm)
+                scope.append(MaintenanceRequest.property_id == property_id)
+            if status_norm in MAINTENANCE_STATUS_VALUES:
+                scope.append(maintenance_status_clause(status_norm))
+            if priority_norm:
+                urgency = PRIORITY_TO_URGENCY.get(priority_norm)
                 if urgency is not None:
-                    stmt = stmt.where(MaintenanceRequest.urgency == urgency)
+                    scope.append(MaintenanceRequest.urgency == urgency)
 
-            stmt = stmt.order_by(MaintenanceRequest.created_at.desc())
-            stmt = stmt.offset(offset).limit(limit)
+            page_stmt = (
+                select(MaintenanceRequest)
+                .where(*scope)
+                .order_by(MaintenanceRequest.created_at.desc(), MaintenanceRequest.id.desc())
+                .offset(offset)
+                .limit(limit + 1)
+            )
+            rows = list((await db.execute(page_stmt)).scalars().all())
+            page, next_payload = trim_offset_lookahead(rows, limit=limit, offset=offset)
+            serialized = [serialize_maintenance_request(r) for r in page]
 
-            result = await db.execute(stmt)
-            requests = result.scalars().all()
-
-            serialized = [serialize_maintenance_request(r) for r in requests]
-
-            # Stats
-            open_count = sum(1 for r in serialized if r["status"] in ("open", "in_progress"))
-            urgent_count = sum(1 for r in serialized if r["priority"] == "urgent")
-
-            # Compute next cursor (offset-based) if this page was full
-            next_payload = offset_payload(offset + len(serialized)) if len(serialized) >= limit else None
+            total = None
+            if include_total:
+                total = (
+                    await db.execute(select(func.count(MaintenanceRequest.id)).where(*scope))
+                ).scalar_one()
+            open_count = (
+                await db.execute(
+                    select(func.count(MaintenanceRequest.id)).where(
+                        *scope,
+                        or_(
+                            maintenance_status_clause("open"),
+                            maintenance_status_clause("in_progress"),
+                        ),
+                    )
+                )
+            ).scalar_one()
+            urgent_count = (
+                await db.execute(
+                    select(func.count(MaintenanceRequest.id)).where(
+                        *scope, MaintenanceRequest.urgency == MaintenanceUrgency.emergency
+                    )
+                )
+            ).scalar_one()
 
             return format_chatgpt_response(
                 data={
                     "items": serialized,
-                    "total": len(serialized),
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "total": total,
+                    "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
                     "has_more": next_payload is not None,
                     "limit": limit,
                     "stats": {
@@ -152,7 +166,7 @@ async def owner_maintenance_list(
                         "urgent": urgent_count,
                     },
                 },
-                content_summary=f"Found {len(serialized)} maintenance requests. {open_count} open, {urgent_count} urgent.",
+                content_summary=f"Showing {len(serialized)} maintenance requests. {open_count} open, {urgent_count} urgent.",
                 widget_uri=get_widget_for_tool("owner_maintenance_list"),
             )
 
@@ -176,25 +190,21 @@ async def owner_maintenance_list(
         "openWorldHint": False,
         "securitySchemes": MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
     },
-    meta=MAINTENANCE_META,
 )
 async def owner_maintenance_update(
     request_id: int,
-    status: str,
+    status: MaintenanceStatusLabel,
     scheduled_date: str | None = None,
     estimated_cost: float | None = None,
     actual_cost: float | None = None,
     resolution_notes: str | None = None,
 ) -> dict[str, Any]:
-    """Update maintenance status, schedule, vendor, costs, or resolution notes."""
+    """Update maintenance status, schedule, costs, or resolution notes.
+
+    The update goes through the PM maintenance service, so the caller's rights and the
+    status transition rules are the same as for the REST route.
+    """
     try:
-        from sqlalchemy import select
-
-        from app.mcp.utils import serialize_maintenance_request
-        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
-        from app.models.pm_maintenance import MaintenanceRequest
-        from app.models.properties import Property
-
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
 
@@ -204,88 +214,45 @@ async def owner_maintenance_update(
                     message="To update maintenance requests, please log in to your 360Ghar account.",
                 )
 
-            # Get the maintenance request
-            stmt = select(MaintenanceRequest).where(MaintenanceRequest.id == request_id)
-            result = await db.execute(stmt)
-            request = result.scalar_one_or_none()
-
-            if not request:
+            widget = get_widget_for_tool("owner_maintenance_update")
+            try:
+                request = await update_maintenance_status(
+                    db,
+                    actor=user,
+                    request_id=request_id,
+                    status=status,
+                    notes=resolution_notes,
+                    scheduled_date=scheduled_date,
+                    estimated_cost=estimated_cost,
+                    actual_cost=actual_cost,
+                )
+                # Serialize before the commit. A failure here rolls the write back.
+                saved = serialize_maintenance_request(request)
+                await db.commit()
+            except NotFoundException:
                 return format_chatgpt_response(
                     data={"error": True, "code": "NOT_FOUND"},
                     content_summary=f"Maintenance request with ID {request_id} was not found.",
-                    widget_uri=get_widget_for_tool("owner_maintenance_update"),
+                    widget_uri=widget,
                 )
-
-            # Verify ownership
-            prop_stmt = select(Property).where(Property.id == request.property_id)
-            prop_result = await db.execute(prop_stmt)
-            prop = prop_result.scalar_one_or_none()
-
-            if not prop or prop.owner_id != user.id:
+            except ForbiddenException:
                 return format_chatgpt_response(
                     data={"error": True, "code": "FORBIDDEN"},
                     content_summary="You don't have permission to update this maintenance request.",
-                    widget_uri=get_widget_for_tool("owner_maintenance_update"),
+                    widget_uri=widget,
                 )
-
-            valid_statuses = ["open", "in_progress", "scheduled", "completed", "cancelled"]
-            status_norm = status.lower().strip()
-            if status_norm not in valid_statuses:
+            except (BadRequestException, ValueError) as e:
+                message = str(getattr(e, "detail", e))
                 return format_chatgpt_response(
-                    data={
-                        "error": True,
-                        "code": "INVALID_STATUS",
-                        "valid_statuses": valid_statuses,
-                    },
-                    content_summary=f"Invalid status. Please use one of: {', '.join(valid_statuses)}.",
-                    widget_uri=get_widget_for_tool("owner_maintenance_update"),
+                    data={"error": True, "code": "INVALID_INPUT", "message": message},
+                    content_summary=f"The maintenance request was not updated: {message}",
+                    widget_uri=widget,
                 )
-
-            # Update optional fields
-            if scheduled_date:
-                try:
-                    request.scheduled_for = datetime.fromisoformat(
-                        scheduled_date.replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    pass
-            if estimated_cost is not None:
-                request.estimated_cost = estimated_cost
-            if actual_cost is not None:
-                request.actual_cost = actual_cost
-
-            if resolution_notes is not None:
-                request.completion_notes = resolution_notes
-
-            if status_norm == "open":
-                request.request_status = MaintenanceRequestStatus.open
-                request.work_order_status = None
-                request.scheduled_for = None
-                request.completed_at = None
-            elif status_norm == "scheduled":
-                request.request_status = MaintenanceRequestStatus.work_order_created
-                request.work_order_status = WorkOrderStatus.assigned
-            elif status_norm == "in_progress":
-                request.request_status = MaintenanceRequestStatus.work_order_created
-                request.work_order_status = WorkOrderStatus.in_progress
-            elif status_norm == "completed":
-                request.request_status = MaintenanceRequestStatus.resolved
-                request.work_order_status = WorkOrderStatus.completed
-                if request.completed_at is None:
-                    request.completed_at = datetime.now(timezone.utc)
-            elif status_norm == "cancelled":
-                request.request_status = MaintenanceRequestStatus.closed
-                request.work_order_status = WorkOrderStatus.cancelled
-
-            await db.commit()
 
             return format_chatgpt_response(
-                data={
-                    "success": True,
-                    "request": serialize_maintenance_request(request),
-                },
-                content_summary=f"Maintenance request updated to '{status_norm}'.",
-                widget_uri=get_widget_for_tool("owner_maintenance_update"),
+                data={"request": saved},
+                content_summary=f"Maintenance request updated to '{status}'.",
+                widget_uri=widget,
             )
 
     except AuthRequiredError:

@@ -564,16 +564,16 @@ def _build_hc_property_payload(
     # Normalize status
     status = prop_data.get("status") or "available"
 
-    # Property.base_price is Numeric(10, 2) — cap at the column max to avoid DB errors.
+    # Property.base_price is Numeric(12, 2) — cap at the column max to avoid DB errors.
     # Original value is preserved in features["base_price_original"] for visibility.
-    NUMERIC_10_2_MAX = 99_999_999.99
+    NUMERIC_12_2_MAX = 9_999_999_999.99
     base_price = prop_data.get("base_price")
-    if isinstance(base_price, (int, float)) and base_price > NUMERIC_10_2_MAX:
+    if isinstance(base_price, (int, float)) and base_price > NUMERIC_12_2_MAX:
         logger.warning(
-            "base_price %.2f exceeds Numeric(10, 2) max for %s, capping to %.2f",
-            base_price, slug, NUMERIC_10_2_MAX,
+            "base_price %.2f exceeds Numeric(12, 2) max for %s, capping to %.2f",
+            base_price, slug, NUMERIC_12_2_MAX,
         )
-        base_price = NUMERIC_10_2_MAX
+        base_price = NUMERIC_12_2_MAX
 
     # Derive price fields from the chosen purpose
     monthly_rent = prop_data.get("monthly_rent")
@@ -612,7 +612,7 @@ def _build_hc_property_payload(
         extras["amenities"] = features_list
     # Preserve the original (uncapped) base_price if it was capped above
     original_bp = prop_data.get("base_price")
-    if isinstance(original_bp, (int, float)) and original_bp > NUMERIC_10_2_MAX:
+    if isinstance(original_bp, (int, float)) and original_bp > NUMERIC_12_2_MAX:
         extras["base_price_original"] = original_bp
     # Note the bucket this property was placed into for traceability
     if bucket is not None:

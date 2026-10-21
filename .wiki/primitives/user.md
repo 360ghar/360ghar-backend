@@ -33,7 +33,7 @@ Key columns:
 
 File: `app/services/user.py` (951 lines, the largest service file in the repo)
 
-The service handles phone lookup with normalization (last-10-digits fallback for Indian mobiles), preferences updates, role escalation, soft-delete, and keyset-cursor pagination across the user list. Account deletion is hard on the Supabase side and soft plus PII-anonymized on the local side: see `delete_user_account`. Two REST routes expose it: `DELETE /api/v1/users/me` (canonical, returns `MessageResponse`) and `POST /api/v1/auth/delete-account` (alternate, returns 204). There is no `/users/me/delete` route.
+The service handles phone lookup with normalization (last-10-digits fallback for Indian mobiles), preferences updates, role escalation, soft-delete, and keyset-cursor pagination across the user list. Account deletion is hard on the Supabase side and soft plus PII-anonymized on the local side: see `delete_user_account`. Two REST routes expose it: `DELETE /api/v1/users/me` (canonical, returns `MessageResponse`) and `POST /api/v1/auth/delete-account` (alternate, returns 204). There is no `/users/me/delete` route. The scrub also resets the `users` columns the ORM does not map (`_reset_unmapped_user_columns`): a nullable column becomes NULL and a column with a default gets that default. A NOT NULL column with no default is kept and logged as a warning.
 
 ## Auth flow
 

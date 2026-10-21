@@ -22,16 +22,19 @@ async def list_owner_tenants(
     db: AsyncSession = Depends(get_db),
 ):
     """List owner tenants."""
+    filters = {"owner_id": owner_id}
     rows, next_payload, count_total = await list_tenants(
         db,
         actor=current_user,  # type: ignore[arg-type]
         owner_id=owner_id,
-        cursor_payload=page.decoded(),
+        cursor_payload=page.decoded(filters),
         limit=page.limit,
         with_total=page.include_total,
     )
     items = [TenantSummary(**r) for r in rows]
-    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=count_total)
+    return build_cursor_page(
+        items, limit=page.limit, next_payload=next_payload, total=count_total, filters=filters
+    )
 
 
 @router.get("/{tenant_user_id}", response_model=TenantDetail, summary="Get tenant details")
@@ -42,7 +45,12 @@ async def tenant_details(
     db: AsyncSession = Depends(get_db),
 ):
     """Get tenant details."""
-    res = await get_tenant_detail(db, actor=current_user, tenant_user_id=tenant_user_id, owner_id=owner_id)  # type: ignore[arg-type]
+    res = await get_tenant_detail(
+        db,
+        actor=current_user,  # type: ignore[arg-type]
+        tenant_user_id=tenant_user_id,
+        owner_id=owner_id,
+    )
     leases = [LeaseSchema.model_validate(lease) for lease in res["leases"]]
     return TenantDetail(
         user_id=res["user_id"],
@@ -51,4 +59,3 @@ async def tenant_details(
         email=res.get("email"),
         leases=leases,
     )
-

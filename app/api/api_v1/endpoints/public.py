@@ -1,35 +1,42 @@
 """
 Public 360 Virtual Tour API Endpoints.
 
-This module provides unauthenticated endpoints for viewing published tours.
-These endpoints are used by the public viewer and embed page.
+Unauthenticated endpoints for viewing published tours, tracking viewer events,
+and liking tours. Every write from a viewer is rate-limited per IP. Views, events
+and likes are counted once per viewer, keyed on the server-side client IP (see the
+dedupe windows in services.tour). The rate limits are kept in memory, per worker
+process, so the effective limit is the per-worker limit times the worker count.
 """
+
+from __future__ import annotations
+
 import threading
 import time
 import uuid as _uuid
 from collections import defaultdict
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
-from sqlalchemy import and_, func, select, update
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, Response, status
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.config import settings
 from app.core.database import get_db
 from app.core.logging import get_logger
-from app.models.enums import TourStatus, TourVisibility
-from app.models.tours import FloorPlan, Scene, Tour
-from app.schemas.tour import TourEventPayload, TourWithScenes
+from app.core.utils import utc_now
+from app.middleware.rate_limit import get_client_ip
+from app.models.enums import TourEventType
+from app.models.tours import Tour, TourLike
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
+from app.schemas.tour import PublicScene, PublicTourWithScenes, TourEventPayload, TourLikeCount
 from app.services import tour as tour_service
 
 router = APIRouter()
 logger = get_logger(__name__)
 
-# ── Generic per-IP sliding-window rate limiter ─────────────────────────────────
-# One helper serves both like and event endpoints; previously they had
-# copy-pasted state dicts and shared a single reaper constant, which coupled
-# their reap cadences and let each per-worker dict grow unbounded.
+
+# ── Per-IP sliding-window rate limiter ─────────────────────────────────────────
+# One helper serves the like and event endpoints. Each store is a per-worker dict.
 _REAP_INTERVAL_S = 300  # reap stale keys every 5 minutes
 _reaper_lock = threading.Lock()
 
@@ -52,19 +59,14 @@ def _is_ip_rate_limited(
     now = time.monotonic()
     window_start = now - window_s
     timestamps = store[client_ip]
-    # Prune entries older than the window
     store[client_ip] = [t for t in timestamps if t > window_start]
     if len(store[client_ip]) >= limit:
         return True
     store[client_ip].append(now)
 
-    # Periodic reap of fully-stale keys to bound memory under sustained
-    # traffic from many distinct IPs. We do this on every call (cheap) and
-    # gate on a per-helper last-reap timestamp stored on the store itself.
     last_reap = store.get(last_reap_attr, 0.0)
     if now - last_reap > _REAP_INTERVAL_S:
         with _reaper_lock:
-            # Re-check under lock so two workers don't both decide to reap
             if now - store.get(last_reap_attr, 0.0) <= _REAP_INTERVAL_S:
                 return False
             store[last_reap_attr] = now
@@ -75,13 +77,10 @@ def _is_ip_rate_limited(
     return False
 
 
-# Per-IP limiter state for like/unlike endpoints.
 _like_store: dict[str, Any] = defaultdict(list)
 _LIKE_RATE_LIMIT = 10  # max requests
 _LIKE_RATE_WINDOW_S = 60  # per window
 
-
-# Per-IP limiter state for analytics event endpoints.
 _event_store: dict[str, Any] = defaultdict(list)
 _EVENT_RATE_LIMIT = 120  # max requests per window (generous for heatmap pings)
 _EVENT_RATE_WINDOW_S = 60
@@ -110,71 +109,38 @@ def _is_like_rate_limited(client_ip: str) -> bool:
 def get_device_type(user_agent: str) -> str:
     """Determine device type from user agent string."""
     user_agent_lower = user_agent.lower()
-
     if "oculus" in user_agent_lower or "quest" in user_agent_lower:
         return "vr"
     elif any(x in user_agent_lower for x in ["ipad", "tablet", "kindle"]):
         return "tablet"
     elif any(x in user_agent_lower for x in ["mobile", "android", "iphone", "ipod"]):
         return "mobile"
-    else:
-        return "desktop"
+    return "desktop"
 
 
-def get_client_ip(request: Request) -> str:
-    """Extract the real client IP, trusting only ``settings.TRUSTED_PROXY_HOPS``
-    proxies in front of us.
-
-    X-Forwarded-For is a comma-separated chain APPENDED-TO by each proxy:
-    ``client, proxy1, proxy2``. The right-most entry that we DON'T trust is
-    the real client. With ``TRUSTED_PROXY_HOPS=1`` (Railway default) we trust
-    one hop, so the rightmost untrusted hop = the second-from-right entry
-    (the real client, with the trusted proxy's IP tacked on at the right).
-    """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
-        # Index from the right: 0 = closest trusted proxy, 1 = the real client
-        # when we trust 1 hop. Clamp to the leftmost entry if the client chain
-        # is shorter than the configured hop count (e.g. direct connection).
-        idx = max(0, len(hops) - 1 - settings.TRUSTED_PROXY_HOPS)
-        return hops[idx]
-
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip
-
-    return request.client.host if request.client else "unknown"
+def _viewer_session(request: Request, session_id: str | None) -> str | None:
+    """The viewer's session id: from the body, the cookie, or the header."""
+    return session_id or request.cookies.get("session_id") or request.headers.get("x-session-id")
 
 
-def normalize_event_type(event_type: str, event_data: dict) -> str:
-    """Normalize incoming event types to the backend canonical set."""
-    mapping = {
-        "tour_view": "view",
-        "tour_share": "share",
-        "tour_like": "like",
-    }
-
-    normalized = mapping.get(event_type, event_type)
-
-    # Back-compat: accept a generic "fullscreen" event with a state flag.
-    if normalized == "fullscreen":
-        is_fullscreen = event_data.get("is_fullscreen")
-        if is_fullscreen is None:
-            is_fullscreen = event_data.get("isFullscreen")
-
-        if is_fullscreen is True:
-            return "fullscreen_enter"
-        if is_fullscreen is False:
-            return "fullscreen_exit"
-
-        # Fallback when the state is not provided.
-        return "fullscreen_enter"
-
-    return normalized
+def _viewer_key(client_ip: str) -> str:
+    """Key that counts one viewer once for likes. The client IP, never a client session id."""
+    return f"ip:{client_ip}"
 
 
-@router.get("/tours/{tour_id}", response_model=TourWithScenes, summary="Get public tour")
+async def _get_public_tour(db: AsyncSession, tour_id: str) -> Tour:
+    """A published, non-private tour. Anything else is 404."""
+    try:
+        _uuid.UUID(tour_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Tour not found"
+        ) from None
+    tour = await tour_service.get_tour(db, tour_id, None, include_scenes=False)
+    return tour
+
+
+@router.get("/tours/{tour_id}", response_model=PublicTourWithScenes, summary="Get public tour")
 async def get_public_tour(
     tour_id: str,
     request: Request,
@@ -184,177 +150,90 @@ async def get_public_tour(
     """
     Get a publicly accessible tour by ID.
 
-    This endpoint is used by the public viewer and embed page.
-    It does not require authentication but the tour must be:
-    - Published (status = 'published')
-    - Public (is_public = True)
-    - Not deleted
-
-    Optionally tracks view analytics (disable with track=false query param).
-
-    Returns the complete tour structure including scenes and hotspots,
-    ordered by scene order_index.
+    The tour must be published and not private. Returns the tour with its scenes,
+    hotspots and floor plans. With track=true (the default) a view is counted once
+    per viewer per dedupe window.
     """
-    # Validate UUID format before hitting the DB.
-    # PostgreSQL will throw DataError (→ 500) if an invalid string is passed
-    # to a UUID column. Return 404 early to keep this side-effect-free.
-    try:
-        _uuid.UUID(tour_id)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found",
-        ) from None
+    tour = await tour_service.get_tour(db, tour_id, None, include_scenes=True)
 
-    # Query tour with scenes and hotspots
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None)
-        )
-    ).options(
-        selectinload(Tour.scenes).selectinload(Scene.hotspots)
-    )
-
-    result = await db.execute(query)
-    tour = result.scalar_one_or_none()
-
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-
-    # Check if tour is published and publicly accessible (public or unlisted)
-    # Private tours require authentication and are handled by authenticated endpoints
-    if tour.status != TourStatus.published:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
-        )
-
-    # Check visibility: both 'public' and 'unlisted' tours are accessible via direct link
-    # 'private' tours are not accessible without authentication
-    if tour.visibility == TourVisibility.private:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
-        )
-
-    # Track view analytics (optional, disabled with track=false)
     if track:
         try:
             user_agent = request.headers.get("user-agent", "")
             client_ip = get_client_ip(request)
-            device_type = get_device_type(user_agent)
-
-            # Generate or extract session ID from cookies/headers
-            session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
-
-            await tour_service.record_analytics_event(
-                db=db,
+            session_id = _viewer_session(request, None)
+            if not await tour_service.is_repeat_viewer_event(
+                db,
                 tour_id=tour_id,
-                event_type="view",
-                user_agent=user_agent,
+                event_type=TourEventType.view.value,
+                scene_id=None,
+                hotspot_id=None,
                 ip_address=client_ip,
-                device_type=device_type,
-                session_id=session_id,
-                event_data={"referrer": request.headers.get("referer")},
-            )
-            logger.info("Tracked view for tour %s from %s", tour_id, device_type)
+                window_s=tour_service.VIEW_DEDUPE_WINDOW_S,
+            ):
+                await tour_service.record_analytics_event(
+                    db=db,
+                    tour_id=tour_id,
+                    event_type=TourEventType.view.value,
+                    user_agent=user_agent,
+                    ip_address=client_ip,
+                    device_type=get_device_type(user_agent),
+                    session_id=session_id,
+                    event_data={"referrer": request.headers.get("referer")},
+                )
         except Exception as e:
             # Don't fail the request if analytics tracking fails
             logger.warning("Failed to track analytics for tour %s: %s", tour_id, e)
             await db.rollback()
 
-    # Hydrate floor plans into tour.settings for the viewer (floor plans are stored in a dedicated table).
-    floor_plans_query = select(FloorPlan).where(FloorPlan.tour_id == tour_id).order_by(FloorPlan.floor_number)
-    floor_plans_result = await db.execute(floor_plans_query)
-    floor_plans = list(floor_plans_result.scalars().all())
-
-    payload = TourWithScenes.model_validate(tour).model_dump()
-    settings_payload = payload.get("settings") or {}
-    settings_payload["floor_plans"] = [
-        {
-            "id": fp.id,
-            "name": fp.name,
-            "floor_number": fp.floor_number,
-            "image_url": fp.image_url,
-            "markers": fp.markers or [],
-        }
-        for fp in floor_plans
-    ]
-    payload["settings"] = settings_payload
-
-    return payload
+    return tour_service.public_tour_view(tour)
 
 
-@router.get("/tours/{tour_id}/scenes", summary="Get public tour scenes")
+@router.get(
+    "/tours/{tour_id}/scenes",
+    response_model=CursorPage[PublicScene],
+    summary="Get public tour scenes",
+)
 async def get_public_tour_scenes(
     tour_id: str,
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get all scenes for a publicly accessible tour.
-
-    Returns scenes ordered by order_index with their hotspots.
+    Get the scenes of a publicly accessible tour, in order_index order, with their hotspots.
     """
-    # Verify tour exists and is public (public or unlisted visibility)
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None),
-            Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
-        )
+    items, next_payload, total = await tour_service.get_scenes_page(
+        db,
+        tour_id,
+        None,
+        page.decoded(),
+        page.limit,
+        include_total=page.include_total,
     )
-
-    result = await db.execute(query)
-    tour = result.scalar_one_or_none()
-
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found or is not publicly accessible"
-        )
-
-    # Get scenes
-    scenes_query = select(Scene).where(
-        Scene.tour_id == tour_id
-    ).options(
-        selectinload(Scene.hotspots)
-    ).order_by(Scene.order_index)
-
-    scenes_result = await db.execute(scenes_query)
-    scenes = list(scenes_result.scalars().all())
-
-    return scenes
+    public_items = [
+        tour_service.active_hotspots_only(PublicScene.model_validate(item)) for item in items
+    ]
+    return build_cursor_page(public_items, limit=page.limit, next_payload=next_payload, total=total)
 
 
-@router.post("/tours/{tour_id}/events", summary="Track tour event")
+@router.post(
+    "/tours/{tour_id}/events",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    summary="Track tour event",
+)
 async def track_tour_event(
     tour_id: str,
     request: Request,
-    payload: TourEventPayload | None = Body(default=None),
-    event_type: str | None = None,
-    scene_id: str | None = None,
-    hotspot_id: str | None = None,
+    payload: TourEventPayload = Body(...),
     db: AsyncSession = Depends(get_db),
-):
+) -> Response:
     """
-    Track an analytics event for a public tour.
+    Track one viewer event for a public tour. Returns 204.
 
-    Event types:
-    - view: Tour was loaded
-    - scene_view: A specific scene was viewed
-    - hotspot_click: A hotspot was clicked
-    - share: Tour was shared
-    - fullscreen: Fullscreen mode was toggled
-    - vr_enter: VR mode was entered
-
-    This endpoint does not require authentication.
+    A repeat of the same event by the same viewer inside the dedupe window is
+    accepted and not counted again. scene_view events must carry yaw and pitch
+    in event_data. Those values feed the heatmap.
     """
-    # Rate-limit per IP to prevent analytics table flooding
     client_ip = get_client_ip(request)
     if _is_event_rate_limited(client_ip):
         raise HTTPException(
@@ -362,105 +241,57 @@ async def track_tour_event(
             detail="Event rate limit exceeded. Try again later.",
         )
 
-    # Validate event type
-    if payload:
-        event_type = payload.event_type
-        scene_id = payload.scene_id or scene_id
-        hotspot_id = payload.hotspot_id or hotspot_id
+    tour = await _get_public_tour(db, tour_id)
 
-    event_data = payload.event_data.copy() if payload and payload.event_data else {}
+    event_data = dict(payload.event_data or {})
     if "referrer" not in event_data:
         event_data["referrer"] = request.headers.get("referer")
 
-    if not event_type:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing event_type",
-        )
-
-    event_type = normalize_event_type(event_type, event_data)
-
-    allowed_events = {
-        "view",
-        "scene_view",
-        "hotspot_click",
-        "share",
-        "fullscreen_enter",
-        "fullscreen_exit",
-        "vr_enter",
-        "vr_exit",
-        "heatmap",
-        "session_start",
-        "session_end",
-        "session_duration",
-    }
-    if event_type not in allowed_events:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid event type. Must be one of: {', '.join(sorted(allowed_events))}",
-        )
-
-    # Verify tour exists and is public (public or unlisted visibility)
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None),
-            Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
-        )
-    )
-
-    result = await db.execute(query)
-    tour = result.scalar_one_or_none()
-
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
+    user_agent = request.headers.get("user-agent", "")
+    session_id = _viewer_session(request, payload.session_id)
+    event_type = payload.event_type.value
 
     try:
-        user_agent = request.headers.get("user-agent", "")
-        client_ip = get_client_ip(request)
-        device_type = get_device_type(user_agent)
-        session_id = (
-            payload.session_id
-            if payload and payload.session_id
-            else request.cookies.get("session_id") or request.headers.get("x-session-id")
-        )
+        if await tour_service.is_repeat_viewer_event(
+            db,
+            tour_id=tour.id,
+            event_type=event_type,
+            scene_id=payload.scene_id,
+            hotspot_id=payload.hotspot_id,
+            ip_address=client_ip,
+            window_s=tour_service.EVENT_DEDUPE_WINDOW_S,
+        ):
+            return Response(status_code=status.HTTP_204_NO_CONTENT)
 
         await tour_service.record_analytics_event(
             db=db,
-            tour_id=tour_id,
+            tour_id=tour.id,
             event_type=event_type,
-            scene_id=scene_id,
-            hotspot_id=hotspot_id,
+            scene_id=payload.scene_id,
+            hotspot_id=payload.hotspot_id,
             user_agent=user_agent,
             ip_address=client_ip,
-            device_type=device_type,
+            device_type=get_device_type(user_agent),
             session_id=session_id,
             event_data=event_data,
         )
-
-        return {"status": "ok"}
     except Exception as e:
         logger.error("Failed to track event for tour %s: %s", tour_id, e, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to track event",
         ) from e
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/tours/{tour_id}/like", summary="Like tour")
+@router.post("/tours/{tour_id}/like", response_model=TourLikeCount, summary="Like tour")
 async def like_tour(
     tour_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Increment the like count for a public tour.
-
-    Rate-limited per IP to prevent count manipulation.
+    Like a public tour. A viewer's second like does not change the count.
     """
     client_ip = get_client_ip(request)
     if _is_like_rate_limited(client_ip):
@@ -468,66 +299,48 @@ async def like_tour(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Like rate limit exceeded. Try again later.",
         )
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None),
-            Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
-        )
-    )
 
-    result = await db.execute(query)
-    tour = result.scalar_one_or_none()
+    tour = await _get_public_tour(db, tour_id)
+    # Read the key before any commit: the commit expires the row, and a lazy load would fail here.
+    tour_pk = tour.id
+    session_id = _viewer_session(request, None)
+    viewer = _viewer_key(client_ip)
 
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-
-    new_like_count = (
+    inserted = (
         await db.execute(
-            update(Tour)
-            .where(Tour.id == tour_id)
-            .values(like_count=func.coalesce(Tour.like_count, 0) + 1)
-            .returning(Tour.like_count)
+            pg_insert(TourLike)
+            .values(tour_id=tour_pk, viewer_key=viewer, created_at=utc_now())
+            .on_conflict_do_nothing(index_elements=[TourLike.tour_id, TourLike.viewer_key])
+            .returning(TourLike.tour_id)
         )
-    ).scalar_one()
-    await db.commit()
+    ).scalar_one_or_none()
 
-    try:
-        user_agent = request.headers.get("user-agent", "")
-        client_ip = get_client_ip(request)
-        device_type = get_device_type(user_agent)
-        session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
+    if inserted is not None:
+        # Commits the like row and the tour counter together.
         await tour_service.record_analytics_event(
             db=db,
-            tour_id=tour_id,
-            event_type="like",
-            user_agent=user_agent,
+            tour_id=tour_pk,
+            event_type=TourEventType.like.value,
+            user_agent=request.headers.get("user-agent", ""),
             ip_address=client_ip,
-            device_type=device_type,
             session_id=session_id,
-            increment_counts=False,
+            increment_counts=True,
         )
-    except Exception as e:
-        logger.warning("Failed to track like event for tour %s: %s", tour_id, e)
+    else:
         await db.rollback()
 
-    return {"like_count": new_like_count}
+    count = (await db.execute(select(Tour.like_count).where(Tour.id == tour_pk))).scalar_one()
+    return TourLikeCount(like_count=int(count or 0))
 
 
-@router.delete("/tours/{tour_id}/like", summary="Unlike tour")
+@router.delete("/tours/{tour_id}/like", response_model=TourLikeCount, summary="Unlike tour")
 async def unlike_tour(
     tour_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Decrement the like count for a public tour.
-
-    Rate-limited per IP to prevent count manipulation.
+    Remove this viewer's like from a public tour. Without a like, the count does not change.
     """
     client_ip = get_client_ip(request)
     if _is_like_rate_limited(client_ip):
@@ -535,51 +348,33 @@ async def unlike_tour(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Like rate limit exceeded. Try again later.",
         )
-    query = select(Tour).where(
-        and_(
-            Tour.id == tour_id,
-            Tour.deleted_at.is_(None),
-            Tour.status == TourStatus.published,
-            Tour.visibility.in_([TourVisibility.public, TourVisibility.unlisted])
-        )
-    )
 
-    result = await db.execute(query)
-    tour = result.scalar_one_or_none()
+    tour = await _get_public_tour(db, tour_id)
+    # Read the key before any commit: the commit expires the row, and a lazy load would fail here.
+    tour_pk = tour.id
+    session_id = _viewer_session(request, None)
+    viewer = _viewer_key(client_ip)
 
-    if not tour:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tour not found"
-        )
-
-    new_like_count = (
+    removed = (
         await db.execute(
-            update(Tour)
-            .where(Tour.id == tour_id)
-            .values(like_count=func.greatest(func.coalesce(Tour.like_count, 0) - 1, 0))
-            .returning(Tour.like_count)
+            delete(TourLike)
+            .where(TourLike.tour_id == tour_pk, TourLike.viewer_key == viewer)
+            .returning(TourLike.tour_id)
         )
-    ).scalar_one()
-    await db.commit()
+    ).scalar_one_or_none()
 
-    try:
-        user_agent = request.headers.get("user-agent", "")
-        client_ip = get_client_ip(request)
-        device_type = get_device_type(user_agent)
-        session_id = request.cookies.get("session_id") or request.headers.get("x-session-id")
+    if removed is not None:
         await tour_service.record_analytics_event(
             db=db,
-            tour_id=tour_id,
-            event_type="unlike",
-            user_agent=user_agent,
+            tour_id=tour_pk,
+            event_type=TourEventType.unlike.value,
+            user_agent=request.headers.get("user-agent", ""),
             ip_address=client_ip,
-            device_type=device_type,
             session_id=session_id,
-            increment_counts=False,
+            increment_counts=True,
         )
-    except Exception as e:
-        logger.warning("Failed to track unlike event for tour %s: %s", tour_id, e)
+    else:
         await db.rollback()
 
-    return {"like_count": new_like_count}
+    count = (await db.execute(select(Tour.like_count).where(Tour.id == tour_pk))).scalar_one()
+    return TourLikeCount(like_count=int(count or 0))

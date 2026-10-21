@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,9 +10,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BadRequestException, InsufficientPermissionsError, NotFoundException
 from app.models.enums import ExpenseCategory, UserRole
 from app.models.pm_finance import Expense
+from app.models.properties import Property
 from app.models.users import User
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
+from app.schemas.pm_expense import ExpenseUpdate
 from app.services.pm_authz import assert_can_access_property, assert_can_manage_owner_portfolio
+from app.services.pm_documents import assert_owned_document
+
+
+async def _attach_property_names(db: AsyncSession, expenses: Sequence[Any]) -> None:
+    """Set a transient ``property_name`` per expense from one query."""
+    ids = {e.property_id for e in expenses}
+    if not ids:
+        return
+    rows = (await db.execute(select(Property.id, Property.title).where(Property.id.in_(ids)))).all()
+    titles: dict[int, str | None] = dict(tuple(row) for row in rows)
+    for expense in expenses:
+        expense.property_name = titles.get(expense.property_id)
 
 
 async def create_expense(
@@ -22,12 +38,10 @@ async def create_expense(
     category: ExpenseCategory,
     amount: float,
     expense_date: date,
+    title: str | None = None,
     description: str | None = None,
     notes: str | None = None,
     receipt_document_id: int | None = None,
-    is_recurring: bool = False,
-    recurrence_rule: dict | None = None,
-    next_due_date: date | None = None,
 ) -> Expense:
     if amount <= 0:
         raise BadRequestException(detail="amount must be > 0")
@@ -36,23 +50,24 @@ async def create_expense(
     prop = await assert_can_access_property(db, actor=actor, property_id=property_id)
     if prop.owner_id != owner_id and actor.role != UserRole.admin.value:
         raise BadRequestException(detail="property_id does not belong to owner_id")
+    if receipt_document_id is not None:
+        await assert_owned_document(db, document_id=receipt_document_id, owner_id=owner_id)
 
     expense = Expense(
         property_id=property_id,
         owner_id=owner_id,
         category=category,
+        title=title,
         amount=float(amount),
         expense_date=expense_date,
         description=description,
         notes=notes,
         receipt_document_id=receipt_document_id,
-        is_recurring=bool(is_recurring),
-        recurrence_rule=recurrence_rule,
-        next_due_date=next_due_date,
     )
     db.add(expense)
     await db.flush()
     await db.refresh(expense)
+    await _attach_property_names(db, [expense])
     return expense
 
 
@@ -106,7 +121,16 @@ async def list_expenses(
         rows = rows[:limit]
         last = rows[-1]
         next_payload = keyset_payload(keyset_sort_value(last.expense_date), last.id)
+    await _attach_property_names(db, rows)
     return rows, next_payload, count_total
+
+
+async def get_expense(db: AsyncSession, *, actor: User, expense_id: int) -> Expense:
+    expense = await db.get(Expense, expense_id)
+    if not expense:
+        raise NotFoundException(detail="Expense not found")
+    await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=expense.owner_id)
+    return expense
 
 
 async def update_expense(
@@ -114,50 +138,49 @@ async def update_expense(
     *,
     actor: User,
     expense_id: int,
-    property_id: int | None = None,
-    category: ExpenseCategory | None = None,
-    amount: float | None = None,
-    expense_date: date | None = None,
-    description: str | None = None,
-    notes: str | None = None,
-    receipt_document_id: int | None = None,
-    is_recurring: bool | None = None,
-    recurrence_rule: dict | None = None,
-    next_due_date: date | None = None,
+    body: ExpenseUpdate,
 ) -> Expense:
-    expense = await db.get(Expense, expense_id)
-    if not expense:
-        raise NotFoundException(detail="Expense not found")
+    """Apply a PATCH. Only keys the client sent change; an explicit null clears a nullable field."""
+    expense = await get_expense(db, actor=actor, expense_id=expense_id)
+    sent = body.model_fields_set
 
-    await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=expense.owner_id)
-
-    if property_id is not None and property_id != expense.property_id:
-        prop = await assert_can_access_property(db, actor=actor, property_id=property_id)
+    if (
+        "property_id" in sent
+        and body.property_id is not None
+        and body.property_id != expense.property_id
+    ):
+        prop = await assert_can_access_property(db, actor=actor, property_id=body.property_id)
         if prop.owner_id != expense.owner_id and actor.role != UserRole.admin.value:
             raise BadRequestException(detail="property_id does not belong to owner_id")
-        expense.property_id = property_id
-
-    if category is not None:
-        expense.category = category
-    if amount is not None:
-        if amount <= 0:
+        expense.property_id = body.property_id
+    if "amount" in sent and body.amount is not None:
+        if body.amount <= 0:
             raise BadRequestException(detail="amount must be > 0")
-        expense.amount = float(amount)
-    if expense_date is not None:
-        expense.expense_date = expense_date
-    if description is not None:
-        expense.description = description
-    if notes is not None:
-        expense.notes = notes
-    if receipt_document_id is not None:
-        expense.receipt_document_id = receipt_document_id
-    if is_recurring is not None:
-        expense.is_recurring = bool(is_recurring)
-    if recurrence_rule is not None:
-        expense.recurrence_rule = recurrence_rule
-    if next_due_date is not None:
-        expense.next_due_date = next_due_date
+        expense.amount = body.amount
+    if "receipt_document_id" in sent and body.receipt_document_id is not None:
+        await assert_owned_document(
+            db, document_id=body.receipt_document_id, owner_id=expense.owner_id
+        )
+
+    for name in (
+        "category",
+        "title",
+        "expense_date",
+        "description",
+        "notes",
+        "receipt_document_id",
+    ):
+        if name in sent:
+            setattr(expense, name, getattr(body, name))
 
     await db.flush()
     await db.refresh(expense)
+    await _attach_property_names(db, [expense])
     return expense
+
+
+async def delete_expense(db: AsyncSession, *, actor: User, expense_id: int) -> None:
+    """Owner-scoped delete. Same authorization as update."""
+    expense = await get_expense(db, actor=actor, expense_id=expense_id)
+    await db.delete(expense)
+    await db.flush()

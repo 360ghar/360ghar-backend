@@ -27,8 +27,12 @@ class TestCreateExpense:
             is_active=True,
         )
 
-        with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
-            with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock):
+        with patch(
+            "app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock
+        ):
+            with patch(
+                "app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock
+            ):
                 with pytest.raises(BadRequestException, match="amount must be > 0"):
                     await create_expense(
                         db,
@@ -51,8 +55,12 @@ class TestCreateExpense:
             is_active=True,
         )
 
-        with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
-            with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock):
+        with patch(
+            "app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock
+        ):
+            with patch(
+                "app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock
+            ):
                 with pytest.raises(BadRequestException, match="amount must be > 0"):
                     await create_expense(
                         db,
@@ -70,6 +78,7 @@ class TestCreateExpense:
         db = AsyncMock()
         db.flush = AsyncMock()
         db.refresh = AsyncMock()
+        db.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
 
         actor = User(
             id=1,
@@ -81,8 +90,14 @@ class TestCreateExpense:
         mock_prop = MagicMock()
         mock_prop.owner_id = 1
 
-        with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
-            with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock, return_value=mock_prop):
+        with patch(
+            "app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock
+        ):
+            with patch(
+                "app.services.pm_expenses.assert_can_access_property",
+                new_callable=AsyncMock,
+                return_value=mock_prop,
+            ):
                 await create_expense(
                     db,
                     actor=actor,
@@ -97,33 +112,9 @@ class TestCreateExpense:
                 db.flush.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_recurring_expense(self):
-        """Recurring expense can be created with recurrence rule."""
-        db = AsyncMock()
-        db.flush = AsyncMock()
-        db.refresh = AsyncMock()
+    async def test_expense_has_no_recurrence_arguments(self):
+        """Recurrence fields were removed (be-pm-38). The service no longer accepts them."""
+        import inspect
 
-        actor = User(
-            id=1,
-            supabase_user_id="abc",
-            role=UserRole.admin.value,
-            is_active=True,
-        )
-
-        mock_prop = MagicMock()
-        mock_prop.owner_id = 1
-
-        with patch("app.services.pm_expenses.assert_can_manage_owner_portfolio", new_callable=AsyncMock):
-            with patch("app.services.pm_expenses.assert_can_access_property", new_callable=AsyncMock, return_value=mock_prop):
-                await create_expense(
-                    db,
-                    actor=actor,
-                    owner_id=1,
-                    property_id=1,
-                    category=ExpenseCategory.hoa,
-                    amount=2000.0,
-                    expense_date=date.today(),
-                    is_recurring=True,
-                    recurrence_rule={"frequency": "monthly"},
-                )
-                db.add.assert_called_once()
+        params = inspect.signature(create_expense).parameters
+        assert not {"is_recurring", "recurrence_rule", "next_due_date"} & set(params)

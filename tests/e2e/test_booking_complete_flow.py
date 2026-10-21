@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -44,7 +45,8 @@ def create_mock_property_dict(property_id: int = 1) -> dict:
         "interest_count": 0,
         "is_managed": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": None,
+        # updated_at is NOT NULL in PropertyInDB (conventions-26).
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "images": [],
         "amenities": [],
     }
@@ -118,7 +120,7 @@ class TestBookingCompleteFlow:
 
         # Step 2: Check availability - POST /check-availability/
         with patch(
-            "app.api.api_v1.endpoints.bookings.check_availability",
+            "app.api.api_v1.endpoints.bookings.check_occupancy",
             new_callable=AsyncMock,
         ) as mock_avail:
             mock_avail.return_value = {
@@ -130,15 +132,13 @@ class TestBookingCompleteFlow:
                 "/api/v1/bookings/check-availability/",
                 json={
                     "property_id": test_short_stay_property.id,
-                    "check_in_date": check_in.strftime("%Y-%m-%d"),
-                    "check_out_date": check_out.strftime("%Y-%m-%d"),
                     "guests": 2,
                 },
             )
 
             assert response.status_code == 200
             data = response.json()
-            assert data.get("available") is True or "available" in data
+            assert data["occupancy_ok"] is True
 
         # Step 3: Get pricing - POST /calculate-pricing/
         with patch(
@@ -146,6 +146,10 @@ class TestBookingCompleteFlow:
             new_callable=AsyncMock,
         ) as mock_price:
             mock_price.return_value = {
+                "property_id": test_short_stay_property.id,
+                "check_in_date": datetime.now(timezone.utc) + timedelta(days=7),
+                "check_out_date": datetime.now(timezone.utc) + timedelta(days=10),
+                "guests": 2,
                 "nights": 3,
                 "base_amount": Decimal("6000"),
                 "taxes_amount": Decimal("1080"),
@@ -169,12 +173,20 @@ class TestBookingCompleteFlow:
         # Step 4: Create booking - use dict instead of MagicMock
         with patch(
             "app.api.api_v1.endpoints.bookings.create_booking", new_callable=AsyncMock
-        ) as mock_book:
-            mock_book.return_value = create_mock_booking_dict(
-                booking_id=1,
-                property_id=test_short_stay_property.id,
-                status="pending",
+        ) as mock_book, patch(
+            "app.api.api_v1.endpoints.bookings.get_booking", new_callable=AsyncMock
+        ) as mock_reload:
+            created = SimpleNamespace(
+                **create_mock_booking_dict(
+                    booking_id=1,
+                    property_id=test_short_stay_property.id,
+                    status="pending",
+                ),
+                property=None,
+                user=None,
             )
+            mock_book.return_value = created
+            mock_reload.return_value = created
 
             response = await authenticated_client.post(
                 "/api/v1/bookings/",
@@ -189,7 +201,7 @@ class TestBookingCompleteFlow:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
 
 
 class TestBookingManagementFlow:
@@ -238,13 +250,13 @@ class TestBookingManagementFlow:
             mock_booking.payment_method = None
             mock_booking.transaction_id = None
             mock_booking.guest_review = None
-            mock_booking.host_review = None
             mock_booking.guest_rating = None
-            mock_booking.host_rating = None
             mock_booking.cancelled_at = None
             mock_booking.confirmed_at = None
             mock_booking.checked_in_at = None
             mock_booking.checked_out_at = None
+            mock_booking.property = None
+            mock_booking.user = None
             mock_get.return_value = mock_booking
 
             response = await authenticated_client.get(
@@ -262,7 +274,17 @@ class TestBookingManagementFlow:
             mock_booking_cancel.user_id = test_user.id  # Must match authenticated user
             mock_booking_cancel.property_id = test_booking.property_id
             mock_booking_cancel.booking_status = "pending"
-            mock_get_for_cancel.return_value = mock_booking_cancel
+            cancelled = SimpleNamespace(
+                **create_mock_booking_dict(
+                    booking_id=test_booking.id,
+                    property_id=test_booking.property_id,
+                    status="cancelled",
+                ),
+                property=None,
+                user=None,
+            )
+            # First read: the access check. Second read: the booking returned after cancel.
+            mock_get_for_cancel.side_effect = [mock_booking_cancel, cancelled]
 
             with patch(
                 "app.api.api_v1.endpoints.bookings.cancel_booking", new_callable=AsyncMock

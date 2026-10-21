@@ -8,15 +8,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
 from app.core.logging import get_logger
-from app.core.utils import utc_now_iso
+from app.core.utils import utc_now
 from app.models.users import User as UserModel
 from app.services.email import send_email
 from app.services.notification_config import (
     NOTIFICATION_TYPES,
     NotificationCategory,
     NotificationChannel,
+    app_key_for_type,
 )
-from app.services.notifications import send_to_user
+from app.services.notifications import record_in_app_notification, send_to_user
 from app.services.sms import send_sms
 
 logger = get_logger(__name__)
@@ -24,63 +25,41 @@ logger = get_logger(__name__)
 DEFAULT_SEGMENT_LIMIT = 5000
 
 
+# The only marketing consent key. Missing or non-true means opt-out.
+MARKETING_CONSENT_KEY = "promotional_emails"
+
+
 def _get_user_channels_from_settings(
     *,
     settings_json: dict[str, Any] | None,
     category: NotificationCategory,
-    marketing_opt_in_key: str | None,
 ) -> set[NotificationChannel]:
-    """Determine which channels are enabled for the user.
+    """Return the channels the user allows for a notification category.
 
-    This function is tolerant of different shapes coming from the
-    360 Ghar app and the Stays app.
+    Marketing needs ``promotional_emails`` to be true. Missing means opt-out.
+    The read model (NotificationSettings) uses the same default.
     """
     enabled: set[NotificationChannel] = set()
     cfg = settings_json or {}
 
-    # Global channel toggles
-    push_enabled = bool(
-        cfg.get("push_notifications", cfg.get("push", True))
-    )
-    email_enabled = bool(
-        cfg.get("email_notifications", cfg.get("email", True))
-    )
-    sms_enabled = bool(cfg.get("sms_notifications", False))
+    push_enabled = cfg.get("push_notifications", True) is True
+    email_enabled = cfg.get("email_notifications", True) is True
+    sms_enabled = cfg.get("sms_notifications", False) is True
 
-    # Marketing-specific toggles
     marketing_allowed = True
     if category == NotificationCategory.MARKETING:
-        marketing_allowed = False
-        # 360 Ghar style flags
-        promo_flag = bool(
-            cfg.get("promotional_emails", cfg.get("promotional_push", True))
-        )
-        # Stays app style categories map: { categories: { promotions: true, ... } }
-        categories_cfg = cfg.get("categories") or {}
-        if not isinstance(categories_cfg, dict):
-            categories_cfg = {}
-        promotions_cat = bool(categories_cfg.get("promotions", True))
+        marketing_allowed = cfg.get(MARKETING_CONSENT_KEY) is True
 
-        marketing_allowed = promo_flag or promotions_cat
-
-        # Optional per-type opt-in key, e.g. "visit_reminders" or "digest"
-        if marketing_opt_in_key:
-            # Top-level boolean or nested in categories
-            specific_flag = cfg.get(marketing_opt_in_key)
-            if specific_flag is None and isinstance(categories_cfg, dict):
-                specific_flag = categories_cfg.get(marketing_opt_in_key)
-            if specific_flag is not None:
-                marketing_allowed = marketing_allowed and bool(specific_flag)
-
-    if push_enabled and (category != NotificationCategory.MARKETING or marketing_allowed):
+    if push_enabled and marketing_allowed:
         enabled.add(NotificationChannel.PUSH)
-    if email_enabled and (category != NotificationCategory.MARKETING or marketing_allowed):
+    if email_enabled and marketing_allowed:
         enabled.add(NotificationChannel.EMAIL)
-    if sms_enabled and (category != NotificationCategory.MARKETING or marketing_allowed):
+    if sms_enabled and marketing_allowed:
         enabled.add(NotificationChannel.SMS)
-
-    # In-app centre is always allowed; it is a safe channel.
-    enabled.add(NotificationChannel.IN_APP)
+    # The in-app inbox follows the same consent gate. Marketing without consent
+    # writes no inbox row either.
+    if marketing_allowed:
+        enabled.add(NotificationChannel.IN_APP)
     return enabled
 
 
@@ -96,29 +75,36 @@ async def dispatch_notification_to_user(
 ) -> dict[str, Any]:
     """Dispatch a typed notification to a single user across channels.
 
-    - Respects per-type configuration from NOTIFICATION_TYPES
-    - Computes effective channels based on user.notification_settings JSON
-    - Sends push (via FCM), email, and SMS where configured
-    - Always records the notification for in-app consumption via push service
+    - An unregistered ``type_key`` is an error. Nothing is sent.
+    - Channels follow the type config and the user's notification settings.
+    - Push goes only to devices of the app that owns the type.
     """
     cfg = NOTIFICATION_TYPES.get(type_key)
     if not cfg:
-        logger.warning("Unknown notification type_key; falling back", extra={"type_key": type_key})
-        # Treat unknown types as admin broadcasts
-        cfg = NOTIFICATION_TYPES["admin_broadcast"]
+        logger.warning("Unknown notification type_key; nothing sent", extra={"type_key": type_key})
+        return {
+            "type_key": type_key,
+            "title": title,
+            "body": body,
+            "sent_at": utc_now(),
+            "channels": {},
+            "error": "unknown_type_key",
+        }
 
     result: dict[str, Any] = {
         "type_key": cfg.key,
         "title": title,
         "body": body,
-        "sent_at": utc_now_iso(),
+        "sent_at": utc_now(),
         "channels": {},
     }
 
     res = await db.execute(select(UserModel).where(UserModel.id == user_db_id))
     user: UserModel | None = res.scalar_one_or_none()
     if not user:
-        logger.warning("dispatch_notification_to_user: user not found", extra={"user_db_id": user_db_id})
+        logger.warning(
+            "dispatch_notification_to_user: user not found", extra={"user_db_id": user_db_id}
+        )
         result["error"] = "user_not_found"
         return result
 
@@ -126,15 +112,13 @@ async def dispatch_notification_to_user(
     effective_channels = _get_user_channels_from_settings(
         settings_json=settings_json,
         category=cfg.category,
-        marketing_opt_in_key=cfg.marketing_opt_in_key,
     )
 
     # Only use channels allowed by both type config and user settings
     allowed_channels = cfg.allowed_channels & effective_channels
 
-    # In-app: piggyback on push recording; every push notification is stored
-    # via Supabase notifications table. For in-app-only types, we could add
-    # a dedicated path in the future.
+    # One notifications row per dispatch. The push send writes it; the inbox reuses it.
+    notification_id: str | None = None
 
     # Push via FCM (best-effort; soft-fails inside send_to_user)
     if NotificationChannel.PUSH in allowed_channels and user.supabase_user_id:
@@ -146,22 +130,23 @@ async def dispatch_notification_to_user(
                 data=data,
                 deep_link=deep_link,
                 type_key=cfg.key,
+                app_key=app_key_for_type(cfg.key),
             )
-            if push_resp.get("ok", True):
-                result["channels"]["push"] = {"ok": True, "response": push_resp}
-            else:
-                err = push_resp.get("error") or "unknown push failure"
+            ok = bool(push_resp.get("ok"))
+            notification_id = push_resp.get("notification_id")
+            entry: dict[str, Any] = {"ok": ok, "sent": push_resp.get("sent", 0)}
+            if not ok:
+                entry["error"] = str(push_resp.get("error") or "push failed")
                 logger.error(
                     "Failed to send push notification: %s (user_id=%s type_key=%s)",
-                    err,
+                    entry["error"],
                     user.supabase_user_id,
                     cfg.key,
                 )
-                result["channels"]["push"] = {"ok": False, "error": str(err), "response": push_resp}
+            result["channels"]["push"] = entry
         except Exception as e:
-            # Include the exception in the message body — Railway often drops
-            # structured `extra` fields, so "Failed to send push notification"
-            # alone is unactionable in production logs.
+            # Include the exception in the message body: structured `extra`
+            # fields are often dropped in production logs.
             logger.error(
                 "Failed to send push notification: %s (user_id=%s type_key=%s)",
                 e,
@@ -169,7 +154,19 @@ async def dispatch_notification_to_user(
                 cfg.key,
                 exc_info=True,
             )
-            result["channels"]["push"] = {"ok": False, "error": str(e)}
+            result["channels"]["push"] = {"ok": False, "sent": 0, "error": str(e)}
+
+    # In-app inbox: one row per dispatch. It needs no device, so the inbox does not depend on push.
+    if NotificationChannel.IN_APP in allowed_channels and user.supabase_user_id:
+        await record_in_app_notification(
+            user_id=user.supabase_user_id,
+            type_key=cfg.key,
+            title=title,
+            body=body,
+            data=data,
+            deep_link=deep_link,
+            notification_id=notification_id,
+        )
 
     # Email
     if NotificationChannel.EMAIL in allowed_channels and user.email:
@@ -183,7 +180,12 @@ async def dispatch_notification_to_user(
         except Exception as e:
             logger.error(
                 "Failed to send email notification",
-                extra={"user_id": user.id, "email": user.email, "type_key": cfg.key, "error": str(e)},
+                extra={
+                    "user_id": user.id,
+                    "email": user.email,
+                    "type_key": cfg.key,
+                    "error": str(e),
+                },
             )
             result["channels"]["email"] = {"ok": False, "error": str(e)}
 
@@ -199,7 +201,12 @@ async def dispatch_notification_to_user(
         except Exception as e:
             logger.error(
                 "Failed to send SMS notification",
-                extra={"user_id": user.id, "phone": user.phone, "type_key": cfg.key, "error": str(e)},
+                extra={
+                    "user_id": user.id,
+                    "phone": user.phone,
+                    "type_key": cfg.key,
+                    "error": str(e),
+                },
             )
             result["channels"]["sms"] = {"ok": False, "error": str(e)}
 

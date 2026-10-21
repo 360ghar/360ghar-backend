@@ -5,6 +5,7 @@ backend selection based on configuration.
 
 from __future__ import annotations
 
+import asyncio
 from enum import Enum
 from typing import Any
 
@@ -103,6 +104,7 @@ class CacheManager:
         self._primary = backend
         self._fallback = fallback or NullCacheBackend()
         self._use_fallback = False
+        self._incr_lock = asyncio.Lock()
 
     @classmethod
     def create_from_config(cls, settings: Any) -> CacheManager:
@@ -219,6 +221,21 @@ class CacheManager:
     async def set(self, key: str, value: Any, ttl: int | None = None) -> bool:
         """Set value in cache."""
         return await self.backend.set(key, value, ttl)
+
+    async def incr(self, key: str, ttl: int | None = None) -> int:
+        """Atomically add 1 to a counter and return the new value (fixed window of ``ttl`` s).
+
+        Redis and the in-memory backend are atomic. Other backends fall back to a
+        get-then-set under a process-local lock.
+        """
+        backend = self.backend
+        if hasattr(backend, "incr"):
+            return int(await backend.incr(key, ttl))
+        async with self._incr_lock:
+            count = int(await backend.get(key) or 0) + 1
+            # ponytail: this path re-arms the TTL on each hit; only Redis and memory keep a fixed window.
+            await backend.set(key, count, ttl)
+            return count
 
     async def delete(self, key: str) -> bool:
         """Delete key from cache."""

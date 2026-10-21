@@ -1,61 +1,60 @@
 """
 Custom Domain schemas for branded tour URLs.
 """
+
 from __future__ import annotations
 
 import re
-from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.models.enums import CustomDomainSSLStatus, CustomDomainVerificationStatus
+from app.schemas.base import UtcDateTime, WriteModel
+
+_DOMAIN_PATTERN = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$"
 
 
-class CustomDomainBase(BaseModel):
-    """Base schema for custom domains."""
-    domain: str
+def normalize_domain(value: str) -> str:
+    """Strip the scheme and trailing slash, check the format, and lower-case the result."""
+    value = re.sub(r"^https?://", "", value).rstrip("/")
+    if not re.fullmatch(_DOMAIN_PATTERN, value):
+        raise ValueError("Invalid domain format")
+    return value.lower()
+
+
+class CustomDomainCreate(WriteModel):
+    """Body for POST /custom-domains."""
+
+    domain: str = Field(..., min_length=3, max_length=255)
 
     @field_validator("domain")
     @classmethod
     def validate_domain(cls, v: str) -> str:
-        """Validate domain format."""
-        # Remove protocol if present
-        v = re.sub(r"^https?://", "", v)
-        # Remove trailing slash
-        v = v.rstrip("/")
-        # Basic domain validation
-        domain_pattern = r"^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$"
-        if not re.match(domain_pattern, v):
-            raise ValueError("Invalid domain format")
-        return v.lower()
+        return normalize_domain(v)
 
-
-class CustomDomainCreate(CustomDomainBase):
-    """Schema for creating a custom domain."""
     model_config = ConfigDict(json_schema_extra={"title": "CustomDomainCreate"})
 
 
-class CustomDomainResponse(CustomDomainBase):
+class CustomDomainResponse(BaseModel):
     """Schema for custom domain responses."""
+
     id: str
     user_id: int
-    verification_status: str  # pending, verified, failed
-    ssl_status: str  # pending, provisioning, active, failed
+    domain: str
+    verification_status: CustomDomainVerificationStatus
+    ssl_status: CustomDomainSSLStatus
     verification_token: str | None = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class CustomDomainVerification(BaseModel):
     """Schema for domain verification status."""
+
     domain: str
     is_verified: bool
     verification_instructions: str | None = None
     txt_record_name: str
     txt_record_value: str
-
-
-class CustomDomainList(BaseModel):
-    """Schema for listing custom domains."""
-    items: list[CustomDomainResponse]
-    total: int

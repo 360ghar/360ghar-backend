@@ -44,11 +44,13 @@ def _safe_sentry_field(value: Any) -> str | None:
 
 
 def _set_sentry_user(user: Any) -> None:
-    sentry_sdk.set_user({
-        "id": _safe_sentry_field(getattr(user, "id", None)),
-        "email": _safe_sentry_field(getattr(user, "email", None)),
-        "username": _safe_sentry_field(getattr(user, "phone", None)),
-    })
+    sentry_sdk.set_user(
+        {
+            "id": _safe_sentry_field(getattr(user, "id", None)),
+            "email": _safe_sentry_field(getattr(user, "email", None)),
+            "username": _safe_sentry_field(getattr(user, "phone", None)),
+        }
+    )
 
 
 def _eager_load_user_columns(user: User) -> None:
@@ -218,11 +220,12 @@ async def get_current_user(
         await db.commit()
         request.state.user_id = getattr(db_user, "id", None)
         # Store raw Supabase user data so endpoints that need identity
-        # metadata (e.g. GET /users/me/identities) can access it without
-        # a second round-trip.
+        # metadata can read it without a second round-trip.
         request.state.supabase_user_data = supabase_user_data
         _set_sentry_user(db_user)
-        logger.debug("User authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
+        logger.debug(
+            "User authenticated successfully", extra={"user_id": getattr(db_user, "id", None)}
+        )
         return db_user
     except HTTPException:
         raise
@@ -454,7 +457,9 @@ async def get_current_user_sse(
                 raise
         request.state.user_id = getattr(db_user, "id", None)
         _set_sentry_user(db_user)
-        logger.debug("SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)})
+        logger.debug(
+            "SSE user authenticated successfully", extra={"user_id": getattr(db_user, "id", None)}
+        )
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -492,6 +497,36 @@ async def get_current_user_sse(
             },
         )
     return db_user
+
+
+async def get_current_user_short_session(
+    request: Request,
+    authorization: str | None = Header(None),
+) -> User:
+    """Resolve the current user without holding a request DB session open.
+
+    Shares the short-lived background-pool resolution used by the SSE
+    dependency (token verify -> bg session user sync -> expunge), so endpoints
+    that open their own session (e.g. tour generation) do not hold the main
+    connection pool for the whole request.
+
+    Header-only. ``token=None`` is passed on purpose: left out, the SSE
+    ``Query(None)`` default object is truthy and is used as the token. A
+    ``?token=`` query value is never read here.
+    """
+    return await get_current_user_sse(request, authorization=authorization, token=None)
+
+
+async def get_current_active_user_short_session(
+    current_user: User = Depends(get_current_user_short_session),
+) -> User:
+    """Return the current user only if active, without a long request DB session."""
+    if not getattr(current_user, "is_active", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "USER_INACTIVE", "message": "Inactive user"},
+        )
+    return current_user
 
 
 async def get_current_user_optional(

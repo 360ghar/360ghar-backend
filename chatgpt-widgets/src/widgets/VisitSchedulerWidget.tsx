@@ -1,74 +1,58 @@
 /**
- * VisitSchedulerWidget - Schedule a property visit with date/time selection.
+ * VisitSchedulerWidget - Schedule a property visit, or show the visit or booking just made.
  *
- * Tool: visits.schedule
+ * Tools: visits_schedule (sends `visit`), bookings_get (sends `booking` and `property`)
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useCallTool, useSendMessage, useRequestClose } from '../utils/bridge';
-import { formatDateOnlyForApi, localInputToServerTimestamp, parseServerTimestamp } from '../utils/datetime';
+import type { BookingRow, VisitRow, VisitSchedulerOutput, VisitStatus } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useRequestClose,
+  useSendMessage,
+  useTheme,
+  useToolOutput,
+} from '../utils/bridge';
+import {
+  formatDateOnlyForApi,
+  formatInstantDate,
+  formatInstantTime,
+  localInputToServerTimestamp,
+} from '../utils/datetime';
+import { formatLocation } from '../utils/property';
+import { BOOKING_STATUS, VISIT_STATUS, enumKey, statusView, toneColor } from '../utils/status';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { InlineError, LoadingNote, LoginRequired } from '../components/common/Notices';
 
-interface PropertyData {
-  id: number;
-  title: string;
-  locality?: string;
-  city?: string;
-  main_image_url?: string;
-}
+/** Heading of the confirmation for each visit status. */
+const VISIT_TITLE = {
+  requested: 'Visit Requested',
+  confirmed: 'Visit Confirmed',
+  completed: 'Visit Completed',
+  cancelled: 'Visit Cancelled',
+  reschedule_suggested: 'New Time Suggested',
+} satisfies Record<VisitStatus, string>;
 
-interface VisitData {
-  id: number;
-  property_id: number;
-  property?: PropertyData;
-  scheduled_date: string;
-  status: string;
-  notes?: string;
-}
+const LONG_DATE: Intl.DateTimeFormatOptions = {
+  weekday: 'long',
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+};
 
-interface SchedulerOutput {
-  visit?: VisitData;
-  // bookings_get returns the record under `booking`; it carries the same
-  // `property` + `scheduled_date` fields the detail view reads.
-  booking?: VisitData;
-  property?: PropertyData;
-  error?: boolean;
-  code?: string;
-  message?: string;
-  requires_auth?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  const date = parseServerTimestamp(dateStr) ?? new Date(dateStr);
-  return date.toLocaleDateString('en-IN', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
-
-function formatTime(dateStr: string): string {
-  const date = parseServerTimestamp(dateStr) ?? new Date(dateStr);
-  return date.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function isBooking(row: VisitRow | BookingRow): row is BookingRow {
+  return 'booking_reference' in row;
 }
 
 function VisitSchedulerWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
-  const data = useToolOutput<SchedulerOutput>();
-  // The detail view renders either a freshly scheduled visit (data.visit) or an
-  // existing booking fetched via bookings_get (data.booking).
-  const detail = data?.visit ?? data?.booking;
-  // bookings_get returns the property as a sibling (data.property); a scheduled
-  // visit nests it (data.visit.property). Prefer nested, fall back to sibling.
-  const propertyInfo = detail?.property ?? data?.property;
+  const data = useToolOutput<VisitSchedulerOutput>();
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
   const requestClose = useRequestClose();
@@ -77,7 +61,8 @@ function VisitSchedulerWidget() {
   const [selectedTime, setSelectedTime] = React.useState('');
   const [notes, setNotes] = React.useState('');
   const [isSubmitting, setIsSubmitting] = React.useState(false);
-  const [success, setSuccess] = React.useState(false);
+  // The visit that visits_schedule returned for the form below.
+  const [scheduled, setScheduled] = React.useState<VisitRow | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
   // Set minimum date to tomorrow
@@ -92,41 +77,21 @@ function VisitSchedulerWidget() {
   ];
 
   if (!data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>
-        Loading...
-      </div>
-    );
+    return <LoadingNote text="Loading..." />;
   }
 
   // Check for auth required
   if (data.requires_auth) {
-    return (
-      <div style={{
-        backgroundColor: colors.background,
-        color: colors.text,
-        minHeight: '100vh',
-        padding: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🔐</div>
-        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Login Required</h2>
-        <p style={{ color: colors.textSecondary, marginBottom: 24 }}>
-          Please log in to schedule a property visit.
-        </p>
-        <Button onClick={() => sendMessage('Help me log in to 360Ghar')}>
-          Log In
-        </Button>
-      </div>
-    );
+    return <LoginRequired message="Please log in to schedule a property visit." />;
   }
 
+  // The visit or booking to show: the one the form just saved, else the one the tool sent.
+  const detail: VisitRow | BookingRow | null = scheduled ?? data.visit ?? data.booking ?? null;
+  // A visit nests its property. bookings_get sends it next to the booking.
+  const propertyInfo = detail?.property ?? data.property ?? null;
+
   // Show error
-  if (data.error && !success) {
+  if (data.error && !detail) {
     return (
       <div style={{
         backgroundColor: colors.background,
@@ -143,14 +108,21 @@ function VisitSchedulerWidget() {
         <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8, color: colors.error }}>
           {data.code === 'NOT_FOUND' ? 'Property Not Found' : 'Error'}
         </h2>
-        <p style={{ color: colors.textSecondary }}>{data.message}</p>
+        <p style={{ color: colors.textSecondary }}>
+          {data.message ?? toolFailureMessage({ error: true, code: data.code })}
+        </p>
       </div>
     );
   }
 
-  // Show the detail view: a freshly scheduled visit (after form success) or an
-  // existing booking supplied directly via bookings_get.
-  if (detail && (success || data?.booking)) {
+  // Detail view: a visit or booking exists.
+  if (detail) {
+    const booking = isBooking(detail) ? detail : null;
+    const status = booking
+      ? statusView(BOOKING_STATUS, detail.status)
+      : statusView(VISIT_STATUS, detail.status);
+    const visitKey = booking ? null : enumKey(VISIT_STATUS, detail.status);
+
     return (
       <div style={{
         backgroundColor: colors.background,
@@ -160,13 +132,22 @@ function VisitSchedulerWidget() {
       }}>
         <Card padding="lg">
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>{data?.booking ? '🎫' : '✅'}</div>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>{booking ? '🎫' : '✅'}</div>
             <h2 style={{ fontSize: 22, fontWeight: 600, marginBottom: 4 }}>
-              {data?.booking ? 'Booking Details' : 'Visit Scheduled!'}
+              {booking ? 'Booking Details' : visitKey ? VISIT_TITLE[visitKey] : 'Visit Details'}
             </h2>
-            <p style={{ color: colors.textSecondary }}>
-              {data?.booking ? 'Here are your booking details.' : 'Your property visit has been confirmed.'}
-            </p>
+            <span style={{
+              display: 'inline-block',
+              padding: '2px 8px',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 500,
+              textTransform: 'uppercase',
+              backgroundColor: `${toneColor(status.tone, colors)}20`,
+              color: toneColor(status.tone, colors),
+            }}>
+              {status.label}
+            </span>
           </div>
 
           <div style={{
@@ -181,23 +162,42 @@ function VisitSchedulerWidget() {
                   {propertyInfo.title}
                 </h3>
                 <p style={{ fontSize: 14, color: colors.textSecondary }}>
-                  {[propertyInfo.locality, propertyInfo.city].filter(Boolean).join(', ')}
+                  {formatLocation(propertyInfo)}
                 </p>
               </div>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div>
-                <div style={{ fontSize: 12, color: colors.textSecondary }}>Date</div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  {formatDate(detail.scheduled_date)}
-                </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 12, color: colors.textSecondary }}>Time</div>
-                <div style={{ fontSize: 14, fontWeight: 500 }}>
-                  {formatTime(detail.scheduled_date)}
-                </div>
-              </div>
+              {booking ? (
+                <>
+                  <div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>Check-in</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                      {formatInstantDate(booking.check_in_date, LONG_DATE)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>Check-out</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                      {formatInstantDate(booking.check_out_date, LONG_DATE)}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>Date</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                      {formatInstantDate(detail.scheduled_date, LONG_DATE)}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, color: colors.textSecondary }}>Time</div>
+                    <div style={{ fontSize: 14, fontWeight: 500 }}>
+                      {formatInstantTime(detail.scheduled_date)}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -221,40 +221,57 @@ function VisitSchedulerWidget() {
     );
   }
 
-  // Get property info from context if available
-  const property = data.property;
+  // No visit yet: the form needs a property.
+  const property = data.property ?? null;
+
+  if (!property) {
+    return (
+      <div style={{
+        backgroundColor: colors.background,
+        color: colors.text,
+        minHeight: '100vh',
+        padding: 24,
+        textAlign: 'center',
+      }}>
+        <p style={{ color: colors.textSecondary, marginBottom: 16 }}>
+          Choose a property first, then schedule a visit.
+        </p>
+        <Button onClick={() => sendMessage('Find properties near me')}>
+          Browse Properties
+        </Button>
+      </div>
+    );
+  }
 
   const handleSubmit = async () => {
-    if (!selectedDate || !selectedTime || !property) {
+    if (!selectedDate || !selectedTime) {
       setError('Please select a date and time');
+      return;
+    }
+
+    const scheduledDate = localInputToServerTimestamp(`${selectedDate}T${selectedTime}`);
+    if (!scheduledDate) {
+      setError('Please select a valid date and time');
       return;
     }
 
     setIsSubmitting(true);
     setError(null);
 
-    try {
-      const scheduledDate = localInputToServerTimestamp(`${selectedDate}T${selectedTime}`);
-      if (!scheduledDate) {
-        setError('Please select a valid date and time');
-        return;
-      }
-      const result = await callTool('visits.schedule', {
-        property_id: property.id,
-        scheduled_date: scheduledDate,
-        notes: notes || undefined,
-      });
+    const result = await callTool<VisitSchedulerOutput>('visits_schedule', {
+      property_id: property.id,
+      scheduled_date: scheduledDate,
+      ...(notes ? { notes } : {}),
+    });
 
-      if (result && !result.error) {
-        setSuccess(true);
-      } else {
-        setError(result?.message || 'Failed to schedule visit');
-      }
-    } catch (err) {
-      setError('An error occurred while scheduling the visit');
-    } finally {
-      setIsSubmitting(false);
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else if (result.visit) {
+      setScheduled(result.visit);
+    } else {
+      setError('The visit was not confirmed. Try again.');
     }
+    setIsSubmitting(false);
   };
 
   return (
@@ -267,30 +284,28 @@ function VisitSchedulerWidget() {
       <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 16 }}>Schedule a Visit</h2>
 
       {/* Property Preview */}
-      {property && (
-        <Card padding="md" style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', gap: 12 }}>
-            {property.main_image_url && (
-              <img
-                src={property.main_image_url}
-                alt={property.title}
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 8,
-                  objectFit: 'cover',
-                }}
-              />
-            )}
-            <div>
-              <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{property.title}</h3>
-              <p style={{ fontSize: 14, color: colors.textSecondary }}>
-                {[property.locality, property.city].filter(Boolean).join(', ')}
-              </p>
-            </div>
+      <Card padding="md" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 12 }}>
+          {property.main_image_url && (
+            <img
+              src={property.main_image_url}
+              alt={property.title}
+              style={{
+                width: 80,
+                height: 80,
+                borderRadius: 8,
+                objectFit: 'cover',
+              }}
+            />
+          )}
+          <div>
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{property.title}</h3>
+            <p style={{ fontSize: 14, color: colors.textSecondary }}>
+              {formatLocation(property)}
+            </p>
           </div>
-        </Card>
-      )}
+        </div>
+      </Card>
 
       {/* Date Selection */}
       <div style={{ marginBottom: 20 }}>
@@ -364,19 +379,7 @@ function VisitSchedulerWidget() {
         />
       </div>
 
-      {/* Error Message */}
-      {error && (
-        <div style={{
-          padding: 12,
-          backgroundColor: `${colors.error}20`,
-          borderRadius: 8,
-          marginBottom: 20,
-          color: colors.error,
-          fontSize: 14,
-        }}>
-          {error}
-        </div>
-      )}
+      <InlineError message={error} />
 
       {/* Submit Button */}
       <Button

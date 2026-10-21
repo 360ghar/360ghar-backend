@@ -67,12 +67,15 @@ def _get_applied_versions(cursor) -> set[str]:
 
 
 def _normalise_database_url(url: str) -> str:
-    """Percent-encode special characters (like ``@``) in the password field."""
-    from urllib.parse import quote, urlparse, urlunparse
+    """Percent-encode special characters (like ``@``) in the password field.
+
+    Decode first so a password that is already percent-encoded is not encoded twice.
+    """
+    from urllib.parse import quote, unquote, urlparse, urlunparse
 
     parsed = urlparse(url)
     if parsed.password:
-        encoded_password = quote(parsed.password, safe="")
+        encoded_password = quote(unquote(parsed.password), safe="")
         netloc = f"{parsed.username}:{encoded_password}@{parsed.hostname}"
         if parsed.port:
             netloc += f":{parsed.port}"

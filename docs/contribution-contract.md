@@ -30,4 +30,4 @@ These rules apply to human contributors and code agents.
 - The current public AI and MCP surfaces that must remain documented include:
   - [`app/api/api_v1/api.py`](../app/api/api_v1/api.py)
   - [`app/mcp/chatgpt/visit_tools.py`](../app/mcp/chatgpt/visit_tools.py)
-  - [`app/services/ai_agent/tool_bridge.py`](../app/services/ai_agent/tool_bridge.py)
+  - [`app/services/ai_agent/tools/`](../app/services/ai_agent/tools/)

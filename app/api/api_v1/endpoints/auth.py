@@ -6,13 +6,14 @@ state-machine:
 
   - POST /auth/identifier-status  (public, rate-limited)
   - POST /auth/last-method        (auth required)
-  - POST /auth/link-identity      (auth required)
+  - POST /auth/delete-account     (auth required)
   - GET  /auth/config             (public)
 """
 
 from __future__ import annotations
 
 import hashlib
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -20,18 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.config import settings
-from app.core.auth import AuthFailureReason, _is_failure, admin_link_identity
 from app.core.database import get_db
 from app.core.exceptions import (
     BadRequestException,
     BaseAPIException,
     RateLimitException,
-    ServiceUnavailableException,
 )
 from app.core.logging import get_logger
 from app.middleware.rate_limit import EndpointRateLimiter
 from app.models.enums import AuthMethod
 from app.models.users import User
+from app.schemas.base import WriteModel
 from app.services.user import delete_user_account, get_identifier_status, set_last_auth_method
 
 logger = get_logger(__name__)
@@ -55,24 +55,15 @@ class IdentifierStatusResponse(BaseModel):
     exists: bool
     verified: bool
     has_password: bool
-    channel: str  # "email" | "phone"
-    next_step: str  # "password" | "otp"
+    channel: Literal["email", "phone"]
+    next_step: Literal["password", "otp"]
 
 
-class LastMethodRequest(BaseModel):
+class LastMethodRequest(WriteModel):
     method: AuthMethod
 
 
-class LinkIdentityRequest(BaseModel):
-    provider: str = Field(..., min_length=1)
-    id_token: str = Field(..., min_length=1)
-
-
-class LinkIdentityResponse(BaseModel):
-    linked: bool
-
-
-class DeleteAccountRequest(BaseModel):
+class DeleteAccountRequest(WriteModel):
     confirm: bool = Field(
         ...,
         description="Must be true to permanently delete the authenticated account.",
@@ -156,55 +147,6 @@ async def last_method(
     return Response(status_code=204)
 
 
-@router.post(
-    "/link-identity",
-    response_model=LinkIdentityResponse,
-    summary="Link an OAuth identity to the current Supabase user",
-    openapi_extra={
-        "requestBody": {
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "google": {"value": {"provider": "google", "id_token": "eyJhbGciOiJSUzI1NiIs..."}},
-                    }
-                }
-            }
-        }
-    },
-)
-async def link_identity(
-    request: Request,
-    body: LinkIdentityRequest,
-    current_user: User = Depends(get_current_active_user),
-) -> LinkIdentityResponse:
-    """AUTH required. Wrap the GoTrue Admin identity-linking call."""
-    endpoint = f"{request.method}:{request.url.path}"
-    client_id = _auth_mutation_limiter.get_client_id(request)
-    if not await _auth_mutation_limiter.check_rate_limit(client_id, endpoint):
-        raise RateLimitException(detail="Too many requests; please slow down")
-    linked = await admin_link_identity(
-        current_user.supabase_user_id,
-        body.provider,
-        body.id_token,
-    )
-    if _is_failure(linked):
-        if linked["reason"] == AuthFailureReason.PROVIDER_UNREACHABLE.value:
-            # Transient provider outage → advise the client to retry.
-            raise ServiceUnavailableException(
-                detail="Identity provider is temporarily unreachable, please retry",
-                headers={"Retry-After": "30"},
-            )
-        # Non-transient failures (invalid token, already linked, provider error).
-        raise BadRequestException(
-            detail="Failed to link identity. The account may already be linked or the token is invalid."
-        )
-    if not linked:
-        raise BadRequestException(
-            detail="Failed to link identity. The account may already be linked or the token is invalid."
-        )
-    return LinkIdentityResponse(linked=True)
-
-
 @router.get(
     "/config",
     response_model=AuthConfigResponse,
@@ -235,8 +177,8 @@ async def delete_account(
     Hard-deletes the Supabase Auth user (revoking all sessions) and
     anonymizes + soft-deletes the local record. App Store Guideline
     5.1.1(v) compliance: the account becomes permanently unusable.
-    Returns 204 No Content (alternate mobile-friendly route; the canonical
-    ``DELETE /users/me`` returns 200 + MessageResponse).
+    Returns 204 No Content. The canonical deletion route is ``DELETE /users/me``
+    (also 204). Clients move to it, then this route is removed.
     """
     if not body.confirm:
         raise BadRequestException(detail="Account deletion requires confirm: true")

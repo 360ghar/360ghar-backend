@@ -6,6 +6,7 @@ from typing import Any
 from app.core.exceptions import (
     BadRequestException,
     InsufficientPermissionsError,
+    NotFoundException,
 )
 from app.mcp.admin.agent_tools.common import (
     MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
@@ -17,19 +18,16 @@ from app.mcp.admin.agent_tools.common import (
     _require_auth,
     admin_mcp,
     get_db,
-    get_user_role,
     internal_error_response,
     invalid_input_response,
     logger,
     make_tz_aware,
     not_found_response,
     serialize_maintenance_request,
-    utc_now,
-    utc_now_iso,
 )
 from app.mcp.apps_sdk import build_widget_tool_meta
-from app.models.enums import UserRole
-from app.schemas.pagination import decode_cursor, encode_cursor, offset_payload, read_offset
+from app.mcp.tool_ops.maintenance import MaintenanceStatusLabel, update_maintenance_status
+from app.schemas.pagination import decode_cursor
 
 AGENT_MAINTENANCE_LIST_META = build_widget_tool_meta(
     widget_uri="ui://widget/maintenancewidget.html",
@@ -52,9 +50,10 @@ AGENT_MAINTENANCE_LIST_META = build_widget_tool_meta(
 async def agent_maintenance_list(
     owner_id: int | None = None,
     property_id: int | None = None,
-    status: str | None = None,
+    status: MaintenanceStatusLabel | None = None,
     cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List maintenance requests for managed properties.
 
@@ -63,18 +62,20 @@ async def agent_maintenance_list(
         property_id: Filter by property
         status: Filter by status (open, in_progress, scheduled, completed, cancelled)
         cursor: Opaque pagination cursor from a prior response's next_cursor
-        limit: Items per page
+        limit: Items per page (1-100)
+        include_total: Set true to get the count of matching requests
     """
     try:
-        from sqlalchemy import select
-
-        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
-        from app.models.pm_maintenance import MaintenanceRequest
-        from app.models.properties import Property
+        from app.mcp.tool_ops import list_maintenance_requests
+        from app.services.pm_authz import get_accessible_owner_ids
 
         limit = min(max(1, limit), 100)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
-        offset = read_offset(cursor_payload)
+        filters = {
+            "owner_id": owner_id,
+            "property_id": property_id,
+            "status": status.lower().strip() if status else None,
+        }
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async for db in get_db():
             user = await _get_user(db)
@@ -88,61 +89,30 @@ async def agent_maintenance_list(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
-            from app.services.pm_authz import get_accessible_owner_ids
+            accessible = await get_accessible_owner_ids(db, actor=user)
+            if accessible is not None and owner_id and owner_id not in accessible:
+                return MCPResponse.failure(
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
+                    "You do not have access to this owner's maintenance requests",
+                ).model_dump()
 
-            user_role = get_user_role(user)
-
-            # Build query with property join for owner filtering
-            stmt = select(MaintenanceRequest).join(
-                Property, MaintenanceRequest.property_id == Property.id
+            result = await list_maintenance_requests(
+                db,
+                owner_id=owner_id,
+                property_id=property_id,
+                status=status,
+                cursor_payload=cursor_payload,
+                limit=limit,
+                accessible_owner_ids=None if accessible is None else list(accessible),
+                filters=filters,
+                include_total=include_total,
             )
-
-            if user_role != UserRole.admin:
-                accessible_owners = await get_accessible_owner_ids(db, actor=user)
-                if accessible_owners is not None:
-                    stmt = stmt.where(Property.owner_id.in_(accessible_owners))
-
-            if owner_id:
-                stmt = stmt.where(Property.owner_id == owner_id)
-            if property_id:
-                stmt = stmt.where(MaintenanceRequest.property_id == property_id)
-            if status:
-                status_norm = status.lower().strip()
-                if status_norm == "open":
-                    stmt = stmt.where(MaintenanceRequest.request_status == MaintenanceRequestStatus.open)
-                elif status_norm == "in_progress":
-                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.in_progress)
-                elif status_norm == "scheduled":
-                    stmt = stmt.where(MaintenanceRequest.scheduled_for.is_not(None))
-                elif status_norm == "completed":
-                    stmt = stmt.where(MaintenanceRequest.completed_at.is_not(None))
-                elif status_norm == "cancelled":
-                    stmt = stmt.where(MaintenanceRequest.work_order_status == WorkOrderStatus.cancelled)
-                else:
-                    return invalid_input_response(f"Invalid status: {status}")
-
-            stmt = stmt.order_by(MaintenanceRequest.created_at.desc()).offset(offset).limit(limit + 1)
-
-            result = await db.execute(stmt)
-            requests = list(result.scalars().all())
-
-            has_more = len(requests) > limit
-            if has_more:
-                requests = requests[:limit]
-
-            items = [serialize_maintenance_request(r) for r in requests]
-            next_payload = offset_payload(offset + len(items)) if has_more else None
-
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "requests": items,
-            }).model_dump()
+            if result.get("error"):
+                return invalid_input_response(result.get("message", "Invalid filter"))
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -151,6 +121,7 @@ async def agent_maintenance_list(
         logger.error("Error in agent.maintenance.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list maintenance requests: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_maintenance_update_status",
@@ -164,9 +135,9 @@ async def agent_maintenance_list(
 )
 async def agent_maintenance_update_status(
     request_id: int,
-    status: str,
+    status: MaintenanceStatusLabel,
     notes: str | None = None,
-    scheduled_date: str | None = None,
+    scheduled_date: datetime | None = None,
     vendor_name: str | None = None,
     vendor_contact: str | None = None,
     estimated_cost: float | None = None,
@@ -176,7 +147,7 @@ async def agent_maintenance_update_status(
 
     Args:
         request_id: ID of the maintenance request
-        status: New status (in_progress, scheduled, completed, cancelled)
+        status: New status (open, in_progress, scheduled, completed, cancelled)
         notes: Status update notes
         scheduled_date: Date scheduled for work (ISO-8601)
         vendor_name: Name of assigned vendor
@@ -185,17 +156,6 @@ async def agent_maintenance_update_status(
         actual_cost: Actual cost (when completed)
     """
     try:
-        from sqlalchemy import select
-
-        from app.models.enums import MaintenanceRequestStatus, WorkOrderStatus
-        from app.models.pm_maintenance import MaintenanceRequest
-
-        valid_statuses = ['open', 'in_progress', 'scheduled', 'completed', 'cancelled']
-        if status.lower() not in valid_statuses:
-            return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
-
-        status_norm = status.lower().strip()
-
         async for db in get_db():
             user = await _get_user(db)
             if not user:
@@ -208,84 +168,45 @@ async def agent_maintenance_update_status(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
-            # Get the request with property for auth check
-            stmt = select(MaintenanceRequest).where(MaintenanceRequest.id == request_id)
-            result = await db.execute(stmt)
-            request = result.scalar_one_or_none()
-
-            if not request:
-                return not_found_response("Maintenance request", request_id)
-
-            # Verify access to the property
-            from app.schemas.user import User as UserSchema
-            from app.services.pm_authz import assert_can_access_property
-
-            user_schema = UserSchema.model_validate(user)
-
+            # The PM service checks the caller's scope and the status transition.
             try:
-                await assert_can_access_property(
-                    db, actor=user_schema, property_id=request.property_id
+                request = await update_maintenance_status(
+                    db,
+                    actor=user,
+                    request_id=request_id,
+                    status=status,
+                    notes=notes,
+                    scheduled_date=make_tz_aware(scheduled_date),
+                    vendor_name=vendor_name,
+                    vendor_contact=vendor_contact,
+                    estimated_cost=estimated_cost,
+                    actual_cost=actual_cost,
                 )
+            except NotFoundException:
+                return not_found_response("Maintenance request", request_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property's maintenance requests"
+                    "You do not have access to this property's maintenance requests",
                 ).model_dump()
 
-            # Update the request
-            if notes:
-                existing = getattr(request, "completion_notes", None) or ""
-                stamp = utc_now_iso()
-                request.completion_notes = f"{existing}\n[{stamp}] {notes}".strip()
-            if scheduled_date:
-                try:
-                    request.scheduled_for = make_tz_aware(
-                        datetime.fromisoformat(scheduled_date.replace("Z", "+00:00"))
-                    )
-                except ValueError:
-                    return invalid_input_response("scheduled_date must be in ISO-8601 format")
-            if estimated_cost is not None:
-                request.estimated_cost = estimated_cost
-            if actual_cost is not None:
-                request.actual_cost = actual_cost
-            if vendor_name:
-                request.vendor_name = vendor_name
-            if vendor_contact:
-                request.vendor_contact = vendor_contact
-
-            if status_norm == "open":
-                request.request_status = MaintenanceRequestStatus.open
-                request.work_order_status = None
-                request.scheduled_for = None
-                request.completed_at = None
-            elif status_norm == "scheduled":
-                request.request_status = MaintenanceRequestStatus.work_order_created
-                request.work_order_status = WorkOrderStatus.assigned
-            elif status_norm == "in_progress":
-                request.request_status = MaintenanceRequestStatus.work_order_created
-                request.work_order_status = WorkOrderStatus.in_progress
-            elif status_norm == "completed":
-                request.request_status = MaintenanceRequestStatus.resolved
-                request.work_order_status = WorkOrderStatus.completed
-                if request.completed_at is None:
-                    request.completed_at = utc_now()
-            elif status_norm == "cancelled":
-                request.request_status = MaintenanceRequestStatus.closed
-                request.work_order_status = WorkOrderStatus.cancelled
-
-            await db.flush()
+            # Serialize before commit (the service refreshed the row).
+            result = MCPResponse.success(
+                {
+                    "message": "Maintenance request updated successfully",
+                    "request": serialize_maintenance_request(request),
+                }
+            ).model_dump()
             await db.commit()
-
-            return MCPResponse.success({
-                "message": "Maintenance request updated successfully",
-                "request": serialize_maintenance_request(request),
-            }).model_dump()
+            return result
     except AuthRequiredError:
         raise
     except BadRequestException as e:
+        return invalid_input_response(str(e))
+    except ValueError as e:
         return invalid_input_response(str(e))
     except Exception as e:
         logger.error("Error in agent.maintenance.update_status: %s", e, exc_info=True)

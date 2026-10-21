@@ -119,7 +119,7 @@ class TestFlatmatesSwipeEndpoint:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
             assert data["conversation_id"] == 12
             assert data["did_match"] is False
@@ -149,7 +149,7 @@ class TestFlatmatesSwipeEndpoint:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
             assert data["match_id"] == 7
             assert data["did_match"] is True
@@ -279,6 +279,6 @@ class TestFlatmatesConversationsEndpoint:
                 json={"body": "Can we schedule a visit this weekend?"},
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
             assert data["body"] == "Can we schedule a visit this weekend?"

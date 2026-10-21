@@ -33,7 +33,9 @@ async def dashboard_overview(
         raise
 
 
-@router.get("/activity", response_model=CursorPage[ActivityItem], summary="Get PM dashboard activity")
+@router.get(
+    "/activity", response_model=CursorPage[ActivityItem], summary="Get PM dashboard activity"
+)
 async def dashboard_activity(
     owner_id: int | None = Query(None, description="Owner id (agent/admin only)"),
     page: CursorParams = Depends(),
@@ -41,12 +43,13 @@ async def dashboard_activity(
     db: AsyncSession = Depends(get_db),
 ):
     """Get PM dashboard activity."""
+    filters = {"owner_id": owner_id}
     try:
         items, next_payload, total = await get_recent_activity(
             db,
             actor=current_user,  # type: ignore[arg-type]
             owner_id=owner_id,
-            cursor_payload=page.decoded(),
+            cursor_payload=page.decoded(filters),
             limit=page.limit,
             with_total=page.include_total,
         )
@@ -55,6 +58,7 @@ async def dashboard_activity(
             limit=page.limit,
             next_payload=next_payload,
             total=total,
+            filters=filters,
         )
     except Exception as exc:
         raise_read_service_unavailable(

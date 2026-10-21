@@ -101,7 +101,8 @@ class TestTourServiceAccessControl:
         ("tour_status", "is_public", "tour_owner_id", "request_user_id", "expected_error"),
         [
             (TourStatus.draft, False, 123, None, status.HTTP_404_NOT_FOUND),
-            (TourStatus.draft, False, 123, 999, status.HTTP_403_FORBIDDEN),
+            # A draft another user owns is 404, not 403: no existence leak (tours-web-21).
+            (TourStatus.draft, False, 123, 999, status.HTTP_404_NOT_FOUND),
             (TourStatus.draft, False, 123, 123, None),
             (TourStatus.published, True, 123, None, None),
             (TourStatus.published, True, 123, 999, None),

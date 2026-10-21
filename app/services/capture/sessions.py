@@ -4,6 +4,7 @@ Capture session CRUD and frame registration.
 Phase 0: create / read / update / list / cancel + frame attach.
 Processing (stitch → tour) is stubbed for later phases.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -23,28 +24,50 @@ from app.schemas.capture import (
     CaptureSessionCreate,
     CaptureSessionUpdate,
 )
+from app.schemas.pagination import keyset_filter, keyset_sort_value, trim_keyset_lookahead
 
 logger = get_logger(__name__)
 
-# Terminal states that reject further mutation (except cancel is already terminal)
+# Terminal states. Nothing moves out of these.
 _TERMINAL = {
     CaptureSessionStatus.ready,
     CaptureSessionStatus.failed,
     CaptureSessionStatus.cancelled,
 }
 
-# Client-driven status transitions via PATCH. `ready` / `processing` / `failed`
-# are server-controlled (complete_session and the future stitch worker), so a
-# client can never mark a session complete-looking without going through the
-# completion flow.
+# The whole state machine. Every path checks it: PATCH (client), complete (server
+# or client) and cancel. Any non-terminal state may move to failed.
+#
+#   draft -> capturing -> review -> uploading -> processing -> ready
+#                                   (complete_session drives processing -> ready)
+#
+# A client PATCH may move: draft->capturing, capturing->review, review->capturing,
+# review->uploading, uploading->review, and any non-terminal state -> failed.
+# processing and ready are server-owned.
 _CLIENT_TRANSITIONS: dict[CaptureSessionStatus, frozenset[CaptureSessionStatus]] = {
-    CaptureSessionStatus.draft: frozenset({CaptureSessionStatus.capturing}),
-    CaptureSessionStatus.capturing: frozenset({CaptureSessionStatus.review}),
-    CaptureSessionStatus.review: frozenset(
-        {CaptureSessionStatus.capturing, CaptureSessionStatus.uploading}
+    CaptureSessionStatus.draft: frozenset(
+        {CaptureSessionStatus.capturing, CaptureSessionStatus.failed}
     ),
-    CaptureSessionStatus.uploading: frozenset({CaptureSessionStatus.review}),
+    CaptureSessionStatus.capturing: frozenset(
+        {CaptureSessionStatus.review, CaptureSessionStatus.failed}
+    ),
+    CaptureSessionStatus.review: frozenset(
+        {
+            CaptureSessionStatus.capturing,
+            CaptureSessionStatus.uploading,
+            CaptureSessionStatus.failed,
+        }
+    ),
+    CaptureSessionStatus.uploading: frozenset(
+        {CaptureSessionStatus.review, CaptureSessionStatus.failed}
+    ),
+    CaptureSessionStatus.processing: frozenset({CaptureSessionStatus.failed}),
 }
+
+# States from which complete_session may start processing.
+_COMPLETABLE = frozenset(
+    {CaptureSessionStatus.capturing, CaptureSessionStatus.review, CaptureSessionStatus.uploading}
+)
 
 
 def _session_to_dict(session: CaptureSession, frame_count: int) -> dict[str, Any]:
@@ -105,21 +128,24 @@ async def create_session(
     return _session_to_dict(session, frame_count=0)
 
 
-async def list_sessions(
+async def list_sessions_page(
     db: AsyncSession,
     user_id: int,
     *,
-    status_filter: CaptureSessionStatus | None = None,
-    limit: int = 50,
-    offset: int = 0,
-) -> tuple[list[dict], int]:
+    status_filter: CaptureSessionStatus | None,
+    cursor_payload: dict[str, Any],
+    limit: int,
+    include_total: bool = False,
+) -> tuple[list[dict], dict[str, Any] | None, int | None]:
+    """One keyset page of the user's sessions, newest first. total is set only with include_total."""
     base = select(CaptureSession).where(CaptureSession.user_id == user_id)
     if status_filter is not None:
         base = base.where(CaptureSession.status == status_filter)
-
-    total = (
-        await db.execute(select(func.count()).select_from(base.subquery()))
-    ).scalar_one()
+    total: int | None = None
+    if include_total:
+        total = int(
+            (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+        )
 
     # Correlated scalar subquery keeps the count work bounded to the page rows
     # (a global GROUP BY would aggregate every frame of every user).
@@ -130,15 +156,25 @@ async def list_sessions(
         .scalar_subquery()
     )
 
-    stmt = (
-        base.add_columns(frame_count_expr.label("frame_count"))
-        .order_by(CaptureSession.created_at.desc())
-        .limit(limit)
-        .offset(offset)
+    stmt = base.add_columns(frame_count_expr.label("frame_count"))
+    predicate = keyset_filter(
+        CaptureSession.created_at, CaptureSession.id, cursor_payload, descending=True
     )
+    if predicate is not None:
+        stmt = stmt.where(predicate)
+    stmt = stmt.order_by(CaptureSession.created_at.desc(), CaptureSession.id.desc()).limit(
+        limit + 1
+    )
+
     rows = (await db.execute(stmt)).all()
-    items = [_session_to_dict(session, int(count or 0)) for session, count in rows]
-    return items, int(total)
+    page_rows, next_payload = trim_keyset_lookahead(
+        rows,
+        limit=limit,
+        sort_value=lambda row: keyset_sort_value(row[0].created_at),
+        item_id=lambda row: row[0].id,
+    )
+    items = [_session_to_dict(session, int(count or 0)) for session, count in page_rows]
+    return items, next_payload, total
 
 
 async def get_session(
@@ -197,20 +233,30 @@ async def update_session(
     session = await get_session(db, session_id, user_id)
 
     new_status = data.status
-    if new_status is not None and new_status != session.status:
-        allowed = _CLIENT_TRANSITIONS.get(session.status)
-        if allowed is None or new_status not in allowed:
+    if new_status is not None:
+        # The terminal check runs for every PATCH that sends a status. A repeat of the
+        # current terminal status returns the row unchanged, with no write.
+        if session.status in _TERMINAL:
+            if new_status == session.status:
+                return await get_session_response(db, session_id, user_id)
             raise BadRequestException(
-                detail=(
-                    f"Status transition {session.status.value} → "
-                    f"{new_status.value} is not allowed via PATCH"
-                )
+                detail=f"Session in status {session.status.value} cannot change status"
             )
+        if new_status != session.status:
+            allowed = _CLIENT_TRANSITIONS.get(session.status, frozenset())
+            if new_status not in allowed:
+                raise BadRequestException(
+                    detail=(
+                        f"Status transition {session.status.value} -> "
+                        f"{new_status.value} is not allowed via PATCH"
+                    )
+                )
 
     updates = data.model_dump(exclude_unset=True)
-    # error_message is server-owned (completion / cancellation / stitch worker);
-    # strip it defensively even if a future schema re-introduces it.
+    # error_message is only written with a transition to failed.
     updates.pop("error_message", None)
+    if new_status == CaptureSessionStatus.failed:
+        session.error_message = data.error_message or "Failed by client"
     if "plan" in updates and data.plan is not None:
         updates["plan"] = data.plan.model_dump()
     if "device_info" in updates and data.device_info is not None:
@@ -343,7 +389,7 @@ async def complete_session(
     creating a tour (tour bridge is Phase 5).
     """
     session = await get_session(db, session_id, user_id, include_frames=True)
-    if session.status in _TERMINAL:
+    if session.status not in _COMPLETABLE:
         raise BadRequestException(
             detail=f"Cannot complete a session in status {session.status.value}"
         )
@@ -356,7 +402,8 @@ async def complete_session(
     session.progress = 50
     await db.commit()
 
-    # Phase 0: no stitch worker yet — park as ready without tour_id
+    # Phase 0: no stitch worker yet, so park as ready without tour_id.
+    # The stitch worker, when it lands, moves processing -> ready or failed.
     session.status = CaptureSessionStatus.ready
     session.progress = 100
     await db.commit()
@@ -368,31 +415,3 @@ async def complete_session(
         frame_count,
     )
     return await get_session_response(db, session_id, user_id)
-
-
-async def get_status(
-    db: AsyncSession,
-    session_id: str,
-    user_id: int,
-) -> dict:
-    session = await get_session(db, session_id, user_id, include_frames=True)
-    frame_count = len(session.frames or [])
-    messages = {
-        CaptureSessionStatus.draft: "Session created; start capturing",
-        CaptureSessionStatus.capturing: "Capture in progress",
-        CaptureSessionStatus.review: "Review captures before upload",
-        CaptureSessionStatus.uploading: "Uploading frames",
-        CaptureSessionStatus.processing: "Processing into tour",
-        CaptureSessionStatus.ready: "Ready" + (f" — tour {session.tour_id}" if session.tour_id else " (no tour yet)"),
-        CaptureSessionStatus.failed: session.error_message or "Processing failed",
-        CaptureSessionStatus.cancelled: "Cancelled",
-    }
-    return {
-        "id": session.id,
-        "status": session.status,
-        "progress": session.progress,
-        "tour_id": session.tour_id,
-        "error_message": session.error_message,
-        "frame_count": frame_count,
-        "message": messages.get(session.status),
-    }

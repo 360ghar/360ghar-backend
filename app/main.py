@@ -9,7 +9,7 @@ if sys.platform == "win32":
 
 import sentry_sdk
 import sentry_sdk.integrations.fastapi
-import yaml  # type: ignore[import-untyped]
+import yaml  # type: ignore[import-untyped, unused-ignore]
 from dotenv import load_dotenv
 from fastapi import Request
 from fastapi.responses import Response

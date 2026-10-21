@@ -24,6 +24,7 @@ def mock_websocket():
     ws.send_text = AsyncMock()
     ws.client_state = MagicMock()
     from starlette.websockets import WebSocketState
+
     ws.client_state = WebSocketState.CONNECTED
     return ws
 
@@ -36,7 +37,8 @@ class TestJobConnections:
         await manager.connect_job(mock_websocket, "job-123")
         assert "job-123" in manager.job_connections
         assert mock_websocket in manager.job_connections["job-123"]
-        mock_websocket.accept.assert_awaited_once()
+        # The endpoint accepts the socket before the auth frame. The manager does not.
+        mock_websocket.accept.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_disconnect_job(self, manager, mock_websocket):
@@ -75,7 +77,12 @@ class TestJobConnections:
         sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
         assert sent_data["type"] == "job_update"
         assert sent_data["job_id"] == "job-xyz"
-        assert sent_data["data"]["progress"] == 50
+        assert sent_data["data"] == {
+            "status": "processing",
+            "progress": 50,
+            "error_message": None,
+            "result": None,
+        }
 
     @pytest.mark.asyncio
     async def test_send_job_update_no_connections(self, manager):
@@ -90,6 +97,7 @@ class TestJobConnections:
         dead_ws.client_state = MagicMock()
 
         from starlette.websockets import WebSocketState
+
         dead_ws.client_state = WebSocketState.CONNECTED
 
         await manager.connect_job(dead_ws, "job-dead")
@@ -108,7 +116,8 @@ class TestUserConnections:
     async def test_connect_user(self, manager, mock_websocket):
         await manager.connect_user(mock_websocket, 42)
         assert 42 in manager.user_connections
-        mock_websocket.accept.assert_awaited_once()
+        # The endpoint accepts the socket before the auth frame. The manager does not.
+        mock_websocket.accept.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_disconnect_user(self, manager, mock_websocket):
@@ -119,12 +128,22 @@ class TestUserConnections:
     @pytest.mark.asyncio
     async def test_send_user_notification(self, manager, mock_websocket):
         await manager.connect_user(mock_websocket, 42)
-        await manager.send_user_notification(42, {"title": "New message", "body": "Hello"})
+        await manager.send_user_notification(
+            42,
+            {
+                "id": "n-1",
+                "type": "booking_confirmed",
+                "title": "New message",
+                "message": "Hello",
+                "created_at": "2026-10-14T09:30:00Z",
+            },
+        )
 
         mock_websocket.send_text.assert_awaited_once()
         sent_data = json.loads(mock_websocket.send_text.call_args[0][0])
         assert sent_data["type"] == "notification"
         assert sent_data["data"]["title"] == "New message"
+        assert sent_data["data"]["type"] == "booking_confirmed"
 
     @pytest.mark.asyncio
     async def test_send_user_notification_no_connections(self, manager):
@@ -144,6 +163,7 @@ class TestBroadcasts:
         job_ws.send_text = AsyncMock()
         job_ws.client_state = MagicMock()
         from starlette.websockets import WebSocketState
+
         job_ws.client_state = WebSocketState.CONNECTED
 
         user_ws = AsyncMock()
@@ -155,11 +175,14 @@ class TestBroadcasts:
         await manager.connect_job(job_ws, "job-complete")
         await manager.connect_user(user_ws, 10)
 
+        # The pipeline sends the job frame once, then the broadcast sends the notice.
+        await manager.send_job_update("job-complete", {"status": "completed", "progress": 100})
         await manager.broadcast_job_completion("job-complete", 10, {"result": "success"})
 
-        # Job connection gets job_update
-        job_ws.send_text.assert_awaited()
+        # Job connection gets one job_update, not a second frame from the broadcast
+        assert job_ws.send_text.await_count == 1
         job_data = json.loads(job_ws.send_text.call_args[0][0])
+        assert job_data["type"] == "job_update"
         assert job_data["data"]["status"] == "completed"
 
         # User connection gets notification
@@ -174,6 +197,7 @@ class TestBroadcasts:
         job_ws.send_text = AsyncMock()
         job_ws.client_state = MagicMock()
         from starlette.websockets import WebSocketState
+
         job_ws.client_state = WebSocketState.CONNECTED
 
         user_ws = AsyncMock()
@@ -185,11 +209,16 @@ class TestBroadcasts:
         await manager.connect_job(job_ws, "job-err")
         await manager.connect_user(user_ws, 20)
 
+        # The pipeline sends the job frame once, then the broadcast sends the notice.
+        await manager.send_job_update(
+            "job-err", {"status": "failed", "error_message": "AI model failed"}
+        )
         await manager.broadcast_job_error("job-err", 20, "AI model failed")
 
-        job_ws.send_text.assert_awaited()
+        assert job_ws.send_text.await_count == 1
         job_data = json.loads(job_ws.send_text.call_args[0][0])
         assert job_data["data"]["status"] == "failed"
+        assert job_data["data"]["error_message"] == "AI model failed"
 
         user_ws.send_text.assert_awaited()
         user_data = json.loads(user_ws.send_text.call_args[0][0])

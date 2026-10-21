@@ -6,13 +6,13 @@ They mock the service layer to isolate endpoint testing.
 """
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
 from app.models.enums import BookingStatus, PaymentStatus
-from app.schemas.booking import Booking
 
 
 def create_mock_booking(
@@ -21,15 +21,16 @@ def create_mock_booking(
     property_id: int = 1,
     booking_status: BookingStatus = BookingStatus.pending,
     payment_status: PaymentStatus = PaymentStatus.pending,
-) -> Booking:
-    """Create a mock booking schema object."""
-    return Booking(
+) -> SimpleNamespace:
+    """Create a mock booking as the ORM returns it (with the property and guest loaded)."""
+    now = datetime.now(timezone.utc)
+    return SimpleNamespace(
         id=booking_id,
         user_id=user_id,
         property_id=property_id,
         booking_reference=f"BK{booking_id:08d}",
-        check_in_date=datetime.now(timezone.utc) + timedelta(days=7),
-        check_out_date=datetime.now(timezone.utc) + timedelta(days=10),
+        check_in_date=now + timedelta(days=7),
+        check_out_date=now + timedelta(days=10),
         guests=2,
         primary_guest_name="Test Guest",
         primary_guest_phone="+919876543210",
@@ -57,10 +58,12 @@ def create_mock_booking(
         payment_date=None,
         guest_rating=None,
         guest_review=None,
-        host_rating=None,
-        host_review=None,
-        created_at=datetime.now(timezone.utc),
+        created_at=now,
         updated_at=None,
+        property=SimpleNamespace(
+            id=property_id, title="Test Property", city="Mumbai", country="India", images=[],
+        ),
+        user=SimpleNamespace(id=user_id, full_name="Test Guest", profile_image_url=None),
     )
 
 
@@ -76,11 +79,15 @@ class TestCreateBookingEndpoint:
         with patch(
             "app.api.api_v1.endpoints.bookings.create_booking",
             new_callable=AsyncMock,
-        ) as mock_create:
+        ) as mock_create, patch(
+            "app.api.api_v1.endpoints.bookings.get_booking",
+            new_callable=AsyncMock,
+        ) as mock_get:
             mock_create.return_value = create_mock_booking(
                 booking_id=1,
                 property_id=123,
             )
+            mock_get.return_value = mock_create.return_value
 
             response = await authenticated_client.post(
                 "/api/v1/bookings/",
@@ -95,7 +102,7 @@ class TestCreateBookingEndpoint:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
             assert "booking_reference" in data
 
@@ -205,32 +212,21 @@ class TestCheckAvailabilityEndpoint:
 
     @pytest.mark.asyncio
     async def test_check_availability(self, client: AsyncClient):
-        """Test checking property availability."""
-        check_in = datetime.now(timezone.utc) + timedelta(days=7)
-        check_out = check_in + timedelta(days=3)
-
+        """Guest count is checked against capacity. Dates are not sent."""
         with patch(
-            "app.api.api_v1.endpoints.bookings.check_availability",
+            "app.api.api_v1.endpoints.bookings.check_occupancy",
             new_callable=AsyncMock,
         ) as mock_check:
-            mock_check.return_value = {
-                "available": True,
-                "conflicts": [],
-            }
+            mock_check.return_value = {"available": True, "max_occupancy": 4}
 
             response = await client.post(
                 "/api/v1/bookings/check-availability/",
-                json={
-                    "property_id": 123,
-                    "check_in_date": check_in.isoformat(),
-                    "check_out_date": check_out.isoformat(),
-                    "guests": 2,
-                },
+                json={"property_id": 123, "guests": 2},
             )
 
             assert response.status_code == 200
-            data = response.json()
-            assert "available" in data
+            assert response.json() == {"occupancy_ok": True, "reason": None, "max_occupancy": 4}
+            mock_check.assert_awaited_once()
 
 
 class TestGetPricingEndpoint:
@@ -247,6 +243,10 @@ class TestGetPricingEndpoint:
             new_callable=AsyncMock,
         ) as mock_price:
             mock_price.return_value = {
+                "property_id": 123,
+                "check_in_date": check_in,
+                "check_out_date": check_out,
+                "guests": 2,
                 "nights": 3,
                 "base_amount": 6000,
                 "taxes_amount": 1080,
@@ -299,7 +299,8 @@ class TestAddReviewEndpoint:
 
             assert response.status_code == 200
             payload = response.json()
-            assert payload["message"] == "Review added successfully"
+            assert payload["id"] == 42
+            assert payload["booking_reference"]
 
             review_input = mock_add_review.await_args.args[1]
             assert review_input.booking_id == 42

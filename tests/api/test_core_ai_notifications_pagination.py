@@ -6,7 +6,6 @@ Covers:
 - GET /api/v1/pages
 - GET /api/v1/faqs  (admin)
 - GET /api/v1/faqs/public
-- GET /api/v1/ai/jobs
 - GET /api/v1/notifications/users/{user_id}  (mocked Supabase)
 
 For each endpoint:
@@ -24,7 +23,6 @@ from httpx import ASGITransport, AsyncClient
 
 from app.models.core import FAQ, BugReport, Page
 from app.models.enums import BugSeverity, BugType, UserRole
-from app.models.tours import AIJob
 from app.models.users import User
 
 pytestmark = pytest.mark.asyncio
@@ -78,7 +76,7 @@ async def admin_client(test_app, _admin_user) -> AsyncClient:
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     schema = UserSchema.model_validate(_admin_user, from_attributes=True)
 
@@ -105,7 +103,7 @@ async def user_client(test_app, _regular_user) -> AsyncClient:
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     schema = UserSchema.model_validate(_regular_user, from_attributes=True)
 
@@ -345,9 +343,7 @@ async def test_faqs_public_invalid_cursor_400(guest_client: AsyncClient) -> None
     assert r.json()["error"]["code"] == "INVALID_CURSOR"
 
 
-async def test_faqs_public_cache_path_page_walk(
-    guest_client: AsyncClient, db_session
-) -> None:
+async def test_faqs_public_cache_path_page_walk(guest_client: AsyncClient, db_session) -> None:
     """Cache-key regression: page 2 must differ from page 1 for the same category.
 
     The @cached decorator on get_faqs_public_cached builds the key only from
@@ -401,60 +397,6 @@ async def test_faqs_public_cache_path_page_walk(
 
 
 # ===========================================================================
-# AI Jobs  —  KEYSET pagination
-# ===========================================================================
-
-
-@pytest_asyncio.fixture
-async def three_ai_jobs(db_session, _regular_user) -> list[AIJob]:
-    """Seed 3 AI jobs for the regular user."""
-    jobs = []
-    for _i in range(3):
-        job = AIJob(
-            id=str(uuid.uuid4()),
-            user_id=_regular_user.id,
-            job_type="scene_analysis",
-            status="pending",
-            progress=0,
-        )
-        db_session.add(job)
-        await db_session.flush()
-        await db_session.refresh(job)
-        jobs.append(job)
-    return jobs
-
-
-async def test_ai_jobs_cursor_paginates(user_client: AsyncClient, three_ai_jobs) -> None:
-    r1 = await user_client.get("/api/v1/ai/jobs?limit=2")
-    assert r1.status_code == 200, r1.text
-    body1 = r1.json()
-    assert set(body1) >= {"items", "next_cursor", "has_more", "limit"}
-    assert len(body1["items"]) == 2
-    assert body1["has_more"] is True
-    assert body1["next_cursor"]
-
-    r2 = await user_client.get(f"/api/v1/ai/jobs?limit=2&cursor={body1['next_cursor']}")
-    assert r2.status_code == 200, r2.text
-    body2 = r2.json()
-    ids1 = {item["id"] for item in body1["items"]}
-    ids2 = {item["id"] for item in body2["items"]}
-    assert ids1.isdisjoint(ids2)
-    assert body2["has_more"] is False
-
-
-async def test_ai_jobs_include_total(user_client: AsyncClient, three_ai_jobs) -> None:
-    r = await user_client.get("/api/v1/ai/jobs?limit=2&include_total=true")
-    assert r.status_code == 200, r.text
-    assert r.json()["total"] >= 3
-
-
-async def test_ai_jobs_invalid_cursor_400(user_client: AsyncClient) -> None:
-    r = await user_client.get("/api/v1/ai/jobs?cursor=garbage!!!")
-    assert r.status_code == 400, r.text
-    assert r.json()["error"]["code"] == "INVALID_CURSOR"
-
-
-# ===========================================================================
 # Notifications  —  OFFSET-FALLBACK, Supabase mocked
 # ===========================================================================
 
@@ -497,17 +439,20 @@ async def test_notifications_cursor_paginates(
 
     call_count = 0
 
-    async def mock_list(target_user_id, *, cursor_payload=None, limit=50, with_total=False):
+    async def mock_list(
+        target_user_id, *, unread_only=False, cursor_payload=None, limit=50, with_total=False
+    ):
         nonlocal call_count
         call_count += 1
         from app.schemas.pagination import read_offset
+
         offset = read_offset(cursor_payload or {})
-        chunk = all_notifs[offset: offset + limit + 1]
+        chunk = all_notifs[offset : offset + limit + 1]
         next_pg = offset_payload(offset + limit) if len(chunk) > limit else None
-        return chunk[:limit], next_pg, None
+        return chunk[:limit], next_pg, None, 0
 
     with patch(
-        "app.api.api_v1.endpoints.notifications.list_notifications_for_user",
+        "app.api.api_v1.endpoints.notifications.list_deliveries_for_user",
         side_effect=mock_list,
     ):
         r1 = await admin_client.get(f"/api/v1/notifications/users/{target_user.id}?limit=2")
@@ -527,9 +472,7 @@ async def test_notifications_cursor_paginates(
         assert ids1.isdisjoint(ids2)
 
 
-async def test_notifications_include_total(
-    admin_client: AsyncClient, db_session
-) -> None:
+async def test_notifications_include_total(admin_client: AsyncClient, db_session) -> None:
     target_user = User(
         supabase_user_id="supa-notif-total",
         email="notif_total@example.com",
@@ -545,13 +488,15 @@ async def test_notifications_include_total(
 
     all_notifs = [_make_notification(i) for i in range(3)]
 
-    async def mock_list(target_user_id, *, cursor_payload=None, limit=50, with_total=False):
+    async def mock_list(
+        target_user_id, *, unread_only=False, cursor_payload=None, limit=50, with_total=False
+    ):
         total = len(all_notifs) if with_total else None
         chunk = all_notifs[:limit]
-        return chunk, None, total
+        return chunk, None, total, 0
 
     with patch(
-        "app.api.api_v1.endpoints.notifications.list_notifications_for_user",
+        "app.api.api_v1.endpoints.notifications.list_deliveries_for_user",
         side_effect=mock_list,
     ):
         r = await admin_client.get(
@@ -561,9 +506,7 @@ async def test_notifications_include_total(
         assert r.json()["total"] == 3
 
 
-async def test_notifications_invalid_cursor_400(
-    admin_client: AsyncClient, db_session
-) -> None:
+async def test_notifications_invalid_cursor_400(admin_client: AsyncClient, db_session) -> None:
     target_user = User(
         supabase_user_id="supa-notif-cursor",
         email="notif_cursor@example.com",

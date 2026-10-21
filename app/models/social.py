@@ -4,7 +4,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, TypeVar
 
 from sqlalchemy import (
-    JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
@@ -18,6 +18,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -38,15 +39,15 @@ SocialEnum = TypeVar("SocialEnum", bound=Enum)
 
 
 class EnumStringType(TypeDecorator[str]):
-    """Store str-backed enums as strings while validating ORM writes."""
+    """Store str-backed enums as TEXT (the DB column type) while validating ORM writes."""
 
-    impl = String
+    impl = Text
     cache_ok = True
 
-    def __init__(self, enum_cls: type[SocialEnum], *, length: int = 32) -> None:
+    def __init__(self, enum_cls: type[SocialEnum]) -> None:
         self.enum_cls = enum_cls
         self.valid_values = frozenset(member.value for member in enum_cls)
-        super().__init__(length=length)
+        super().__init__()
 
     def process_bind_param(self, value, dialect):  # noqa: ANN001
         if value is None:
@@ -75,7 +76,9 @@ class EnumStringType(TypeDecorator[str]):
             return value
 
 
-def enum_check_constraint(column_name: str, enum_cls: type[SocialEnum], name: str) -> CheckConstraint:
+def enum_check_constraint(
+    column_name: str, enum_cls: type[SocialEnum], name: str
+) -> CheckConstraint:
     """Build a DB-level check constraint for a controlled enum value set."""
     quoted_values = ", ".join(f"'{member.value}'" for member in enum_cls)
     return CheckConstraint(f"{column_name} IN ({quoted_values})", name=name)
@@ -89,10 +92,11 @@ class UserMatch(Base):
         enum_check_constraint("status", UserMatchStatus, "ck_user_matches_status"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_one_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    user_two_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_one_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    user_two_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     context_property_id: Mapped[int | None] = mapped_column(
+        Integer,
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -124,9 +128,9 @@ class FlatmateSuperLikeUsage(Base):
         Index("idx_flatmate_super_like_usage_user_day", "user_id", "used_on"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    target_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    target_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     used_on: Mapped[date] = mapped_column(Date, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -137,9 +141,13 @@ class UserBlock(Base):
         Index("idx_user_blocks_unique_pair", "blocker_user_id", "blocked_user_id", unique=True),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    blocker_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    blocked_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    blocker_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE")
+    )
+    blocked_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -159,14 +167,19 @@ class UserReport(Base):
         enum_check_constraint("status", UserReportStatus, "ck_user_reports_status"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    reported_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    reporter_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE")
+    )
+    reported_user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE")
+    )
     conversation_id: Mapped[int | None] = mapped_column(
         ForeignKey("conversations.id", ondelete="SET NULL"),
         nullable=True,
     )
     property_id: Mapped[int | None] = mapped_column(
+        Integer,
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -177,6 +190,13 @@ class UserReport(Base):
         EnumStringType(UserReportStatus), default=UserReportStatus.open
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    moderator_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    moderated_by: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    moderated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -193,10 +213,11 @@ class FlatmateProfileViewEvent(Base):
         Index("idx_flatmate_profile_views_property", "context_property_id", "created_at"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    viewer_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    viewed_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    viewer_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    viewed_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     context_property_id: Mapped[int | None] = mapped_column(
+        Integer,
         ForeignKey("properties.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -213,10 +234,10 @@ class AppCatalog(Base):
         Index("idx_app_catalogs_active", "is_active"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    key: Mapped[str] = mapped_column(String(128), nullable=False)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
@@ -233,9 +254,11 @@ class MatchQnAAnswer(Base):
         UniqueConstraint("match_id", "user_id", name="uq_match_qna_match_user"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    match_id: Mapped[int] = mapped_column(ForeignKey("user_matches.id", ondelete="CASCADE"))
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    match_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user_matches.id", ondelete="CASCADE")
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     q1: Mapped[str | None] = mapped_column(Text, nullable=True)
     q2: Mapped[str | None] = mapped_column(String(32), nullable=True)
     q3: Mapped[str | None] = mapped_column(Text, nullable=True)

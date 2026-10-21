@@ -2,12 +2,16 @@
 Tour CRUD service functions.
 
 Create, read, update, delete, publish, unpublish, and duplicate tours.
+Status changes go through publish, unpublish and delete only.
 """
+
 from __future__ import annotations
 
 import secrets
+from typing import Any
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,16 +19,22 @@ from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import (
     BadRequestException,
-    ForbiddenException,
     TourNotFoundException,
+    client_input_error,
 )
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.models.enums import TourStatus, TourVisibility
-from app.models.tours import Scene, Tour
+from app.models.tours import FloorPlan, Hotspot, Scene, Tour
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
-from app.schemas.tour import TourCreate, TourUpdate
-from app.services.tour.helpers import _ensure_tour_ownership
+from app.schemas.tour import (
+    PublicScene,
+    PublicTourWithScenes,
+    TourCreate,
+    TourSettings,
+    TourUpdate,
+)
+from app.services.tour.helpers import _ensure_tour_ownership, drop_keys, merge_json
 
 logger = get_logger(__name__)
 
@@ -50,19 +60,45 @@ async def generate_short_code(db: AsyncSession) -> str:
     raise RuntimeError("Could not generate a unique tour short code after 5 attempts")
 
 
+def _tour_row(tour: Tour, scene_count: int) -> dict[str, Any]:
+    """Row dict for a list item. Keeps list and detail responses on the same fields."""
+    return {
+        "id": tour.id,
+        "user_id": tour.user_id,
+        "title": tour.title,
+        "description": tour.description,
+        "status": tour.status,
+        "is_public": tour.is_public,
+        "visibility": tour.visibility,
+        "short_code": tour.short_code,
+        "is_featured": tour.is_featured,
+        "view_count": tour.view_count,
+        "like_count": tour.like_count,
+        "share_count": tour.share_count,
+        "settings": tour.settings,
+        "thumbnail_url": tour.thumbnail_url,
+        "published_at": tour.published_at,
+        "archived_at": tour.archived_at,
+        "created_at": tour.created_at,
+        "updated_at": tour.updated_at,
+        "deleted_at": tour.deleted_at,
+        "scene_count": scene_count,
+    }
+
+
 async def get_tours(
     db: AsyncSession,
     user_id: int,
     cursor_payload: dict,
     limit: int = 20,
     with_total: bool = False,
-    status_filter: str | None = None,
+    status_filter: TourStatus | None = None,
     search: str | None = None,
-) -> tuple[list, dict | None, int | None]:
+) -> tuple[list[dict[str, Any]], dict | None, int | None]:
     """Get cursor-paginated list of tours for a user."""
     stmt = select(Tour).where(and_(Tour.user_id == user_id, Tour.deleted_at.is_(None)))
 
-    if status_filter:
+    if status_filter is not None:
         stmt = stmt.where(Tour.status == status_filter)
 
     if search:
@@ -71,7 +107,9 @@ async def get_tours(
 
     count_total = None
     if with_total:
-        count_total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+        count_total = (
+            await db.execute(select(func.count()).select_from(stmt.subquery()))
+        ).scalar_one()
 
     predicate = keyset_filter(Tour.created_at, Tour.id, cursor_payload, descending=True)
     if predicate is not None:
@@ -101,42 +139,21 @@ async def get_tours(
         last_tour, _ = rows[-1]
         next_payload = keyset_payload(keyset_sort_value(last_tour.created_at), last_tour.id)
 
-    tours = []
-    for tour, scene_count in rows:
-        tours.append({
-            "id": tour.id,
-            "user_id": tour.user_id,
-            "title": tour.title,
-            "description": tour.description,
-            "status": tour.status,
-            "is_public": tour.is_public,
-            "settings": tour.settings,
-            "is_featured": tour.is_featured,
-            "view_count": tour.view_count,
-            "like_count": tour.like_count,
-            "share_count": tour.share_count,
-            "thumbnail_url": tour.thumbnail_url,
-            "published_at": tour.published_at,
-            "archived_at": tour.archived_at,
-            "created_at": tour.created_at,
-            "updated_at": tour.updated_at,
-            "deleted_at": tour.deleted_at,
-            "scene_count": int(scene_count or 0),
-            "scenes": None,
-            "visibility": tour.visibility,
-        })
-
+    tours = [_tour_row(tour, int(scene_count or 0)) for tour, scene_count in rows]
     return tours, next_payload, count_total
 
 
 async def get_tour(
     db: AsyncSession, tour_id: str, user_id: int | None = None, include_scenes: bool = True
 ) -> Tour:
-    """Get a single tour by ID."""
+    """Get a single tour by ID. With include_scenes, loads scenes, hotspots and floor plans."""
     query = select(Tour).where(and_(Tour.id == tour_id, Tour.deleted_at.is_(None)))
 
     if include_scenes:
-        query = query.options(selectinload(Tour.scenes).selectinload(Scene.hotspots))
+        query = query.options(
+            selectinload(Tour.scenes).selectinload(Scene.hotspots),
+            selectinload(Tour.floor_plans),
+        )
 
     result = await db.execute(query)
     tour = result.scalar_one_or_none()
@@ -146,27 +163,44 @@ async def get_tour(
 
     is_owner = user_id is not None and tour.user_id == user_id
     is_publicly_accessible = (
-        tour.status == TourStatus.published
-        and tour.visibility != TourVisibility.private
+        tour.status == TourStatus.published and tour.visibility != TourVisibility.private
     )
 
+    # A tour the caller cannot see is 404, whether or not it exists (no existence leak).
     if not is_owner and not is_publicly_accessible:
-        if user_id is not None:
-            raise ForbiddenException(detail="You don't have access to this tour")
-        else:
-            raise TourNotFoundException()
+        raise TourNotFoundException()
 
     return tour
 
 
+def active_hotspots_only(scene: PublicScene) -> PublicScene:
+    """A public scene with only its active hotspots. Viewers do not get inactive hotspots."""
+    return scene.model_copy(update={"hotspots": [h for h in scene.hotspots if h.is_active]})
+
+
+def public_tour_view(tour: Tour) -> PublicTourWithScenes:
+    """The viewer shape of a tour: no user_id, and scenes with active hotspots only."""
+    view = PublicTourWithScenes.model_validate(tour)
+    return view.model_copy(update={"scenes": [active_hotspots_only(s) for s in view.scenes]})
+
+
+def _apply_publish_state(tour: Tour) -> None:
+    """Set the publish fields. An unlisted tour stays unlisted. Any other tour becomes public."""
+    tour.status = TourStatus.published
+    tour.published_at = utc_now()
+    if tour.visibility != TourVisibility.unlisted:
+        tour.visibility = TourVisibility.public
+    tour.is_public = tour.visibility == TourVisibility.public
+
+
+def _stored_settings(settings: TourSettings | None) -> dict[str, Any] | None:
+    """Settings as stored in tours.settings: typed, with None fields left out."""
+    return settings.model_dump(exclude_none=True) if settings is not None else None
+
+
 async def create_tour(db: AsyncSession, user_id: int, data: TourCreate) -> Tour:
-    """Create a new tour."""
-    # Determine visibility - prefer explicit visibility, fall back to is_public for backward compat
-    visibility = (
-        data.visibility
-        if data.visibility
-        else (TourVisibility.public if data.is_public else TourVisibility.private)
-    )
+    """Create a new tour as a draft."""
+    visibility = data.visibility or TourVisibility.private
     # Keep is_public in sync for backward compatibility
     is_public = visibility == TourVisibility.public
 
@@ -175,10 +209,10 @@ async def create_tour(db: AsyncSession, user_id: int, data: TourCreate) -> Tour:
         user_id=user_id,
         title=data.title,
         description=data.description,
-        status=data.status or TourStatus.draft,
+        status=TourStatus.draft,
         is_public=is_public,
         visibility=visibility,
-        settings=data.settings.model_dump() if data.settings else None,
+        settings=_stored_settings(data.settings),
     )
 
     db.add(tour)
@@ -189,27 +223,34 @@ async def create_tour(db: AsyncSession, user_id: int, data: TourCreate) -> Tour:
 
 
 async def update_tour(db: AsyncSession, tour_id: str, user_id: int, data: TourUpdate) -> Tour:
-    """Update a tour."""
+    """Update a tour. Only the fields the client sent change. Settings are deep-merged."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
     _ensure_tour_ownership(tour, user_id, "update")
 
-    # Update fields
     update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("settings", None)
 
     # Handle visibility/is_public sync for backward compatibility
     if "visibility" in update_data:
-        # If visibility is set, sync is_public
         update_data["is_public"] = update_data["visibility"] == TourVisibility.public
     elif "is_public" in update_data:
-        # If only is_public is set (legacy), derive visibility
         update_data["visibility"] = (
             TourVisibility.public if update_data["is_public"] else TourVisibility.private
         )
 
     for field, value in update_data.items():
-        if field == "settings" and value is not None:
-            value = value if isinstance(value, dict) else value.model_dump()
         setattr(tour, field, value)
+
+    if "settings" in data.model_fields_set:
+        if data.settings is None:
+            tour.settings = None
+        else:
+            patch = data.settings.model_dump(exclude_unset=True)
+            merged = merge_json(drop_keys(tour.settings, set(TourSettings.model_fields)), patch)
+            try:
+                tour.settings = TourSettings.model_validate(merged).model_dump(exclude_none=True)
+            except ValidationError as exc:
+                raise client_input_error(exc, "body", "settings") from exc
 
     await db.commit()
 
@@ -231,7 +272,7 @@ async def delete_tour(db: AsyncSession, tour_id: str, user_id: int) -> bool:
 
 
 async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
-    """Publish a tour."""
+    """Publish a tour. An unlisted tour stays unlisted. Any other tour becomes public."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=True)
     _ensure_tour_ownership(tour, user_id, "publish")
 
@@ -239,10 +280,7 @@ async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     if not tour.scenes:
         raise BadRequestException(detail="Cannot publish a tour without scenes")
 
-    tour.status = TourStatus.published
-    tour.published_at = utc_now()
-    tour.visibility = TourVisibility.public
-    tour.is_public = True
+    _apply_publish_state(tour)
 
     # Assign a short share code on first publish; never cleared on unpublish
     # so existing /v/{code} links keep working after a republish.
@@ -253,6 +291,8 @@ async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     except IntegrityError:
         # Race on short_code unique index: regenerate once and retry.
         await db.rollback()
+        tour = await get_tour(db, tour_id, user_id, include_scenes=True)
+        _apply_publish_state(tour)
         tour.short_code = await generate_short_code(db)
         await db.commit()
 
@@ -261,13 +301,14 @@ async def publish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
 
 
 async def unpublish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
-    """Unpublish a tour (set to draft)."""
+    """Unpublish a tour (set to draft). An unlisted tour stays unlisted; any other becomes private."""
     tour = await get_tour(db, tour_id, user_id, include_scenes=False)
     _ensure_tour_ownership(tour, user_id, "unpublish")
 
     tour.status = TourStatus.draft
-    tour.visibility = TourVisibility.private
-    tour.is_public = False
+    if tour.visibility != TourVisibility.unlisted:
+        tour.visibility = TourVisibility.private
+    tour.is_public = tour.visibility == TourVisibility.public
 
     await db.commit()
 
@@ -276,18 +317,17 @@ async def unpublish_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
 
 
 async def duplicate_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
-    """Duplicate a tour with all its scenes and hotspots."""
+    """Duplicate a tour with its scenes, hotspots and floor plans."""
     original = await get_tour(db, tour_id, user_id, include_scenes=True)
     _ensure_tour_ownership(original, user_id, "duplicate")
 
-    # Create new tour
     new_tour = Tour(
         id=str(uuid4()),
         user_id=user_id,
         title=f"{original.title} (Copy)",
         description=original.description,
         status=TourStatus.draft,
-        is_public=False,
+        is_public=original.visibility == TourVisibility.public,
         visibility=original.visibility,
         settings=original.settings,
         thumbnail_url=original.thumbnail_url,
@@ -295,57 +335,74 @@ async def duplicate_tour(db: AsyncSession, tour_id: str, user_id: int) -> Tour:
     db.add(new_tour)
 
     # Map old scene IDs to new scene IDs for hotspot targets
-    scene_id_map = {}
+    scene_id_map: dict[str, str] = {}
 
-    # Duplicate scenes
     for scene in original.scenes or []:
         new_scene_id = str(uuid4())
         scene_id_map[scene.id] = new_scene_id
-
-        new_scene = Scene(
-            id=new_scene_id,
-            tour_id=new_tour.id,
-            title=scene.title,
-            description=scene.description,
-            image_url=scene.image_url,
-            thumbnail_url=scene.thumbnail_url,
-            order_index=scene.order_index,
-            scene_metadata=scene.scene_metadata,
-            is_processed=scene.is_processed,
+        db.add(
+            Scene(
+                id=new_scene_id,
+                tour_id=new_tour.id,
+                title=scene.title,
+                description=scene.description,
+                image_url=scene.image_url,
+                thumbnail_url=scene.thumbnail_url,
+                order_index=scene.order_index,
+                scene_metadata=scene.scene_metadata,
+                is_processed=scene.is_processed,
+            )
         )
-        db.add(new_scene)
 
     await db.flush()
 
-    # Duplicate hotspots
     for scene in original.scenes or []:
         for hotspot in scene.hotspots or []:
-            new_target_scene_id = None
-            if hotspot.target_scene_id:
-                new_target_scene_id = scene_id_map.get(hotspot.target_scene_id)
-
-            from app.models.tours import Hotspot
-
-            new_hotspot = Hotspot(
-                id=str(uuid4()),
-                scene_id=scene_id_map[scene.id],
-                type=hotspot.type,
-                position=hotspot.position,
-                target_scene_id=new_target_scene_id,
-                title=hotspot.title,
-                description=hotspot.description,
-                icon=hotspot.icon,
-                icon_name=hotspot.icon_name,
-                icon_color=hotspot.icon_color,
-                icon_size=hotspot.icon_size,
-                content=hotspot.content,
-                custom_data=hotspot.custom_data,
-                order_index=hotspot.order_index,
-                is_active=hotspot.is_active,
+            db.add(
+                Hotspot(
+                    id=str(uuid4()),
+                    scene_id=scene_id_map[scene.id],
+                    type=hotspot.type,
+                    position=hotspot.position,
+                    target_scene_id=scene_id_map.get(hotspot.target_scene_id or ""),
+                    title=hotspot.title,
+                    description=hotspot.description,
+                    icon=hotspot.icon,
+                    icon_name=hotspot.icon_name,
+                    icon_color=hotspot.icon_color,
+                    icon_size=hotspot.icon_size,
+                    content=hotspot.content,
+                    custom_data=hotspot.custom_data,
+                    order_index=hotspot.order_index,
+                    is_active=hotspot.is_active,
+                )
             )
-            db.add(new_hotspot)
+
+    for plan in original.floor_plans or []:
+        db.add(
+            FloorPlan(
+                id=str(uuid4()),
+                tour_id=new_tour.id,
+                name=plan.name,
+                image_url=plan.image_url,
+                floor_number=plan.floor_number,
+                markers=[dict(marker) for marker in (plan.markers or [])],
+            )
+        )
 
     await db.commit()
 
-    # Reload with scenes
     return await get_tour(db, new_tour.id, user_id, include_scenes=True)
+
+
+__all__: list[str] = [
+    "create_tour",
+    "delete_tour",
+    "duplicate_tour",
+    "generate_short_code",
+    "get_tour",
+    "get_tours",
+    "publish_tour",
+    "unpublish_tour",
+    "update_tour",
+]

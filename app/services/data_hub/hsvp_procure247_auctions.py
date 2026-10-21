@@ -1,11 +1,12 @@
 """HSVP Procure247 auction scraper — Haryana Shehri Vikas Pradhikaran e-auction
 via hsvp.procure247.com (JS-rendered site)."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from bs4 import BeautifulSoup
@@ -39,7 +40,9 @@ class HSVPProcure247AuctionScraper(BaseScraper):
                     try:
                         await page.goto(url, wait_until="networkidle", timeout=60000)
                         # Wait for the auction/tender data to load
-                        await page.wait_for_selector("table, .auction-card, .tender-card, .list-item", timeout=10000)
+                        await page.wait_for_selector(
+                            "table, .auction-card, .tender-card, .list-item", timeout=10000
+                        )
                         content = await page.content()
                         parsed = self._parse_listing(content, url)
                         results.extend(parsed)
@@ -109,7 +112,11 @@ class HSVPProcure247AuctionScraper(BaseScraper):
 
                     if "sector" in h or "plot" in h or "property" in h or "site" in h:
                         record["property_description"] = val
-                        record["full_address"] = f"Gurugram — {val}" if "gurugram" not in val.lower() and "gurgaon" not in val.lower() else val
+                        record["full_address"] = (
+                            f"Gurugram — {val}"
+                            if "gurugram" not in val.lower() and "gurgaon" not in val.lower()
+                            else val
+                        )
                     elif "type" in h:
                         record["property_type"] = self._classify_type(val)
                     elif "area" in h or "size" in h or "sq" in h:
@@ -126,7 +133,9 @@ class HSVPProcure247AuctionScraper(BaseScraper):
                             record["emd_amount"] = float(re.sub(r"[,₹\s]", "", val))
                         except ValueError:
                             pass
-                    elif "date" in h and ("auction" in h or "bid" in h or "start" in h or "end" in h):
+                    elif "date" in h and (
+                        "auction" in h or "bid" in h or "start" in h or "end" in h
+                    ):
                         record["auction_date"] = self._parse_date(val)
                     elif "address" in h or "location" in h:
                         record["full_address"] = val
@@ -140,7 +149,9 @@ class HSVPProcure247AuctionScraper(BaseScraper):
 
         # Fallback: try card-based layout
         if not records:
-            for card in soup.find_all(["div", "li"], class_=re.compile(r"auction|tender|card|listing", re.I)):
+            for card in soup.find_all(
+                ["div", "li"], class_=re.compile(r"auction|tender|card|listing", re.I)
+            ):
                 text = card.get_text(separator=" ", strip=True)
                 if not text or len(text) < 15:
                     continue
@@ -242,7 +253,7 @@ class HSVPProcure247AuctionScraper(BaseScraper):
         """Attempt multiple date formats."""
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
             try:
-                return datetime.strptime(val.strip(), fmt).date()
+                return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
             except ValueError:
                 continue
         return date(1970, 1, 1)

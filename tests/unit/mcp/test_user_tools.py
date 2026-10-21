@@ -39,7 +39,7 @@ def _auth_error(**kwargs):
     """
     raise AuthRequiredError(
         message=kwargs.get("message", "Authentication required"),
-        www_authenticate="Bearer error=\"insufficient_scope\"",
+        www_authenticate='Bearer error="insufficient_scope"',
     )
 
 
@@ -87,7 +87,10 @@ class TestOwnerPropertiesList:
         with (
             patch("app.mcp.user.owner.get_db", return_value=_async_gen(db)),
             patch("app.mcp.user.owner._get_user", new=AsyncMock(return_value=user)),
-            patch("app.mcp.user.owner.list_properties_enriched", new=AsyncMock(return_value=expected_result)),
+            patch(
+                "app.mcp.user.owner.list_properties_enriched",
+                new=AsyncMock(return_value=expected_result),
+            ),
         ):
             from app.mcp.user.owner import owner_properties_list
 
@@ -258,7 +261,9 @@ class TestOwnerPropertiesGet:
     async def test_not_found_returns_error(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "NOT_FOUND", "message": "Property not found"})
+        mock_fn = AsyncMock(
+            return_value={"error": True, "code": "NOT_FOUND", "message": "Property not found"}
+        )
 
         with (
             patch("app.mcp.user.owner.get_db", return_value=_async_gen(db)),
@@ -498,12 +503,14 @@ class TestBookingsList:
     async def test_returns_paginated_bookings(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={
-            "bookings": [{"id": 1}],
-            "total": 1,
-            "page": 1,
-            "limit": 20,
-        })
+        mock_fn = AsyncMock(
+            return_value={
+                "bookings": [{"id": 1}],
+                "total": 1,
+                "page": 1,
+                "limit": 20,
+            }
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -539,7 +546,9 @@ class TestBookingsGet:
     async def test_booking_not_found(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "NOT_FOUND", "message": "Booking not found"})
+        mock_fn = AsyncMock(
+            return_value={"error": True, "code": "NOT_FOUND", "message": "Booking not found"}
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -557,7 +566,13 @@ class TestBookingsGet:
     async def test_insufficient_permissions(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "FORBIDDEN", "message": "You can only view your own bookings"})
+        mock_fn = AsyncMock(
+            return_value={
+                "error": True,
+                "code": "FORBIDDEN",
+                "message": "You can only view your own bookings",
+            }
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -593,7 +608,9 @@ class TestBookingsCancel:
     async def test_booking_not_found(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "NOT_FOUND", "message": "Booking not found"})
+        mock_fn = AsyncMock(
+            return_value={"error": True, "code": "NOT_FOUND", "message": "Booking not found"}
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -612,7 +629,13 @@ class TestBookingsCancel:
         db = AsyncMock()
         user = _make_user()
         # The tool checks for "cannot cancel" in lowercase message
-        mock_fn = AsyncMock(return_value={"error": True, "code": "OPERATION_FAILED", "message": "Cannot cancel booking in current status"})
+        mock_fn = AsyncMock(
+            return_value={
+                "error": True,
+                "code": "OPERATION_FAILED",
+                "message": "Cannot cancel booking in current status",
+            }
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -630,7 +653,9 @@ class TestBookingsCancel:
     async def test_successful_cancellation(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"booking_id": 1, "message": "Booking cancelled successfully"})
+        mock_fn = AsyncMock(
+            return_value={"booking_id": 1, "message": "Booking cancelled successfully"}
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -696,7 +721,9 @@ class TestBookingsGetPricing:
     @pytest.mark.asyncio
     async def test_pricing_error_response(self):
         db = AsyncMock()
-        mock_fn = AsyncMock(return_value={"error": True, "message": "Property not available for short stay"})
+        mock_fn = AsyncMock(
+            return_value={"error": True, "message": "Property not available for short stay"}
+        )
 
         with (
             patch("app.mcp.user.booking.get_db", return_value=_async_gen(db)),
@@ -818,7 +845,13 @@ class TestTenantMaintenanceCreate:
     async def test_no_active_lease_returns_permissions_error(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "FORBIDDEN", "message": "No active lease found for this property"})
+        mock_fn = AsyncMock(
+            return_value={
+                "error": True,
+                "code": "FORBIDDEN",
+                "message": "No active lease found for this property",
+            }
+        )
 
         with (
             patch("app.mcp.user.tenant.get_db", return_value=_async_gen(db)),
@@ -841,7 +874,13 @@ class TestTenantMaintenanceCreate:
     async def test_invalid_category_returns_error(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "INVALID_INPUT", "message": "Invalid category: rocket_science"})
+        mock_fn = AsyncMock(
+            return_value={
+                "error": True,
+                "code": "INVALID_INPUT",
+                "message": "Invalid category: rocket_science",
+            }
+        )
 
         with (
             patch("app.mcp.user.tenant.get_db", return_value=_async_gen(db)),
@@ -864,7 +903,13 @@ class TestTenantMaintenanceCreate:
     async def test_invalid_priority_returns_error(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "code": "INVALID_INPUT", "message": "Invalid priority: critical"})
+        mock_fn = AsyncMock(
+            return_value={
+                "error": True,
+                "code": "INVALID_INPUT",
+                "message": "Invalid priority: critical",
+            }
+        )
 
         with (
             patch("app.mcp.user.tenant.get_db", return_value=_async_gen(db)),
@@ -906,7 +951,9 @@ class TestTenantMaintenanceList:
     async def test_invalid_status_returns_error(self):
         db = AsyncMock()
         user = _make_user()
-        mock_fn = AsyncMock(return_value={"error": True, "message": "Invalid status filter: nonexistent"})
+        mock_fn = AsyncMock(
+            return_value={"error": True, "message": "Invalid status filter: nonexistent"}
+        )
 
         with (
             patch("app.mcp.user.tenant.get_db", return_value=_async_gen(db)),

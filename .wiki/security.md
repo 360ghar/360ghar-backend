@@ -30,7 +30,7 @@ Property Management has its own authorization layer in `app/services/pm_authz.py
 
 File: `app/middleware/rate_limit.py`
 
-A global sliding-window rate limiter runs as pure ASGI middleware. The default is 500 requests per minute per client IP, approximated with two fixed windows (current and previous) for O(1) time and space. It uses the cache manager (Redis in production, in-memory fallback) for cross-process coordination. When exceeded, the response is 429 with a `Retry-After` header. SSE streaming endpoints are exempt - held-open connections would otherwise consume a client's entire per-IP budget. Tighter per-route limits are applied via `EndpointRateLimiter` on sensitive endpoints (e.g. 60 req/min for the public identifier-status probe). Websocket and non-HTTP scopes bypass the limiter entirely.
+A global sliding-window rate limiter runs as pure ASGI middleware. The default is 500 requests per minute per client IP, approximated with two fixed windows (current and previous) for O(1) time and space. It uses the cache manager (Redis in production, in-memory fallback) for cross-process coordination. When exceeded, the response is 429 with a `Retry-After` header. SSE streaming endpoints are exempt - held-open connections would otherwise consume a client's entire per-IP budget. Tighter per-route limits are applied via `EndpointRateLimiter` on sensitive endpoints (e.g. 10 req/min per IP and 5 req/hour per identifier for the public identifier-status probe). `EndpointRateLimiter` counts with `CacheManager.incr`, an atomic fixed-window counter on Redis and in memory. `BodyLimitMiddleware` (`app/middleware/body_limit.py`) answers 413 for oversized bodies on the public design-studio and vastu uploads before FastAPI buffers them. Websocket and non-HTTP scopes bypass the limiter entirely.
 
 ## Security headers
 
@@ -46,9 +46,7 @@ The MCP servers at `/mcp` and `/mcp-admin` use OAuth 2.1 with PKCE, not bearer J
 
 ## API key validation
 
-File: `app/middleware/security.py` (`APIKeyMiddleware`)
-
-Selected external-facing paths require an `x-api-key` header validated against the `VALID_API_KEYS` setting - a secondary auth mechanism for service-to-service access where OAuth or JWT is impractical.
+No API key middleware is registered. The `VALID_API_KEYS` setting is not read by any request path. Service-to-service calls authenticate with OAuth or JWT.
 
 ## Request ID and tracing
 

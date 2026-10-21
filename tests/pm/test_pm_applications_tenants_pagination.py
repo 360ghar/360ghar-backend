@@ -22,7 +22,7 @@ from app.models.enums import (
     LeaseStatus,
     PropertyPurpose,
     PropertyType,
-    TenantStatus,
+    RentalApplicationStatus,
     UserRole,
 )
 from app.models.pm_leases import Lease
@@ -111,7 +111,9 @@ async def pm_property(db_session, pm_owner) -> Property:
 
 
 @pytest_asyncio.fixture
-async def seeded_application_forms(db_session, pm_owner, pm_property) -> list[RentalApplicationForm]:
+async def seeded_application_forms(
+    db_session, pm_owner, pm_property
+) -> list[RentalApplicationForm]:
     """Create 3 application forms owned by pm_owner."""
     forms = []
     for i in range(3):
@@ -135,7 +137,9 @@ async def seeded_application_forms(db_session, pm_owner, pm_property) -> list[Re
 
 
 @pytest_asyncio.fixture
-async def seeded_applications(db_session, pm_owner, pm_property, seeded_application_forms) -> list[RentalApplication]:
+async def seeded_applications(
+    db_session, pm_owner, pm_property, seeded_application_forms
+) -> list[RentalApplication]:
     """Create 3 rental applications linked to the first form."""
     form = seeded_application_forms[0]
     applications = []
@@ -144,7 +148,7 @@ async def seeded_applications(db_session, pm_owner, pm_property, seeded_applicat
             form_id=form.id,
             property_id=pm_property.id,
             owner_id=pm_owner.id,
-            status=TenantStatus.applicant,
+            status=RentalApplicationStatus.applicant,
             applicant_full_name=f"Applicant {i}",
             applicant_phone=f"+9100000{i:04d}",
             submitted_at=datetime(2025, 1, i + 1, tzinfo=timezone.utc),
@@ -180,8 +184,20 @@ async def seeded_tenants(db_session, pm_owner, pm_property) -> list[User]:
         db_session.add(tenant)
         await db_session.flush()
 
+        # One occupying lease per property (uq_leases_property_active): one unit per tenant.
+        unit = Property(
+            title=f"Unit {i} for tenant pagination",
+            property_type=PropertyType.apartment,
+            purpose=PropertyPurpose.rent,
+            base_price=25000,
+            owner_id=pm_owner.id,
+            is_managed=True,
+        )
+        db_session.add(unit)
+        await db_session.flush()
+
         lease = Lease(
-            property_id=pm_property.id,
+            property_id=unit.id,
             owner_id=pm_owner.id,
             tenant_user_id=tenant.id,
             tenant_name=f"Tenant User {i}",

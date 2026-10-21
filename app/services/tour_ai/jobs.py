@@ -4,6 +4,7 @@ AI Job management for tour AI operations.
 Provides CRUD operations for AI processing jobs, including creation,
 status updates with WebSocket broadcasting, retrieval, and cancellation.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -16,18 +17,26 @@ from app.core.exceptions import NotFoundException
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.core.websocket import manager as ws_manager
+from app.models.enums import AIJobType
 from app.models.tours import AIJob
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
+from app.schemas.tour import validate_ai_result
 
 logger = get_logger(__name__)
+
+TERMINAL_JOB_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+class AIJobCancelledError(Exception):
+    """Raised inside a worker when its job was cancelled. The worker stops and writes nothing more."""
 
 
 async def create_ai_job(
     db: AsyncSession,
     user_id: int,
-    job_type: str,
+    job_type: AIJobType,
     tour_id: str | None = None,
-    scene_id: str | None = None
+    scene_id: str | None = None,
 ) -> AIJob:
     """Create a new AI processing job."""
     job = AIJob(
@@ -35,14 +44,14 @@ async def create_ai_job(
         user_id=user_id,
         tour_id=tour_id,
         scene_id=scene_id,
-        job_type=job_type,
+        job_type=job_type.value,
         status="pending",
-        progress=0
+        progress=0,
     )
     db.add(job)
     await db.commit()
     await db.refresh(job)
-    logger.info("AI job created: %s (type: %s)", job.id, job_type)
+    logger.info("AI job created: %s (type: %s)", job.id, job_type.value)
     return job
 
 
@@ -53,15 +62,40 @@ async def update_job_status(
     progress: int = 0,
     result: dict[str, Any] | None = None,
     error_message: str | None = None,
-    increment_retry: bool = False
+    increment_retry: bool = False,
 ) -> AIJob:
-    """Update an AI job's status and broadcast via WebSocket."""
-    query = select(AIJob).where(AIJob.id == job_id)
+    """Update an AI job's status and broadcast via WebSocket.
+
+    A cancelled job raises ``AIJobCancelledError`` so the worker stops. Any other
+    terminal job ignores the write, so a late worker cannot move it out of that state.
+    """
+    # populate_existing: the worker session keeps AIJob in its identity map, and a
+    # cancel from another session must be seen on the next write. FOR UPDATE makes the
+    # status check and the write atomic with cancel_ai_job, which locks the same row.
+    query = (
+        select(AIJob)
+        .where(AIJob.id == job_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     db_result = await db.execute(query)
     job = db_result.scalar_one_or_none()
 
     if not job:
         raise NotFoundException(detail="AI job not found")
+
+    if job.status in TERMINAL_JOB_STATUSES:
+        # Nothing changes. Commit to release the row lock, so a late worker does not hold it.
+        await db.commit()
+        if job.status == "cancelled":
+            raise AIJobCancelledError(job_id)
+        logger.info("AI job %s is %s; ignoring %s update", job_id, job.status, status)
+        return job
+
+    if result and status == "completed":
+        # Completed results must match the schema for the job type (see schemas.tour).
+        # Validate before any field changes, so a failure leaves the job as it was.
+        result = validate_ai_result(job.job_type, result)
 
     job.status = status
     job.progress = progress
@@ -106,11 +140,7 @@ async def update_job_status(
     return job
 
 
-async def get_ai_job(
-    db: AsyncSession,
-    job_id: str,
-    user_id: int | None = None
-) -> AIJob:
+async def get_ai_job(db: AsyncSession, job_id: str, user_id: int | None = None) -> AIJob:
     """Get an AI job by ID."""
     query = select(AIJob).where(AIJob.id == job_id)
 
@@ -165,15 +195,21 @@ async def get_user_ai_jobs(
     return rows, next_pg, count_total
 
 
-async def cancel_ai_job(
-    db: AsyncSession,
-    job_id: str,
-    user_id: int
-) -> bool:
+async def cancel_ai_job(db: AsyncSession, job_id: str, user_id: int) -> bool:
     """Cancel an AI job."""
-    job = await get_ai_job(db, job_id, user_id)
+    job = (
+        await db.execute(
+            select(AIJob)
+            .where(AIJob.id == job_id, AIJob.user_id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if job is None:
+        raise NotFoundException(detail="AI job not found")
 
-    if job.status in ("completed", "failed", "cancelled"):
+    if job.status in TERMINAL_JOB_STATUSES:
+        await db.rollback()  # release the row lock
         return False
 
     job.status = "cancelled"

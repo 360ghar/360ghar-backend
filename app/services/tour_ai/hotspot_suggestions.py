@@ -3,17 +3,22 @@
 Provides AI-powered hotspot placement suggestions for individual scenes
 and entire tours, including navigation and information hotspot generation.
 """
+
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_bg_session_factory
 from app.core.exceptions import BadRequestException, ForbiddenException
 from app.core.logging import get_logger
+from app.models.enums import AIJobType
 from app.models.tours import AIJob
+from app.schemas.tour import HotspotSuggestionDraft
 from app.services.ai import AIMessage, AIProviderError, AIRole, VisionInput
 
 from .helpers import (
@@ -29,11 +34,38 @@ from .jobs import create_ai_job, update_job_status
 logger = get_logger(__name__)
 
 
-async def suggest_scene_hotspots(
-    db: AsyncSession,
-    scene_id: str,
-    user_id: int
-) -> AIJob:
+def _accepted_suggestions(
+    raw_items: Any, source_scene_id: str, tour_scene_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Keep the AI suggestions the apply path can store. Drop the rest, so no item fails later."""
+    if not isinstance(raw_items, list):
+        return []
+    accepted: list[dict[str, Any]] = []
+    for raw in raw_items:
+        try:
+            draft = HotspotSuggestionDraft.model_validate(
+                raw,
+                context={"scene_ids": tour_scene_ids, "source_scene_id": source_scene_id},
+            )
+        except ValidationError:
+            logger.info("Dropped an invalid hotspot suggestion for scene %s", source_scene_id)
+            continue
+        accepted.append(
+            {
+                "id": str(uuid4()),
+                "scene_id": source_scene_id,
+                "type": draft.type,
+                "position": {"yaw": draft.yaw, "pitch": draft.pitch},
+                "target_scene_id": draft.target_scene_id,
+                "suggested_title": draft.suggested_title,
+                "reasoning": draft.reasoning,
+                "confidence": draft.confidence,
+            }
+        )
+    return accepted
+
+
+async def suggest_scene_hotspots(db: AsyncSession, scene_id: str, user_id: int) -> AIJob:
     """Suggest hotspots for a scene using AI."""
     from app.services.tour import get_scene, get_scenes
 
@@ -46,19 +78,17 @@ async def suggest_scene_hotspots(
     await get_scenes(db, scene.tour_id, user_id)
 
     # Create job
-    job = await create_ai_job(db, user_id, "suggest_hotspots", scene_id=scene_id)
+    job = await create_ai_job(db, user_id, AIJobType.suggest_hotspots, scene_id=scene_id)
 
     # Run suggestion in background - pass only IDs and required data
-    _track_background_task(_run_with_semaphore(_run_hotspot_suggestions(job.id, scene_id, scene.tour_id)))
+    _track_background_task(
+        _run_with_semaphore(_run_hotspot_suggestions(job.id, scene_id, scene.tour_id))
+    )
 
     return job
 
 
-async def suggest_tour_hotspots(
-    db: AsyncSession,
-    tour_id: str,
-    user_id: int
-) -> AIJob:
+async def suggest_tour_hotspots(db: AsyncSession, tour_id: str, user_id: int) -> AIJob:
     """Suggest hotspots for all scenes in a tour using AI."""
     from app.services.tour import get_tour
 
@@ -71,7 +101,7 @@ async def suggest_tour_hotspots(
         raise BadRequestException(detail="Tour needs at least 2 scenes for hotspot suggestions")
 
     # Create job
-    job = await create_ai_job(db, user_id, "suggest_tour_hotspots", tour_id=tour_id)
+    job = await create_ai_job(db, user_id, AIJobType.suggest_tour_hotspots, tour_id=tour_id)
 
     # Run suggestion in background - pass only tour_id
     _track_background_task(_run_with_semaphore(_run_tour_hotspot_suggestions(job.id, tour_id)))
@@ -92,9 +122,7 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
             await update_job_status(db, job_id, "processing", 10)
 
             # Re-fetch scene in this session
-            scene_result = await db.execute(
-                select(Scene).where(Scene.id == scene_id)
-            )
+            scene_result = await db.execute(select(Scene).where(Scene.id == scene_id))
             scene = scene_result.scalar_one_or_none()
             if not scene:
                 await update_job_status(db, job_id, "failed", error_message="Scene not found")
@@ -118,16 +146,20 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
 
             # Build scene context
             other_scenes = [s for s in all_scenes if s.id != scene.id]
-            scene_context = "\n".join([
-                f"- {s.title or f'Scene {i+1}'} (ID: {s.id})"
-                for i, s in enumerate(other_scenes)
-            ])
+            scene_context = "\n".join(
+                [
+                    f"- {s.title or f'Scene {i + 1}'} (ID: {s.id})"
+                    for i, s in enumerate(other_scenes)
+                ]
+            )
 
             system_prompt = _build_hotspot_suggestion_prompt(scene_context, full_format=True)
 
             messages = [
                 AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
+                AIMessage(
+                    role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama."
+                ),
             ]
 
             await update_job_status(db, job_id, "processing", 60)
@@ -136,13 +168,9 @@ async def _run_hotspot_suggestions(job_id: str, scene_id: str, tour_id: str):
             del vision_input
 
             # Process hotspots and add IDs
-            hotspots = result.get("hotspots", [])
-            for hotspot in hotspots:
-                hotspot["id"] = str(uuid4())
-                hotspot["position"] = {
-                    "yaw": hotspot.pop("yaw", 0),
-                    "pitch": hotspot.pop("pitch", 0)
-                }
+            hotspots = _accepted_suggestions(
+                result.get("hotspots", []), scene.id, {s.id for s in all_scenes}
+            )
 
             await update_job_status(db, job_id, "completed", 100, result={"hotspots": hotspots})
             await db.commit()
@@ -191,33 +219,38 @@ async def _run_tour_hotspot_suggestions(job_id: str, tour_id: str):
 
                     # Build scene context
                     other_scenes = [s for s in scenes if s.id != scene.id]
-                    scene_context = "\n".join([
-                        f"- {s.title or f'Scene {j+1}'} (ID: {s.id})"
-                        for j, s in enumerate(other_scenes)
-                    ])
+                    scene_context = "\n".join(
+                        [
+                            f"- {s.title or f'Scene {j + 1}'} (ID: {s.id})"
+                            for j, s in enumerate(other_scenes)
+                        ]
+                    )
 
-                    system_prompt = _build_hotspot_suggestion_prompt(scene_context, full_format=False)
+                    system_prompt = _build_hotspot_suggestion_prompt(
+                        scene_context, full_format=False
+                    )
 
                     messages = [
                         AIMessage(role=AIRole.SYSTEM, content=system_prompt),
-                        AIMessage(role=AIRole.USER, content="Suggest hotspot placements for this 360° panorama.")
+                        AIMessage(
+                            role=AIRole.USER,
+                            content="Suggest hotspot placements for this 360° panorama.",
+                        ),
                     ]
 
                     result = await _complete_json_with_retry(provider, messages, vision_input)
                     del vision_input
 
-                    hotspots = result.get("hotspots", [])
-                    for hotspot in hotspots:
-                        hotspot["id"] = str(uuid4())
-                        hotspot["scene_id"] = scene.id
-                        hotspot["position"] = {
-                            "yaw": hotspot.pop("yaw", 0),
-                            "pitch": hotspot.pop("pitch", 0)
-                        }
-                        all_hotspots.append(hotspot)
+                    all_hotspots.extend(
+                        _accepted_suggestions(
+                            result.get("hotspots", []), scene.id, {s.id for s in scenes}
+                        )
+                    )
 
                 except Exception as e:
-                    logger.error("Error suggesting hotspots for scene %s: %s", scene.id, e, exc_info=True)
+                    logger.error(
+                        "Error suggesting hotspots for scene %s: %s", scene.id, e, exc_info=True
+                    )
 
                 await update_job_status(db, job_id, "processing", progress)
 

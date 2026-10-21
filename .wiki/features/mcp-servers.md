@@ -36,7 +36,8 @@ app/mcp/
 │   ├── pm_rent_tools.py
 │   ├── pm_tenant_tools.py
 │   ├── pm_shared.py       # shared PM serialization helpers
-│   └── response_formatter.py # format_chatgpt_response, format_auth_required_response
+│   ├── response_formatter.py # format_chatgpt_response, format_auth_required_response
+│   └── widget_payloads.py # one payload model and one producer per WIDGETS name
 └── tool_ops/              # shared business logic called by MCP servers + AI agent
     ├── __init__.py
     ├── properties.py
@@ -73,6 +74,7 @@ chatgpt-widgets/
 | `WIDGETS` | `app/mcp/chatgpt/__init__.py` | Maps widget name → tool list, title, description; used for resource registration |
 | `get_widget_for_tool` | `app/mcp/chatgpt/__init__.py` | Reverse lookup: tool name → cache-busted widget URI |
 | `format_chatgpt_response` | `app/mcp/chatgpt/response_formatter.py` | Wraps data + summary + meta into `AppsSDKToolResult` |
+| `widget_payload` | `app/mcp/chatgpt/widget_payloads.py` | Typed payload for a widget name. The MCP `structuredContent` and the agent `widget` frame use it. Undeclared keys pass through. |
 | `tool_ops/*` | `app/mcp/tool_ops/` | Shared business logic called by MCP servers and [AI agent](ai-agent.md) |
 
 ## How it works
@@ -114,6 +116,8 @@ The widget system is the other large piece. Eleven React widgets are built as st
 
 The shared logic layer in `app/mcp/tool_ops/` is critical. Six modules (properties, leases, rent, maintenance, bookings, dashboard) contain the service calls, DB queries, authorisation, and serialization used by both MCP servers and the [AI agent](ai-agent.md) tool bridge. Per the layering rules in [AGENTS.md](../../AGENTS.md), new MCP tools must implement logic in `tool_ops/` first, then wire it through both `user/server.py`/`admin/` and `services/ai_agent/tools/` — no duplication.
 
+Tools that change PM state call the PM services (`app/services/pm_leases.py`, `pm_rent.py`, `pm_maintenance.py`) and never assign a status field themselves: `tool_ops.update_maintenance_status` builds the PATCH body of `PATCH /pm/maintenance/requests/{id}` and calls `update_maintenance_request`, so rights and transition rules are the REST rules. `tests/contract/test_mcp_state_through_services.py` enforces this. A user embedded in a payload (the lease `tenant`, the `owner` and `tenant` of a property detail) goes through `app/services/visibility.py` (`mask_user_ref`): `id`, `display_name` and `avatar_url` for every viewer, `phone` and `email` only for the record's owner, admins and the user themself. `serialize_lease(lease, viewer)` takes the caller as a required argument.
+
 ## Integration points
 
 - **Service layer**: all tool logic ultimately calls `app/services/*` functions. The [property management](property-management.md), [Ghar Core](ghar-core.md), [360 Stays](stays.md), and [AI agent](ai-agent.md) features are all reachable from MCP tools.
@@ -153,3 +157,7 @@ Add a new user tool by writing the business logic in `app/mcp/tool_ops/`, regist
 | `chatgpt-widgets/dist/` | 11 built HTML bundles |
 | `app/services/oauth_token_store.py` | OAuth token + code persistence |
 | `app/api/api_v1/endpoints/oauth/` | OAuth 2.1 + PKCE endpoints |
+
+### Tool name export for widgets
+
+`app/mcp/tool_names.py` lists the registered tool names of both servers. `scripts/export_tool_names.py` writes them to `chatgpt-widgets/src/generated/tool-names.json`, which the widgets import for `callTool`. `tests/contract/test_tool_names.py` fails when the export is stale or a widget links a tool the server does not register. Regenerate with `uv run python scripts/export_tool_names.py`.

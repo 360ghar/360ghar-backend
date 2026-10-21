@@ -27,10 +27,10 @@ class TestNotificationSettings:
         assert settings.email_notifications is False
         assert settings.sms_notifications is True
 
-    def test_categories_default(self):
-        settings = NotificationSettings()
-        assert "promotions" in settings.categories
-        assert "onboarding" in settings.categories
+    def test_categories_block_is_gone(self):
+        # The duplicate categories block re-enabled marketing; marketing consent is promotional_emails only.
+        assert "categories" not in NotificationSettings.model_fields
+        assert NotificationSettings().promotional_emails is False
 
 
 class TestPrivacySettings:

@@ -1,10 +1,11 @@
 """Bank rate scraper — RBI repo rate (HTML page) + major bank MCLR rates."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date
+from datetime import UTC, datetime
 
 from bs4 import BeautifulSoup
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -52,15 +53,13 @@ class BankRateScraper(BaseScraper):
         """Parse RBI repo rate from press release page."""
         soup = BeautifulSoup(html, "html.parser")
         text = soup.get_text()
-        match = re.search(
-            r"repo rate[^\d]*(\d+\.?\d*)\s*(?:per cent|%)", text, re.IGNORECASE
-        )
+        match = re.search(r"repo rate[^\d]*(\d+\.?\d*)\s*(?:per cent|%)", text, re.IGNORECASE)
         if match:
             return {
                 "bank_name": "RBI",
                 "rate_type": "repo",
                 "rate_value": float(match.group(1)),
-                "effective_date": date.today(),
+                "effective_date": datetime.now(UTC).date(),
                 "source": _RBI_DATA_URL,
                 "raw_data": {"parsed_text": match.group(0)},
             }
@@ -82,7 +81,7 @@ class BankRateScraper(BaseScraper):
                             "bank_name": bank_name,
                             "rate_type": "home_loan_min",
                             "rate_value": val,
-                            "effective_date": date.today(),
+                            "effective_date": datetime.now(UTC).date(),
                             "source": source_url,
                             "raw_data": {"parsed": m},
                         }

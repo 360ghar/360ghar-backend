@@ -274,7 +274,7 @@
 | PM-025 | PM/Rent | Generate rent charges | user | FAIL | 403 | POST /api/v1/pm/rent/charges/generate -> 403 |
 | PM-026 | PM/Rent | List rent charges | user | FAIL | 403 | GET /api/v1/pm/rent/charges -> 403 |
 | PM-027 | PM/Rent | Record rent payment | user | FAIL | 422 | POST /api/v1/pm/rent/payments -> 422 |
-| PM-028 | PM/Rent | Create tenant payment intent | user | FAIL | 422 | POST /api/v1/pm/rent/charges/{charge_id}/tenant-payment-intent -> 422 |
+| PM-028 | PM/Rent | Create tenant payment intent | user | REMOVED | - | Route deleted. A tenant records a pending claim with POST /api/v1/pm/rent/payments. |
 | PM-029 | PM/Rent | List rent payments | user | FAIL | 403 | GET /api/v1/pm/rent/payments -> 403 |
 | PM-030 | PM/Expenses | Create expense | user | FAIL | 422 | POST /api/v1/pm/expenses -> 422 |
 | PM-031 | PM/Expenses | List expenses | user | FAIL | 403 | GET /api/v1/pm/expenses -> 403 |

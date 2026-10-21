@@ -37,6 +37,7 @@ Declared in `pyproject.toml` under `[project].dependencies`. Requires Python `>=
 - `cloudinary>=1.44.2` - media storage
 - `razorpay>=1.4.2` - payments
 - `google-auth>=2.50.0` - Google auth (FCM service account)
+- `daytona` - Daytona sandbox SDK (isolated virtual tour generation, splat lab)
 
 ### AI and ML
 

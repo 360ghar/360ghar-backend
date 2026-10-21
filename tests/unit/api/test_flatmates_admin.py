@@ -125,6 +125,8 @@ def _make_property(
             phone="+919999999999",
         ),
         is_available=True,
+        tags=["quiet"],
+        available_from=None,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -578,11 +580,11 @@ class TestModerateListingNotFound:
         assert exc_info.value.status_code == 404
 
 
-class TestModerateListingApprovalBoost:
-    """Tests for approval boost on first approval."""
+class TestModerateListingApprovalWritesNoBoost:
+    """Boost is not built. Approval writes no boost keys and sends no boost copy."""
 
     @pytest.mark.asyncio
-    async def test_first_approval_grants_boost(self):
+    async def test_first_approval_writes_no_boost_keys(self):
         db = _mock_db()
         admin = _make_admin_user_schema()
         prop = _make_property(
@@ -594,9 +596,10 @@ class TestModerateListingApprovalBoost:
         db.execute = AsyncMock(return_value=_scalar_result(prop))
 
         payload = ListingModerationAction(action="approve")
+        notify = AsyncMock()
 
         with (
-            patch("app.services.push_notification.notify_listing_approved", new=AsyncMock()),
+            patch("app.services.push_notification.notify_listing_approved", new=notify),
             patch(
                 "app.services.flatmates.realtime.publish_flatmates_realtime_event",
                 new=AsyncMock(),
@@ -610,7 +613,14 @@ class TestModerateListingApprovalBoost:
             )
 
         assert result["status"] == "live"
-        assert "approval_boost_granted_at" in prop.listing_preferences
+        for key in (
+            "approval_boost_granted_at",
+            "boosted_until",
+            "boost_reason",
+            "first_approved_at",
+        ):
+            assert key not in prop.listing_preferences
+        assert "boosted_for_hours" not in notify.call_args.kwargs
 
 
 # ===========================================================================
@@ -645,7 +655,7 @@ class TestModerateReportDismiss:
         assert result["report_id"] == 1
         assert result["action"] == "dismiss"
         assert result["status"] == "dismissed"
-        assert result["notes"] == "No violation found"
+        assert result["moderator_notes"] == "No violation found"
         db.commit.assert_awaited_once()
 
 
@@ -694,9 +704,7 @@ class TestModerateReportSuspendUser:
         reported_user = SimpleNamespace(id=20, is_active=True)
 
         # First execute returns report, second returns user
-        db.execute = AsyncMock(
-            side_effect=[_scalar_result(report), _scalar_result(reported_user)]
-        )
+        db.execute = AsyncMock(side_effect=[_scalar_result(report), _scalar_result(reported_user)])
 
         payload = ReportModerationAction(action="suspend_user", notes="Severe violation")
 

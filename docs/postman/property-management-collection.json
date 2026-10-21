@@ -1353,39 +1353,6 @@
             }
           },
           "response": []
-        },
-        {
-          "name": "Tenant Payment Intent",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/pm/rent/charges/{{pm_charge_id}}/tenant-payment-intent",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "pm",
-                "rent",
-                "charges",
-                "{{pm_charge_id}}",
-                "tenant-payment-intent"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"charge_id\": \"{{pm_charge_id}}\",\n  \"amount_paid\": 15000,\n  \"payment_method\": \"upi\",\n  \"reference\": \"UPI-TXN-12345\",\n  \"notes\": \"Self-pay via UPI\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            },
-            "description": "Tenant initiates self-payment for a rent charge. Creates a payment record and marks the charge as partially/fully paid."
-          },
-          "response": []
         }
       ]
     },
@@ -1423,7 +1390,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"owner_id\": null,\n  \"property_id\": {{pm_property_id}},\n  \"category\": \"maintenance\",\n  \"amount\": 1200,\n  \"expense_date\": \"2025-01-10\",\n  \"description\": \"Plumbing repair\",\n  \"notes\": \"Kitchen sink\",\n  \"receipt_document_id\": null,\n  \"is_recurring\": false,\n  \"recurrence_rule\": null,\n  \"next_due_date\": null\n}",
+              "raw": "{\n  \"owner_id\": null,\n  \"property_id\": {{pm_property_id}},\n  \"category\": \"maintenance\",\n  \"amount\": 1200,\n  \"expense_date\": \"2025-01-10\",\n  \"description\": \"Plumbing repair\",\n  \"notes\": \"Kitchen sink\",\n  \"receipt_document_id\": null\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1625,7 +1592,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"request_status\": \"work_order_created\",\n  \"work_order_status\": \"assigned\",\n  \"assigned_agent_id\": null,\n  \"priority\": \"P1\",\n  \"estimated_cost\": 1500,\n  \"scheduled_for\": \"2025-01-11T18:30:00Z\"\n}",
+              "raw": "{\n  \"request_status\": \"work_order_created\",\n  \"work_order_status\": \"assigned\",\n  \"assigned_agent_id\": null,\n  \"urgency\": \"high\",\n  \"estimated_cost\": 1500,\n  \"scheduled_for\": \"2025-01-11T18:30:00Z\"\n}",
               "options": {
                 "raw": {
                   "language": "json"

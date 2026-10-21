@@ -17,13 +17,16 @@ class TestUploadFileEndpoint:
     @pytest.mark.asyncio
     async def test_upload_file_success(self, authenticated_client: AsyncClient):
         """Test successful file upload."""
-        with patch(
-            "app.api.api_v1.endpoints.upload.storage_service"
-        ) as mock_storage:
+        with patch("app.api.api_v1.endpoints.upload.storage_service") as mock_storage:
             mock_storage.upload_and_track = AsyncMock(
                 return_value={
                     "public_url": "https://storage.example.com/file.jpg",
-                    "path": "users/1/uploads/file.jpg",
+                    "file_path": "360ghar/uploads/1/file.bin",
+                    "file_type": "generic_upload",
+                    "file_size": 17,
+                    "content_type": "application/octet-stream",
+                    "original_filename": "file.bin",
+                    "media": None,
                 }
             )
 
@@ -36,7 +39,7 @@ class TestUploadFileEndpoint:
                 files=files,
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             payload = response.json()
             assert payload["public_url"] == "https://storage.example.com/file.jpg"
 
@@ -56,12 +59,16 @@ class TestUploadFileEndpoint:
     @pytest.mark.asyncio
     async def test_upload_image_file(self, authenticated_client: AsyncClient):
         """Test uploading an image file."""
-        with patch(
-            "app.api.api_v1.endpoints.upload.storage_service"
-        ) as mock_storage:
+        with patch("app.api.api_v1.endpoints.upload.storage_service") as mock_storage:
             mock_storage.upload_and_track = AsyncMock(
                 return_value={
                     "public_url": "https://storage.example.com/image.png",
+                    "file_path": "360ghar/uploads/1/file.bin",
+                    "file_type": "generic_upload",
+                    "file_size": 17,
+                    "content_type": "application/octet-stream",
+                    "original_filename": "file.bin",
+                    "media": None,
                     "mime_type": "image/png",
                 }
             )
@@ -74,19 +81,23 @@ class TestUploadFileEndpoint:
                 files=files,
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             payload = response.json()
             assert payload["public_url"].endswith("image.png")
 
     @pytest.mark.asyncio
     async def test_upload_pdf_file(self, authenticated_client: AsyncClient):
         """Test uploading a PDF file."""
-        with patch(
-            "app.api.api_v1.endpoints.upload.storage_service"
-        ) as mock_storage:
+        with patch("app.api.api_v1.endpoints.upload.storage_service") as mock_storage:
             mock_storage.upload_and_track = AsyncMock(
                 return_value={
                     "public_url": "https://storage.example.com/document.pdf",
+                    "file_path": "360ghar/uploads/1/file.bin",
+                    "file_type": "generic_upload",
+                    "file_size": 17,
+                    "content_type": "application/octet-stream",
+                    "original_filename": "file.bin",
+                    "media": None,
                     "mime_type": "application/pdf",
                 }
             )
@@ -99,7 +110,7 @@ class TestUploadFileEndpoint:
                 files=files,
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             payload = response.json()
             assert payload["public_url"].endswith("document.pdf")
 

@@ -4,29 +4,54 @@ from collections.abc import Callable
 from datetime import date, datetime, time, timezone
 from typing import Any
 
+from pydantic import BaseModel
 from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.auth import _is_failure, admin_delete_user
 from app.core.db_resilience import extract_db_error_code
 from app.core.exceptions import (
     BadRequestException,
     BaseAPIException,
+    ConflictException,
     ForbiddenException,
     ServiceUnavailableException,
     ValidationException,
 )
 from app.core.logging import get_logger
 from app.core.utils import is_valid_uuid, utc_now
-from app.models.enums import AuthMethod, FlatmatesProfileStatus, UserRole
+from app.models.enums import AppKey, AuthMethod, FlatmatesProfileStatus, UserRole
 from app.models.users import User
+from app.schemas.common import NotificationSettingsWrite, PrivacySettingsPatch
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
-from app.schemas.user import UserUpdate
+from app.schemas.user import UserPreferences, UserUpdate, read_typed_blob
 from app.services.auth_user_cache import invalidate_auth_user
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
+
+
+def _merge_settings(stored: Any, sent: dict[str, Any] | None, model: type[BaseModel]) -> Any:
+    """Apply the sent keys to the stored settings blob.
+
+    A null body means "no change". Keys outside ``model`` are dropped from the stored blob.
+    """
+    current = (
+        {k: v for k, v in stored.items() if k in model.model_fields}
+        if isinstance(stored, dict)
+        else {}
+    )
+    if sent is None:
+        return current
+    return {**current, **sent}
+
+
+def read_preferences(raw: Any) -> UserPreferences:
+    """Typed view of the stored preferences. A key that fails validation is dropped, not fatal."""
+    return read_typed_blob(UserPreferences, raw)
 
 
 def _coerce_date_of_birth_for_storage(value: Any) -> Any:
@@ -146,6 +171,51 @@ async def get_user_by_supabase_id(db: AsyncSession, supabase_user_id: str) -> Us
         raise
 
 
+async def _supabase_confirms_email(
+    db: AsyncSession, supabase_user_id: str | None, email: str
+) -> bool:
+    """True when Supabase confirms ``email`` on the identity ``supabase_user_id``.
+
+    Reads ``auth.users``. The local ``email_verified`` flag cannot answer this: it is
+    true when either channel is confirmed. Database errors propagate, so an outage
+    never releases a stored email.
+    """
+    if not supabase_user_id or not is_valid_uuid(supabase_user_id):
+        return False
+    result = await db.execute(
+        text(
+            "SELECT 1 FROM auth.users "
+            "WHERE id = :uid AND lower(email) = lower(:email) "
+            "AND email_confirmed_at IS NOT NULL LIMIT 1"
+        ),
+        {"uid": supabase_user_id, "email": email},
+    )
+    return result.first() is not None
+
+
+async def _linkable_user_by_email(db: AsyncSession, email: str) -> User | None:
+    """The local row that holds ``email``, when Supabase still confirms it for that row.
+
+    A stored address that its own identity does not confirm is a legacy value (written
+    before confirmation was required) or a stale value after a Supabase email change.
+    It must not link a confirmed identity. It also blocks the real owner's unique email,
+    so it is released here (the email is cleared, the row is not repointed).
+    """
+    holder = await get_user_by_email(db, email)
+    if holder is None:
+        return None
+    if await _supabase_confirms_email(db, holder.supabase_user_id, email):
+        return holder
+    logger.warning(
+        "Releasing unconfirmed local email on user %s (not confirmed by its Supabase identity)",
+        holder.id,
+    )
+    holder.email = None
+    holder.email_verified = False
+    holder.is_verified = bool(holder.phone_verified)
+    await db.flush()
+    return None
+
 
 async def _upgrade_user_from_supabase_payload(
     db: AsyncSession,
@@ -153,13 +223,34 @@ async def _upgrade_user_from_supabase_payload(
     *,
     email_verified: bool,
     phone_verified: bool,
+    email: str | None = None,
+    email_confirmed: bool = False,
 ) -> User:
     """Upgrade verification flags from token payload; never downgrade.
 
     JWTs often omit confirmed_at, so we only set flags True when the payload
     indicates verified. Missing claims must not reset verified→False.
+
+    Supabase is the only email writer. A confirmed email in the verified token that
+    differs from the local row replaces the local value.
     """
     updated = False
+    if (
+        email
+        and email_confirmed
+        and (user.email or "").lower() != email.lower()
+    ):
+        holder = await _linkable_user_by_email(db, email)
+        if holder is None or holder.id == user.id:
+            user.email = email
+            user.email_verified = True
+            updated = True
+        else:
+            logger.warning(
+                "Skipping email sync for user %s: email already owned by user %s",
+                user.id,
+                holder.id,
+            )
     if email_verified and not user.email_verified:
         user.email_verified = True
         updated = True
@@ -183,7 +274,8 @@ async def get_or_create_user_from_supabase(
     Precedence:
       1. Find by ``supabase_user_id`` → upgrade verification flags if needed, return.
       2. Fallback dedup by VERIFIED email only (only when the incoming token's
-         ``email_confirmed_at`` is set), then by ``phone``.
+         ``email_confirmed_at`` is set, and only when Supabase confirms the stored
+         address for its row), then by ``phone``.
       3. No match → create a new user.
 
     Legacy duplicate handling: if a local row is found by email/phone whose
@@ -226,6 +318,8 @@ async def get_or_create_user_from_supabase(
                     user,
                     email_verified=email_verified,
                     phone_verified=phone_verified,
+                    email=email,
+                    email_confirmed=email_confirmed,
                 )
                 logger.debug("User already exists with ID %s", user.id)
                 return user
@@ -255,6 +349,8 @@ async def get_or_create_user_from_supabase(
                 user,
                 email_verified=email_verified,
                 phone_verified=phone_verified,
+                email=email,
+                email_confirmed=email_confirmed,
             )
             logger.debug("User already exists with ID %s", user.id)
             return user
@@ -305,7 +401,7 @@ async def get_or_create_user_from_supabase(
 
         # (2) Fallback dedup: VERIFIED email first, then phone.
         if email and email_confirmed:
-            user = await get_user_by_email(db, email)
+            user = await _linkable_user_by_email(db, email)
         if not user and phone:
             user = await get_user_by_phone(db, phone)
 
@@ -346,7 +442,7 @@ async def get_or_create_user_from_supabase(
             # is verified (never overwrite, never attach an unverified email
             # that could collide with the unique constraint).
             if email and email_confirmed and not user.email:
-                email_owner = await get_user_by_email(db, email)
+                email_owner = await _linkable_user_by_email(db, email)
                 if email_owner is None or email_owner.id == user.id:
                     user.email = email
                 else:
@@ -400,7 +496,7 @@ async def get_or_create_user_from_supabase(
             await db.rollback()
             reconciled = await get_user_by_supabase_id(db, supabase_id)
             if not reconciled and email and email_confirmed:
-                reconciled = await get_user_by_email(db, email)
+                reconciled = await _linkable_user_by_email(db, email)
             if not reconciled and phone:
                 reconciled = await get_user_by_phone(db, phone)
             if not reconciled:
@@ -429,8 +525,46 @@ async def set_last_auth_method(db: AsyncSession, user: User, method: AuthMethod)
     user.last_auth_method = method
     user.last_auth_method_at = utc_now()
     await db.flush()
+    await db.commit()
     await db.refresh(user)
     return user
+
+
+async def _reset_unmapped_user_columns(db: AsyncSession, user_id: int) -> None:
+    """Reset every ``users`` column the ORM does not map, with raw SQL.
+
+    A column kept in the database after the ORM stopped mapping it can still hold what the
+    user typed (for example ``flatmates_smoking_drinking``). A nullable column becomes NULL.
+    A NOT NULL column with a default gets its default. The column list comes from the
+    database, so a column that is absent is skipped: a schema built from the ORM has none.
+    """
+    mapped = {column.name for column in User.__table__.columns}
+    rows = (
+        await db.execute(
+            text(
+                "SELECT column_name, is_nullable, column_default IS NOT NULL "
+                "FROM information_schema.columns "
+                "WHERE table_schema = current_schema() AND table_name = 'users' "
+                "AND is_generated = 'NEVER' AND is_identity = 'NO'"
+            )
+        )
+    ).all()
+    quote = postgresql.dialect().identifier_preparer.quote
+    assignments: list[str] = []
+    for name, nullable, has_default in rows:
+        if name in mapped:
+            continue
+        if nullable == "YES":
+            assignments.append(f"{quote(name)} = NULL")
+        elif has_default:
+            assignments.append(f"{quote(name)} = DEFAULT")
+        else:
+            logger.warning("Account deletion cannot reset NOT NULL column users.%s", name)
+    if assignments:
+        await db.execute(
+            text(f"UPDATE users SET {', '.join(assignments)} WHERE id = :user_id"),
+            {"user_id": user_id},
+        )
 
 
 async def delete_user_account(db: AsyncSession, user: User) -> None:
@@ -455,6 +589,7 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     retries after a partial failure are safe.
     """
     supabase_user_id = user.supabase_user_id
+    user_id = user.id
 
     result = await admin_delete_user(supabase_user_id)
     if _is_failure(result):
@@ -527,8 +662,6 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     user.flatmates_food_habits = None
     user.flatmates_smoking = None
     user.flatmates_drinking = None
-    # Legacy combined column: older app builds still write it, so scrub it too.
-    user.flatmates_smoking_drinking = None
     user.native_place = None
     user.linkedin_url = None
     user.flatmates_age = None
@@ -544,15 +677,30 @@ async def delete_user_account(db: AsyncSession, user: User) -> None:
     user.last_auth_method_at = None
     user.stays_onboarding_completed = False
     user.estate_onboarding_completed = False
-    user.ghar360_onboarding_completed = False
-    await db.flush()
+    # Columns the ORM no longer maps still hold user data until reset here.
+    await _reset_unmapped_user_columns(db, user_id)
+    try:
+        await db.flush()
+        # Commit before the 204 is sent. get_db commits only after the response.
+        await db.commit()
+    except Exception:
+        # The Supabase identity is already deleted, so the access token cannot
+        # retry this call. The local row stays active with its PII until ops
+        # reconciles it: users with is_active = true whose supabase_user_id is
+        # not in auth.users. Status note: be-user-45.
+        logger.error(
+            "ACCOUNT_DELETE_RECONCILE: local scrub not committed for user %s after the Supabase identity was deleted",
+            user_id,
+            exc_info=True,
+        )
+        raise
     # Drop any short-lived auth snapshot so deleted users cannot keep serving
     # as authenticated via the auth-user cache.
     if supabase_user_id and not str(supabase_user_id).startswith("__deleted__"):
         await invalidate_auth_user(str(supabase_user_id))
     logger.info(
         "User %s account deleted (Supabase auth user removed, local PII anonymized)",
-        user.id,
+        user_id,
     )
 
 
@@ -714,19 +862,16 @@ _APP_ONBOARDING_CHECKS: dict[str, Callable[[User], bool]] = {
     "flatmates": lambda u: bool(getattr(u, "flatmates_onboarding_completed", False)),
     "stays": lambda u: bool(getattr(u, "stays_onboarding_completed", False)),
     "estate": lambda u: bool(getattr(u, "estate_onboarding_completed", False)),
-    # NOTE: ghar360 has no auth-level onboarding flow (its first-launch intro
-    # is handled locally via GetStorage hasSeenOnboarding). It is intentionally
-    # absent so the gate never returns app_onboarding for it; the column
-    # ``ghar360_onboarding_completed`` exists for future use.
+    # NOTE: ghar has no auth-level onboarding flow (its first-launch intro is
+    # handled locally on the device). It is intentionally absent, so the gate
+    # never returns app_onboarding for it.
 }
 
 # Maps an app slug to the User column that records its onboarding completion.
 # Used by :func:`complete_app_onboarding` to persist completion. Must stay in
 # sync with ``_APP_ONBOARDING_CHECKS``: only apps with an actual onboarding
-# flow belong here. ``ghar360`` is intentionally absent (no auth-level
-# onboarding — see the NOTE above), so completing it raises
-# ``BadRequestException``. The ``ghar360_onboarding_completed`` column is kept
-# for future use.
+# flow belong here. ``ghar`` is intentionally absent (no auth-level
+# onboarding, see the NOTE above): completing it is a no-op.
 _APP_ONBOARDING_COLUMNS: dict[str, str] = {
     "flatmates": "flatmates_onboarding_completed",
     "stays": "stays_onboarding_completed",
@@ -747,9 +892,12 @@ async def complete_app_onboarding(db: AsyncSession, user: User, *, app: str) -> 
     """Mark the given app's onboarding as complete for ``user``.
 
     Sets the matching ``<app>_onboarding_completed`` column to ``True`` and
-    returns the refreshed user.  Raises :class:`BadRequestException` if the
-    app slug is unknown (no onboarding flow to complete).
+    returns the refreshed user. ``ghar`` has no auth-level onboarding flow, so
+    the call is a no-op that returns the user. Clients can then call it for
+    every app. Unknown slugs raise :class:`BadRequestException`.
     """
+    if app == AppKey.ghar.value:
+        return user
     column = _APP_ONBOARDING_COLUMNS.get(app)
     if column is None:
         raise BadRequestException(detail=f"Unknown app slug: {app}")
@@ -760,6 +908,8 @@ async def complete_app_onboarding(db: AsyncSession, user: User, *, app: str) -> 
     logger.info("Marking onboarding complete for user %s app=%s", bound.id, app)
     setattr(bound, column, True)
     await db.flush()
+    # Commit before the response: get_db commits only after the response is sent.
+    await db.commit()
     await db.refresh(bound)
     return bound
 
@@ -849,9 +999,7 @@ async def _check_user_has_password(db: AsyncSession, supabase_user_id: str) -> b
     # auth.users.id is UUID. Legacy seed placeholders like seed-{email} raise
     # "invalid input syntax for type uuid" and must not hit the database.
     if not is_valid_uuid(supabase_user_id):
-        logger.debug(
-            "auth-state: skipping password check for non-UUID supabase_user_id"
-        )
+        logger.debug("auth-state: skipping password check for non-UUID supabase_user_id")
         return False
     try:
         stmt = text(
@@ -875,7 +1023,7 @@ async def _check_user_has_password(db: AsyncSession, supabase_user_id: str) -> b
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """Fetch a user by internal ID."""
     try:
-        stmt = select(User).where(User.id == user_id)
+        stmt = select(User).options(selectinload(User.agent)).where(User.id == user_id)
         result = await db.execute(stmt)
         return result.scalar_one_or_none()
     except Exception as e:
@@ -912,7 +1060,7 @@ async def get_all_users(
                 or_(User.full_name.ilike(q), User.email.ilike(q), User.phone.ilike(q))
             )
 
-        stmt = select(User)
+        stmt = select(User).options(selectinload(User.agent))
         if conditions:
             stmt = stmt.where(and_(*conditions))
 
@@ -954,6 +1102,13 @@ async def update_user(
         update_data = user_update.model_dump(exclude_unset=True)
         logger.debug("Updating user %s with fields: %s", user_id, list(update_data.keys()))
 
+        # Account status is admin-only. Check it before the agent filter below, which
+        # would otherwise drop is_active silently for an agent actor.
+        if actor is not None and actor.role != UserRole.admin.value and "is_active" in update_data:
+            raise ForbiddenException(
+                detail="Only admins can change account status", error_code="ADMIN_REQUIRED"
+            )
+
         # RBAC: enforce role-based authorization on the target user.
         #  - admins can update any user
         #  - agents can update a limited field set for users assigned to them
@@ -968,8 +1123,6 @@ async def update_user(
                 # would let an agent take over a user's account.
                 allowed_fields = {
                     "full_name",
-                    "profile_image_url",
-                    "preferences",
                     "notification_settings",
                     "privacy_settings",
                 }
@@ -980,23 +1133,21 @@ async def update_user(
                 # update their own profile. Without this check, any authenticated
                 # user could mutate another user's record by knowing the user_id.
                 raise ForbiddenException(detail="Not authorized to update this user")
-        # Admins can update any fields; end-users can update their own profile via API
+        # Email is not writable here: email changes go through Supabase, which
+        # keeps the login identity and the local row in step (the schema has no email field).
 
-        # Handle email update (no uniqueness validation needed since emails are now non-unique)
-        if "email" in update_data:
-            new_email = update_data["email"]
-
-            # Skip update if email is the same as current
-            if new_email == user.email:
-                logger.debug("Email unchanged for user %s, skipping email update", user_id)
-                del update_data["email"]
-            else:
-                # Email changed — reset email_verified so the new address
-                # must be confirmed before it is trusted.  Without this,
-                # a user could swap to an unverified address and retain
-                # the verified flag from the old one.
-                user.email_verified = False
-                logger.debug("Email changed for user %s, resetting email_verified", user_id)
+        # Settings blobs merge: only the keys the client sent change. Stored keys
+        # outside the typed model (for example the old "categories" block) are dropped.
+        if "notification_settings" in update_data:
+            update_data["notification_settings"] = _merge_settings(
+                user.notification_settings,
+                update_data["notification_settings"],
+                NotificationSettingsWrite,
+            )
+        if "privacy_settings" in update_data:
+            update_data["privacy_settings"] = _merge_settings(
+                user.privacy_settings, update_data["privacy_settings"], PrivacySettingsPatch
+            )
 
         # Handle phone update symmetrically: a changed phone must be
         # re-confirmed via OTP, so reset phone_verified.  Without this a user
@@ -1011,17 +1162,6 @@ async def update_user(
 
         # Apply updates
         for field, value in update_data.items():
-            if (
-                field == "profile_image_url"
-                and value is not None
-                and not ValidationUtils.is_absolute_url(value)
-            ):
-                # Reject non-http(s) URLs instead of silently storing them —
-                # a ``javascript:`` / ``data:`` value would be a stored XSS
-                # vector if ever rendered in an <img src> or <a href>.
-                raise BadRequestException(
-                    detail="profile_image_url must be an absolute http(s) URL"
-                )
             if field == "date_of_birth":
                 value = _coerce_date_of_birth_for_storage(value)
             setattr(user, field, value)
@@ -1041,6 +1181,12 @@ async def update_user(
         raise
     except IntegrityError as e:
         logger.error("Integrity error updating user %s: %s", user_id, e)
+        await db.rollback()
+        if "phone" in user_update.model_fields_set:
+            raise ConflictException(
+                detail="Phone number is already associated with another account",
+                error_code="PHONE_TAKEN",
+            ) from None
         raise BadRequestException(detail="Data integrity constraint violated") from None
     except Exception as e:
         logger.error("Failed to update user %s: %s", user_id, e, exc_info=True)
@@ -1050,15 +1196,24 @@ async def update_user(
 
 
 async def update_user_preferences(db: AsyncSession, user_id: int, preferences: dict) -> User | None:
+    """Apply a preferences patch. A key sent as None is removed from the stored object.
+
+    This is the only writer of ``users.preferences``. Keys the patch does not send stay as they are.
+    """
     logger.info("Updating preferences for user %s", user_id)
 
     try:
         user = await db.get(User, user_id)
         if user:
-            current_preferences = user.preferences if isinstance(user.preferences, dict) else {}
-            incoming_preferences = {k: v for k, v in preferences.items() if v is not None}
-            user.preferences = {**current_preferences, **incoming_preferences}
+            merged = dict(user.preferences) if isinstance(user.preferences, dict) else {}
+            for key, value in preferences.items():
+                if value is None:
+                    merged.pop(key, None)
+                else:
+                    merged[key] = value
+            user.preferences = merged
             await db.flush()
+            await db.commit()
             await db.refresh(user)
             logger.info("Preferences updated for user %s", user_id)
         else:
@@ -1080,6 +1235,7 @@ async def update_user_location(
             user.current_latitude = latitude
             user.current_longitude = longitude
             await db.flush()
+            await db.commit()
             await db.refresh(user)
             logger.info("Location updated for user %s", user_id)
         else:
@@ -1095,12 +1251,16 @@ async def update_user_notification_settings(
     user_id: int,
     settings: dict,
 ) -> User | None:
+    """Merge the sent notification keys into the stored blob. Unsent keys keep their stored value."""
     logger.info("Updating notification settings for user %s", user_id)
     try:
         user = await db.get(User, user_id)
         if user:
-            user.notification_settings = settings
+            user.notification_settings = _merge_settings(
+                user.notification_settings, settings, NotificationSettingsWrite
+            )
             await db.flush()
+            await db.commit()
             await db.refresh(user)
             logger.info("Notification settings updated for user %s", user_id)
         else:
@@ -1121,12 +1281,16 @@ async def update_user_privacy_settings(
     user_id: int,
     settings: dict,
 ) -> User | None:
+    """Merge the sent privacy keys into the stored blob. Unsent keys keep their stored value."""
     logger.info("Updating privacy settings for user %s", user_id)
     try:
         user = await db.get(User, user_id)
         if user:
-            user.privacy_settings = settings
+            user.privacy_settings = _merge_settings(
+                user.privacy_settings, settings, PrivacySettingsPatch
+            )
             await db.flush()
+            await db.commit()
             await db.refresh(user)
             logger.info("Privacy settings updated for user %s", user_id)
         else:

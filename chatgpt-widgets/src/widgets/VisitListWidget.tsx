@@ -1,199 +1,120 @@
 /**
- * VisitListWidget - Displays user's scheduled property visits.
+ * VisitListWidget - Displays the user's property visits or bookings.
  *
- * Tool: visits.list
+ * Tools: visits_list, bookings_list, agent_bookings_list_all (all send `items` and, for the
+ * first two, `counts`), visits_get (sends one `visit`). Cancel sends a chat message: visits_cancel
+ * is not widget-accessible on the OpenAI host.
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/bridge';
+import type { BookingRow, VisitCounts, VisitListOutput, VisitListRow } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useSendMessage,
+  useTheme,
+  useToolInput,
+  useToolOutput,
+} from '../utils/bridge';
+import { formatInstantDate, formatInstantTime, isFutureInstant } from '../utils/datetime';
+import { pageArgs, readPage, usePagedRows, type PagedView } from '../utils/paging';
+import { formatLocation } from '../utils/property';
+import { BOOKING_STATUS, VISIT_STATUS, statusView, toneColor } from '../utils/status';
 import { themeColors } from '../utils/theme';
 import { Button } from '../components/common/Button';
 import { Card } from '../components/common/Card';
+import { FullError, InlineError, LoadMore, LoadingNote, LoginRequired } from '../components/common/Notices';
 
-interface PropertyData {
-  id: number;
-  title: string;
-  locality?: string;
-  city?: string;
-  main_image_url?: string;
+type Filter = 'all' | 'upcoming' | 'completed' | 'cancelled';
+
+function isBooking(row: VisitListRow): row is BookingRow {
+  return 'booking_reference' in row;
 }
 
-interface Visit {
-  id: number;
-  property_id: number;
-  property?: PropertyData;
-  scheduled_date: string;
-  status: string;
-  notes?: string;
-  created_at?: string;
+/** Rows and page of a list result, or of the single visit that visits_get sends. */
+function readVisits(payload: VisitListOutput): PagedView<VisitListRow> | null {
+  if (payload.items) return { rows: payload.items, page: readPage(payload) };
+  if (payload.visit) return { rows: [payload.visit], page: readPage({}) };
+  return null;
 }
 
-interface Counts {
-  total: number;
-  upcoming: number;
-  completed: number;
-  cancelled: number;
-}
-
-interface VisitListOutput {
-  visits?: Visit[];
-  // bookings_list / agent_bookings_list_all return the rows under `bookings`;
-  // serialize_booking now emits the same id/status/scheduled_date/property
-  // fields the rows below read, so they render through the same path.
-  bookings?: Visit[];
-  total?: number;
-  next_cursor?: string | null;
-  has_more?: boolean;
-  limit?: number;
-  counts?: Counts;
-  error?: boolean;
-  message?: string;
-  requires_auth?: boolean;
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString('en-IN', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
-function formatTime(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleTimeString('en-IN', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function getStatusColor(status: string, colors: typeof themeColors.light): string {
-  switch (status) {
-    case 'scheduled':
-    case 'confirmed':
-      return colors.primary;
-    case 'completed':
-      return colors.success;
-    case 'cancelled':
-      return colors.error;
-    case 'rescheduled':
-      return colors.warning;
-    default:
-      return colors.textSecondary;
+/** Counts of the loaded rows. Used only when the tool sent no `counts` (agent_bookings_list_all). */
+function countRows(rows: VisitListRow[]): Required<Pick<VisitCounts, 'total' | 'upcoming' | 'completed' | 'cancelled'>> {
+  let upcoming = 0;
+  let completed = 0;
+  let cancelledCount = 0;
+  for (const row of rows) {
+    const status = row.status;
+    if (status === 'completed' || status === 'checked_out') completed += 1;
+    else if (status === 'cancelled') cancelledCount += 1;
+    else if (isFutureInstant(row.scheduled_date)) upcoming += 1;
   }
-}
-
-function isUpcoming(dateStr: string): boolean {
-  return new Date(dateStr) > new Date();
+  return { total: rows.length, upcoming, completed, cancelled: cancelledCount };
 }
 
 function VisitListWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
   const data = useToolOutput<VisitListOutput>();
+  const toolInput = useToolInput();
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
-  const [filter, setFilter] = React.useState<'all' | 'upcoming' | 'completed' | 'cancelled'>('all');
-  const [cancelling, setCancelling] = React.useState<number | null>(null);
+  const [filter, setFilter] = React.useState<Filter>('all');
   const [loadingMore, setLoadingMore] = React.useState(false);
-  const [allVisits, setAllVisits] = React.useState<Visit[]>([]);
-  const appendingRef = React.useRef(false);
-
-  React.useEffect(() => {
-    // This widget renders both visits (visits_list) and bookings
-    // (bookings_list / agent_bookings_list_all); the two tools use different
-    // list keys, so accept either.
-    const incoming = data?.visits ?? data?.bookings;
-    if (!incoming) return;
-    setAllVisits(prev => {
-      if (!appendingRef.current) {
-        return incoming; // replace on fresh list/refresh
-      }
-      const byId = new Map(prev.map((v: Visit) => [v.id, v]));
-      for (const item of incoming) {
-        byId.set(item.id, item);
-      }
-      return Array.from(byId.values());
-    });
-  }, [data]);
+  const [error, setError] = React.useState<string | null>(null);
+  const { rows: visits, page, append } = usePagedRows(data, readVisits);
 
   if (!data) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.textSecondary }}>
-        Loading visits...
-      </div>
-    );
+    return <LoadingNote text="Loading visits..." />;
   }
 
   // Check for auth required
   if (data.requires_auth) {
-    return (
-      <div style={{
-        backgroundColor: colors.background,
-        color: colors.text,
-        minHeight: '100vh',
-        padding: 24,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🔐</div>
-        <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 8 }}>Login Required</h2>
-        <p style={{ color: colors.textSecondary, marginBottom: 24 }}>
-          Please log in to view your property visits.
-        </p>
-        <Button onClick={() => sendMessage('Help me log in to 360Ghar')}>
-          Log In
-        </Button>
-      </div>
-    );
+    return <LoginRequired message="Please log in to view your property visits." />;
   }
 
   if (data.error) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center', color: colors.error }}>
-        {data.message || 'Failed to load visits'}
-      </div>
-    );
+    return <FullError message={data.message || 'Failed to load visits'} />;
   }
 
-  const visits = allVisits;
-  const counts = data.counts || { total: 0, upcoming: 0, completed: 0, cancelled: 0 };
+  const counts = data.counts ?? countRows(visits);
 
   // Filter visits
   const filteredVisits = visits.filter((visit) => {
+    const status = visit.status;
     if (filter === 'all') return true;
-    if (filter === 'upcoming') return isUpcoming(visit.scheduled_date) && visit.status !== 'cancelled';
-    if (filter === 'completed') return visit.status === 'completed';
-    if (filter === 'cancelled') return visit.status === 'cancelled';
-    return true;
+    if (filter === 'upcoming') {
+      return isFutureInstant(visit.scheduled_date) && status !== 'cancelled' && status !== 'completed';
+    }
+    if (filter === 'completed') return status === 'completed' || status === 'checked_out';
+    return status === 'cancelled';
   });
 
-  const handleCancelVisit = async (visitId: number) => {
-    setCancelling(visitId);
-    try {
-      await callTool('visits.cancel', { visit_id: visitId });
-      // Refresh the list
-      await callTool('visits.list', {});
-    } finally {
-      setCancelling(null);
-    }
+  // visits_cancel is not widget-accessible on the OpenAI host (no openai/widgetAccessible in its
+  // _meta), so a widget call would fail there. Ask the model to cancel, as booking rows do.
+  // Restore callTool('visits_cancel') when the backend opts the tool in (handoff, Open item 1).
+  const handleCancelVisit = (visitId: number) => {
+    sendMessage(`Cancel visit ${visitId}`);
   };
 
   const handleLoadMore = async () => {
-    if (loadingMore || !data.has_more || !data.next_cursor) return;
+    if (loadingMore || !page.has_more || !page.next_cursor) return;
     setLoadingMore(true);
-    try {
-      appendingRef.current = true;
-      await callTool('visits.list', { cursor: data.next_cursor });
-    } finally {
-      appendingRef.current = false;
-      setLoadingMore(false);
+    setError(null);
+
+    // Booking rows come from bookings_list (/mcp) or agent_bookings_list_all (/mcp-admin).
+    const names = visits.some(isBooking)
+      ? (['bookings_list', 'agent_bookings_list_all'] as const)
+      : (['visits_list'] as const);
+    const result = await callTool<VisitListOutput>(names, pageArgs(toolInput, page.next_cursor));
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else {
+      append(result);
     }
+    setLoadingMore(false);
   };
 
   const handleViewProperty = (propertyId: number) => {
@@ -217,15 +138,15 @@ function VisitListWidget() {
         gap: 8,
         marginBottom: 16,
       }}>
-        {[
-          { label: 'Total', value: counts.total, key: 'all' },
-          { label: 'Upcoming', value: counts.upcoming, key: 'upcoming' },
-          { label: 'Done', value: counts.completed, key: 'completed' },
-          { label: 'Cancelled', value: counts.cancelled, key: 'cancelled' },
-        ].map((stat) => (
+        {([
+          { label: 'Total', value: counts.total ?? 0, key: 'all' },
+          { label: 'Upcoming', value: counts.upcoming ?? 0, key: 'upcoming' },
+          { label: 'Done', value: counts.completed ?? 0, key: 'completed' },
+          { label: 'Cancelled', value: counts.cancelled ?? 0, key: 'cancelled' },
+        ] as const).map((stat) => (
           <button
             key={stat.key}
-            onClick={() => setFilter(stat.key as any)}
+            onClick={() => setFilter(stat.key)}
             style={{
               padding: '12px 8px',
               backgroundColor: filter === stat.key ? colors.primary : colors.backgroundSecondary,
@@ -241,6 +162,8 @@ function VisitListWidget() {
           </button>
         ))}
       </div>
+
+      <InlineError message={error} />
 
       {/* Visit List */}
       {filteredVisits.length === 0 ? (
@@ -269,124 +192,134 @@ function VisitListWidget() {
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {filteredVisits.map((visit) => (
-            <Card key={visit.id} padding="none" style={{ overflow: 'hidden' }}>
-              <div style={{ display: 'flex' }}>
-                {/* Property Image */}
-                {visit.property?.main_image_url && (
-                  <div
-                    onClick={() => visit.property && handleViewProperty(visit.property.id)}
-                    style={{
-                      width: 100,
-                      minHeight: 100,
-                      backgroundColor: colors.backgroundSecondary,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <img
-                      src={visit.property.main_image_url}
-                      alt={visit.property.title}
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                      }}
-                    />
-                  </div>
-                )}
+          {filteredVisits.map((visit) => {
+            const booking = isBooking(visit) ? visit : null;
+            const rawStatus = visit.status;
+            const status = booking
+              ? statusView(BOOKING_STATUS, rawStatus)
+              : statusView(VISIT_STATUS, rawStatus);
+            const statusColor = toneColor(status.tone, colors);
+            const property = visit.property;
+            const canCancel =
+              isFutureInstant(visit.scheduled_date) &&
+              (booking
+                ? status.key === 'pending' || status.key === 'confirmed'
+                : status.key === 'requested' || status.key === 'confirmed' || status.key === 'reschedule_suggested');
 
-                {/* Content */}
-                <div style={{ flex: 1, padding: 12 }}>
-                  {/* Status Badge */}
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '2px 8px',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    textTransform: 'uppercase',
-                    backgroundColor: `${getStatusColor(visit.status, colors)}20`,
-                    color: getStatusColor(visit.status, colors),
-                    marginBottom: 8,
-                  }}>
-                    {visit.status}
-                  </span>
-
-                  {/* Property Title */}
-                  {visit.property && (
-                    <h3
-                      onClick={() => handleViewProperty(visit.property!.id)}
+            return (
+              <Card key={`${booking ? 'booking' : 'visit'}-${visit.id}`} padding="none" style={{ overflow: 'hidden' }}>
+                <div style={{ display: 'flex' }}>
+                  {/* Property Image */}
+                  {property?.main_image_url && (
+                    <div
+                      onClick={() => handleViewProperty(property.id)}
                       style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        marginBottom: 4,
+                        width: 100,
+                        minHeight: 100,
+                        backgroundColor: colors.backgroundSecondary,
                         cursor: 'pointer',
                       }}
                     >
-                      {visit.property.title}
-                    </h3>
-                  )}
-
-                  {/* Location */}
-                  {visit.property && (
-                    <p style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
-                      {[visit.property.locality, visit.property.city].filter(Boolean).join(', ')}
-                    </p>
-                  )}
-
-                  {/* Date/Time */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                    <span style={{ fontWeight: 500 }}>{formatDate(visit.scheduled_date)}</span>
-                    <span style={{ color: colors.textSecondary }}>at</span>
-                    <span style={{ fontWeight: 500 }}>{formatTime(visit.scheduled_date)}</span>
-                  </div>
-
-                  {/* Actions */}
-                  {isUpcoming(visit.scheduled_date) && visit.status !== 'cancelled' && (
-                    <div style={{ marginTop: 12 }}>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleCancelVisit(visit.id)}
-                        loading={cancelling === visit.id}
-                        style={{ color: colors.error }}
-                      >
-                        Cancel Visit
-                      </Button>
+                      <img
+                        src={property.main_image_url}
+                        alt={property.title}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
                     </div>
                   )}
+
+                  {/* Content */}
+                  <div style={{ flex: 1, padding: 12 }}>
+                    {/* Status Badge */}
+                    <span style={{
+                      display: 'inline-block',
+                      padding: '2px 8px',
+                      borderRadius: 4,
+                      fontSize: 11,
+                      fontWeight: 500,
+                      textTransform: 'uppercase',
+                      backgroundColor: `${statusColor}20`,
+                      color: statusColor,
+                      marginBottom: 8,
+                    }}>
+                      {status.label}
+                    </span>
+
+                    {/* Property Title */}
+                    {property && (
+                      <h3
+                        onClick={() => handleViewProperty(property.id)}
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          marginBottom: 4,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {property.title}
+                      </h3>
+                    )}
+
+                    {/* Location */}
+                    {property && (
+                      <p style={{ fontSize: 12, color: colors.textSecondary, marginBottom: 8 }}>
+                        {formatLocation(property)}
+                      </p>
+                    )}
+
+                    {/* Date/Time */}
+                    {booking ? (
+                      <div style={{ fontSize: 13 }}>
+                        <span style={{ fontWeight: 500 }}>{formatInstantDate(booking.check_in_date)}</span>
+                        <span style={{ color: colors.textSecondary }}> to </span>
+                        <span style={{ fontWeight: 500 }}>{formatInstantDate(booking.check_out_date)}</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                        <span style={{ fontWeight: 500 }}>{formatInstantDate(visit.scheduled_date)}</span>
+                        <span style={{ color: colors.textSecondary }}>at</span>
+                        <span style={{ fontWeight: 500 }}>{formatInstantTime(visit.scheduled_date)}</span>
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    {canCancel && (
+                      <div style={{ marginTop: 12 }}>
+                        {booking ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => sendMessage(`Cancel booking ${booking.id}`)}
+                            style={{ color: colors.error }}
+                          >
+                            Cancel Booking
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCancelVisit(visit.id)}
+                            style={{ color: colors.error }}
+                          >
+                            Cancel Visit
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 
       {/* Pagination */}
-      {data.has_more && data.next_cursor && (
-        <div style={{
-          marginTop: 20,
-          textAlign: 'center',
-        }}>
-          <button
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            style={{
-              padding: '12px 24px',
-              backgroundColor: colors.primary,
-              color: '#3D3829',
-              border: 'none',
-              borderRadius: 8,
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: loadingMore ? 'not-allowed' : 'pointer',
-              opacity: loadingMore ? 0.6 : 1,
-            }}
-          >
-            {loadingMore ? 'Loading...' : 'Load More'}
-          </button>
-        </div>
-      )}
+      <LoadMore hasMore={page.has_more && page.next_cursor !== null} loading={loadingMore} onClick={handleLoadMore} />
     </div>
   );
 }

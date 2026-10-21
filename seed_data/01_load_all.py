@@ -32,7 +32,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger, setup_logging
-from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
+from app.models.properties import Property, PropertyAmenity
 from app.schemas.property import Property as PropertySchema
 
 logger = get_logger(__name__)
@@ -59,31 +59,26 @@ async def _validate_loaded_properties(sample_size: int = 10) -> dict[str, int]:
         sample = await session.execute(
             select(Property)
             .options(
-                selectinload(Property.images).load_only(
-                    PropertyImage.id,
-                    PropertyImage.image_url,
-                    PropertyImage.image_category,
-                    PropertyImage.display_order,
-                ),
-                selectinload(Property.property_amenities)
-                .selectinload(PropertyAmenity.amenity)
-                .load_only(Amenity.id, Amenity.title, Amenity.icon, Amenity.category),
+                selectinload(Property.images),
+                selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
             )
             .order_by(func.random())
             .limit(min(sample_size, total))
         )
         properties = list(sample.scalars().all())
 
-    for prop in properties:
-        try:
-            PropertySchema.model_validate(prop)
-            passed += 1
-        except Exception as e:
-            failed += 1
-            logger.error(
-                "Schema validation FAILED for property %s (id=%d, title=%s): %s",
-                prop.id, prop.id, prop.title, e,
-            )
+        # Validate while the session is open: a lazy attribute read after close raises
+        # DetachedInstanceError.
+        for prop in properties:
+            try:
+                PropertySchema.model_validate(prop)
+                passed += 1
+            except Exception as e:
+                failed += 1
+                logger.error(
+                    "Schema validation FAILED for property %s (title=%s): %s",
+                    prop.id, prop.title, e,
+                )
 
     if failed:
         logger.warning(
@@ -154,7 +149,6 @@ async def _dry_run_validate(only: list[str] | None = None) -> dict[str, int]:
         Scene,
         Tour,
         TourAnalyticsEvent,
-        TourBranding,
         TourLocation,
     )
     from app.models.users import User, UserSearchHistory, UserSwipe
@@ -202,7 +196,6 @@ async def _dry_run_validate(only: list[str] | None = None) -> dict[str, int]:
             (SEED_DIR / "09_hotspots.json", Hotspot),
             (SEED_DIR / "10_tour_locations.json", TourLocation),
             (SEED_DIR / "11_floor_plans.json", FloorPlan),
-            (SEED_DIR / "12_tour_branding.json", TourBranding),
             (SEED_DIR / "13_media_files.json", MediaFile),
             (SEED_DIR / "14_ai_jobs.json", AIJob),
             (SEED_DIR / "15_leases.json", Lease),

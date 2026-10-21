@@ -27,7 +27,6 @@ from app.services.deeplinks import (
     APP_REGISTRY,
     build_apple_app_site_association,
     build_assetlinks,
-    generate_link,
     get_app,
     get_app_for_path,
     render_fallback_page,
@@ -51,6 +50,7 @@ def _seed_deeplink_settings(monkeypatch):
 # manager so the app lifespan (and any engine wiring) never runs.
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def app():
     return create_app(testing=True)
@@ -65,10 +65,11 @@ def test_client(app):
 # A. registry — get_app / get_app_for_path / https_path / scheme_url
 # ===========================================================================
 
+
 @pytest.mark.parametrize(
     "key, name, prefix, scheme",
     [
-        ("ghar", "360 Ghar", "", "ghar360"),
+        ("ghar", "360 Ghar", "", ""),
         ("estate", "360 Estate", "estate", "estate360"),
         ("flatmates", "360 FlatMates", "flatmates", "com.the360ghar.flatmates360"),
         ("stays", "360 Stays", "stays", "stays360"),
@@ -109,7 +110,10 @@ def test_get_app_for_path_resolves(path, exp_key, exp_entity, exp_id):
     assert identifier == exp_id
     # Cross-check the derived HTTPS path and custom-scheme URL.
     assert app.https_path(entity, identifier) == path
-    assert app.scheme_url(entity, identifier) == f"{app.custom_scheme}://{entity}/{identifier}"
+    if app.custom_scheme:
+        assert app.scheme_url(entity, identifier) == f"{app.custom_scheme}://{entity}/{identifier}"
+    else:
+        assert app.scheme_url(entity, identifier) == ""
 
 
 def test_get_app_for_path_unknown_path():
@@ -162,12 +166,14 @@ def test_https_path_and_scheme_url_examples():
     ghar = get_app("ghar")
     # Flagship app has empty prefix => path lives at root.
     assert ghar.https_path("p", "5") == "/p/5"
-    assert ghar.scheme_url("property", "42") == "ghar360://property/42"
+    # The ghar app has no custom scheme (HTTPS links only).
+    assert ghar.scheme_url("property", "42") == ""
 
 
 # ===========================================================================
 # B. build_assetlinks()
 # ===========================================================================
+
 
 def test_build_assetlinks_one_statement_per_package():
     statements = build_assetlinks()
@@ -229,9 +235,7 @@ def test_build_assetlinks_legacy_flatmates_isolated_fingerprints(monkeypatch):
 def test_build_assetlinks_legacy_flatmates_uses_own_fingerprint_when_set(monkeypatch):
     """When the legacy fingerprint setting is populated it is used verbatim."""
     legacy_fp = "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99"
-    monkeypatch.setattr(
-        settings, "DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256", legacy_fp
-    )
+    monkeypatch.setattr(settings, "DEEPLINK_FLATMATES_LEGACY_ANDROID_SHA256", legacy_fp)
     statements = build_assetlinks()
     legacy = _statement_for(statements, "com.the360ghar.flatmates")
     assert legacy is not None
@@ -241,6 +245,7 @@ def test_build_assetlinks_legacy_flatmates_uses_own_fingerprint_when_set(monkeyp
 # ===========================================================================
 # C. build_apple_app_site_association()
 # ===========================================================================
+
 
 def test_aasa_details_structure_and_team_id():
     aasa = build_apple_app_site_association()
@@ -301,53 +306,9 @@ def test_aasa_webcredentials_includes_all_apps():
 
 
 # ===========================================================================
-# D. generate_link()
-# ===========================================================================
-
-def test_generate_link_valid():
-    link = generate_link("estate", "property", "42")
-    assert link.app == "estate"
-    assert link.entity == "property"
-    assert link.identifier == "42"
-    assert link.url == f"https://{settings.DEEPLINK_DOMAIN}/estate/property/42"
-    assert link.scheme_url == "estate360://property/42"
-    # estate has an explicit web_fallback_url configured.
-    assert link.web_fallback_url == "https://the360ghar.com"
-
-
-def test_generate_link_ghar_root():
-    link = generate_link("ghar", "p", "99")
-    assert link.url == f"https://{settings.DEEPLINK_DOMAIN}/p/99"
-    assert link.scheme_url == "ghar360://p/99"
-
-
-def test_generate_link_invalid_app():
-    with pytest.raises(ValueError):
-        generate_link("nope", "property", "1")
-
-
-def test_generate_link_invalid_entity():
-    with pytest.raises(ValueError):
-        generate_link("estate", "bogus", "1")
-
-
-def test_generate_link_empty_identifier():
-    with pytest.raises(ValueError):
-        generate_link("estate", "property", "")
-    with pytest.raises(ValueError):
-        generate_link("estate", "property", "   ")
-
-
-def test_generate_link_identifier_too_long():
-    # The service layer enforces the same cap as the request schema so the GET
-    # path and POST body reject oversized identifiers consistently.
-    with pytest.raises(ValueError):
-        generate_link("estate", "property", "x" * 257)
-
-
-# ===========================================================================
 # E. render_fallback_page()
 # ===========================================================================
+
 
 def test_render_fallback_page_contains_name_and_scheme():
     estate = get_app("estate")
@@ -414,12 +375,14 @@ def test_https_path_url_encodes_identifier():
     # requires the entity not to be percent-encoded, but here we keep the
     # entity safe by encoding it too — the Dart consumer only cares about
     # path segments after the host).
-    assert ghar.scheme_url("p", "a?b") == "ghar360://p/a%3Fb"
+    estate = get_app("estate")
+    assert estate.scheme_url("p", "a?b") == "estate360://p/a%3Fb"
 
 
 # ===========================================================================
 # F. API via TestClient (no DB)
 # ===========================================================================
+
 
 def test_wellknown_assetlinks(test_client):
     resp = test_client.get("/.well-known/assetlinks.json")
@@ -437,67 +400,6 @@ def test_wellknown_aasa(test_client):
     data = resp.json()
     assert "applinks" in data
     assert len(data["applinks"]["details"]) == 4
-
-
-def test_api_list_apps(test_client):
-    resp = test_client.get("/api/v1/deeplinks/apps")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert isinstance(data, list)
-    assert len(data) == 4
-    keys = {a["key"] for a in data}
-    assert keys == {"ghar", "estate", "flatmates", "stays"}
-
-
-def test_api_generate_post(test_client):
-    resp = test_client.post(
-        "/api/v1/deeplinks/generate",
-        json={"app": "estate", "entity": "property", "identifier": "42"},
-    )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["url"] == f"https://{settings.DEEPLINK_DOMAIN}/estate/property/42"
-    assert data["scheme_url"] == "estate360://property/42"
-
-
-def test_api_generate_post_invalid_entity(test_client):
-    resp = test_client.post(
-        "/api/v1/deeplinks/generate",
-        json={"app": "estate", "entity": "bogus", "identifier": "1"},
-    )
-    assert resp.status_code == 400
-
-
-def test_api_generate_get_path(test_client):
-    resp = test_client.get("/api/v1/deeplinks/ghar/p/99")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["url"] == f"https://{settings.DEEPLINK_DOMAIN}/p/99"
-
-
-def test_api_generate_get_path_multisegment_identifier(test_client):
-    """Regression test for the {identifier:path} route fix.
-
-    The GET convenience endpoint must accept identifiers containing
-    slashes (e.g. /2024/spring/unit-5) without 404'ing, matching the
-    service's MAX_IDENTIFIER_LENGTH design and the POST endpoint.
-    """
-    resp = test_client.get("/api/v1/deeplinks/estate/apply/2024/spring/unit-5")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["app"] == "estate"
-    assert data["entity"] == "apply"
-    assert data["identifier"] == "2024/spring/unit-5"
-    # Slashes inside the identifier are percent-encoded in the emitted URL
-    # (the identifier field is the raw decoded value the caller passed in).
-    assert data["url"] == (
-        f"https://{settings.DEEPLINK_DOMAIN}/estate/apply/2024%2Fspring%2Funit-5"
-    )
-
-
-def test_api_generate_get_path_unknown_entity_404(test_client):
-    resp = test_client.get("/api/v1/deeplinks/estate/bogus/1")
-    assert resp.status_code == 400  # service raises ValueError -> 400
 
 
 def test_fallback_page_rejects_empty_identifier(test_client):
@@ -525,6 +427,7 @@ def test_fallback_page_unknown_entity_404(test_client):
 # ===========================================================================
 # G. Startup-time config validation
 # ===========================================================================
+
 
 def test_validate_deeplink_config_passes_with_valid_team_id(monkeypatch):
     """A real Apple Team ID passes validation."""
@@ -578,3 +481,14 @@ def test_validate_deeplink_config_raises_on_malformed_team_id(monkeypatch):
         except RuntimeError:
             continue
         raise AssertionError(f"expected RuntimeError for team id {bad!r}")
+
+
+def test_json_link_api_is_removed(test_client):
+    """The JSON link-generation API had no client caller and was removed."""
+    assert test_client.get("/api/v1/deeplinks/apps").status_code == 404
+    assert test_client.get("/api/v1/deeplinks/ghar/p/99").status_code == 404
+
+
+def test_ghar_fallback_page_does_not_launch_a_custom_scheme():
+    page = render_fallback_page(get_app("ghar"), "property", "42")
+    assert "ghar360://" not in page

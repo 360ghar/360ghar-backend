@@ -545,7 +545,8 @@ def _register_scheduler_jobs(app: FastAPI) -> None:
     if settings.SERVERLESS_ENABLED:
         logger.info(
             "Serverless mode enabled — skipping in-process schedulers "
-            "to allow scale-to-zero. Move cron work to Railway cron jobs."
+            "to allow scale-to-zero. Move cron work to Railway cron jobs "
+            "(PM lifecycle: python -m scripts.run_pm_lifecycle)."
         )
         return
 
@@ -553,6 +554,16 @@ def _register_scheduler_jobs(app: FastAPI) -> None:
     _register_notification_job(app)
     _register_vector_sync_job(app)
     _register_data_hub_jobs(app)
+    _register_pm_lifecycle_job(app)
+
+
+def _register_pm_lifecycle_job(app: FastAPI) -> None:
+    try:
+        from app.services.pm_scheduler import start_pm_scheduler
+
+        start_pm_scheduler(app)
+    except Exception as sched_pm_e:
+        logger.error("Failed to register PM lifecycle scheduler: %s", sched_pm_e, exc_info=True)
 
 
 def _register_blog_publish_job(app: FastAPI) -> None:
@@ -592,12 +603,15 @@ def _register_data_hub_jobs(app: FastAPI) -> None:
 
 
 async def _shutdown_ai_providers() -> None:
-    """Close cached AI provider HTTP clients."""
-    try:
-        from app.services.ai import close_all_providers
-        await close_all_providers()
-    except Exception as e:
-        logger.warning("Failed to close AI providers: %s", e)
+    """Close cached AI provider HTTP clients. Each close runs even if the other fails."""
+    from app.services.ai import close_all_providers
+    from app.services.ai_agent.agent_service import close_agnes_client
+
+    for close in (close_all_providers, close_agnes_client):
+        try:
+            await close()
+        except Exception as e:
+            logger.warning("Failed to close %s: %s", close.__name__, e)
 
 
 async def _shutdown_shared_http_clients() -> None:

@@ -3,58 +3,43 @@
  */
 
 import React from 'react';
+import type { PropertyRow } from '../../api/wire';
+import { isToolFailure, toolFailureMessage, useCallTool, useSendMessage } from '../../utils/bridge';
+import { formatLocation, formatPropertyPrice, purposeLabel } from '../../utils/property';
 import { useThemeColors } from '../../utils/theme';
-import { useCallTool, useSendMessage } from '../../utils/bridge';
 import { Card } from '../common/Card';
 
-interface Property {
-  id: number;
-  title: string;
-  locality?: string;
-  city?: string;
-  base_price?: number;
-  monthly_rent?: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  area_sqft?: number;
-  property_type?: string;
-  purpose?: string;
-  main_image_url?: string;
-}
-
 interface PropertyCardProps {
-  property: Property;
+  property: PropertyRow;
   showActions?: boolean;
-}
-
-function formatPrice(price?: number, purpose?: string): string {
-  if (!price) return 'Price on request';
-  const formatted = price >= 10000000
-    ? `₹${(price / 10000000).toFixed(2)} Cr`
-    : price >= 100000
-      ? `₹${(price / 100000).toFixed(2)} L`
-      : `₹${price.toLocaleString('en-IN')}`;
-  return purpose === 'rent' ? `${formatted}/mo` : formatted;
 }
 
 export function PropertyCard({ property, showActions = true }: PropertyCardProps) {
   const colors = useThemeColors();
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
+  const [liked, setLiked] = React.useState(false);
+  const [liking, setLiking] = React.useState(false);
+  const [likeError, setLikeError] = React.useState<string | null>(null);
 
   const handleViewDetails = () => {
     sendMessage(`Show me details for property ${property.id}`);
   };
 
-  const handleScheduleVisit = () => {
-    sendMessage(`I'd like to schedule a visit for property ${property.id}`);
-  };
-
   const handleLike = async () => {
-    await callTool('discovery.swipe', { property_id: property.id, is_liked: true });
+    if (liked || liking) return;
+    setLiking(true);
+    setLikeError(null);
+    const result = await callTool('discovery_swipe', { property_id: property.id, is_liked: true });
+    if (isToolFailure(result)) {
+      setLikeError(toolFailureMessage(result));
+    } else {
+      setLiked(true);
+    }
+    setLiking(false);
   };
 
-  const price = property.purpose === 'rent' ? property.monthly_rent : property.base_price;
+  const badge = purposeLabel(property.purpose);
 
   return (
     <Card padding="none" style={{ overflow: 'hidden', borderRadius: 16 }}>
@@ -75,23 +60,25 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
           />
         )}
         {/* Purpose badge */}
-        <span
-          style={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            backgroundColor: 'rgba(28, 26, 22, 0.85)',
-            color: '#F2EDE0',
-            padding: '4px 10px',
-            borderRadius: 999,
-            fontSize: 11,
-            letterSpacing: '0.03em',
-            textTransform: 'uppercase',
-            fontWeight: 600,
-          }}
-        >
-          {property.purpose || 'For Sale'}
-        </span>
+        {badge && (
+          <span
+            style={{
+              position: 'absolute',
+              top: 10,
+              left: 10,
+              backgroundColor: 'rgba(28, 26, 22, 0.85)',
+              color: '#F2EDE0',
+              padding: '4px 10px',
+              borderRadius: 999,
+              fontSize: 11,
+              letterSpacing: '0.03em',
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}
+          >
+            {badge}
+          </span>
+        )}
       </div>
 
       {/* Content */}
@@ -100,56 +87,64 @@ export function PropertyCard({ property, showActions = true }: PropertyCardProps
           {property.title}
         </h3>
         <p style={{ fontSize: 14, color: colors.textSecondary, marginBottom: 8 }}>
-          {[property.locality, property.city].filter(Boolean).join(', ')}
+          {formatLocation(property)}
         </p>
 
         {/* Specs */}
         <div style={{ display: 'flex', gap: 12, fontSize: 13, color: colors.textSecondary, marginBottom: 8 }}>
-          {property.bedrooms && <span>{property.bedrooms} BHK</span>}
-          {property.bathrooms && <span>{property.bathrooms} Bath</span>}
-          {property.area_sqft && <span>{property.area_sqft.toLocaleString()} sq ft</span>}
+          {property.bedrooms ? <span>{property.bedrooms} BHK</span> : null}
+          {property.bathrooms ? <span>{property.bathrooms} Bath</span> : null}
+          {property.area_sqft ? <span>{property.area_sqft.toLocaleString()} sq ft</span> : null}
         </div>
 
         {/* Price */}
         <p style={{ fontSize: 19, fontWeight: 700, color: colors.primary, marginBottom: 12 }}>
-          {formatPrice(price, property.purpose)}
+          {formatPropertyPrice(property)}
         </p>
 
         {/* Actions */}
         {showActions && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={handleViewDetails}
-              style={{
-                flex: 1,
-                padding: '9px 12px',
-                backgroundColor: colors.primary,
-                color: '#F2EDE0',
-                border: 'none',
-                borderRadius: 8,
-                fontSize: 14,
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              View Details
-            </button>
-            <button
-              onClick={handleLike}
-              style={{
-                padding: '8px 11px',
-                backgroundColor: colors.surfaceTint,
-                color: colors.primary,
-                border: `1px solid ${colors.border}`,
-                borderRadius: 8,
-                fontSize: 18,
-                cursor: 'pointer',
-              }}
-              title="Save to shortlist"
-            >
-              ♡
-            </button>
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleViewDetails}
+                style={{
+                  flex: 1,
+                  padding: '9px 12px',
+                  backgroundColor: colors.primary,
+                  color: '#3D3829',
+                  border: 'none',
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                View Details
+              </button>
+              <button
+                onClick={handleLike}
+                disabled={liked || liking}
+                style={{
+                  padding: '8px 11px',
+                  backgroundColor: colors.surfaceTint,
+                  color: colors.primary,
+                  border: `1px solid ${colors.border}`,
+                  borderRadius: 8,
+                  fontSize: 18,
+                  cursor: liked || liking ? 'default' : 'pointer',
+                }}
+                title={liked ? 'Saved to shortlist' : 'Save to shortlist'}
+              >
+                {liked ? '♥' : '♡'}
+              </button>
+            </div>
+            {likeError && (
+              <p role="alert" style={{ fontSize: 12, color: colors.error, marginTop: 8 }}>
+                {likeError}
+              </p>
+            )}
+          </>
         )}
       </div>
     </Card>

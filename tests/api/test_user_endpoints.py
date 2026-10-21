@@ -6,13 +6,14 @@ They mock the service layer to isolate endpoint testing.
 """
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
 from app.models.enums import UserRole
-from app.schemas.user import User as UserSchema
+from app.schemas.user import SelfUser as UserSchema
 
 
 def create_mock_user(
@@ -80,22 +81,19 @@ class TestUpdateUserProfileEndpoint:
             assert data["full_name"] == "Updated Name"
 
     @pytest.mark.asyncio
-    async def test_update_user_email(self, authenticated_client: AsyncClient):
-        """Test updating user email."""
+    async def test_update_user_email_is_rejected(self, authenticated_client: AsyncClient):
+        """Email changes go through Supabase. The profile body has no email field."""
         with patch(
             "app.api.api_v1.endpoints.users.update_user",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = create_mock_user(
-                user_id=1, email="newemail@example.com"
-            )
-
             response = await authenticated_client.put(
                 "/api/v1/users/profile/",
                 json={"email": "newemail@example.com"},
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 422
+            mock_update.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_update_user_profile_unauthorized(self, client: AsyncClient):
@@ -118,7 +116,7 @@ class TestUpdatePreferencesEndpoint:
             "app.api.api_v1.endpoints.users.update_user_preferences",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = True
+            mock_update.return_value = SimpleNamespace(preferences={})
 
             response = await authenticated_client.put(
                 "/api/v1/users/preferences/",
@@ -136,7 +134,7 @@ class TestUpdatePreferencesEndpoint:
             "app.api.api_v1.endpoints.users.update_user_preferences",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = True
+            mock_update.return_value = SimpleNamespace(preferences={})
 
             response = await authenticated_client.put(
                 "/api/v1/users/preferences/",
@@ -183,7 +181,9 @@ class TestUpdateLocationEndpoint:
             "app.api.api_v1.endpoints.users.update_user_location",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = True
+            mock_update.return_value = SimpleNamespace(
+                current_latitude=19.0760, current_longitude=72.8777
+            )
 
             response = await authenticated_client.put(
                 "/api/v1/users/location/",
@@ -235,7 +235,7 @@ class TestNotificationSettingsEndpoint:
             "app.api.api_v1.endpoints.users.update_user_notification_settings",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = True
+            mock_update.return_value = SimpleNamespace(notification_settings={})
 
             response = await authenticated_client.put(
                 "/api/v1/users/notification-settings",
@@ -282,7 +282,7 @@ class TestPrivacySettingsEndpoint:
             "app.api.api_v1.endpoints.users.update_user_privacy_settings",
             new_callable=AsyncMock,
         ) as mock_update:
-            mock_update.return_value = True
+            mock_update.return_value = SimpleNamespace(privacy_settings={})
 
             response = await authenticated_client.put(
                 "/api/v1/users/privacy-settings",

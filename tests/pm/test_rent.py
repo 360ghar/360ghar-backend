@@ -3,7 +3,13 @@ from datetime import date
 import pytest
 from sqlalchemy import select
 
-from app.models.enums import LeaseStatus, PropertyPurpose, PropertyType, RentChargeStatus
+from app.models.enums import (
+    LeaseStatus,
+    PropertyPurpose,
+    PropertyType,
+    RentChargeStatus,
+    RentPaymentStatus,
+)
 from app.models.pm_finance import RentCharge
 from app.models.pm_leases import Lease
 from app.models.properties import Property
@@ -89,12 +95,28 @@ async def test_generate_rent_charges_idempotent_and_payment_status(db_session):
         amount_paid=10000,
     )
     await db_session.refresh(charge)
-    assert charge.status in {RentChargeStatus.partial, RentChargeStatus.overdue, RentChargeStatus.pending}
+    assert charge.status in {
+        RentChargeStatus.partial,
+        RentChargeStatus.overdue,
+        RentChargeStatus.pending,
+    }
 
-    # Pay the remaining 20000 -> paid
-    await record_rent_payment(
+    # A tenant claim is pending and does not change the charge status.
+    tenant_claim = await record_rent_payment(
         db_session,
         actor=tenant,
+        charge_id=charge.id,
+        amount_paid=20000,
+    )
+    await db_session.refresh(charge)
+    assert tenant_claim.status == RentPaymentStatus.pending
+    assert charge.status in {RentChargeStatus.partial, RentChargeStatus.overdue}
+    assert charge.status != RentChargeStatus.paid
+
+    # The owner settles the remaining balance -> paid.
+    await record_rent_payment(
+        db_session,
+        actor=owner,
         charge_id=charge.id,
         amount_paid=20000,
     )

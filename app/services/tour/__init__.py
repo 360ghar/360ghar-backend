@@ -8,32 +8,28 @@ like ``from app.services.tour import get_tour`` continue to work.
 """
 
 from app.services.tour.analytics import (
+    EVENT_DEDUPE_WINDOW_S,
+    VIEW_DEDUPE_WINDOW_S,
     get_dashboard_realtime_stats,
     get_dashboard_stats,
     get_tour_analytics,
     get_tour_heatmap,
+    is_repeat_viewer_event,
     record_analytics_event,
 )
 from app.services.tour.floor_plans import (
     create_floor_plan,
     delete_floor_plan,
+    generate_floor_plan,
     get_floor_plan,
-    get_floor_plans,
+    get_floor_plans_page,
     update_floor_plan,
     update_floor_plan_markers,
 )
 from app.services.tour.helpers import (
-    _HOTSPOT_HTML_ALLOWED_ATTRIBUTES,
-    _HOTSPOT_HTML_ALLOWED_PROTOCOLS,
-    _HOTSPOT_HTML_ALLOWED_TAGS,
     _ensure_scene_ownership,
     _ensure_tour_ownership,
     _extract_session_duration,
-    _extract_vimeo_id,
-    _extract_youtube_id,
-    _is_safe_http_url,
-    _normalize_hotspot_content,
-    _sanitize_hotspot_html,
     _scene_processing_tasks,
 )
 from app.services.tour.hotspots import (
@@ -41,6 +37,7 @@ from app.services.tour.hotspots import (
     delete_hotspot,
     get_hotspot,
     get_hotspots,
+    get_hotspots_page,
     update_hotspot,
     update_hotspot_position,
 )
@@ -49,18 +46,21 @@ from app.services.tour.scenes import (
     delete_scene,
     get_scene,
     get_scenes,
+    get_scenes_page,
     process_scene_image_background,
     reorder_scenes,
     schedule_scene_processing,
     update_scene,
 )
 from app.services.tour.tours import (
+    active_hotspots_only,
     create_tour,
     delete_tour,
     duplicate_tour,
     generate_short_code,
     get_tour,
     get_tours,
+    public_tour_view,
     publish_tour,
     unpublish_tour,
     update_tour,
@@ -68,6 +68,8 @@ from app.services.tour.tours import (
 
 __all__ = [
     # Tours
+    "active_hotspots_only",
+    "public_tour_view",
     "create_tour",
     "delete_tour",
     "duplicate_tour",
@@ -82,6 +84,7 @@ __all__ = [
     "delete_scene",
     "get_scene",
     "get_scenes",
+    "get_scenes_page",
     "process_scene_image_background",
     "reorder_scenes",
     "schedule_scene_processing",
@@ -91,13 +94,15 @@ __all__ = [
     "delete_hotspot",
     "get_hotspot",
     "get_hotspots",
+    "get_hotspots_page",
     "update_hotspot",
     "update_hotspot_position",
     # Floor plans
     "create_floor_plan",
     "delete_floor_plan",
+    "generate_floor_plan",
     "get_floor_plan",
-    "get_floor_plans",
+    "get_floor_plans_page",
     "update_floor_plan",
     "update_floor_plan_markers",
     # Analytics
@@ -105,18 +110,13 @@ __all__ = [
     "get_dashboard_stats",
     "get_tour_analytics",
     "get_tour_heatmap",
+    "EVENT_DEDUPE_WINDOW_S",
+    "VIEW_DEDUPE_WINDOW_S",
+    "is_repeat_viewer_event",
     "record_analytics_event",
     # Helpers (public for cross-module use and tests)
-    "_HOTSPOT_HTML_ALLOWED_ATTRIBUTES",
-    "_HOTSPOT_HTML_ALLOWED_PROTOCOLS",
-    "_HOTSPOT_HTML_ALLOWED_TAGS",
     "_ensure_scene_ownership",
     "_ensure_tour_ownership",
     "_extract_session_duration",
-    "_extract_vimeo_id",
-    "_extract_youtube_id",
-    "_is_safe_http_url",
-    "_normalize_hotspot_content",
-    "_sanitize_hotspot_html",
     "_scene_processing_tasks",
 ]

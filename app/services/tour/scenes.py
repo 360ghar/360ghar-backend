@@ -8,9 +8,11 @@ background image processing.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import and_, func, select
+from pydantic import ValidationError
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -18,15 +20,22 @@ from app.core.exceptions import (
     BadRequestException,
     ForbiddenException,
     SceneNotFoundException,
+    client_input_error,
 )
 from app.core.logging import get_logger
-from app.models.tours import Scene
-from app.schemas.tour import SceneCreate, SceneUpdate
+from app.models.tours import Hotspot, Scene
+from app.schemas.pagination import (
+    keyset_filter,
+    trim_keyset_lookahead,
+)
+from app.schemas.tour import SceneCreate, SceneMetadata, SceneUpdate
 from app.services.tour.helpers import (
     _ensure_scene_ownership,
     _ensure_tour_ownership,
     _register_scene_processing_task,
     _scene_processing_tasks,
+    drop_keys,
+    merge_json,
 )
 from app.services.tour.tours import get_tour
 from app.utils.validators import ValidationUtils
@@ -48,6 +57,44 @@ async def get_scenes(db: AsyncSession, tour_id: str, user_id: int | None = None)
 
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+async def get_scenes_page(
+    db: AsyncSession,
+    tour_id: str,
+    user_id: int | None,
+    cursor_payload: dict[str, Any],
+    limit: int,
+    include_total: bool = False,
+) -> tuple[list[Scene], dict[str, Any] | None, int | None]:
+    """One keyset page of a tour's scenes, in order_index order. total is set only with include_total."""
+    await get_tour(db, tour_id, user_id, include_scenes=False)
+
+    total: int | None = None
+    if include_total:
+        total = int(
+            (
+                await db.execute(select(func.count(Scene.id)).where(Scene.tour_id == tour_id))
+            ).scalar_one()
+        )
+    query = select(Scene).where(Scene.tour_id == tour_id)
+    predicate = keyset_filter(Scene.order_index, Scene.id, cursor_payload, descending=False)
+    if predicate is not None:
+        query = query.where(predicate)
+    query = (
+        query.options(selectinload(Scene.hotspots))
+        .order_by(Scene.order_index, Scene.id)
+        .limit(limit + 1)
+    )
+
+    rows = list((await db.execute(query)).scalars().all())
+    items, next_payload = trim_keyset_lookahead(
+        rows,
+        limit=limit,
+        sort_value=lambda scene: scene.order_index,
+        item_id=lambda scene: scene.id,
+    )
+    return items, next_payload, total
 
 
 async def get_scene(db: AsyncSession, scene_id: str, user_id: int | None = None) -> Scene:
@@ -78,7 +125,8 @@ async def create_scene(db: AsyncSession, tour_id: str, user_id: int, data: Scene
     # Get max order_index
     max_order_query = select(func.max(Scene.order_index)).where(Scene.tour_id == tour_id)
     result = await db.execute(max_order_query)
-    max_order = result.scalar() or -1
+    max_order = result.scalar()
+    max_order = -1 if max_order is None else max_order  # 0 is a real order, not "empty"
 
     image_url = data.image_url
     thumbnail_url = data.thumbnail_url
@@ -86,7 +134,9 @@ async def create_scene(db: AsyncSession, tour_id: str, user_id: int, data: Scene
     if image_url and not ValidationUtils.is_absolute_url(image_url):
         logger.warning("Non-absolute image_url for scene in tour %s: %s", tour_id, image_url)
     if thumbnail_url and not ValidationUtils.is_absolute_url(thumbnail_url):
-        logger.warning("Non-absolute thumbnail_url for scene in tour %s: %s", tour_id, thumbnail_url)
+        logger.warning(
+            "Non-absolute thumbnail_url for scene in tour %s: %s", tour_id, thumbnail_url
+        )
 
     scene = Scene(
         id=str(uuid4()),
@@ -95,8 +145,10 @@ async def create_scene(db: AsyncSession, tour_id: str, user_id: int, data: Scene
         description=data.description,
         image_url=image_url,
         thumbnail_url=thumbnail_url,
-        order_index=data.order_index if data.order_index is not None else max_order + 1,
-        scene_metadata=data.metadata.model_dump() if data.metadata else None,
+        order_index=max_order + 1,  # server-owned: the new scene goes last
+        scene_metadata=data.scene_metadata.model_dump(exclude_none=True)
+        if data.scene_metadata
+        else None,
         is_processed=False,  # Will be set to True after background processing
     )
 
@@ -127,11 +179,27 @@ async def update_scene(db: AsyncSession, scene_id: str, user_id: int, data: Scen
 
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if field in ("image_url", "thumbnail_url") and value is not None and not ValidationUtils.is_absolute_url(value):
+        if (
+            field in ("image_url", "thumbnail_url")
+            and value is not None
+            and not ValidationUtils.is_absolute_url(value)
+        ):
             logger.warning("Non-absolute %s for scene %s: %s", field, scene_id, value)
-        if field == "metadata" and value is not None:
-            value = value if isinstance(value, dict) else value.model_dump()
-            scene.scene_metadata = value
+        if field == "scene_metadata":
+            # Deep merge: keys the client omits keep their stored value (including
+            # keys the image pipeline wrote). A null value removes that key.
+            if value is None:
+                scene.scene_metadata = None
+            else:
+                merged = merge_json(
+                    drop_keys(scene.scene_metadata, set(SceneMetadata.model_fields)), value
+                )
+                try:
+                    scene.scene_metadata = SceneMetadata.model_validate(merged).model_dump(
+                        exclude_none=True
+                    )
+                except ValidationError as exc:
+                    raise client_input_error(exc, "body", "scene_metadata") from exc
         else:
             setattr(scene, field, value)
 
@@ -146,6 +214,8 @@ async def delete_scene(db: AsyncSession, scene_id: str, user_id: int) -> bool:
     scene = await get_scene(db, scene_id, user_id)
     _ensure_scene_ownership(scene, user_id, "delete")
 
+    # Links from other scenes to this scene are dead once it is gone; remove them.
+    await db.execute(delete(Hotspot).where(Hotspot.target_scene_id == scene_id))
     await db.delete(scene)
     await db.commit()
 
@@ -190,7 +260,7 @@ async def reorder_scenes(
         result = await db.execute(query)
         scene_obj = result.scalar_one_or_none()
 
-        if scene_obj is not None and hasattr(scene_obj, 'order_index'):
+        if scene_obj is not None and hasattr(scene_obj, "order_index"):
             scene_obj.order_index = index
 
     await db.commit()
@@ -249,7 +319,9 @@ async def process_scene_image_background(
                     scene.thumbnail_url = result["thumbnail_url"]
 
                 # Update metadata with EXIF info
-                current_metadata = scene.scene_metadata or {}
+                # Copy before writing: an in-place edit of the loaded JSON dict is not
+                # seen as a change, so the new keys would never reach the database.
+                current_metadata = dict(scene.scene_metadata or {})
                 if result.get("exif"):
                     current_metadata["exif"] = result["exif"]
                 if result.get("width") and result.get("height"):
@@ -279,7 +351,7 @@ async def process_scene_image_background(
                 scene = db_result.scalar_one_or_none()
                 if scene:
                     scene.is_processed = True
-                    scene.processing_error = str(e)
+                    scene.processing_error = str(e)[:500]  # column is VARCHAR(500)
                     await db.commit()
         except Exception as inner_e:
             logger.error("Failed to update scene processing error: %s", inner_e)

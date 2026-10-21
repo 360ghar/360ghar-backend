@@ -283,7 +283,7 @@ class TestAgentBookingTools:
 
     @pytest.mark.asyncio
     async def test_agent_bookings_update_status(self, mock_mcp_context):
-        """Test updating booking status as agent."""
+        """Status updates go through the shared, scope-checked tool_ops function."""
         from app.mcp.admin.agent import agent_bookings_update_status
         from app.models.enums import BookingStatus
 
@@ -295,15 +295,23 @@ class TestAgentBookingTools:
             mock_user.return_value = MagicMock(id=1, role="agent")
 
             with patch("app.mcp.admin.agent_tools.bookings.get_db") as mock_db:
-                mock_db.return_value = AsyncIteratorMock([AsyncMock()])
+                db = AsyncMock()
+                db.get = AsyncMock(return_value=booking)
+                mock_db.return_value = AsyncIteratorMock([db])
 
-                with patch("app.services.booking.get_booking", new_callable=AsyncMock) as mock_get:
-                    mock_get.return_value = booking
-                    with patch("app.mcp.admin.agent_tools.bookings.serialize_booking", return_value={"id": 1, "booking_status": "confirmed"}):
+                with patch(
+                    "app.mcp.tool_ops.update_booking_status",
+                    new=AsyncMock(return_value={"message": "ok", "booking_id": 1}),
+                ) as mock_update:
+                    with patch(
+                        "app.mcp.admin.agent_tools.bookings.serialize_booking",
+                        return_value={"id": 1, "booking_status": "confirmed"},
+                    ):
                         result = await fn(
                             booking_id=1,
                             status="confirmed",
                         )
 
-                assert booking.booking_status == BookingStatus.confirmed
+                assert mock_update.await_args.kwargs["status"] == BookingStatus.confirmed
+                assert mock_update.await_args.kwargs["booking_id"] == 1
                 assert result["ok"] is True

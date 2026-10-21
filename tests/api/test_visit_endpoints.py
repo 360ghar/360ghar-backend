@@ -12,14 +12,14 @@ import pytest
 from httpx import AsyncClient
 
 from app.models.enums import VisitStatus
-from app.schemas.visit import Visit, VisitSlice
+from app.schemas.visit import Visit
 
 
 def create_mock_visit(
     visit_id: int = 1,
     user_id: int = 1,
     property_id: int = 1,
-    status: VisitStatus = VisitStatus.scheduled,
+    status: VisitStatus = VisitStatus.requested,
 ) -> Visit:
     """Create a mock visit schema object."""
     return Visit(
@@ -44,16 +44,6 @@ def create_mock_visit(
     )
 
 
-def create_mock_visit_slice(visits: list = None) -> VisitSlice:
-    """Create a mock visit slice response."""
-    if visits is None:
-        visits = []
-    return VisitSlice(
-        visits=visits,
-        total=len(visits),
-    )
-
-
 class TestCreateVisitEndpoint:
     """Tests for POST /api/v1/visits/ endpoint."""
 
@@ -69,7 +59,7 @@ class TestCreateVisitEndpoint:
             mock_create.return_value = create_mock_visit(
                 visit_id=1,
                 property_id=123,
-                status=VisitStatus.scheduled,
+                status=VisitStatus.requested,
             )
 
             response = await authenticated_client.post(
@@ -80,10 +70,9 @@ class TestCreateVisitEndpoint:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
             data = response.json()
-            # VisitStatus.scheduled serializes to its domain value "requested"
-            # (the flatmates visit lifecycle initial state; the web client expects this).
+            # The initial visit status is "requested" (the web client expects this).
             assert data["status"] == "requested"
 
     @pytest.mark.asyncio
@@ -251,7 +240,7 @@ class TestRescheduleVisitEndpoint:
         rescheduled_visit = create_mock_visit(
             visit_id=42,
             user_id=test_user.id,
-            status=VisitStatus.rescheduled,
+            status=VisitStatus.reschedule_suggested,
         )
 
         with patch(

@@ -8,7 +8,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.logging import get_logger
 from app.models.enums import (
     ConversationSource,
@@ -23,18 +23,46 @@ from app.models.social import UserBlock, UserMatch
 from app.models.users import User, UserSwipe
 from app.schemas.flatmates import PropertySchema, SwipeRequest
 from app.schemas.pagination import keyset_filter, keyset_payload, keyset_sort_value
-from app.services.flatmates.conversations import _ensure_conversation
+from app.services.flatmates.conversations import _ensure_conversation, find_1to1_conversation
 from app.services.flatmates.helpers import (
     _build_peer_payload,
     _build_property_context,
     _canonical_pair,
     _ensure_match,
     _is_blocked,
+    _pair_match_status,
 )
+from app.services.flatmates.profiles import load_visible_peer, profile_is_visible
 from app.services.flatmates.realtime import EVENT_NEW_MATCH, queue_flatmates_realtime_event
 from app.services.swipe import _upsert_user_swipe
+from app.services.visibility import Viewer, mask_owner_contact
 
 logger = get_logger(__name__)
+
+
+async def _reopen_blocked_pair(db: AsyncSession, user_id: int, other_user_id: int) -> None:
+    """Reopen a pair that a block closed: the match and its conversation become active.
+
+    The caller has checked that no block exists and that both users like each other. An
+    unmatched pair is not reopened.
+    """
+    user_one_id, user_two_id = _canonical_pair(user_id, other_user_id)
+    match = (
+        await db.execute(
+            select(UserMatch).where(
+                UserMatch.user_one_id == user_one_id,
+                UserMatch.user_two_id == user_two_id,
+                UserMatch.status == UserMatchStatus.blocked,
+            )
+        )
+    ).scalar_one_or_none()
+    if match is None:
+        return
+    match.status = UserMatchStatus.active
+    conversation = await find_1to1_conversation(db, user_id, other_user_id)
+    if conversation is not None and conversation.status == ConversationStatus.blocked:
+        conversation.status = ConversationStatus.active
+    await db.flush()
 
 
 async def record_swipe(
@@ -57,7 +85,7 @@ async def record_swipe(
             )
             if (
                 not property_obj.is_available
-                or preferences.get("moderation_status", "live") != "live"
+                or preferences.get("moderation_status", "pending_review") != "live"
             ):
                 raise BadRequestException(detail="Property not found")
         if property_obj.owner_id == user_id:
@@ -98,7 +126,9 @@ async def record_swipe(
             await db.execute(
                 update(Property)
                 .where(Property.id == property_obj.id)
-                .values(interest_count=func.greatest(func.coalesce(Property.interest_count, 0) - 1, 0))
+                .values(
+                    interest_count=func.greatest(func.coalesce(Property.interest_count, 0) - 1, 0)
+                )
             )
 
         await db.flush()
@@ -119,6 +149,8 @@ async def record_swipe(
         raise BadRequestException(detail="Cannot swipe your own profile")
     if await _is_blocked(db, user_id, target_user.id):
         raise BadRequestException(detail="Conversation is blocked")
+    # The target must have a visible profile, same rule as GET /profiles/{user_id}.
+    await load_visible_peer(db, user_id, target_user.id)
 
     await _upsert_user_swipe(
         db,
@@ -141,8 +173,18 @@ async def record_swipe(
             UserSwipe.is_liked.is_(True),
         )
         reciprocal = (await db.execute(reciprocal_stmt)).scalar_one_or_none()
+        # An unmatched pair stays closed. A blocked pair reopens here: the block cleared both
+        # users' likes, so a reciprocal like is always newer than the block.
+        assert payload.target_user_id is not None
+        if (
+            reciprocal
+            and await _pair_match_status(db, user_id, payload.target_user_id)
+            == UserMatchStatus.unmatched
+        ):
+            reciprocal = None
         if reciprocal:
             assert payload.target_user_id is not None
+            await _reopen_blocked_pair(db, user_id, payload.target_user_id)
             match = await _ensure_match(
                 db,
                 user_id=user_id,
@@ -315,7 +357,9 @@ async def list_outgoing_likes(
             selectinload(UserSwipe.target_user),
             selectinload(UserSwipe.context_property),
             property_load.selectinload(Property.images),
-            property_load.selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
+            property_load.selectinload(Property.property_amenities).selectinload(
+                PropertyAmenity.amenity
+            ),
         )
         .where(
             UserSwipe.user_id == user_id,
@@ -353,6 +397,19 @@ async def list_outgoing_likes(
             keyset_sort_value(outgoing_swipes[-1].created_at), outgoing_swipes[-1].id
         )
 
+    # Mask every liked listing for the caller: owner contact goes to the owner and admins,
+    # and moderator keys of listing_preferences are removed for everyone else.
+    # Local import: app.services.property imports this package, so a top-level import cycles.
+    from app.services.property import attach_owner_agents
+
+    viewer = Viewer.from_user(current_user)
+    property_schemas: dict[int, PropertySchema] = {
+        swipe.id: PropertySchema.model_validate(swipe.property, from_attributes=True)
+        for swipe in outgoing_swipes
+        if swipe.target_type != SwipeTargetType.user.value and swipe.property is not None
+    }
+    await attach_owner_agents(db, list(property_schemas.values()))
+
     items: list[dict[str, Any]] = []
     for swipe in outgoing_swipes:
         if swipe.target_type == SwipeTargetType.user.value:
@@ -370,9 +427,9 @@ async def list_outgoing_likes(
         else:
             if swipe.property is None:
                 continue
-            property_schema = PropertySchema.model_validate(
-                swipe.property, from_attributes=True
-            ).model_copy(update={"liked": True})
+            property_schema = mask_owner_contact(property_schemas[swipe.id], viewer).model_copy(
+                update={"liked": True}
+            )
             items.append(
                 {
                     "id": swipe.id,
@@ -415,9 +472,7 @@ async def list_matches(
     next_payload: dict[str, Any] | None = None
     if len(matches) > limit:
         matches = matches[:limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(matches[-1].created_at), matches[-1].id
-        )
+        next_payload = keyset_payload(keyset_sort_value(matches[-1].created_at), matches[-1].id)
 
     if not matches:
         return [], None, count_total
@@ -464,7 +519,7 @@ async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) 
     if match is None:
         raise BadRequestException(detail="Match not found")
     if match.status == UserMatchStatus.unmatched:
-        return {"id": match.id, "status": match.status, "unmatched": True}
+        return {"id": match.id, "status": match.status}
 
     match.status = UserMatchStatus.unmatched
     from app.services.flatmates.conversations import find_1to1_conversation
@@ -474,7 +529,7 @@ async def unmatch_user_pair(db: AsyncSession, user_id: int, other_user_id: int) 
         conversation.status = ConversationStatus.closed
     await db.flush()
     await db.commit()
-    return {"id": match.id, "status": match.status, "unmatched": True}
+    return {"id": match.id, "status": match.status}
 
 
 async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[str, Any]:
@@ -498,4 +553,18 @@ async def unmatch_match(db: AsyncSession, user_id: int, match_id: int) -> dict[s
 
     await db.flush()
     await db.commit()
-    return {"id": match.id, "status": match.status, "unmatched": True}
+    return {"id": match.id, "status": match.status}
+
+
+async def get_match_contact(db: AsyncSession, user_id: int, match_id: int) -> dict[str, Any]:
+    """Return the other user's login phone. Served only for an active mutual match."""
+    match = await db.get(UserMatch, match_id)
+    if match is None or user_id not in {match.user_one_id, match.user_two_id}:
+        raise NotFoundException(detail="Match not found", error_code="MATCH_NOT_FOUND")
+    if match.status != UserMatchStatus.active:
+        raise NotFoundException(detail="Match not found", error_code="MATCH_NOT_FOUND")
+    peer_id = match.user_two_id if match.user_one_id == user_id else match.user_one_id
+    peer = await db.get(User, peer_id)
+    if peer is None or not profile_is_visible(peer) or await _is_blocked(db, user_id, peer_id):
+        raise NotFoundException(detail="Match not found", error_code="MATCH_NOT_FOUND")
+    return {"match_id": match.id, "peer_user_id": peer_id, "phone": peer.phone}

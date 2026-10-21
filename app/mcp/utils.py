@@ -7,18 +7,24 @@ and role-based authorization used across both User and Admin MCP servers.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token as get_auth_access_token
+from pydantic import TypeAdapter
 from sqlalchemy import inspect
+from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
 from app.models.enums import UserRole
+from app.schemas.base import UtcDateTime
 from app.services.user import get_user_by_id
+from app.services.visibility import mask_owner_contact, mask_user_ref
 
 if TYPE_CHECKING:
     from app.models.bookings import Booking
+    from app.models.pm_finance import RentPayment
     from app.models.pm_leases import Lease
     from app.models.pm_maintenance import MaintenanceRequest
     from app.models.properties import Property
@@ -42,10 +48,13 @@ async def get_db():
             yield db
         except Exception as e:
             logger.error("MCP database session error: %s", e)
-            sentry_sdk.set_context("database", {
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            })
+            sentry_sdk.set_context(
+                "database",
+                {
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+            )
             await db.rollback()
             raise
         else:
@@ -143,6 +152,28 @@ async def get_user_from_mcp_context(db) -> User | None:
     return user
 
 
+def _money(value: Any) -> float | None:
+    """Money as a JSON number (2 places). Decimal serializes as a string otherwise."""
+    if value is None:
+        return None
+    return round(float(value), 2)
+
+
+_UTC_DATETIME = TypeAdapter(UtcDateTime)
+
+
+def utc_iso(value: datetime | date | None) -> str | None:
+    """A datetime as UTC ISO 8601 with a Z suffix, the encoding REST responses use.
+
+    A date-only value keeps its date form.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        return value.isoformat()
+    return str(_UTC_DATETIME.dump_python(value, mode="json"))
+
+
 def serialize_property_basic(prop: Property | PropertySchema) -> dict:
     """Serialize a property object to basic dict for MCP responses."""
     property_type = getattr(prop, "property_type", None)
@@ -160,10 +191,10 @@ def serialize_property_basic(prop: Property | PropertySchema) -> dict:
         "city": prop.city,
         "locality": prop.locality,
         "full_address": getattr(prop, "full_address", None),
-        "base_price": prop.base_price,
-        "price": prop.base_price,
-        "monthly_rent": getattr(prop, "monthly_rent", None),
-        "daily_rate": getattr(prop, "daily_rate", None),
+        "base_price": _money(prop.base_price),
+        "price": _money(prop.base_price),
+        "monthly_rent": _money(getattr(prop, "monthly_rent", None)),
+        "daily_rate": _money(getattr(prop, "daily_rate", None)),
         "bedrooms": getattr(prop, "bedrooms", None),
         "bathrooms": getattr(prop, "bathrooms", None),
         "area_sqft": getattr(prop, "area_sqft", None),
@@ -173,17 +204,20 @@ def serialize_property_basic(prop: Property | PropertySchema) -> dict:
         "latitude": prop.latitude,
         "longitude": prop.longitude,
         "main_image_url": prop.main_image_url,
-        "created_at": created_at.isoformat() if created_at else None,
+        "created_at": utc_iso(created_at),
     }
 
 
-def serialize_property_full(prop: Property) -> dict:
+def serialize_property_full(prop: Property | Any, viewer: Any | None = None) -> dict:
     """Serialize a property object to full dict for MCP responses.
 
-    Handles both SQLAlchemy models and Pydantic models.
+    Handles both SQLAlchemy models and Pydantic models. ``viewer`` is the caller
+    (a user, a ``Viewer`` or None for anonymous). The owner's number reaches the
+    owner and admins only; other viewers get the agent's or the company number.
     """
-    if hasattr(prop, "model_dump"):
-        return dict(prop.model_dump())
+    # One path for ORM objects and Pydantic models, so both give the same wire shape.
+    # The ORM read uses property_amenities; a Pydantic model carries amenities instead.
+    prop = mask_owner_contact(prop, viewer)
 
     basic = serialize_property_basic(prop)
 
@@ -191,13 +225,15 @@ def serialize_property_full(prop: Property) -> dict:
     updated_at = getattr(prop, "updated_at", None)
 
     amenities_data = []
-    prop_amenities = getattr(prop, "property_amenities", None) or []
+    prop_amenities = (
+        getattr(prop, "property_amenities", None) or getattr(prop, "amenities", None) or []
+    )
     for a in prop_amenities:
-        amenity_obj = getattr(a, "amenity", a) if hasattr(a, "amenity") else a
+        amenity_obj = getattr(a, "amenity", a)
         amenities_data.append(
             {
                 "id": getattr(amenity_obj, "id", None),
-                "title": getattr(amenity_obj, "title", None),
+                "name": getattr(amenity_obj, "title", None),
                 "icon": getattr(amenity_obj, "icon", None),
                 "category": getattr(amenity_obj, "category", None),
             }
@@ -205,15 +241,19 @@ def serialize_property_full(prop: Property) -> dict:
 
     basic.update(
         {
+            # owner_contact arrives masked for non-owner viewers (visibility.mask_owner_contact).
+            "owner_phone": getattr(prop, "owner_contact", None),
+            "furnished_status": getattr(prop, "furnishing_level", None),
+            "age_years": getattr(prop, "age_of_property", None),
             "description": prop.description,
             "sub_locality": getattr(prop, "sub_locality", None),
             "landmark": getattr(prop, "landmark", None),
             "pincode": getattr(prop, "pincode", None),
             "state": getattr(prop, "state", None),
             "country": getattr(prop, "country", None),
-            "price_per_sqft": getattr(prop, "price_per_sqft", None),
-            "security_deposit": getattr(prop, "security_deposit", None),
-            "maintenance_charges": getattr(prop, "maintenance_charges", None),
+            "price_per_sqft": _money(getattr(prop, "price_per_sqft", None)),
+            "security_deposit": _money(getattr(prop, "security_deposit", None)),
+            "maintenance_charges": _money(getattr(prop, "maintenance_charges", None)),
             "balconies": getattr(prop, "balconies", None),
             "parking_spaces": getattr(prop, "parking_spaces", None),
             "floor_number": getattr(prop, "floor_number", None),
@@ -224,7 +264,7 @@ def serialize_property_full(prop: Property) -> dict:
             "video_tour_url": getattr(prop, "video_tour_url", None),
             "features": getattr(prop, "features", None),
             "tags": getattr(prop, "tags", None),
-            "available_from": available_from.isoformat() if available_from else None,
+            "available_from": utc_iso(available_from),
             "minimum_stay_days": getattr(prop, "minimum_stay_days", None),
             "owner_name": getattr(prop, "owner_name", None),
             "builder_name": getattr(prop, "builder_name", None),
@@ -237,10 +277,29 @@ def serialize_property_full(prop: Property) -> dict:
                 for i in (getattr(prop, "images", None) or [])
             ],
             "amenities": amenities_data,
-            "updated_at": updated_at.isoformat() if updated_at else None,
+            "updated_at": utc_iso(updated_at),
         }
     )
     return basic
+
+
+def serialize_rent_payment(payment: RentPayment) -> dict:
+    """One rent payment, from the ORM row. Every MCP and agent rent output uses this shape."""
+    method = payment.payment_method
+    status = payment.status
+    return {
+        "id": payment.id,
+        "charge_id": payment.charge_id,
+        "lease_id": payment.lease_id,
+        "property_id": payment.property_id,
+        "amount_paid": _money(payment.amount_paid),
+        "paid_at": utc_iso(payment.paid_at),
+        "payment_method": getattr(method, "value", method),
+        "status": getattr(status, "value", status),
+        "reference": payment.reference,
+        "notes": payment.notes,
+        "created_at": utc_iso(payment.created_at),
+    }
 
 
 def serialize_booking(booking: Booking) -> dict:
@@ -269,10 +328,10 @@ def serialize_booking(booking: Booking) -> dict:
         # Aliases so the shared VisitList/VisitScheduler widgets (which read
         # `status` / `scheduled_date`) can render bookings and visits alike.
         "status": booking_status.value if booking_status else None,
-        "scheduled_date": booking.check_in_date.isoformat() if booking.check_in_date else None,
+        "scheduled_date": utc_iso(booking.check_in_date),
         "user_id": booking.user_id,
-        "check_in_date": booking.check_in_date.isoformat() if booking.check_in_date else None,
-        "check_out_date": booking.check_out_date.isoformat() if booking.check_out_date else None,
+        "check_in_date": utc_iso(booking.check_in_date),
+        "check_out_date": utc_iso(booking.check_out_date),
         "guests": getattr(booking, "guests", None),
         "nights": getattr(booking, "nights", None),
         "base_amount": float(getattr(booking, "base_amount", 0) or 0),
@@ -285,44 +344,80 @@ def serialize_booking(booking: Booking) -> dict:
         "payment_method": getattr(booking, "payment_method", None),
         "special_requests": getattr(booking, "special_requests", None),
         "cancellation_reason": getattr(booking, "cancellation_reason", None),
-        "cancellation_date": cancellation_date.isoformat() if cancellation_date else None,
-        "created_at": created_at.isoformat() if created_at else None,
+        "cancellation_date": utc_iso(cancellation_date),
+        "created_at": utc_iso(created_at),
     }
 
 
-def serialize_lease(lease: Lease) -> dict:
-    """Serialize a lease object for MCP responses."""
+def _loaded(obj: Any, name: str) -> Any:
+    """A relationship value when it is loaded, else None. Never triggers a lazy load."""
+    try:
+        state = inspect(obj)
+    except NoInspectionAvailable:  # plain objects and test doubles
+        return getattr(obj, name, None)
+    if name in state.unloaded:
+        return None
+    return getattr(obj, name, None)
+
+
+def serialize_lease(lease: Lease, viewer: Any | None) -> dict:
+    """The one lease wire shape, used by every MCP and agent lease tool.
+
+    ``property`` and ``tenant`` are set when the query loaded them (selectinload).
+    ``viewer`` is the caller (a user, a ``Viewer`` or None). The tenant is a PublicUserRef
+    (id, display_name, avatar_url). phone and email are added only for the lease owner,
+    admins and the tenant themself (app.services.visibility.mask_user_ref).
+    """
     start_date = getattr(lease, "start_date", None)
     end_date = getattr(lease, "end_date", None)
     status = getattr(lease, "status", None)
     created_at = getattr(lease, "created_at", None)
     updated_at = getattr(lease, "updated_at", None)
 
+    prop = _loaded(lease, "property")
+    tenant = _loaded(lease, "tenant_user")
+    property_data = None
+    if prop is not None:
+        images = _loaded(prop, "images") or []
+        property_data = {
+            "id": prop.id,
+            "title": prop.title,
+            "locality": prop.locality,
+            "city": prop.city,
+            "full_address": prop.full_address,
+            "main_image_url": images[0].image_url if images else None,
+        }
+    tenant_data = mask_user_ref(tenant, viewer, owner_id=getattr(lease, "owner_id", None))
+
     return {
         "id": lease.id,
         "property_id": lease.property_id,
+        "property": property_data,
         "owner_id": getattr(lease, "owner_id", None),
         "tenant_user_id": getattr(lease, "tenant_user_id", None),
+        "tenant": tenant_data,
         "start_date": start_date.isoformat() if start_date else None,
         "end_date": end_date.isoformat() if end_date else None,
-        "monthly_rent": float(getattr(lease, "monthly_rent", 0) or 0),
-        "security_deposit": float(getattr(lease, "security_deposit", 0) or 0),
+        "monthly_rent": _money(getattr(lease, "monthly_rent", 0) or 0),
+        "security_deposit": _money(getattr(lease, "security_deposit", 0) or 0),
         "status": status.value if status else None,
         "payment_due_day": getattr(lease, "payment_due_day", None),
         "grace_period_days": getattr(lease, "grace_period_days", None),
-        "late_fee_amount": getattr(lease, "late_fee_amount", None),
+        "late_fee_amount": _money(getattr(lease, "late_fee_amount", None)),
         "late_fee_percentage": getattr(lease, "late_fee_percentage", None),
         "terms": getattr(lease, "lease_terms", None),
         "notes": getattr(lease, "special_clauses", None),
-        "created_at": created_at.isoformat() if created_at else None,
-        "updated_at": updated_at.isoformat() if updated_at else None,
+        "created_at": utc_iso(created_at),
+        "updated_at": utc_iso(updated_at),
     }
 
 
 def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
     """Serialize a maintenance request for MCP responses."""
     category = getattr(req, "category", None)
-    category_value = category.value if category is not None and hasattr(category, "value") else category
+    category_value = (
+        category.value if category is not None and hasattr(category, "value") else category
+    )
 
     urgency = getattr(req, "urgency", None)
     urgency_value = urgency.value if urgency is not None and hasattr(urgency, "value") else urgency
@@ -333,12 +428,16 @@ def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
 
     request_status = getattr(req, "request_status", None)
     request_status_value = (
-        request_status.value if request_status is not None and hasattr(request_status, "value") else request_status
+        request_status.value
+        if request_status is not None and hasattr(request_status, "value")
+        else request_status
     )
 
     work_order_status = getattr(req, "work_order_status", None)
     work_order_status_value = (
-        work_order_status.value if work_order_status is not None and hasattr(work_order_status, "value") else work_order_status
+        work_order_status.value
+        if work_order_status is not None and hasattr(work_order_status, "value")
+        else work_order_status
     )
 
     scheduled_for = getattr(req, "scheduled_for", None)
@@ -376,23 +475,10 @@ def serialize_maintenance_request(req: MaintenanceRequest) -> dict:
         "work_order_status": work_order_status_value,
         "estimated_cost": float(estimated_cost or 0) if estimated_cost else None,
         "actual_cost": float(actual_cost or 0) if actual_cost else None,
-        "scheduled_date": scheduled_for.isoformat() if scheduled_for else None,
-        "completed_at": completed_at.isoformat() if completed_at else None,
+        "scheduled_date": utc_iso(scheduled_for),
+        "completed_at": utc_iso(completed_at),
         "vendor_name": getattr(req, "vendor_name", None),
         "notes": getattr(req, "completion_notes", None),
-        "created_at": created_at.isoformat() if created_at else None,
-        "updated_at": updated_at.isoformat() if updated_at else None,
-    }
-
-
-def serialize_user_basic(user: User) -> dict:
-    """Serialize a user object to basic dict for MCP responses."""
-    return {
-        "id": user.id,
-        "email": getattr(user, "email", None),
-        "phone": getattr(user, "phone", None),
-        "full_name": getattr(user, "full_name", None),
-        "role": getattr(user, "role", "user"),
-        "is_verified": getattr(user, "is_verified", False),
-        "profile_image_url": getattr(user, "profile_image_url", None),
+        "created_at": utc_iso(created_at),
+        "updated_at": utc_iso(updated_at),
     }

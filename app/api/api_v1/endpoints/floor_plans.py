@@ -5,15 +5,16 @@ This module provides REST API endpoints for managing floor plans within virtual 
 including CRUD operations and marker management.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.logging import get_logger
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.tour import (
     FloorPlanCreate,
-    FloorPlanMarker,
+    FloorPlanMarkerIn,
     FloorPlanResponse,
     FloorPlanUpdate,
 )
@@ -24,24 +25,29 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.get("/tours/{tour_id}/floor-plans", response_model=list[FloorPlanResponse], summary="List floor plans")
+@router.get(
+    "/tours/{tour_id}/floor-plans",
+    response_model=CursorPage[FloorPlanResponse],
+    summary="List floor plans",
+)
 async def list_floor_plans(
     tour_id: str,
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
-    limit: int = Query(100, le=100, description="Max floor plans to return (hard cap 100)"),
 ):
     """
-    List all floor plans for a tour.
-
-    Returns floor plans ordered by floor number.
+    List the floor plans of a tour, ordered by floor number.
     """
-    floor_plans = await tour_service.get_floor_plans(
+    items, next_payload, total = await tour_service.get_floor_plans_page(
         db=db,
         tour_id=tour_id,
         user_id=current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        include_total=page.include_total,
     )
-    return floor_plans[:limit]
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 @router.post(
@@ -66,6 +72,31 @@ async def create_floor_plan(
         tour_id=tour_id,
         user_id=current_user.id,
         data=data,
+    )
+    return floor_plan
+
+
+@router.post(
+    "/tours/{tour_id}/floor-plans/generate",
+    response_model=FloorPlanResponse,
+    summary="Generate floor plan from tour",
+)
+async def generate_floor_plan(
+    tour_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: UserSchema = Depends(get_current_active_user),
+):
+    """
+    Build a schematic floor plan from the tour's analyzed scenes.
+
+    Room names and doorway links come from the spatial analysis already stored
+    on the tour, so the drawing is an estimate, not a measured plan. Generating
+    again replaces the previous AI-estimated plan instead of adding another one.
+    """
+    floor_plan = await tour_service.generate_floor_plan(
+        db=db,
+        tour_id=tour_id,
+        user_id=current_user.id,
     )
     return floor_plan
 
@@ -128,7 +159,7 @@ async def update_floor_plan(
 async def update_floor_plan_markers(
     tour_id: str,
     floor_plan_id: str,
-    markers: list[FloorPlanMarker],
+    markers: list[FloorPlanMarkerIn],
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):

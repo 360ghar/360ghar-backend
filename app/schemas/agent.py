@@ -1,9 +1,9 @@
-from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from app.models.enums import AgentType, ExperienceLevel
+from app.schemas.base import Money, NotNullable, PatchModel, UtcDateTime, WriteModel
 
 
 class AgentBase(BaseModel):
@@ -13,27 +13,31 @@ class AgentBase(BaseModel):
     avatar_url: str | None = None
     languages: list[str] | None = ["english"]
 
-class AgentCreate(AgentBase):
+
+class AgentCreate(WriteModel, AgentBase):
     agent_type: AgentType = AgentType.general
     experience_level: ExperienceLevel = ExperienceLevel.intermediate
-    working_hours: dict[str, Any] | None = {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "UTC"
-    }
+    working_hours: dict[str, Any] | None = {"start": "09:00", "end": "18:00", "timezone": "UTC"}
 
 
-class AgentUpdate(BaseModel):
-    name: str | None = None
+class AgentUpdate(PatchModel):
+    """Partial update. Only fields the client sent are applied. Required fields reject null."""
+
+    name: Annotated[str | None, NotNullable] = None
     contact_number: str | None = None
     description: str | None = None
     avatar_url: str | None = None
     languages: list[str] | None = None
-    agent_type: AgentType | None = None
-    experience_level: ExperienceLevel | None = None
-    is_active: bool | None = None
-    is_available: bool | None = None
+    agent_type: Annotated[AgentType | None, NotNullable] = None
+    experience_level: Annotated[ExperienceLevel | None, NotNullable] = None
+    is_active: Annotated[bool | None, NotNullable] = None
+    is_available: Annotated[bool | None, NotNullable] = None
     working_hours: dict[str, Any] | None = None
+
+
+class AgentAvailabilityUpdate(WriteModel):
+    is_available: bool
+
 
 class Agent(AgentBase):
     id: int
@@ -44,10 +48,11 @@ class Agent(AgentBase):
     working_hours: dict[str, Any] | None = None
     total_users_assigned: int
     user_satisfaction_rating: float
-    created_at: datetime
-    updated_at: datetime | None = None
+    created_at: UtcDateTime
+    updated_at: UtcDateTime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
 
 class AgentStats(BaseModel):
     total_users_assigned: int
@@ -57,37 +62,19 @@ class AgentStats(BaseModel):
     weekly_interactions: int
     efficiency_score: float
 
+
 class AgentWithStats(Agent):
     stats: AgentStats
+
 
 class AgentAssignment(BaseModel):
     user_id: int
     agent: Agent
-    assigned_at: datetime
+    assigned_at: UtcDateTime
     assignment_reason: str | None = "auto_assigned"
 
     model_config = ConfigDict(from_attributes=True)
 
-class AgentInteraction(BaseModel):
-    id: int
-    user_id: int
-    agent_id: int
-    interaction_type: str  # chat, call, email, etc.
-    message: str
-    response: str | None = None
-    response_time_seconds: int | None = None
-    user_satisfaction: int | None = None  # 1-5 rating
-    created_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-class AgentPerformanceMetrics(BaseModel):
-    agent_id: int
-    date: datetime
-    user_satisfaction_score: float
-    successful_resolutions: int
-    escalations: int
-    active_users: int
 
 class AgentWorkload(BaseModel):
     agent_id: int
@@ -97,19 +84,6 @@ class AgentWorkload(BaseModel):
     is_available: bool
     queue_length: int
 
-class AgentCapabilities(BaseModel):
-    agent_id: int
-    can_handle_bookings: bool = True
-    can_handle_property_search: bool = True
-    can_handle_visits: bool = True
-    can_handle_complaints: bool = True
-    can_escalate_to_human: bool = True
-    supported_languages: list[str] = ["english"]
-    working_hours: dict[str, Any] = {
-        "start": "09:00",
-        "end": "18:00",
-        "timezone": "UTC"
-    }
 
 # System-level schemas
 class AgentSystemStats(BaseModel):
@@ -126,4 +100,4 @@ class AgentSystemStats(BaseModel):
     occupancy_rate: float
     total_bookings: int
     total_visits: int
-    total_revenue: float
+    total_revenue: Money

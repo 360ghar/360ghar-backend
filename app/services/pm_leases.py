@@ -7,17 +7,59 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import BadRequestException, InsufficientPermissionsError
+from app.core.exceptions import (
+    BadRequestException,
+    BaseAPIException,
+    ConflictException,
+    InsufficientPermissionsError,
+    NotFoundException,
+)
 from app.models.enums import LeaseStatus, UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property
+from app.models.users import User
 from app.schemas.pagination import keyset_filter, trim_keyset_lookahead
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
+from app.services.pm.rent_rules import DEFAULT_GRACE_DAYS, money
 from app.services.pm_authz import (
     Actor,
     assert_can_access_lease,
     assert_can_access_property,
     assert_can_manage_owner_portfolio,
 )
+from app.services.pm_documents import assert_owned_document
+
+# Only these leases can be renewed. Terminated, expired, renewed and draft leases cannot.
+RENEWABLE_LEASE_STATUSES = (LeaseStatus.active, LeaseStatus.expiring_soon)
+UNIQUE_ACTIVE_LEASE_INDEX = "uq_leases_property_active"
+
+
+def _lease_insert_error(exc: IntegrityError) -> BaseAPIException:
+    """Map a failed lease insert. Only the unique active-lease index means "active lease exists"."""
+    if UNIQUE_ACTIVE_LEASE_INDEX in str(exc.orig):
+        return BadRequestException(
+            detail="Property already has an active lease (concurrent conflict)"
+        )
+    return ConflictException(
+        detail="A referenced record is invalid", error_code="LEASE_REFERENCE_INVALID"
+    )
+
+
+def _validate_terms(
+    *,
+    monthly_rent: float | None,
+    security_deposit: float | None,
+    payment_due_day: int | None,
+    grace_period_days: int | None,
+) -> None:
+    if monthly_rent is not None and monthly_rent <= 0:
+        raise BadRequestException(detail="monthly_rent must be > 0")
+    if security_deposit is not None and security_deposit < 0:
+        raise BadRequestException(detail="security_deposit must be >= 0")
+    if payment_due_day is not None and not 1 <= payment_due_day <= 28:
+        raise BadRequestException(detail="payment_due_day must be between 1 and 28")
+    if grace_period_days is not None and grace_period_days < 0:
+        raise BadRequestException(detail="grace_period_days must be >= 0")
 
 
 async def create_lease(
@@ -37,8 +79,8 @@ async def create_lease(
     security_deposit: float,
     late_fee_amount: float | None = None,
     late_fee_percentage: float | None = None,
-    grace_period_days: int = 5,
-    payment_due_day: int = 1,
+    grace_period_days: int | None = None,
+    payment_due_day: int | None = None,
     lease_terms: dict | None = None,
     special_clauses: str | None = None,
     lease_document_id: int | None = None,
@@ -51,14 +93,37 @@ async def create_lease(
 
     if end_date <= start_date:
         raise BadRequestException(detail="end_date must be after start_date")
+    _validate_terms(
+        monthly_rent=monthly_rent,
+        security_deposit=security_deposit,
+        payment_due_day=payment_due_day,
+        grace_period_days=grace_period_days,
+    )
 
-    # Prevent multiple active leases for the same property.
+    # Terms default to the managed property settings. The lease copy is the source for billing.
+    if payment_due_day is None:
+        payment_due_day = int(prop.payment_due_day or 1)
+    if grace_period_days is None:
+        grace_period_days = (
+            int(prop.grace_period_days)
+            if prop.grace_period_days is not None
+            else DEFAULT_GRACE_DAYS
+        )
+
+    if tenant_user_id is not None and await db.get(User, tenant_user_id) is None:
+        raise NotFoundException(detail="Tenant user not found")
+    if lease_document_id is not None:
+        await assert_owned_document(db, document_id=lease_document_id, owner_id=owner_id)
+
+    # Prevent a second occupying lease on the property. An expiring_soon lease still occupies it.
     if status == LeaseStatus.active:
         existing = await db.execute(
-            select(Lease.id).where(
+            select(Lease.id)
+            .where(
                 Lease.property_id == property_id,
-                Lease.status == LeaseStatus.active,
+                Lease.status.in_(OCCUPIED_LEASE_STATUSES),
             )
+            .limit(1)
         )
         if existing.scalar_one_or_none() is not None:
             raise BadRequestException(detail="Property already has an active lease")
@@ -87,8 +152,8 @@ async def create_lease(
         async with db.begin_nested():
             db.add(lease)
             await db.flush()
-    except IntegrityError:
-        raise BadRequestException(detail="Property already has an active lease (concurrent conflict)") from None
+    except IntegrityError as exc:
+        raise _lease_insert_error(exc) from None
     await db.refresh(lease)
 
     # Mark property as managed and set convenience pointers when lease is active.
@@ -105,6 +170,7 @@ async def list_leases(
     db: AsyncSession,
     *,
     actor: Actor,
+    as_tenant: bool = False,
     owner_id: int | None = None,
     property_id: int | None = None,
     tenant_user_id: int | None = None,
@@ -114,7 +180,13 @@ async def list_leases(
     with_total: bool = False,
 ) -> tuple[list[Lease], dict | None, int | None]:
     # Resolve scope
-    if actor.role == UserRole.user.value:
+    if as_tenant:
+        # Leases where the caller is the tenant. Owner and agent scope does not apply.
+        if actor.role != UserRole.user.value:
+            raise InsufficientPermissionsError("Only user role can view as tenant")
+        owner_id = None
+        tenant_user_id = actor.id
+    elif actor.role == UserRole.user.value:
         # Owner list context
         owner_id = actor.id
     elif actor.role == UserRole.agent.value:
@@ -170,6 +242,8 @@ async def upload_signed_lease(
     signed_by_tenant: bool = False,
 ) -> Lease:
     lease = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
+    await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=lease.owner_id)
+    await assert_owned_document(db, document_id=lease_document_id, owner_id=lease.owner_id)
 
     lease.lease_document_id = lease_document_id
     now = datetime.now(timezone.utc)
@@ -192,15 +266,20 @@ async def terminate_lease(
     reason: str | None = None,
 ) -> Lease:
     lease = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
+    await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=lease.owner_id)
 
     # Already terminated or expired - no-op
     if lease.status in {LeaseStatus.terminated, LeaseStatus.expired}:
         return lease
 
     # Only active or expiring_soon leases can be terminated
-    # Draft leases should be deleted, not terminated
+    # Drafts are not terminable and have no delete route yet (be-pm-37).
     # Renewed leases are historical records
-    if lease.status not in {LeaseStatus.active, LeaseStatus.expiring_soon, LeaseStatus.pending_signature}:
+    if lease.status not in {
+        LeaseStatus.active,
+        LeaseStatus.expiring_soon,
+        LeaseStatus.pending_signature,
+    }:
         raise BadRequestException(
             detail=f"Cannot terminate a lease with status '{lease.status.value}'. "
             f"Only active, expiring_soon, or pending_signature leases can be terminated."
@@ -235,20 +314,34 @@ async def renew_lease(
     make_active: bool = False,
 ) -> Lease:
     old = await assert_can_access_lease(db, actor=actor, lease_id=lease_id)
+    await assert_can_manage_owner_portfolio(db, actor=actor, owner_id=old.owner_id)
 
+    if old.status not in RENEWABLE_LEASE_STATUSES:
+        raise BadRequestException(
+            detail=f"Cannot renew a lease with status '{old.status.value}'. "
+            "Only active or expiring_soon leases can be renewed."
+        )
     if end_date <= start_date:
         raise BadRequestException(detail="end_date must be after start_date")
+    _validate_terms(
+        monthly_rent=monthly_rent,
+        security_deposit=security_deposit,
+        payment_due_day=None,
+        grace_period_days=None,
+    )
 
     new_status = LeaseStatus.active if make_active else LeaseStatus.draft
 
     # Prevent creating a second active lease for the same property when renewing
     if new_status == LeaseStatus.active:
         existing_active = await db.execute(
-            select(Lease.id).where(
+            select(Lease.id)
+            .where(
                 Lease.property_id == old.property_id,
-                Lease.status == LeaseStatus.active,
+                Lease.status.in_(OCCUPIED_LEASE_STATUSES),
                 Lease.id != old.id,
             )
+            .limit(1)
         )
         if existing_active.scalar_one_or_none() is not None:
             raise BadRequestException(detail="Property already has another active lease")
@@ -263,8 +356,8 @@ async def renew_lease(
         status=new_status,
         start_date=start_date,
         end_date=end_date,
-        monthly_rent=float(monthly_rent if monthly_rent is not None else old.monthly_rent),
-        security_deposit=float(
+        monthly_rent=money(monthly_rent if monthly_rent is not None else old.monthly_rent),
+        security_deposit=money(
             security_deposit if security_deposit is not None else old.security_deposit
         ),
         late_fee_amount=old.late_fee_amount,
@@ -274,9 +367,16 @@ async def renew_lease(
         lease_terms=old.lease_terms,
         special_clauses=old.special_clauses,
     )
-    db.add(new)
+    # Retire the old lease before the new one can be active: the unique active-lease index.
     old.status = LeaseStatus.renewed
     await db.flush()
+    try:
+        async with db.begin_nested():
+            db.add(new)
+            await db.flush()
+    except IntegrityError as exc:
+        # A concurrent request can add an occupying lease after the pre-check above.
+        raise _lease_insert_error(exc) from None
     await db.refresh(new)
 
     if new_status == LeaseStatus.active:
@@ -288,3 +388,14 @@ async def renew_lease(
             await db.flush()
 
     return new
+
+
+__all__ = [
+    "RENEWABLE_LEASE_STATUSES",
+    "create_lease",
+    "get_lease",
+    "list_leases",
+    "renew_lease",
+    "terminate_lease",
+    "upload_signed_lease",
+]

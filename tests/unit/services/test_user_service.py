@@ -151,6 +151,7 @@ class TestGetOrCreateUserFromSupabase:
         existing = MagicMock()
         existing.id = 1
         existing.is_active = True
+        existing.email = "later@example.com"  # same as the token: no email sync query
         existing.email_verified = False
         existing.phone_verified = False
         existing.is_verified = False
@@ -297,13 +298,13 @@ class TestGetOrCreateUserFromSupabase:
         db.flush = AsyncMock()
         db.refresh = AsyncMock()
 
-        with patch(
-            "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
-        ) as mock_by_sb, patch(
-            "app.services.user.get_user_by_email", new_callable=AsyncMock
-        ) as mock_by_email, patch(
-            "app.services.user.get_user_by_phone", new_callable=AsyncMock
-        ) as mock_by_phone:
+        with (
+            patch(
+                "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
+            ) as mock_by_sb,
+            patch("app.services.user.get_user_by_email", new_callable=AsyncMock) as mock_by_email,
+            patch("app.services.user.get_user_by_phone", new_callable=AsyncMock) as mock_by_phone,
+        ):
             mock_by_sb.return_value = None
             mock_by_email.return_value = None
             mock_by_phone.return_value = None
@@ -358,7 +359,9 @@ class TestEmailLinkedIdentity:
             "user_metadata": {},
         }
 
-        result = await get_or_create_user_from_supabase(db_session, supabase_data)
+        # The stored email is confirmed by its own identity (auth.users).
+        with patch("app.services.user._supabase_confirms_email", new=AsyncMock(return_value=True)):
+            result = await get_or_create_user_from_supabase(db_session, supabase_data)
 
         # Same local row, repointed to the new supabase id.
         assert result.id == existing_id
@@ -468,7 +471,8 @@ class TestEmailLinkedIdentity:
             "user_metadata": {"full_name": "Google User"},
         }
 
-        result = await get_or_create_user_from_supabase(db_session, supabase_data)
+        with patch("app.services.user._supabase_confirms_email", new=AsyncMock(return_value=True)):
+            result = await get_or_create_user_from_supabase(db_session, supabase_data)
 
         assert result.id == existing_id
         assert result.supabase_user_id == new_supabase_id
@@ -518,7 +522,8 @@ class TestEmailLinkedIdentity:
         # Linking by verified email finds B first (B has no phone, so it would
         # try to backfill the colliding phone). We assert it does NOT corrupt
         # the data: B keeps no phone or the flush reconciles without raising.
-        result = await get_or_create_user_from_supabase(db_session, supabase_data)
+        with patch("app.services.user._supabase_confirms_email", new=AsyncMock(return_value=True)):
+            result = await get_or_create_user_from_supabase(db_session, supabase_data)
 
         assert result.id == user_b_id
         assert result.supabase_user_id == new_supabase_id
@@ -578,13 +583,13 @@ class TestEmailLinkedIdentity:
         # finds the row that won the concurrent insert race.
         db.flush.side_effect = [IntegrityError("dup", None, Exception("dup")), None]
 
-        with patch(
-            "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
-        ) as mock_by_sb, patch(
-            "app.services.user.get_user_by_email", new_callable=AsyncMock
-        ) as mock_by_email, patch(
-            "app.services.user.get_user_by_phone", new_callable=AsyncMock
-        ) as mock_by_phone:
+        with (
+            patch(
+                "app.services.user.get_user_by_supabase_id", new_callable=AsyncMock
+            ) as mock_by_sb,
+            patch("app.services.user.get_user_by_email", new_callable=AsyncMock) as mock_by_email,
+            patch("app.services.user.get_user_by_phone", new_callable=AsyncMock) as mock_by_phone,
+        ):
             mock_by_sb.side_effect = [None, None, reconciled]
             mock_by_email.return_value = None
             mock_by_phone.return_value = None
@@ -654,14 +659,16 @@ class TestGetIdentifierStatus:
     async def test_verified_email_with_password_yields_password(self):
         from app.services.user import get_identifier_status
 
-        db = self._fake_db({
-            "id": str(uuid.uuid4()),
-            "email": "known@example.com",
-            "phone": None,
-            "email_confirmed_at": "2025-01-01T00:00:00Z",
-            "phone_confirmed_at": None,
-            "has_password": True,
-        })
+        db = self._fake_db(
+            {
+                "id": str(uuid.uuid4()),
+                "email": "known@example.com",
+                "phone": None,
+                "email_confirmed_at": "2025-01-01T00:00:00Z",
+                "phone_confirmed_at": None,
+                "has_password": True,
+            }
+        )
         result = await get_identifier_status(db, "known@example.com")
 
         assert result == {
@@ -676,14 +683,16 @@ class TestGetIdentifierStatus:
     async def test_verified_phone_with_password_yields_password(self):
         from app.services.user import get_identifier_status
 
-        db = self._fake_db({
-            "id": str(uuid.uuid4()),
-            "email": None,
-            "phone": "+919876543210",
-            "email_confirmed_at": None,
-            "phone_confirmed_at": "2025-01-01T00:00:00Z",
-            "has_password": True,
-        })
+        db = self._fake_db(
+            {
+                "id": str(uuid.uuid4()),
+                "email": None,
+                "phone": "+919876543210",
+                "email_confirmed_at": None,
+                "phone_confirmed_at": "2025-01-01T00:00:00Z",
+                "has_password": True,
+            }
+        )
         result = await get_identifier_status(db, "+919876543210")
 
         assert result == {
@@ -699,14 +708,16 @@ class TestGetIdentifierStatus:
         """OAuth/magic-link user: verified email but no encrypted_password."""
         from app.services.user import get_identifier_status
 
-        db = self._fake_db({
-            "id": str(uuid.uuid4()),
-            "email": "oauth@example.com",
-            "phone": None,
-            "email_confirmed_at": "2025-01-01T00:00:00Z",
-            "phone_confirmed_at": None,
-            "has_password": False,
-        })
+        db = self._fake_db(
+            {
+                "id": str(uuid.uuid4()),
+                "email": "oauth@example.com",
+                "phone": None,
+                "email_confirmed_at": "2025-01-01T00:00:00Z",
+                "phone_confirmed_at": None,
+                "has_password": False,
+            }
+        )
         result = await get_identifier_status(db, "oauth@example.com")
 
         assert result["exists"] is True
@@ -719,14 +730,16 @@ class TestGetIdentifierStatus:
         """Has a password but the matching channel is unconfirmed → otp."""
         from app.services.user import get_identifier_status
 
-        db = self._fake_db({
-            "id": str(uuid.uuid4()),
-            "email": "unverified@example.com",
-            "phone": None,
-            "email_confirmed_at": None,
-            "phone_confirmed_at": None,
-            "has_password": True,
-        })
+        db = self._fake_db(
+            {
+                "id": str(uuid.uuid4()),
+                "email": "unverified@example.com",
+                "phone": None,
+                "email_confirmed_at": None,
+                "phone_confirmed_at": None,
+                "has_password": True,
+            }
+        )
         result = await get_identifier_status(db, "unverified@example.com")
 
         assert result["exists"] is True
@@ -847,7 +860,9 @@ class TestUpdateUser:
             is_active=True,
         )
 
-    def _make_actor(self, *, user_id: int = 2, role: str = UserRole.user.value, agent_id=None) -> User:
+    def _make_actor(
+        self, *, user_id: int = 2, role: str = UserRole.user.value, agent_id=None
+    ) -> User:
         return User(
             id=user_id,
             supabase_user_id=str(uuid.uuid4()),
@@ -880,7 +895,9 @@ class TestUpdateUser:
             mock_get.return_value = target
 
             with pytest.raises(ForbiddenException) as exc_info:
-                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+                await update_user(
+                    db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor
+                )
 
         assert exc_info.value.status_code == 403
         # No flush / commit should have happened for the unauthorized update
@@ -903,9 +920,7 @@ class TestUpdateUser:
 
         with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = target
-            updated = await update_user(
-                db, target.id, UserUpdate(full_name="Renamed"), actor=actor
-            )
+            updated = await update_user(db, target.id, UserUpdate(full_name="Renamed"), actor=actor)
 
         assert updated is target
         assert target.full_name == "Renamed"
@@ -982,7 +997,9 @@ class TestUpdateUser:
         with patch("app.services.user.get_user_by_id", new_callable=AsyncMock) as mock_get:
             mock_get.return_value = target
             with pytest.raises(ForbiddenException):
-                await update_user(db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor)
+                await update_user(
+                    db, target.id, UserUpdate(full_name="Hijack Attempt"), actor=actor
+                )
 
         db.flush.assert_not_awaited()
 
@@ -1073,8 +1090,22 @@ class TestCompleteAppOnboarding:
             )
 
     @pytest.mark.asyncio
-    async def test_ghar360_has_no_onboarding_flow(self):
-        """ghar360 has no auth-level onboarding; completing it must 400."""
+    async def test_ghar_onboarding_is_a_noop(self):
+        """ghar has no auth-level onboarding flow: the call returns the user and writes nothing."""
+        from app.services.user import complete_app_onboarding
+
+        db = AsyncMock(spec=AsyncSession)
+        user = self._make_user()
+
+        result = await complete_app_onboarding(db, user, app="ghar")
+
+        assert result is user
+        db.flush.assert_not_awaited()
+        db.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_retired_ghar360_is_an_unknown_app_slug(self):
+        """ghar360 is retired. As an onboarding slug it is unknown and raises 400."""
         from app.core.exceptions import BadRequestException
         from app.services.user import complete_app_onboarding
 

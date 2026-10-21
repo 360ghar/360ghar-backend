@@ -62,14 +62,6 @@ class TestFlatmatesProfileUpdate:
         data = FlatmatesProfileUpdate(age=age)
         assert data.age == age
 
-    def test_limit_bounds(self):
-        from app.schemas.flatmates import DiscoverProfilesQuery
-
-        with pytest.raises(ValidationError):
-            DiscoverProfilesQuery(limit=0)
-        with pytest.raises(ValidationError):
-            DiscoverProfilesQuery(limit=101)
-
     def test_food_habits_legacy_value_rejected(self):
         # "veg" is a legacy alias, not a canonical FoodHabits member.
         with pytest.raises(ValidationError):
@@ -190,7 +182,7 @@ class TestFlatmatesPeer:
         }
         peer = FlatmatesPeer.model_validate(payload)
         assert peer.age_bucket == "31-35"
-        assert peer.age is None
+        assert "age" not in FlatmatesPeer.model_fields
 
 
 class TestIncomingLikeSummary:
@@ -273,15 +265,20 @@ class TestMessageCreate:
         data = MessageCreate(body="Hi")
         assert data.message_type == MessageType.text
 
-    def test_visit_request_metadata(self):
-        data = MessageCreate(
-            body="Visit requested for afternoon",
-            message_type=MessageType.visit_request,
-            metadata={"visit_id": 42, "status": "scheduled"},
-        )
+    def test_visit_request_message_type_rejected(self):
+        # Clients send only text or image. visit_request and system are server-written.
+        with pytest.raises(ValidationError):
+            MessageCreate(
+                body="Visit requested for afternoon",
+                message_type=MessageType.visit_request,
+                metadata={"visit_id": 42, "status": "scheduled"},
+            )
 
-        assert data.message_type == MessageType.visit_request
-        assert data.metadata == {"visit_id": 42, "status": "scheduled"}
+    def test_image_message_type_accepted(self):
+        data = MessageCreate(
+            attachment_url="https://example.com/a.png", message_type=MessageType.image
+        )
+        assert data.message_type == MessageType.image
 
     def test_message_out_serializes_message_metadata_as_metadata(self):
         data = MessageOut.model_validate(
@@ -313,3 +310,35 @@ class TestQnAAnswers:
     def test_empty_answers_valid(self):
         data = QnAAnswers()
         assert data.answers == {}
+
+
+class TestFlatmateListingAdminStatus:
+    """The admin queue types moderation_status and status as the moderation enum."""
+
+    @staticmethod
+    def _row(**overrides):
+        from datetime import UTC, datetime
+
+        from app.schemas.flatmates_admin import FlatmateListingAdmin
+
+        base = {"id": 1, "created_at": datetime(2026, 10, 1, tzinfo=UTC)}
+        base.update(overrides)
+        return FlatmateListingAdmin(**base)
+
+    def test_accepts_each_moderation_value(self):
+        from app.models.enums import ListingModerationStatus
+
+        for value in ListingModerationStatus:
+            row = self._row(moderation_status=value, status=value)
+            assert row.moderation_status == value
+            assert row.status == value
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("moderation_status", "approved"), ("status", "under_review")],
+    )
+    def test_rejects_a_legacy_value(self, field, value):
+        overrides = {"moderation_status": "live", "status": "live"}
+        overrides[field] = value
+        with pytest.raises(ValidationError):
+            self._row(**overrides)

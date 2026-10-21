@@ -28,7 +28,6 @@ async def test_list_posts_maps_supabase_max_clients_to_503() -> None:
                 q=None,
                 categories=None,
                 tags=None,
-                keywords=None,
                 status=None,
                 page=CursorParams(cursor=None, limit=20, include_total=False),
                 db=db,

@@ -4,22 +4,28 @@ Pydantic schemas for guided capture sessions.
 Phase 0: session CRUD + frame registration stubs.
 Stitch / tour promotion arrives in later phases.
 """
+
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.models.enums import CaptureMode, CaptureSessionStatus, CaptureTrackingBackend
+from app.models.enums import (
+    CaptureMode,
+    CaptureSessionStatus,
+    CaptureTrackingBackend,
+    DevicePlatform,
+)
+from app.schemas.base import NotNullable, PatchModel, UtcDateTime, WriteModel
 
 # ---------------------------------------------------------------------------
-# Nested plan / metadata
+# Nested plan / metadata (write bodies: unknown keys give 422)
 # ---------------------------------------------------------------------------
 
 
-class CaptureWaypointPlan(BaseModel):
+class CaptureWaypointPlan(WriteModel):
     """Planned standing position inside a room."""
 
     id: str
@@ -32,7 +38,7 @@ class CaptureWaypointPlan(BaseModel):
     kind: Literal["center", "mid_wall", "doorway", "grid"] = "center"
 
 
-class CaptureRoomPlan(BaseModel):
+class CaptureRoomPlan(WriteModel):
     """Room in the capture checklist."""
 
     id: str
@@ -42,21 +48,21 @@ class CaptureRoomPlan(BaseModel):
     waypoints: list[CaptureWaypointPlan] = Field(default_factory=list)
 
 
-class CapturePlan(BaseModel):
+class CapturePlan(WriteModel):
     """Full session plan stored on CaptureSession.plan."""
 
     template: str | None = None  # e.g. "1bhk", "2bhk", "custom"
     rooms: list[CaptureRoomPlan] = Field(default_factory=list)
 
 
-class CaptureDeviceInfo(BaseModel):
-    platform: Literal["ios", "android"] | None = None
+class CaptureDeviceInfo(WriteModel):
+    platform: DevicePlatform | None = None
     model: str | None = None
     os_version: str | None = None
     app_version: str | None = None
 
 
-class CapturePose(BaseModel):
+class CapturePose(WriteModel):
     position_m: dict[str, float] | None = None  # {x,y,z}
     position_frame: str = "session_local"
     orientation_quat: dict[str, float] | None = None
@@ -67,18 +73,18 @@ class CapturePose(BaseModel):
     tracking_backend: CaptureTrackingBackend = CaptureTrackingBackend.imu_pdr
 
 
-class CaptureCameraInfo(BaseModel):
+class CaptureCameraInfo(WriteModel):
     intrinsics: dict[str, float] | None = None
     fov_h_deg: float | None = None
     resolution: list[int] | None = None
 
 
-class CaptureQuality(BaseModel):
+class CaptureQuality(WriteModel):
     blur_score: float | None = None
     exposure_ok: bool | None = None
 
 
-class CaptureFrameMetadata(BaseModel):
+class CaptureFrameMetadata(WriteModel):
     """Per-frame metadata attached when registering an uploaded image."""
 
     capture_mode: CaptureMode = CaptureMode.multi_yaw
@@ -95,25 +101,30 @@ class CaptureFrameMetadata(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class CaptureSessionCreate(BaseModel):
+class CaptureSessionCreate(WriteModel):
     title: str = Field(..., min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
     plan: CapturePlan | None = None
     device_info: CaptureDeviceInfo | None = None
 
 
-class CaptureSessionUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
+class CaptureSessionUpdate(PatchModel):
+    """PATCH body. status moves only along the transitions in services.capture.sessions.
+
+    error_message is stored only with a transition to status "failed". In any other
+    request it is ignored, not rejected.
+    """
+
+    title: Annotated[str | None, NotNullable] = Field(default=None, min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=2000)
-    status: CaptureSessionStatus | None = None
-    progress: int | None = Field(default=None, ge=0, le=100)
+    status: Annotated[CaptureSessionStatus | None, NotNullable] = None
+    progress: Annotated[int | None, NotNullable] = Field(default=None, ge=0, le=100)
     plan: CapturePlan | None = None
     device_info: CaptureDeviceInfo | None = None
-    # NOTE: error_message is server-owned (completion / cancellation / stitch
-    # worker) and deliberately NOT in this schema — clients cannot write it.
+    error_message: str | None = Field(default=None, max_length=2000)
 
 
-class CaptureFrameCreate(BaseModel):
+class CaptureFrameCreate(WriteModel):
     """Register a frame that was already uploaded via /upload or presigned."""
 
     room_id: str = Field(..., min_length=1, max_length=64)
@@ -156,7 +167,7 @@ class CaptureFrameResponse(BaseModel):
         default=None,
         validation_alias="frame_metadata",
     )
-    created_at: datetime
+    created_at: UtcDateTime
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -177,26 +188,11 @@ class CaptureSessionResponse(BaseModel):
     tour_id: str | None = None
     error_message: str | None = None
     frame_count: int = 0
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDateTime
+    updated_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class CaptureSessionDetail(CaptureSessionResponse):
     frames: list[CaptureFrameResponse] = Field(default_factory=list)
-
-
-class CaptureSessionStatusResponse(BaseModel):
-    id: str
-    status: CaptureSessionStatus
-    progress: int
-    tour_id: str | None = None
-    error_message: str | None = None
-    frame_count: int = 0
-    message: str | None = None
-
-
-class CaptureSessionListResponse(BaseModel):
-    items: list[CaptureSessionResponse]
-    total: int

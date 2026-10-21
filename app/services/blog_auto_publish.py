@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta, timezone
 from html import escape
 from typing import Any
 from urllib.parse import urlparse
@@ -592,7 +592,7 @@ class DailyPerplexityBlogPublisher:
         )
         for fmt in accepted_formats:
             try:
-                return datetime.strptime(normalized, fmt).date() == today
+                return datetime.strptime(normalized, fmt).replace(tzinfo=UTC).date() == today
             except ValueError:
                 continue
         return False

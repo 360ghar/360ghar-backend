@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import math
 import time
 from collections.abc import Callable
 
 from fastapi import HTTPException, Request, status
-from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.config import settings
 from app.core.cache import get_cache_manager
 from app.core.logging import get_logger
+from app.infrastructure.errors import error_response
 
 logger = get_logger(__name__)
+
 
 class RateLimitMiddleware:
     """Rate limiting middleware using fixed-window counter approach.
@@ -24,17 +27,13 @@ class RateLimitMiddleware:
     deprecation in Starlette 1.0+ and to support streaming responses.
     """
 
-    def __init__(
-        self,
-        app: ASGIApp,
-        calls: int = 100,
-        period: int = 60,
-        scope: str = "global"
-    ):
+    def __init__(self, app: ASGIApp, calls: int = 100, period: int = 60, scope: str = "global"):
         self.app = app
         self.calls = calls
         self.period = period
         self.scope = scope
+        # ponytail: per-process lock keeps get+set atomic within one worker; use an atomic cache INCR if the API runs several instances.
+        self._lock = asyncio.Lock()
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] not in ("http", "websocket"):
@@ -57,9 +56,10 @@ class RateLimitMiddleware:
 
         # Check rate limit
         if not await self.check_rate_limit(client_id, path):
-            response = JSONResponse(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                content={"detail": "Rate limit exceeded"},
+            response = error_response(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "RATE_LIMIT_EXCEEDED",
+                "Rate limit exceeded",
                 headers={
                     "Retry-After": str(self.period),
                     "X-RateLimit-Limit": str(self.calls),
@@ -113,7 +113,6 @@ class RateLimitMiddleware:
         # connect. List them explicitly so new routes can't be silently exempted
         # by an accidental ``/sse`` suffix match.
         sse_paths = {
-            "/api/v1/notifications/sse",
             "/api/v1/agent/chat",
             "/api/v1/agent/chat-public",
         }
@@ -129,29 +128,15 @@ class RateLimitMiddleware:
         if "user_id" in state:
             return f"user:{state['user_id']}"
 
-        # Extract headers from scope
-        headers = dict(scope.get("headers", []))
-        forwarded = headers.get(b"x-forwarded-for", b"").decode("utf-8", errors="ignore")
-        if forwarded:
-            ip = forwarded.split(",")[0].strip()
-        else:
-            client = scope.get("client")
-            ip = client[0] if client else "unknown"
-
-        return f"ip:{ip}"
+        # Same trusted-hop rule as the endpoint limiters (headers only, no body read).
+        return f"ip:{get_client_ip(Request(scope))}"
 
     def get_client_id(self, request: Request) -> str:
         """Get unique client identifier from Request (for EndpointRateLimiter)."""
         if hasattr(request.state, "user_id"):
             return f"user:{request.state.user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0]
-        else:
-            ip = request.client.host if request.client else "unknown"
-
-        return f"ip:{ip}"
+        return f"ip:{get_client_ip(request)}"
 
     async def check_rate_limit(self, client_id: str, path: str) -> bool:
         """Check rate limit using fixed-window counter approach.
@@ -168,27 +153,47 @@ class RateLimitMiddleware:
         current_key = f"rate_limit:{self.scope}:{client_id}:{current_window}"
         previous_key = f"rate_limit:{self.scope}:{client_id}:{previous_window}"
 
-        # Get counts from both windows
-        current_count = await cache.get(current_key) or 0
-        previous_count = await cache.get(previous_key) or 0
+        async with self._lock:
+            # Get counts from both windows
+            current_count = await cache.get(current_key) or 0
+            previous_count = await cache.get(previous_key) or 0
 
-        # Calculate weighted count (previous window contribution decays over time).
-        # Use math.ceil so the previous window is never under-counted due to
-        # integer truncation — without this, a single request in the previous
-        # window is silently dropped when weight < 1.0, allowing the limit to
-        # be exceeded by 1.
-        elapsed_in_window = now % self.period
-        weight = 1.0 - (elapsed_in_window / self.period)
-        estimated_count = math.ceil(previous_count * weight) + current_count
+            # Calculate weighted count (previous window contribution decays over time).
+            # Use math.ceil so the previous window is never under-counted due to
+            # integer truncation — without this, a single request in the previous
+            # window is silently dropped when weight < 1.0, allowing the limit to
+            # be exceeded by 1.
+            elapsed_in_window = now % self.period
+            weight = 1.0 - (elapsed_in_window / self.period)
+            estimated_count = math.ceil(previous_count * weight) + current_count
 
-        if estimated_count >= self.calls:
-            logger.warning("Rate limit exceeded for %s on %s", client_id, path)
-            return False
+            if estimated_count >= self.calls:
+                logger.warning("Rate limit exceeded for %s on %s", client_id, path)
+                return False
 
-        # Increment current window
-        await cache.set(current_key, current_count + 1, ttl=self.period * 2)
+            # Increment current window
+            await cache.set(current_key, current_count + 1, ttl=self.period * 2)
 
         return True
+
+
+def get_client_ip(request: Request) -> str:
+    """Return the client IP, trusting only ``settings.TRUSTED_PROXY_HOPS`` proxies.
+
+    Each trusted proxy appends the address it received the request from to
+    X-Forwarded-For. The client is therefore ``TRUSTED_PROXY_HOPS`` entries from the
+    right. Entries to its left are client-supplied and ignored.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if hops and settings.TRUSTED_PROXY_HOPS > 0:
+            # A chain shorter than the hop count clamps to its leftmost entry.
+            return hops[max(0, len(hops) - settings.TRUSTED_PROXY_HOPS)]
+
+    # X-Real-IP is not trusted: a client can send any value unless the edge overwrites it.
+    return request.client.host if request.client else "unknown"
+
 
 class EndpointRateLimiter:
     """Decorator for endpoint-specific rate limiting"""
@@ -206,7 +211,7 @@ class EndpointRateLimiter:
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded. Max {self.calls} calls per {self.period} seconds",
-                    headers={"Retry-After": str(self.period)}
+                    headers={"Retry-After": str(self.period)},
                 )
 
             return await func(request, *args, **kwargs)
@@ -218,23 +223,14 @@ class EndpointRateLimiter:
         if hasattr(request.state, "user_id") and request.state.user_id:
             return f"user:{request.state.user_id}"
 
-        forwarded = request.headers.get("X-Forwarded-For")
-        if forwarded:
-            ip = forwarded.split(",")[0]
-        else:
-            ip = request.client.host if request.client else "unknown"
-
-        return f"ip:{ip}"
+        return f"ip:{get_client_ip(request)}"
 
     async def check_rate_limit(self, client_id: str, endpoint: str) -> bool:
-        """Check rate limit for specific endpoint"""
+        """Count this call in a fixed window and return False once the window is full.
+
+        ``cache.incr`` is atomic on Redis and in memory, so concurrent calls cannot
+        overshoot the cap, and the window starts at the first call.
+        """
         cache = get_cache_manager()
         key = f"endpoint_limit:{endpoint}:{client_id}"
-
-        count = await cache.get(key) or 0
-
-        if count >= self.calls:
-            return False
-
-        await cache.set(key, count + 1, ttl=self.period)
-        return True
+        return await cache.incr(key, ttl=self.period) <= self.calls

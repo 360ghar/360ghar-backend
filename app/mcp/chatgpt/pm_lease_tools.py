@@ -47,7 +47,7 @@ LEASE_MANAGEMENT_META = build_widget_tool_meta(
 )
 async def owner_leases_list(
     property_id: int | None = None,
-    status: str | None = None,
+    status: LeaseStatus | None = None,
     cursor: str | None = None,
     limit: int = 20,
 ) -> dict[str, Any]:
@@ -56,7 +56,11 @@ async def owner_leases_list(
         from app.services.pm_leases import list_leases
 
         limit = min(max(1, limit), 50)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        # Enum value for the service layer. The cursor binds to these filters: a cursor from
+        # other filters is rejected (INVALID_CURSOR), as in the REST list.
+        lease_status = LeaseStatus(status) if status else None
+        filters = {"property_id": property_id, "status": lease_status}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async with AsyncSessionLocal() as db:
             user = await _get_optional_user(db)
@@ -66,9 +70,6 @@ async def owner_leases_list(
                     action="list_leases",
                     message="To view your leases, please log in to your 360Ghar account.",
                 )
-
-            # Convert status string to LeaseStatus enum for the service layer
-            lease_status = LeaseStatus(status) if status else None
 
             # Get leases for owner's properties (cursor-based pagination)
             rows, next_payload, _total = await list_leases(
@@ -81,27 +82,25 @@ async def owner_leases_list(
                 limit=limit,
             )
 
-            serialized = [_serialize_lease(lease) for lease in rows]
+            serialized = [_serialize_lease(lease, user) for lease in rows]
 
-            # Calculate stats
-            active_count = sum(1 for lease_data in serialized if lease_data["status"] == "active")
-            total_rent = sum(
-                lease_data["monthly_rent"] or 0
-                for lease_data in serialized
-                if lease_data["status"] == "active"
+            # Stats cover every lease in the owner's scope, not this page.
+            from app.mcp.tool_ops.leases import lease_portfolio_stats
+
+            stats = await lease_portfolio_stats(
+                db, property_id=property_id, accessible_owner_ids=[user.id]
             )
+            active_count = stats["active_leases"]
+            total_rent = stats["total_monthly_rent"]
 
             return format_chatgpt_response(
                 data={
                     "leases": serialized,
                     "count": len(serialized),
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "next_cursor": (encode_cursor(next_payload, filters) if next_payload else None),
                     "has_more": next_payload is not None,
                     "limit": limit,
-                    "stats": {
-                        "active_leases": active_count,
-                        "total_monthly_rent": total_rent,
-                    },
+                    "stats": stats,
                 },
                 content_summary=f"You have {len(serialized)} leases. {active_count} active with total monthly rent of ₹{total_rent:,.0f}.",
                 widget_uri=get_widget_for_tool("owner_leases_list"),
@@ -156,7 +155,7 @@ async def owner_leases_get(
                     )
                 raise
 
-            lease_data = _serialize_lease(lease)
+            lease_data = _serialize_lease(lease, user)
 
             return format_chatgpt_response(
                 data={"lease": lease_data},
@@ -237,7 +236,6 @@ async def owner_leases_terminate(
 
             return format_chatgpt_response(
                 data={
-                    "success": True,
                     "lease_id": lease_id,
                     "status": "terminated",
                     "termination_date": termination_date,

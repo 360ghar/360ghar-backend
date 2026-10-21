@@ -20,6 +20,7 @@ app/
 └── middleware/
     ├── security.py                # SecurityHeaders, RequestID, RequestLogging
     ├── rate_limit.py              # RateLimitMiddleware + EndpointRateLimiter
+    ├── body_limit.py              # BodyLimitMiddleware (413 for oversized public upload bodies)
     ├── cache_control.py           # CacheControlMiddleware
     └── trailing_slash.py          # StripTrailingSlashMiddleware
 ```

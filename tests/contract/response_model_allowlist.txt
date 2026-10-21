@@ -1,0 +1,10 @@
+# Routes without a response_model that return a non-JSON body. The test exempts only
+# streaming, file and redirect responses, so these four stay listed. Each line has its reason.
+# Serves the widget bundle as text/html. Justified in handoffs/BE-ai.md (pass B).
+GET /api/v1/agent/widgets/{widget_name}
+# Proxies the CAPTCHA image as image/png. Justified in handoffs/BE-content.md (line 20).
+GET /api/v1/data-hub/jamabandi/captcha
+# Serves the OAuth consent login page as text/html. Justified in handoffs/gate.md.
+GET /api/v1/mcp/oauth/consent
+# Returns the consent page as text/html on errors, and a 303 redirect on success. Justified in handoffs/gate.md.
+POST /api/v1/mcp/oauth/consent

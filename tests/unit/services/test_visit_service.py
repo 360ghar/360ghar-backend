@@ -29,7 +29,7 @@ class TestCreateVisit:
         visit_data = VisitCreate(
             property_id=test_property.id,
             scheduled_date=scheduled,
-            notes="I want to see the property",
+            special_requirements="I want to see the property",
         )
 
         result = await create_visit(db_session, test_user.id, visit_data)
@@ -37,7 +37,7 @@ class TestCreateVisit:
         assert result is not None
         assert result.user_id == test_user.id
         assert result.property_id == test_property.id
-        assert result.status == VisitStatus.scheduled
+        assert result.status == VisitStatus.requested
 
     @pytest.mark.asyncio
     async def test_create_visit_past_date_fails(
@@ -61,6 +61,30 @@ class TestCreateVisit:
 
         assert exc_info.value.status_code == 400
         assert "future" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_create_visit_refuses_a_naive_date(
+        self,
+        db_session: AsyncSession,
+        test_user,
+        test_property,
+    ):
+        """A naive time must not be read as UTC: 10:00 IST would be stored 5h30m late."""
+        from app.schemas.visit import VisitCreate
+        from app.services.visit import create_visit
+
+        # VisitCreate rejects a naive time when built, so build it without validation
+        # to reach the service guard that a future caller could hit.
+        visit_data = VisitCreate.model_construct(
+            property_id=test_property.id,
+            scheduled_date=datetime(2099, 7, 1, 10, 0),
+        )
+
+        with pytest.raises(BadRequestException) as exc_info:
+            await create_visit(db_session, test_user.id, visit_data)
+
+        assert exc_info.value.status_code == 400
+        assert "UTC offset" in str(exc_info.value)
 
 
 class TestGetVisit:
@@ -120,10 +144,10 @@ class TestGetUserVisits:
         from app.services.visit import get_user_visits
 
         scheduled, _next, _total = await get_user_visits(
-            db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.scheduled
+            db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.requested
         )
         assert len(scheduled) == 1
-        assert all(v.status == VisitStatus.scheduled for v in scheduled)
+        assert all(v.status == VisitStatus.requested for v in scheduled)
 
         completed, _next, _total = await get_user_visits(
             db_session, test_user.id, cursor_payload={}, limit=100, status=VisitStatus.completed
@@ -228,7 +252,7 @@ class TestRescheduleVisit:
         result = await reschedule_visit(db_session, test_visit.id, new_date, "New schedule")
 
         assert result is not None
-        assert result.status == VisitStatus.rescheduled
+        assert result.status == VisitStatus.reschedule_suggested
 
     @pytest.mark.asyncio
     async def test_reschedule_visit_past_date_fails(
@@ -243,6 +267,20 @@ class TestRescheduleVisit:
         result = await reschedule_visit(db_session, test_visit.id, past_date)
 
         assert result is None
+
+    @pytest.mark.asyncio
+    async def test_reschedule_visit_refuses_a_naive_date(
+        self,
+        db_session: AsyncSession,
+        test_visit,
+    ):
+        """A naive new time must not be read as UTC."""
+        from app.services.visit import reschedule_visit
+
+        with pytest.raises(BadRequestException) as exc_info:
+            await reschedule_visit(db_session, test_visit.id, datetime(2099, 7, 1, 10, 0))
+
+        assert "UTC offset" in str(exc_info.value)
 
 
 class TestMarkVisitCompleted:
@@ -318,6 +356,8 @@ class TestGetAllVisits:
         """Test getting visits filtered by status."""
         from app.services.visit import get_all_visits
 
-        rows, _next, _total = await get_all_visits(db_session, cursor_payload={}, limit=20, status="scheduled")
+        rows, _next, _total = await get_all_visits(
+            db_session, cursor_payload={}, limit=20, status=VisitStatus.requested
+        )
 
         assert isinstance(rows, list)

@@ -354,35 +354,6 @@
           "response": []
         },
         {
-          "name": "Link OAuth Identity (auth)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/link-identity",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "link-identity"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"provider\": \"google\",\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIs...\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Delete Account (auth)",
           "request": {
             "method": "POST",
@@ -2708,10 +2679,10 @@
                       "description": "Multiple image/document files"
                     },
                     {
-                      "key": "folder",
-                      "value": "property_image",
+                      "key": "folder_type",
+                      "value": "generic",
                       "type": "text",
-                      "description": "Storage folder type"
+                      "description": "Storage folder type. property_image, property_video, property_document and scene return 422 on this route. Use /upload/presigned for them."
                     },
                     {
                       "key": "tour_id",
@@ -2798,7 +2769,7 @@
                 "method": "GET",
                 "header": [],
                 "url": {
-                  "raw": "{{BASE_URL}}/api/v1/upload/media?page=1&page_size=20&folder=&visibility=&is_processed=",
+                  "raw": "{{BASE_URL}}/api/v1/upload/media?limit=20",
                   "host": [
                     "{{BASE_URL}}"
                   ],
@@ -2810,28 +2781,8 @@
                   ],
                   "query": [
                     {
-                      "key": "page",
-                      "value": "1",
-                      "disabled": false
-                    },
-                    {
-                      "key": "page_size",
+                      "key": "limit",
                       "value": "20",
-                      "disabled": false
-                    },
-                    {
-                      "key": "folder",
-                      "value": "",
-                      "disabled": false
-                    },
-                    {
-                      "key": "visibility",
-                      "value": "",
-                      "disabled": false
-                    },
-                    {
-                      "key": "is_processed",
-                      "value": "",
                       "disabled": false
                     }
                   ]
@@ -2880,7 +2831,7 @@
                     "{{test_media_id}}"
                   ]
                 },
-                "description": "Soft-delete a media file. Returns 204 on success."
+                "description": "Delete a media file. Returns 204 on success. A storage failure returns 503 STORAGE_DELETE_FAILED with Retry-After 30 and keeps the row."
               },
               "response": []
             },
@@ -2904,7 +2855,7 @@
                 },
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"visibility\": \"public\",\n  \"is_processed\": true,\n  \"cdn_url\": \"\",\n  \"thumbnail_url\": \"\"\n}",
+                  "raw": "{\n  \"visibility\": \"public\",\n  \"is_processed\": true,\n  \"cdn_url\": null,\n  \"thumbnail_url\": null\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -3224,83 +3175,6 @@
       "description": "Vastu Shastra floor plan analysis endpoints. Public endpoints - no authentication required."
     },
     {
-      "name": "Deep Links",
-      "item": [
-        {
-          "name": "List App Deep Link Configs",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/deeplinks/apps",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "deeplinks",
-                "apps"
-              ]
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Generate Deep Link",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/deeplinks/generate",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "deeplinks",
-                "generate"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"app_key\": \"flatmates\",\n  \"entity\": \"profile\",\n  \"identifier\": \"123\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
-          "name": "Resolve Deep Link",
-          "request": {
-            "method": "GET",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/deeplinks/flatmates/profile/123",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "deeplinks",
-                "flatmates",
-                "profile",
-                "123"
-              ]
-            }
-          },
-          "response": []
-        }
-      ],
-      "response": []
-    },
-    {
       "name": "AI Agent",
       "item": [
         {
@@ -3393,18 +3267,16 @@
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "ws://{{BASE_URL}}/api/v1/ws/{{test_tour_id}}",
+              "raw": "ws://{{BASE_URL}}/ws/user",
               "host": [
                 "ws://{{BASE_URL}}"
               ],
               "path": [
-                "api",
-                "v1",
                 "ws",
-                "{{test_tour_id}}"
+                "user"
               ]
             },
-            "description": "This is a WebSocket endpoint for real-time tour communication.\n\n**Note:** Postman supports WebSocket connections. Use ws:// or wss:// protocol instead of http://.\n\n**Available WebSocket Endpoints:**\n\n1. **Tour Updates:** `ws://{{BASE_URL}}/api/v1/ws/tours/{tour_id}?token={{access_token}}`\n   - Real-time updates for a specific tour\n   - Scene processing status\n   - Hotspot changes (collaborative editing)\n   - AI processing results\n\n2. **Job Updates:** `ws://{{BASE_URL}}/api/v1/ws/jobs/{job_id}?token={{access_token}}`\n   - AI job progress tracking\n   - Progress percentage and status changes\n   - Final results or errors\n\n3. **User Notifications:** `ws://{{BASE_URL}}/api/v1/ws/user?token={{access_token}}`\n   - User-level notifications\n   - AI job completions\n   - Tour updates\n   - System notifications\n\n**Authentication:** Pass the JWT token as a query parameter: `?token={{access_token}}`\n\n**Messages:**\n- Send `ping` to receive `pong` (keep-alive)\n- Server sends heartbeat messages every 30 seconds\n- Job updates: `{\"type\": \"job_update\", \"job_id\": \"...\", \"data\": {...}}`\n- Notifications: `{\"type\": \"notification\", \"data\": {...}}`"
+            "description": "WebSocket endpoints. Connect without a token in the URL.\n\n**Auth (both endpoints):** After the socket opens, send the first text frame: `{\"type\": \"auth\", \"token\": \"<JWT>\"}`. A bad token closes the socket with 4001. Do not reconnect after 4001 or 4004.\n\n**User notifications:** `ws://{{BASE_URL}}/ws/user`. Frame: `{\"type\": \"notification\", \"data\": {\"id\", \"type\", \"title\", \"message\", \"created_at\"}}`.\n\n**AI job progress:** `ws://{{BASE_URL}}/ws/jobs/{job_id}`. Frame: `{\"type\": \"job_update\", \"job_id\": \"...\", \"data\": {\"status\", \"progress\", \"error_message\", \"result\"}}`. One frame per state change. An unknown job closes with 4004.\n\nUse a WebSocket client, not Postman HTTP."
           },
           "response": []
         }

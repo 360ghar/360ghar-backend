@@ -142,11 +142,13 @@ class TestNotifyDeepLinks:
                 conversation_id=42,
             )
             call_kwargs = mock_dispatch.call_args.kwargs
-            assert "chats" in str(call_kwargs.get("deep_link", ""))
+            # The route comes from the deep-link registry, the single source.
+            assert call_kwargs.get("deep_link") == "/flatmates/chat/42"
+            assert "data" not in call_kwargs or not call_kwargs["data"]
             mock_db_session.begin_nested.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_new_match_route(self, mock_db_session):
+    async def test_new_match_has_no_route_until_a_conversation_id_is_passed(self, mock_db_session):
         with patch(
             "app.services.notification_dispatcher.dispatch_notification_to_user",
             new_callable=AsyncMock,
@@ -159,10 +161,11 @@ class TestNotifyDeepLinks:
                 match_id=99,
             )
             call_kwargs = mock_dispatch.call_args.kwargs
-            assert "chats" in str(call_kwargs.get("deep_link", ""))
+            # The chat route takes a conversation id. match_id is not one, so no route is sent.
+            assert call_kwargs.get("deep_link") is None
 
     @pytest.mark.asyncio
-    async def test_listing_approved_route(self, mock_db_session):
+    async def test_listing_approved_has_no_route(self, mock_db_session):
         with patch(
             "app.services.notification_dispatcher.dispatch_notification_to_user",
             new_callable=AsyncMock,
@@ -175,7 +178,8 @@ class TestNotifyDeepLinks:
                 boosted_for_hours=24,
             )
             call_kwargs = mock_dispatch.call_args.kwargs
-            assert "/post" in str(call_kwargs.get("deep_link", ""))
+            # The flatmates app has no /post route, so no deep link is sent.
+            assert call_kwargs.get("deep_link") is None
             assert "boosted for 24 hours" in call_kwargs["body"]
 
     @pytest.mark.asyncio
@@ -207,7 +211,7 @@ class TestNotifyDeepLinks:
             assert event_payload.payload["type_key"] == "flatmate_listing_approved"
 
     @pytest.mark.asyncio
-    async def test_visit_routes(self, mock_db_session):
+    async def test_visit_notifications_have_no_route(self, mock_db_session):
         with patch(
             "app.services.notification_dispatcher.dispatch_notification_to_user",
             new_callable=AsyncMock,
@@ -220,4 +224,5 @@ class TestNotifyDeepLinks:
                 scheduled_date="2025-07-01",
             )
             call_kwargs = mock_dispatch.call_args.kwargs
-            assert "/visits" in str(call_kwargs.get("deep_link", ""))
+            # The flatmates app has no /visits route, so no deep link is sent.
+            assert call_kwargs.get("deep_link") is None

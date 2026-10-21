@@ -1,0 +1,8 @@
+# Known schema drift between app/models and the migrated database.
+# One line per difference: table.column: kind: detail
+# Remove a line when its difference is fixed. Regenerate with:
+#   uv run python scripts/verify_schema_drift.py --write-allowlist
+# Every line needs a one-line reason in the comment directly above it.
+
+# Dead column kept for the user to drop (user data, decisions.md "Columns kept for the user to drop"). The ORM does not map it. The FK stays so a hard user delete still clears the link.
+rental_applications.applicant_user_id: fk: extra_in_db target=users on_delete=SET NULL

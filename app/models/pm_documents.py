@@ -3,11 +3,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
+from app.core.database import Base, db_enum
 from app.models.enums import DocumentType
 
 if TYPE_CHECKING:
@@ -30,28 +29,30 @@ class Document(Base):
         Index("idx_documents_created_at", "created_at"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
     # Portfolio owner / landlord who owns the resource context
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     # Optional user the doc is about (KYC docs for owner/tenant/applicant/etc.)
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     property_id: Mapped[int | None] = mapped_column(
-        ForeignKey("properties.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("properties.id", ondelete="SET NULL"), nullable=True
     )
     lease_id: Mapped[int | None] = mapped_column(
-        ForeignKey("leases.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("leases.id", ondelete="SET NULL"), nullable=True
     )
     maintenance_request_id: Mapped[int | None] = mapped_column(
-        ForeignKey("maintenance_requests.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("maintenance_requests.id", ondelete="SET NULL"), nullable=True
     )
     rental_application_id: Mapped[int | None] = mapped_column(
-        ForeignKey("rental_applications.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("rental_applications.id", ondelete="SET NULL"), nullable=True
     )
 
     document_type: Mapped[DocumentType] = mapped_column(
-        SQLEnum(DocumentType, name="document_type"), nullable=False
+        db_enum(DocumentType, "document_type"), nullable=False
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
 
@@ -64,13 +65,8 @@ class Document(Base):
     shared_with_tenant: Mapped[bool] = mapped_column(Boolean, default=False)
     shared_with_agent: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    replaces_document_id: Mapped[int | None] = mapped_column(
-        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
-    )
-
     created_by_user_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime | None] = mapped_column(
@@ -90,6 +86,3 @@ class Document(Base):
     rental_application: Mapped[RentalApplication | None] = relationship(
         "RentalApplication", back_populates="documents"
     )
-
-    replaces: Mapped[Document | None] = relationship("Document", remote_side=[id])
-

@@ -32,7 +32,7 @@ async def user_client(test_app, test_user):
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     user_schema = UserSchema.model_validate(test_user, from_attributes=True)
 
@@ -69,7 +69,7 @@ async def agent_client(test_app, test_agent_user):
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     user_schema = UserSchema.model_validate(test_agent_user, from_attributes=True)
 
@@ -110,7 +110,7 @@ async def admin_client(test_app, test_admin_user):
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     user_schema = UserSchema.model_validate(test_admin_user, from_attributes=True)
 

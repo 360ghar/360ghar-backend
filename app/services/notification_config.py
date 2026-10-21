@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING, Literal
+
+from app.models.enums import AppKey
 
 
 class NotificationChannel(str, Enum):
@@ -46,9 +49,6 @@ class NotificationTypeConfig:
     allowed_channels: set[NotificationChannel] = field(default_factory=set)
     default_ttl_seconds: int = 24 * 3600
     frequency_cap: FrequencyCap | None = None
-    # Optional key inside users.notification_settings JSON that must be truthy
-    # for this type to be sent on marketing channels.
-    marketing_opt_in_key: str | None = None
 
 
 NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
@@ -152,7 +152,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=5 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=2, per_week=7),
-        marketing_opt_in_key="promotions",
     ),
     "discount_offer": NotificationTypeConfig(
         key="discount_offer",
@@ -166,7 +165,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=3 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=1, per_week=3),
-        marketing_opt_in_key="promotions",
     ),
     "win_back": NotificationTypeConfig(
         key="win_back",
@@ -178,7 +176,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=14 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=1, per_week=2),
-        marketing_opt_in_key="promotions",
     ),
     "upsell_suggestion": NotificationTypeConfig(
         key="upsell_suggestion",
@@ -190,7 +187,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=3 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=3, per_week=10),
-        marketing_opt_in_key="promotions",
     ),
     "onboarding_nudge": NotificationTypeConfig(
         key="onboarding_nudge",
@@ -203,7 +199,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=7 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=1, per_week=3),
-        marketing_opt_in_key="onboarding",
     ),
     "visit_reminder": NotificationTypeConfig(
         key="visit_reminder",
@@ -227,7 +222,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=3 * 24 * 3600,
         frequency_cap=FrequencyCap(per_day=3, per_week=10),
-        marketing_opt_in_key="property_updates",
     ),
     "daily_digest": NotificationTypeConfig(
         key="daily_digest",
@@ -239,7 +233,6 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=48 * 3600,
         frequency_cap=FrequencyCap(per_day=1, per_week=7),
-        marketing_opt_in_key="digest",
     ),
     # Flatmates feature notifications
     "flatmate_new_message": NotificationTypeConfig(
@@ -361,3 +354,27 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         default_ttl_seconds=7 * 24 * 3600,
     ),
 }
+
+# Type keys accepted by the API. Generated from the registry, so a key that is not
+# registered fails validation (422) instead of falling back to another type.
+if TYPE_CHECKING:
+    # Static checkers cannot follow a Literal built at runtime. Accept any str here.
+    NotificationTypeKey = str
+    MarketingTypeKey = str
+else:
+    NotificationTypeKey = Literal[tuple(NOTIFICATION_TYPES)]
+    MarketingTypeKey = Literal[
+        tuple(
+            key
+            for key, cfg in NOTIFICATION_TYPES.items()
+            if cfg.category is NotificationCategory.MARKETING
+        )
+    ]
+
+# Flatmates types go to flatmates devices only. Every other type goes to the ghar app.
+_FLATMATES_TYPE_PREFIX = "flatmate_"
+
+
+def app_key_for_type(type_key: str) -> AppKey:
+    """Return the app whose devices receive a notification of ``type_key``."""
+    return AppKey.flatmates if type_key.startswith(_FLATMATES_TYPE_PREFIX) else AppKey.ghar

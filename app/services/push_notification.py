@@ -20,12 +20,22 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.models.enums import AppKey
+from app.services.deeplinks import get_app
 
 logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _chat_route(identifier: int) -> str:
+    """Flatmates chat route. The path comes from the deep-link registry, the single source."""
+    app = get_app("flatmates")
+    if app is None:  # pragma: no cover - the registry always defines flatmates
+        raise RuntimeError("flatmates app missing from the deep-link registry")
+    return app.https_path("chat", str(identifier))
 
 
 async def _dispatch(
@@ -57,7 +67,7 @@ async def _dispatch(
             "type_key": type_key,
             "title": title,
             "body": body,
-            "route": (data or {}).get("route"),
+            "route": deep_link,
         },
     )
 
@@ -126,6 +136,7 @@ async def send_push_notification(
             title=title,
             body=body,
             data=data,
+            app_key=AppKey.flatmates,
         )
     except Exception:
         logger.warning(
@@ -149,7 +160,7 @@ async def notify_new_message(
 ) -> dict[str, Any]:
     """Notify a user that they received a new chat message.
 
-    Deep-link route: ``/chats/{conversation_id}``
+    Deep-link route: the flatmates chat path from the deep-link registry.
     """
     return await _dispatch(
         db,
@@ -157,8 +168,7 @@ async def notify_new_message(
         type_key="flatmate_new_message",
         title=sender_name,
         body="Sent you a message",
-        data={"route": f"/chats/{conversation_id}"},
-        deep_link=f"/chats/{conversation_id}",
+        deep_link=_chat_route(conversation_id),
     )
 
 
@@ -171,8 +181,8 @@ async def notify_new_match(
 ) -> dict[str, Any]:
     """Notify a user about a new flatmate match.
 
-    Deep-link route: ``/chats/{match_id}`` (the conversation is opened
-    from the match detail).
+    No deep link yet. The chat route needs the conversation id, not match_id.
+    The match detail opens the conversation.
     """
     return await _dispatch(
         db,
@@ -180,8 +190,7 @@ async def notify_new_match(
         type_key="flatmate_new_match",
         title="New Match!",
         body=f"You matched with {peer_name}",
-        data={"route": f"/chats/{match_id}"},
-        deep_link=f"/chats/{match_id}",
+        deep_link=None,
     )
 
 
@@ -195,7 +204,7 @@ async def notify_listing_approved(
 ) -> dict[str, Any]:
     """Notify a listing owner that their flatmate listing was approved.
 
-    Deep-link route: ``/post``
+    No deep link. The flatmates app has no /post route.
     """
     body = f'Your listing "{listing_title}" is now live'
     if boosted_for_hours:
@@ -206,8 +215,7 @@ async def notify_listing_approved(
         type_key="flatmate_listing_approved",
         title="Listing Approved",
         body=body,
-        data={"route": "/post"},
-        deep_link="/post",
+        deep_link=None,
         realtime_publish_immediately=realtime_publish_immediately,
     )
 
@@ -221,7 +229,7 @@ async def notify_visit_scheduled(
 ) -> dict[str, Any]:
     """Notify a user that a visit/meet has been scheduled.
 
-    Deep-link route: ``/visits``
+    No deep link. The flatmates app has no /visits route.
     """
     return await _dispatch(
         db,
@@ -229,8 +237,7 @@ async def notify_visit_scheduled(
         type_key="flatmate_visit_scheduled",
         title="Visit Scheduled",
         body=f"Visit for {property_title} on {scheduled_date}",
-        data={"route": "/visits"},
-        deep_link="/visits",
+        deep_link=None,
     )
 
 
@@ -243,7 +250,7 @@ async def notify_visit_confirmed(
 ) -> dict[str, Any]:
     """Notify a user that a visit/meet has been confirmed.
 
-    Deep-link route: ``/visits``
+    No deep link. The flatmates app has no /visits route.
     """
     return await _dispatch(
         db,
@@ -251,6 +258,5 @@ async def notify_visit_confirmed(
         type_key="flatmate_visit_confirmed",
         title="Visit Confirmed",
         body=f"Visit for {property_title} on {scheduled_date} is confirmed",
-        data={"route": "/visits"},
-        deep_link="/visits",
+        deep_link=None,
     )

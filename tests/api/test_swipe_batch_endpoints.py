@@ -15,7 +15,7 @@ class TestBatchRemoveSwipesEndpoint:
             "app.api.api_v1.endpoints.swipes.batch_unswipe",
             new_callable=AsyncMock,
         ) as mock_batch:
-            mock_batch.return_value = 3
+            mock_batch.return_value = [1, 2, 3]
 
             response = await authenticated_client.post(
                 "/api/v1/swipes/batch-remove",
@@ -26,7 +26,6 @@ class TestBatchRemoveSwipesEndpoint:
             data = response.json()
             assert data["removed_count"] == 3
             assert data["failed_property_ids"] == []
-            assert "3" in data["message"]
             mock_batch.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -35,7 +34,7 @@ class TestBatchRemoveSwipesEndpoint:
             "app.api.api_v1.endpoints.swipes.batch_unswipe",
             new_callable=AsyncMock,
         ) as mock_batch:
-            mock_batch.return_value = 0
+            mock_batch.return_value = []
 
             response = await authenticated_client.post(
                 "/api/v1/swipes/batch-remove",
@@ -46,7 +45,6 @@ class TestBatchRemoveSwipesEndpoint:
             data = response.json()
             assert data["removed_count"] == 0
             assert data["failed_property_ids"] == []
-            assert "0" in data["message"]
 
     @pytest.mark.asyncio
     async def test_batch_remove_unauthorized(self, client: AsyncClient):

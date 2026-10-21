@@ -8,7 +8,14 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from app.models.agents import Agent
-from app.models.enums import AgentType, ExperienceLevel, PropertyPurpose, PropertyType, UserRole
+from app.models.enums import (
+    AgentType,
+    ExperienceLevel,
+    PropertyPurpose,
+    PropertyType,
+    UserRole,
+    VisitStatus,
+)
 from app.models.properties import Property, Visit
 from app.models.users import User
 
@@ -62,7 +69,7 @@ async def admin_client(test_app, admin_user) -> AsyncClient:
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     user_schema = UserSchema.model_validate(admin_user, from_attributes=True)
 
@@ -98,7 +105,7 @@ async def user_client(test_app, regular_user) -> AsyncClient:
         get_current_user,
         get_current_user_optional,
     )
-    from app.schemas.user import User as UserSchema
+    from app.schemas.user import SelfUser as UserSchema
 
     user_schema = UserSchema.model_validate(regular_user, from_attributes=True)
 
@@ -203,7 +210,7 @@ async def agent_with_three_visits(db_session, three_agents) -> tuple[Agent, list
             property_id=prop.id,
             agent_id=agent.id,
             scheduled_date=base_date + timedelta(days=i),
-            status="scheduled",
+            status=VisitStatus.requested,
         )
         db_session.add(visit)
         await db_session.flush()

@@ -22,6 +22,8 @@ async def test_delete_user_account_invalidates_auth_user_cache() -> None:
         new=AsyncMock(),
     ) as invalidate:
         db = AsyncMock()
+        # The unmapped-column lookup reads rows from db.execute(...).all(). None here.
+        db.execute.return_value = MagicMock(all=MagicMock(return_value=[]))
         await delete_user_account(db, user)
 
     invalidate.assert_awaited_once_with("auth-sub-abc")

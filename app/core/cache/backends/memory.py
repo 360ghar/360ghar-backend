@@ -13,6 +13,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.cache.counters import FixedWindowCounters
 from app.core.cache.interface import CacheStats
 from app.core.logging import get_logger
 
@@ -66,6 +67,7 @@ class InMemoryCacheBackend:
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = asyncio.Lock()
         self._max_size = max_size
+        self._counters = FixedWindowCounters()
         self._default_ttl = default_ttl
         self._cleanup_interval = cleanup_interval
         self._max_entry_bytes = max_entry_bytes
@@ -85,6 +87,7 @@ class InMemoryCacheBackend:
     async def disconnect(self) -> None:
         """Stop cleanup task and clear cache."""
         self._available = False
+        self._counters.clear()
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -154,6 +157,13 @@ class InMemoryCacheBackend:
             self.stats.errors += 1
             return False
 
+    async def incr(self, key: str, ttl: int | None = None) -> int:
+        """Add 1 to a counter and return it (fixed window of ``ttl`` s, not extended).
+
+        Counters live apart from the LRU entries, so other cache traffic cannot evict them.
+        """
+        return self._counters.incr(key, ttl if ttl is not None else self._default_ttl)
+
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically get value and delete key under the same lock.
 
@@ -178,6 +188,7 @@ class InMemoryCacheBackend:
     async def delete(self, key: str) -> bool:
         """Delete single key."""
         async with self._lock:
+            self._counters.delete(key)
             if key in self._cache:
                 del self._cache[key]
                 self.stats.deletes += 1
@@ -196,6 +207,8 @@ class InMemoryCacheBackend:
                 del self._cache[key]
                 deleted += 1
 
+        # The counter scan is plain dict work with no await, so it needs no lock.
+        deleted += self._counters.delete_pattern(pattern)
         self.stats.deletes += deleted
         if deleted > 0:
             logger.debug("Pattern delete '%s': %s keys removed", pattern, deleted)
@@ -217,6 +230,7 @@ class InMemoryCacheBackend:
         async with self._lock:
             count = len(self._cache)
             self._cache.clear()
+            self._counters.clear()
         logger.info("In-memory cache cleared: %s entries", count)
         return True
 

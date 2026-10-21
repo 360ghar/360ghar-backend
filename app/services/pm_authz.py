@@ -1,22 +1,25 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import (
+    ForbiddenException,
     InsufficientPermissionsError,
     NotFoundException,
     PropertyNotFoundException,
     UserNotFoundException,
 )
-from app.models.enums import LeaseStatus, UserRole
+from app.models.agents import Agent
+from app.models.enums import UserRole
 from app.models.pm_leases import Lease
 from app.models.properties import Property, PropertyAmenity
 from app.models.users import User
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 
 
 @runtime_checkable
@@ -89,7 +92,8 @@ async def assert_can_access_property(
 
     - Owners can access their properties
     - Agents can access properties of owners assigned to them (users.agent_id)
-    - Tenants (if allow_tenant=True) can access properties they have an active lease for
+    - Tenants (if allow_tenant=True) can access properties they occupy: an active or
+      expiring_soon lease (OCCUPIED_LEASE_STATUSES)
     """
     stmt = (
         select(Property)
@@ -121,11 +125,11 @@ async def assert_can_access_property(
         return prop
 
     if allow_tenant:
-        # Tenant access is granted via active lease.
+        # Tenant access is granted while the lease occupies the unit (active or expiring_soon).
         stmt_lease = select(Lease.id).where(
             Lease.property_id == property_id,
             Lease.tenant_user_id == actor.id,
-            Lease.status == LeaseStatus.active,
+            Lease.status.in_(OCCUPIED_LEASE_STATUSES),
         )
         lease_res = await db.execute(stmt_lease)
         if lease_res.scalar_one_or_none() is not None:
@@ -267,3 +271,39 @@ async def can_access_visit(
             or (owner and owner.agent_id == actor.agent_id)
         )
     return False
+
+
+_RefT = TypeVar("_RefT")
+
+
+async def assert_owned_reference(
+    db: AsyncSession,
+    *,
+    model: type[_RefT],
+    ref_id: int,
+    owner_id: int,
+    label: str,
+    party_attr: str | None = None,
+) -> _RefT:
+    """A row that a PM write stores as a reference must exist (404) and belong to ``owner_id`` (403).
+
+    ``party_attr`` names a second column that may also match ``owner_id``, such as the
+    tenant on a lease. Document uploads use it so a tenant can link their own lease.
+    """
+    row = await db.get(model, ref_id)
+    if row is None:
+        raise NotFoundException(detail=f"{label} not found")
+    if getattr(row, "owner_id", None) == owner_id:
+        return row
+    if party_attr is not None and getattr(row, party_attr, None) == owner_id:
+        return row
+    raise ForbiddenException(detail=f"{label} belongs to another owner")
+
+
+async def assert_assignable_agent(db: AsyncSession, *, agent_id: int, owner_id: int) -> None:
+    """An assigned agent must exist (404) and be the agent linked to ``owner_id`` (403)."""
+    if await db.get(Agent, agent_id) is None:
+        raise NotFoundException(detail="Agent not found")
+    owner = await db.get(User, owner_id)
+    if owner is None or owner.agent_id != agent_id:
+        raise ForbiddenException(detail="Agent is not assigned to this owner")

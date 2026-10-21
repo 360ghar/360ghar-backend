@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
 
 from sqlalchemy import (
     Column,
+    DateTime,
+    Float,
     Integer,
     MetaData,
+    Numeric,
     Table,
     and_,
     bindparam,
-    cast,
-    false,
     func,
-    or_,
     select,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement
@@ -28,10 +25,11 @@ from app.config import settings
 from app.core.cache import PropertyCacheManager
 from app.core.db_resilience import apply_statement_timeout, execute_with_transient_retry
 from app.core.logging import get_logger
-from app.models.enums import PG_FLATMATE_TYPES, BookingStatus
+from app.models.enums import UserRole
 from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
 from app.models.users import User
-from app.schemas.pagination import offset_payload, read_offset
+from app.repositories.property_query_builder import PropertyQueryBuilder
+from app.schemas.pagination import keyset_payload
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
 from app.services.flatmates.compatibility import (
@@ -39,7 +37,8 @@ from app.services.flatmates.compatibility import (
     snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
-from app.utils.geo import city_match_names, escape_like_pattern
+from app.services.property.crud import attach_owner_agents
+from app.services.property.keyset import cursor_kinds, json_key, keyset_after, read_cursor_key
 from app.vector.embedding_client import embed_query
 
 # Columns needed to score property-owner lifestyle compatibility.
@@ -95,103 +94,6 @@ def __dir__() -> list[str]:
     return sorted({*globals().keys(), "property_embeddings_table"})
 
 
-# All users are in India; day boundaries for move-in windows must be
-# computed in IST (UTC+5:30), not UTC, so the server matches the client's
-# local-day semantics (e.g. 00:30 IST is still "today" locally).
-IST_TZ = timezone(timedelta(hours=5, minutes=30), name="Asia/Kolkata")
-
-
-def _day_start(value: datetime, tz: tzinfo = IST_TZ) -> datetime:
-    """Midnight in [tz] for the instant [value]."""
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    value = value.astimezone(tz)
-    return datetime(value.year, value.month, value.day, tzinfo=tz)
-
-
-def _next_month_start(value: datetime) -> datetime:
-    month = value.month + 1
-    year = value.year
-    if month == 13:
-        month = 1
-        year += 1
-    return datetime(year, month, 1, tzinfo=value.tzinfo or timezone.utc)
-
-
-def _months_ahead_start(value: datetime, months: int) -> datetime:
-    """First day of the month [months] months after [value] (calendar-based)."""
-    total = value.month - 1 + months
-    year = value.year + total // 12
-    return datetime(year, total % 12 + 1, 1, tzinfo=value.tzinfo or timezone.utc)
-
-
-def _normalize_move_in_filter(move_in: str | None) -> str | None:
-    if move_in is None:
-        return None
-    value = move_in.strip().lower().replace("-", "_")
-    if value in {"", "all", "any", "anytime", "flexible", "just_exploring"}:
-        return None
-    if value in {"immediate", "immediately", "now"}:
-        return "immediate"
-    if value in {"within_1_week", "one_week", "within_a_week"}:
-        return "within_1_week"
-    if value in {"within_2_weeks", "two_weeks"}:
-        return "within_2_weeks"
-    if value == "this_month":
-        return "this_month"
-    if value in {"within_1_month", "within_a_month"}:
-        return "within_1_month"
-    if value == "next_month":
-        return "next_month"
-    if value in {"within_2_months", "two_months"}:
-        return "within_2_months"
-    if value in {"within_3_months", "three_months"}:
-        return "within_3_months"
-    return None
-
-
-def _move_in_window(
-    move_in: str | None,
-    *,
-    now: datetime | None = None,
-) -> tuple[datetime | None, datetime] | None:
-    normalized = _normalize_move_in_filter(move_in)
-    if normalized is None:
-        return None
-
-    today = _day_start(now or datetime.now(timezone.utc))
-    if normalized == "immediate":
-        return None, today + timedelta(days=8)
-    if normalized == "within_1_week":
-        return None, today + timedelta(days=8)
-    if normalized == "within_2_weeks":
-        return None, today + timedelta(days=15)
-    # Rolling windows ("within N months" = next N*30 days), matching the
-    # client-side matcher. Calendar month-start boundaries collapsed to a few
-    # days late in the month, so they are no longer used for these values.
-    if normalized == "within_1_month":
-        return None, today + timedelta(days=30)
-    if normalized == "within_2_months":
-        return None, today + timedelta(days=60)
-    if normalized == "within_3_months":
-        return None, today + timedelta(days=90)
-    if normalized == "this_month":
-        return None, _next_month_start(today)
-    if normalized == "next_month":
-        start = _next_month_start(today)
-        return start, _next_month_start(start)
-    return None
-
-
-def _available_from_minimum(available_from: str | None) -> datetime | None:
-    if available_from is None or not available_from.strip():
-        return None
-    try:
-        return _day_start(datetime.fromisoformat(available_from.strip()))
-    except ValueError:
-        return None
-
-
 def _property_ts_vector_column() -> ColumnElement[Any]:
     """Return the named table column used for PostgreSQL full-text search."""
     return Property.__table__.c["__ts_vector__"]
@@ -206,17 +108,19 @@ async def get_unified_properties_optimized(
     *,
     with_total: bool = False,
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
-    """Unified property search with comprehensive filtering and geospatial optimization."""
-    skip = read_offset(cursor_payload)
+    """Unified property search with comprehensive filtering and geospatial optimization.
+
+    Pages use a keyset cursor on (sort key(s), id). Rows that are removed between
+    two requests (for example by a swipe) do not shift the next page.
+    """
+    first_page = not cursor_payload
     logger.info(
-        "Searching properties for user %s, offset %s, limit %s, filters: %s",
+        "Searching properties for user %s, limit %s, filters: %s",
         user_id,
-        skip,
         limit,
         filters,
         extra={
             "user_id": user_id,
-            "offset": skip,
             "limit": limit,
             "property_type": [t.value if hasattr(t, "value") else t for t in filters.property_type]
             if filters.property_type
@@ -236,10 +140,15 @@ async def get_unified_properties_optimized(
     )
 
     try:
-        cache_filters = filters.model_dump(exclude_none=True, mode="json")
+        # include_total is part of the key: a page with a total and a page without one
+        # are different responses.
+        cache_filters = {
+            **filters.model_dump(exclude_none=True, mode="json"),
+            "include_total": with_total,
+        }
         cache_user_id = user_id or 0
-        # Only cache unauthenticated first-page results (offset == 0)
-        should_cache = user_id is None and skip == 0
+        # Only cache unauthenticated first-page results
+        should_cache = user_id is None and first_page
         if should_cache:
             cached = await PropertyCacheManager.get_cached_properties(
                 cache_filters, cache_user_id, 1, limit
@@ -249,11 +158,15 @@ async def get_unified_properties_optimized(
                     cached_items = [
                         PropertySchema.model_validate(item) for item in cached.get("items", [])
                     ]
-                    # Return as 3-tuple: (items, next_payload, total)
-                    cached_total = cached.get("total")
+                    # Entries written before the keyset cursor have no "next". Skip them
+                    # when another page exists, so the cursor is never lost.
                     cached_has_more = bool(cached.get("has_more", False))
-                    next_p = offset_payload(limit) if cached_has_more else None
-                    return cached_items[:limit], next_p, cached_total
+                    cached_next = cached.get("next")
+                    if not cached_has_more or cached_next is not None:
+                        # Return as 3-tuple: (items, next_payload, total). total is set only
+                        # when the caller asked for it.
+                        cached_total = cached.get("total") if with_total else None
+                        return cached_items[:limit], cached_next, cached_total
                 except Exception as cache_exc:  # noqa: BLE001
                     logger.warning("Ignoring invalid property search cache: %s", cache_exc)
 
@@ -293,370 +206,18 @@ async def get_unified_properties_optimized(
         # access to current_user.id would raise DetachedInstanceError.
         current_user = await db.get(User, user_id) if user_id else None
         score_compatibility = user_has_lifestyle_profile(current_user)
-        viewer_for_compat = (
-            snapshot_user_for_compat(current_user) if score_compatibility else None
-        )
+        viewer_for_compat = snapshot_user_for_compat(current_user) if score_compatibility else None
         viewer_id = viewer_for_compat.id if viewer_for_compat is not None else None
+        # Read before any retry. Only an admin may list unavailable listings by status.
+        viewer_is_admin = current_user is not None and current_user.role == UserRole.admin
         if score_compatibility:
-            query_options.append(
-                selectinload(Property.owner).load_only(*_OWNER_COMPAT_LOAD_ONLY)
-            )
+            query_options.append(selectinload(Property.owner).load_only(*_OWNER_COMPAT_LOAD_ONLY))
         query = select(Property).options(*query_options)
         count_query = select(func.count(Property.id))
 
-        # Build base conditions
-        conditions: list[Any] = []
-        text_filter_applied = False
-        has_additional_columns = False
-        semantic_enabled = bool(getattr(filters, "semantic_search", False) and filters.search_query)
+        # Semantic search embeds the query first. Any failure falls back to text search.
+        semantic_enabled = bool(filters.semantic_search and filters.search_query)
         semantic_embedding = None
-        vector_distance_expr = None
-        combined_relevance_expr = None
-        text_rank_expr = None
-
-        # Always filter by availability unless explicitly requested
-        if not filters.include_unavailable:
-            conditions.append(Property.is_available)
-            conditions.append(
-                or_(
-                    Property.property_type.notin_(PG_FLATMATE_TYPES),
-                    func.coalesce(
-                        Property.listing_preferences["moderation_status"].as_string(),
-                        "live",
-                    )
-                    == "live",
-                )
-            )
-
-        # Location-based search
-        user_location = None
-        distance = None
-        if filters.latitude is not None and filters.longitude is not None and filters.radius_km:
-            logger.debug(
-                "Adding location filter: %s, %s, radius: %skm",
-                filters.latitude,
-                filters.longitude,
-                filters.radius_km,
-            )
-
-            # Create a point from the user's location, ensuring SRID is set
-            user_location = func.ST_SetSRID(
-                func.ST_MakePoint(filters.longitude, filters.latitude), 4326
-            )
-
-            # Use ST_DWithin for efficient, index-based distance filtering.
-            # ST_DWithin takes distance in meters.
-            radius_m = filters.radius_km * 1000
-            conditions.append(func.ST_DWithin(Property.location, user_location, radius_m))
-
-            # Calculate distance for ordering and display, converting from meters to km.
-            distance = func.ST_Distance(Property.location, user_location) / 1000
-            query = query.add_columns(distance.label("distance_km"))
-            has_additional_columns = True
-
-        # Text search using PostgreSQL full-text search with GIN index.
-        # Uses the pre-computed __ts_vector__ column (with weighted A/B/C ranking)
-        # instead of dynamically building to_tsvector at query time, so the GIN
-        # index is used and search_keywords are included.
-        search_query_obj = None
-        search_vector = None
-        if filters.search_query:
-            logger.debug("Adding full-text search filter: %s", filters.search_query)
-
-            search_query_obj = func.plainto_tsquery("english", filters.search_query)
-            search_vector = _property_ts_vector_column()
-            # Only hard-filter by text match when semantic search is not requested
-            if not semantic_enabled:
-                conditions.append(search_vector.op("@@")(search_query_obj))
-                text_filter_applied = True
-            text_rank_expr = func.ts_rank(search_vector, search_query_obj)
-
-        # Property IDs filter
-        if filters.property_ids:
-            logger.debug("Adding property IDs filter: %s", filters.property_ids)
-            conditions.append(Property.id.in_(filters.property_ids))
-
-        # Property type filter - handle list of property types
-        if filters.property_type:
-            logger.debug("Adding property type filter: %s", filters.property_type)
-            if isinstance(filters.property_type, list) and len(filters.property_type) > 0:
-                conditions.append(Property.property_type.in_(filters.property_type))
-            elif not isinstance(filters.property_type, list):
-                conditions.append(Property.property_type == filters.property_type)
-
-        # Purpose filter
-        if filters.purpose:
-            logger.debug("Adding purpose filter: %s", filters.purpose)
-            conditions.append(Property.purpose == filters.purpose)
-
-        # Price range filters
-        if filters.price_min is not None:
-            logger.debug("Adding min price filter: %s", filters.price_min)
-            conditions.append(Property.base_price >= filters.price_min)
-        if filters.price_max is not None:
-            logger.debug("Adding max price filter: %s", filters.price_max)
-            conditions.append(Property.base_price <= filters.price_max)
-
-        # Bedroom filters
-        if filters.bedrooms_min is not None:
-            logger.debug("Adding min bedrooms filter: %s", filters.bedrooms_min)
-            conditions.append(Property.bedrooms >= filters.bedrooms_min)
-        if filters.bedrooms_max is not None:
-            logger.debug("Adding max bedrooms filter: %s", filters.bedrooms_max)
-            conditions.append(Property.bedrooms <= filters.bedrooms_max)
-
-        # Bathroom filters
-        if filters.bathrooms_min is not None:
-            logger.debug("Adding min bathrooms filter: %s", filters.bathrooms_min)
-            conditions.append(Property.bathrooms >= filters.bathrooms_min)
-        if filters.bathrooms_max is not None:
-            logger.debug("Adding max bathrooms filter: %s", filters.bathrooms_max)
-            conditions.append(Property.bathrooms <= filters.bathrooms_max)
-
-        # Area filters
-        if filters.area_min is not None:
-            logger.debug("Adding min area filter: %s", filters.area_min)
-            conditions.append(Property.area_sqft >= filters.area_min)
-        if filters.area_max is not None:
-            logger.debug("Adding max area filter: %s", filters.area_max)
-            conditions.append(Property.area_sqft <= filters.area_max)
-
-        # Location filters — match canonical city + all aliases that map to it
-        # (e.g. Gurgaon and Gurugram) via OR of filtered LIKE patterns.
-        # "Delhi" still does not match "Gurugram" because they share no alias set.
-        if filters.city:
-            match_names = city_match_names(filters.city)
-            logger.debug(
-                "Adding city filter: names=%s (from: %s)",
-                match_names,
-                filters.city,
-            )
-            city_clauses = [
-                func.lower(Property.city).like(
-                    f"%{escape_like_pattern(name.lower())}%",
-                    escape="\\",
-                )
-                for name in match_names
-            ]
-            if len(city_clauses) == 1:
-                conditions.append(city_clauses[0])
-            elif city_clauses:
-                conditions.append(or_(*city_clauses))
-        if filters.locality:
-            logger.debug("Adding locality filter: %s", filters.locality)
-            escaped_locality = escape_like_pattern(filters.locality)
-            conditions.append(Property.locality.ilike(f"%{escaped_locality}%", escape="\\"))
-        if filters.pincode:
-            logger.debug("Adding pincode filter: %s", filters.pincode)
-            conditions.append(Property.pincode == filters.pincode)
-
-        # Additional filters
-        if filters.parking_spaces_min is not None:
-            logger.debug("Adding min parking spaces filter: %s", filters.parking_spaces_min)
-            conditions.append(Property.parking_spaces >= filters.parking_spaces_min)
-
-        if filters.floor_number_min is not None:
-            logger.debug("Adding min floor number filter: %s", filters.floor_number_min)
-            conditions.append(Property.floor_number >= filters.floor_number_min)
-        if filters.floor_number_max is not None:
-            logger.debug("Adding max floor number filter: %s", filters.floor_number_max)
-            conditions.append(Property.floor_number <= filters.floor_number_max)
-
-        if filters.age_max is not None:
-            logger.debug("Adding max age filter: %s", filters.age_max)
-            conditions.append(Property.age_of_property <= filters.age_max)
-
-        # Amenities filter
-        if filters.amenities:
-            logger.debug("Adding amenities filter: %s", filters.amenities)
-            # Join with PropertyAmenity and Amenity tables
-
-            # Convert amenity names to IDs if needed
-            amenity_ids = []
-            amenity_names = []
-
-            for amenity in filters.amenities:
-                if isinstance(amenity, int) or (isinstance(amenity, str) and amenity.isdigit()):
-                    amenity_ids.append(int(amenity))
-                else:
-                    amenity_names.append(amenity)
-
-            # Get amenity IDs from names if any — case-insensitive matching
-            if amenity_names:
-                amenity_result = await execute_with_transient_retry(
-                    db,
-                    lambda: db.execute(
-                        select(Amenity.id).where(
-                            func.lower(Amenity.title).in_([n.lower() for n in amenity_names])
-                        )
-                    ),
-                    operation_name="property_search_amenity_lookup",
-                )
-                amenity_ids.extend([row[0] for row in amenity_result.fetchall()])
-
-            if amenity_ids:
-                # Subquery to find properties with all required amenities
-                amenity_subquery = (
-                    select(PropertyAmenity.property_id)
-                    .where(PropertyAmenity.amenity_id.in_(amenity_ids))
-                    .group_by(PropertyAmenity.property_id)
-                    .having(func.count(PropertyAmenity.amenity_id) >= len(amenity_ids))
-                )
-                conditions.append(Property.id.in_(amenity_subquery))
-            elif amenity_names and not amenity_ids:
-                # No amenity names resolved to known IDs: the caller asked for an
-                # amenity that doesn't exist. Match nothing instead of silently
-                # dropping the filter and returning all properties.
-                logger.warning("No amenities found for names: %s", amenity_names)
-                conditions.append(false)
-
-        # Flatmates listing enhancement filters
-        if filters.furnishing:
-            logger.debug("Adding furnishing filter: %s", filters.furnishing)
-            conditions.append(Property.furnishing_level.in_(filters.furnishing))
-        if filters.kitchen_type:
-            logger.debug("Adding kitchen type filter: %s", filters.kitchen_type)
-            # 'any' is a client-side sentinel meaning "no kitchen constraint";
-            # no listing stores it, so filtering on it would empty the results.
-            kitchen_values = [v for v in filters.kitchen_type if v != "any"]
-            if kitchen_values:
-                conditions.append(Property.kitchen_type.in_(kitchen_values))
-        if filters.ventilation_type:
-            logger.debug("Adding ventilation type filter: %s", filters.ventilation_type)
-            conditions.append(Property.ventilation_type.in_(filters.ventilation_type))
-        if filters.windows_min is not None:
-            logger.debug("Adding min windows filter: %s", filters.windows_min)
-            conditions.append(Property.windows_count >= filters.windows_min)
-        if filters.has_lift:
-            logger.debug("Adding lift amenity filter")
-            # The seed ships both a 'Lift' and an 'Elevator' amenity row (same
-            # icon); listings tagged with either are lift-equipped.
-            lift_amenity_stmt = (
-                select(Amenity.id)
-                .where(func.lower(Amenity.title).in_(["lift", "elevator"]))
-                .limit(1)
-            )
-            lift_result = await execute_with_transient_retry(
-                db,
-                lambda: db.execute(lift_amenity_stmt),
-                operation_name="property_search_lift_lookup",
-            )
-            lift_amenity_id = lift_result.scalar_one_or_none()
-            if lift_amenity_id is not None:
-                lift_subquery = select(PropertyAmenity.property_id).where(
-                    PropertyAmenity.amenity_id == lift_amenity_id
-                )
-                conditions.append(Property.id.in_(lift_subquery))
-            else:
-                # 'Lift' amenity not seeded: match nothing rather than silently
-                # dropping the filter.
-                logger.warning("Lift amenity not found; has_lift matches nothing")
-                conditions.append(false)
-
-        # Listing preference filters for PG / flatmate use cases
-        listing_preferences_json = cast(Property.listing_preferences, JSONB)
-        if filters.gender_preference is not None:
-            logger.debug(
-                "Adding gender preference filter: %s",
-                filters.gender_preference,
-            )
-            conditions.append(
-                listing_preferences_json["gender_preference"].astext
-                == filters.gender_preference.value
-            )
-
-        if filters.sharing_type is not None:
-            logger.debug("Adding sharing type filter: %s", filters.sharing_type)
-            conditions.append(
-                listing_preferences_json["sharing_type"].astext == filters.sharing_type.value
-            )
-
-        available_from_min = _available_from_minimum(filters.available_from)
-        if available_from_min is not None:
-            logger.debug("Adding available-from lower-bound filter: %s", available_from_min)
-            conditions.append(Property.available_from.is_not(None))
-            conditions.append(Property.available_from >= available_from_min)
-
-        move_in_window = _move_in_window(filters.move_in)
-        if move_in_window is not None:
-            start, end = move_in_window
-            logger.debug("Adding move-in timeline filter: %s to %s", start, end)
-            conditions.append(Property.available_from.is_not(None))
-            if start is not None:
-                conditions.append(Property.available_from >= start)
-            conditions.append(Property.available_from < end)
-
-        # Features filter - support both object and string-array JSON shapes.
-        if filters.features:
-            logger.debug("Adding features filter: %s", filters.features)
-            for feature in filters.features:
-                conditions.append(
-                    or_(
-                        Property.features.op("@>")(cast(json.dumps({feature: True}), JSONB)),
-                        Property.features.op("@>")(cast(json.dumps([feature]), JSONB)),
-                    )
-                )
-
-        # Short stay filters
-        if filters.guests is not None:
-            logger.debug("Adding max occupancy filter for guests: %s", filters.guests)
-            conditions.append(Property.max_occupancy >= filters.guests)
-
-        # Booking availability filtering - exclude properties with conflicting bookings
-        if getattr(filters, "check_in_date", None) and getattr(filters, "check_out_date", None):
-            from datetime import datetime
-
-            from app.models.bookings import Booking
-
-            logger.debug(
-                "Adding availability filter: %s to %s",
-                filters.check_in_date,
-                filters.check_out_date,
-            )
-
-            # Parse date strings if needed
-            check_in = (
-                datetime.fromisoformat(filters.check_in_date)
-                if isinstance(filters.check_in_date, str)
-                else filters.check_in_date
-            )
-            check_out = (
-                datetime.fromisoformat(filters.check_out_date)
-                if isinstance(filters.check_out_date, str)
-                else filters.check_out_date
-            )
-
-            # Subquery to find properties with conflicting confirmed/checked-in bookings
-            # Overlap logic: existing.check_in < requested.check_out AND existing.check_out > requested.check_in
-            booked_properties_subquery = (
-                select(Booking.property_id)
-                .where(
-                    and_(
-                        Booking.booking_status.in_(
-                            [BookingStatus.confirmed, BookingStatus.checked_in]
-                        ),
-                        Booking.check_in_date < check_out,
-                        Booking.check_out_date > check_in,
-                    )
-                )
-                .distinct()
-            )
-
-            # Exclude properties that have conflicting bookings
-            conditions.append(~Property.id.in_(booked_properties_subquery))
-
-        # Optionally exclude properties already swiped by the user if authenticated
-        if user_id and getattr(filters, "exclude_swiped", False):
-            from app.models.users import UserSwipe
-
-            swiped_subquery = select(UserSwipe.property_id).where(
-                UserSwipe.user_id == user_id,
-                UserSwipe.target_type == "property",
-                UserSwipe.property_id.is_not(None),
-            )
-            conditions.append(~Property.id.in_(swiped_subquery))
-
-        # Prepare semantic embedding if requested; fall back to text search on failure
         if semantic_enabled and filters.search_query:
             try:
                 vector_vals = await embed_query(filters.search_query)
@@ -675,14 +236,20 @@ async def get_unified_properties_optimized(
                     "Semantic embedding generation failed, falling back to text search: %s", e
                 )
 
-        if (
-            search_query_obj is not None
-            and search_vector is not None
-            and not text_filter_applied
-            and not semantic_enabled
-        ):
-            conditions.append(search_vector.op("@@")(search_query_obj))
-            text_filter_applied = True
+        # Every property filter comes from the shared builder. The text match is a hard
+        # filter only when semantic search is not in use.
+        conditions, distance, search_meta = await PropertyQueryBuilder(filters).build(
+            db,
+            include_unavailable=filters.include_unavailable,
+            hard_filter_text=not semantic_enabled,
+            viewer_id=user_id,
+            viewer_is_admin=viewer_is_admin,
+        )
+        text_rank_expr = search_meta["text_rank_expr"]
+        combined_relevance_expr = None
+
+        if distance is not None:
+            query = query.add_columns(distance.label("distance_km"))
 
         if semantic_enabled and semantic_embedding:
             # pgvector (and numpy) load lazily here on first semantic search.
@@ -707,21 +274,18 @@ async def get_unified_properties_optimized(
             text_component = (
                 func.coalesce(text_rank_expr, 0.0) if text_rank_expr is not None else 0.0
             )
+            # The combined score orders the results. The API does not return it.
             combined_relevance_expr = (VECTOR_WEIGHT * vector_score_expr) + (
                 TEXT_WEIGHT * text_component
             )
-            query = query.add_columns(
-                vector_distance_expr.label("vector_distance"),
-                combined_relevance_expr.label("relevance_score"),
-            )
-            has_additional_columns = True
 
         # Apply all conditions
         if conditions:
             query = query.where(and_(*conditions))
             count_query = count_query.where(and_(*conditions))
 
-        # Apply sorting - use distance only if location is provided
+        # Apply sorting. Each sort lists its keys. id is the last key, so every row has
+        # a unique position for the keyset cursor.
         sort_by = filters.sort_by
         if semantic_enabled and sort_by in (SortBy.distance, SortBy.newest):
             sort_by = SortBy.relevance
@@ -732,30 +296,45 @@ async def get_unified_properties_optimized(
                 else SortBy.newest
             )
 
+        newest_keys: list[tuple[Any, Any, bool]] = [
+            (Property.created_at, DateTime(timezone=True), True)
+        ]
+        rank_expr = (
+            combined_relevance_expr if combined_relevance_expr is not None else text_rank_expr
+        )
+        sort_keys: list[tuple[Any, Any, bool]]
         if sort_by == SortBy.distance and distance is not None:
-            query = query.order_by(distance)
+            sort_keys = [(distance, Float(), False)]
         elif sort_by == SortBy.price_low:
-            query = query.order_by(Property.base_price.asc())
+            sort_keys = [(Property.base_price, Numeric(), False)]
         elif sort_by == SortBy.price_high:
-            query = query.order_by(Property.base_price.desc())
+            sort_keys = [(Property.base_price, Numeric(), True)]
         elif sort_by == SortBy.newest:
-            query = query.order_by(Property.created_at.desc())
+            sort_keys = newest_keys
         elif sort_by == SortBy.popular:
-            # Sort by like count, then view count
-            query = query.order_by(Property.like_count.desc(), Property.view_count.desc())
-        elif sort_by == SortBy.relevance:
-            if combined_relevance_expr is not None:
-                query = query.order_by(combined_relevance_expr.desc())
-            elif text_rank_expr is not None:
-                query = query.order_by(text_rank_expr.desc())
-            elif search_query_obj is not None and search_vector is not None:
-                fallback_rank = func.ts_rank(search_vector, search_query_obj)
-                query = query.order_by(fallback_rank.desc())
-            else:
-                query = query.order_by(Property.created_at.desc())
+            # Most liked first, then most viewed
+            sort_keys = [
+                (Property.like_count, Integer(), True),
+                (Property.view_count, Integer(), True),
+            ]
+        elif sort_by == SortBy.relevance and rank_expr is not None:
+            sort_keys = [(rank_expr, Float(), True)]
         else:
-            # Default sorting
-            query = query.order_by(Property.created_at.desc())
+            sort_keys = newest_keys
+        id_desc = sort_keys[-1][2]
+
+        # Labelled sort keys come back with each row, so the next cursor can be built.
+        for index, (sort_expr, _sql_type, _desc) in enumerate(sort_keys):
+            query = query.add_columns(sort_expr.label(f"sk{index}"))
+
+        cursor_key = read_cursor_key(cursor_payload, cursor_kinds(sort_keys))
+        if cursor_key is not None:
+            cursor_values, cursor_id = cursor_key
+            query = query.where(keyset_after(sort_keys, id_desc, cursor_values, cursor_id))
+
+        order_terms = [expr.desc() if desc else expr.asc() for expr, _t, desc in sort_keys]
+        order_terms.append(Property.id.desc() if id_desc else Property.id.asc())
+        query = query.order_by(*order_terms)
 
         # Count only when requested (avoids extra query on every page)
         count_total: int | None = None
@@ -768,7 +347,7 @@ async def get_unified_properties_optimized(
             count_total = count_result.scalar()
 
         # Fetch limit+1 to detect has_more
-        query = query.offset(skip).limit(limit + 1)
+        query = query.limit(limit + 1)
 
         result = await execute_with_transient_retry(
             db,
@@ -776,60 +355,46 @@ async def get_unified_properties_optimized(
             operation_name="property_search_query",
         )
 
-        # Build PropertySchema list directly, avoiding ORM attribute corruption
-        # when add_columns() returns Row tuples instead of pure ORM objects.
-        if has_additional_columns:
-            rows = result.all()
-            property_list = []
-            for row in rows:
-                mapping = row._mapping if hasattr(row, "_mapping") else {}
-                prop = mapping.get("Property") or mapping.get(Property)
-                if prop is None:
-                    prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
-                if not prop:
-                    continue
-                schema = PropertySchema.model_validate(prop)
-                if "distance_km" in mapping and mapping["distance_km"] is not None:
-                    schema.distance_km = float(mapping["distance_km"])
-                if "vector_distance" in mapping and mapping["vector_distance"] is not None:
-                    schema.vector_distance = float(mapping["vector_distance"])
-                if "relevance_score" in mapping and mapping["relevance_score"] is not None:
-                    schema.relevance_score = float(mapping["relevance_score"])
-                if score_compatibility and viewer_for_compat is not None:
-                    try:
-                        owner = prop.owner
-                    except Exception:
-                        owner = None
-                    schema.compatibility_score = score_viewer_owner_compatibility(
-                        viewer_for_compat,
-                        owner_id=prop.owner_id,
-                        owner=owner,
-                        viewer_id=viewer_id,
-                    )
-                property_list.append(schema)
-        else:
-            properties = list(result.scalars().all())
-            property_list = []
-            for prop in properties:
-                schema = PropertySchema.model_validate(prop)
-                if score_compatibility and viewer_for_compat is not None:
-                    try:
-                        owner = prop.owner
-                    except Exception:
-                        owner = None
-                    schema.compatibility_score = score_viewer_owner_compatibility(
-                        viewer_for_compat,
-                        owner_id=prop.owner_id,
-                        owner=owner,
-                        viewer_id=viewer_id,
-                    )
-                property_list.append(schema)
+        # Build PropertySchema list from the row mapping: the entity, the computed
+        # columns and the sort keys. The sort keys feed the next cursor.
+        property_list: list[PropertySchema] = []
+        key_values: list[list[Any]] = []
+        for row in result.all():
+            mapping = row._mapping if hasattr(row, "_mapping") else {}
+            prop = mapping.get("Property") or mapping.get(Property)
+            if prop is None:
+                prop = row[0] if isinstance(row, tuple) and len(row) > 0 else row
+            if not prop:
+                continue
+            schema = PropertySchema.model_validate(prop)
+            if mapping.get("distance_km") is not None:
+                schema.distance_km = float(mapping["distance_km"])
+            if score_compatibility and viewer_for_compat is not None:
+                try:
+                    owner = prop.owner
+                except Exception:
+                    owner = None
+                schema.compatibility_score = score_viewer_owner_compatibility(
+                    viewer_for_compat,
+                    owner_id=prop.owner_id,
+                    owner=owner,
+                    viewer_id=viewer_id,
+                )
+            property_list.append(schema)
+            key_values.append([json_key(mapping.get(f"sk{i}")) for i in range(len(sort_keys))])
 
-        # Detect has_more and compute next cursor
+        # Detect has_more and build the next keyset cursor from the last row kept
         has_more = len(property_list) > limit
         if has_more:
             property_list = property_list[:limit]
-        next_payload: dict | None = offset_payload(skip + limit) if has_more else None
+            key_values = key_values[:limit]
+        next_payload: dict | None = (
+            keyset_payload(key_values[-1], property_list[-1].id)
+            if has_more and property_list
+            else None
+        )
+        # The owner-contact fallback needs the agent on every row, cache entries included.
+        await attach_owner_agents(db, property_list)
 
         logger.info(
             "Found %s properties out of %s total",
@@ -838,7 +403,7 @@ async def get_unified_properties_optimized(
             extra={
                 "result_count": len(property_list),
                 "total_count": count_total,
-                "offset": skip,
+                "has_more": next_payload is not None,
                 "limit": limit,
                 "user_id": user_id,
                 "search_query": filters.search_query,
@@ -850,9 +415,10 @@ async def get_unified_properties_optimized(
         if should_cache:
             try:
                 cache_payload = {
-                    "items": [p.model_dump(mode="json") for p in property_list],
+                    "items": [p.cache_payload() for p in property_list],
                     "total": count_total,
                     "has_more": next_payload is not None,
+                    "next": next_payload,
                 }
                 await PropertyCacheManager.cache_properties(
                     cache_filters,
@@ -865,7 +431,7 @@ async def get_unified_properties_optimized(
             except Exception as cache_exc:  # noqa: BLE001
                 logger.warning("Failed to cache property search: %s", cache_exc)
 
-        return property_list, next_payload, count_total
+        return property_list, next_payload, (count_total if with_total else None)
     except Exception as e:
         logger.error("Failed to search properties: %s", e, exc_info=True)
         raise

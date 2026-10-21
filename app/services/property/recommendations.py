@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import DateTime, Integer, case, cast, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.config import settings
 from app.core.cache import get_cache_manager
@@ -15,13 +17,15 @@ from app.core.logging import get_logger
 from app.models.enums import PG_FLATMATE_TYPES
 from app.models.properties import Property, PropertyAmenity
 from app.models.users import User, UserSwipe
-from app.schemas.pagination import offset_payload, read_offset
+from app.schemas.pagination import keyset_payload
 from app.schemas.property import Property as PropertySchema
 from app.services.flatmates.compatibility import (
     score_viewer_owner_compatibility,
     snapshot_user_for_compat,
     user_has_lifestyle_profile,
 )
+from app.services.property.crud import attach_owner_agents
+from app.services.property.keyset import cursor_kinds, json_key, keyset_after, read_cursor_key
 
 _OWNER_COMPAT_LOAD_ONLY = (
     User.id,
@@ -83,8 +87,8 @@ async def get_property_recommendations(
     """
     logger.info("Getting property recommendations for user %s, limit: %s", user_id, limit)
 
-    skip = read_offset(cursor_payload)
-    if user_id is None and skip == 0:
+    first_page = not cursor_payload
+    if user_id is None and first_page:
         try:
             cache = get_cache_manager()
             cached = await cache.get(_anon_cache_key(limit))
@@ -95,14 +99,18 @@ async def get_property_recommendations(
                     # backward-compat: old cache format was a plain list
                     raw_items = cached_data
                     has_more = False
+                    cached_next = None
                 else:
                     raw_items = cached_data.get("items", [])
                     has_more = bool(cached_data.get("has_more", False))
-                items = [PropertySchema.model_validate(p) for p in raw_items]
-                if has_more:
-                    items = items[:limit]
-                nxt = offset_payload(limit) if has_more else None
-                return items, nxt, None
+                    cached_next = cached_data.get("next")
+                # Entries written before the keyset cursor have no "next". Skip them when
+                # another page exists, so the cursor is never lost.
+                if not has_more or cached_next is not None:
+                    items = [PropertySchema.model_validate(p) for p in raw_items]
+                    if has_more:
+                        items = items[:limit]
+                    return items, (cached_next if has_more else None), None
         except Exception:
             logger.debug("Cache read failed for anonymous recommendations; falling back to DB")
 
@@ -128,9 +136,7 @@ async def get_property_recommendations(
         pref_type: str | None = None
         if user_id is not None:
             try:
-                pref_city, pref_locality, pref_type = await _user_preference_signals(
-                    db, user_id
-                )
+                pref_city, pref_locality, pref_type = await _user_preference_signals(db, user_id)
             except Exception as exc:
                 # A failure here must not break the endpoint — log and fall
                 # through to the popularity ordering.
@@ -141,49 +147,41 @@ async def get_property_recommendations(
         # instances and would break later current_user.id / lifestyle access.
         current_user = await db.get(User, user_id) if user_id else None
         score_compatibility = user_has_lifestyle_profile(current_user)
-        viewer_for_compat = (
-            snapshot_user_for_compat(current_user) if score_compatibility else None
-        )
+        viewer_for_compat = snapshot_user_for_compat(current_user) if score_compatibility else None
         viewer_id = viewer_for_compat.id if viewer_for_compat is not None else None
         query_options = [
             selectinload(Property.images),
             selectinload(Property.property_amenities).selectinload(PropertyAmenity.amenity),
         ]
         if score_compatibility:
-            query_options.append(
-                selectinload(Property.owner).load_only(*_OWNER_COMPAT_LOAD_ONLY)
-            )
-        query = (
-            select(Property)
-            .options(*query_options)
-            .where(*base_filters)
-            .offset(skip)
-            .limit(limit + 1)
-        )
+            query_options.append(selectinload(Property.owner).load_only(*_OWNER_COMPAT_LOAD_ONLY))
+        query = select(Property).options(*query_options).where(*base_filters).limit(limit + 1)
 
-        if pref_city or pref_locality or pref_type:
-            # Build an ordered CASE: city match scores 4, locality 2, type 1,
-            # no match 0. The score is the primary sort; popularity is the
-            # tiebreaker; recency is the final tiebreaker. ``coalesce`` lets
-            # us treat absent user signals as "0 contribution" without
-            # per-condition null handling.
-            pref_score = (
-                func.coalesce(case((Property.city == pref_city, 4), else_=0), 0)
-                + func.coalesce(case((Property.locality == pref_locality, 2), else_=0), 0)
-                + func.coalesce(case((Property.property_type == pref_type, 1), else_=0), 0)
-            ).label("pref_score")
-            query = query.add_columns(pref_score).order_by(
-                pref_score.desc(),
-                Property.like_count.desc(),
-                Property.view_count.desc(),
-                Property.created_at.desc(),
-            )
-        else:
-            query = query.order_by(
-                Property.like_count.desc(),
-                Property.view_count.desc(),
-                Property.created_at.desc(),
-            )
+        # Sort keys, then id. The preference score is always the first key, so the cursor
+        # has the same shape for every viewer and every like (it is 0 without a signal).
+        # A CASE scores a city match 4, a locality match 2 and a type match 1.
+        pref_score: ColumnElement[int] = cast(literal(0), Integer)
+        if pref_city:
+            pref_score = pref_score + case((Property.city == pref_city, 4), else_=0)
+        if pref_locality:
+            pref_score = pref_score + case((Property.locality == pref_locality, 2), else_=0)
+        if pref_type:
+            pref_score = pref_score + case((Property.property_type == pref_type, 1), else_=0)
+        rank_keys: list[tuple[Any, Any, bool]] = [(pref_score, Integer(), True)]
+        rank_keys.extend(
+            [
+                (Property.like_count, Integer(), True),
+                (Property.view_count, Integer(), True),
+                (Property.created_at, DateTime(timezone=True), True),
+            ]
+        )
+        for index, (rank_expr, _sql_type, _desc) in enumerate(rank_keys):
+            query = query.add_columns(rank_expr.label(f"sk{index}"))
+        cursor_key = read_cursor_key(cursor_payload, cursor_kinds(rank_keys))
+        if cursor_key is not None:
+            cursor_values, cursor_id = cursor_key
+            query = query.where(keyset_after(rank_keys, True, cursor_values, cursor_id))
+        query = query.order_by(*[expr.desc() for expr, _t, _d in rank_keys], Property.id.desc())
 
         result = await execute_with_transient_retry(
             db,
@@ -192,13 +190,19 @@ async def get_property_recommendations(
         )
         rows = result.all()
         properties = [row[0] for row in rows]
+        key_values = [
+            [json_key(row._mapping[f"sk{i}"]) for i in range(len(rank_keys))] for row in rows
+        ]
 
         logger.info("Found %s recommended properties for user %s", len(properties), user_id)
 
         has_more = len(properties) > limit
         if has_more:
             properties = properties[:limit]
-        next_payload: dict | None = offset_payload(skip + limit) if has_more else None
+            key_values = key_values[:limit]
+        next_payload: dict | None = (
+            keyset_payload(key_values[-1], properties[-1].id) if has_more and properties else None
+        )
 
         schemas = []
         for prop in properties:
@@ -216,13 +220,17 @@ async def get_property_recommendations(
                 )
             schemas.append(schema)
 
+        # The owner-contact fallback needs the agent on every row, cache entries included.
+        await attach_owner_agents(db, schemas)
+
         # Cache anonymous first-page results
-        if user_id is None and skip == 0:
+        if user_id is None and first_page:
             try:
                 cache = get_cache_manager()
                 cache_obj = {
-                    "items": [s.model_dump(mode="json") for s in schemas],
+                    "items": [s.cache_payload() for s in schemas],
                     "has_more": next_payload is not None,
+                    "next": next_payload,
                 }
                 serialized = json.dumps(cache_obj)
                 await cache.set(_anon_cache_key(limit), serialized, ttl=_ANON_CACHE_TTL)

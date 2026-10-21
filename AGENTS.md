@@ -72,7 +72,7 @@ The script tracks applied versions in a `schema_migrations` table, making it ide
 - `app/core/http.py` provides shared `httpx.AsyncClient` singletons (`get_scraper_client()`, `get_blog_client()`, `get_general_client()`, `get_supabase_auth_http_client()`) for connection reuse. Do not create ephemeral `async with httpx.AsyncClient()` per request — use the shared clients with per-request `timeout=` overrides instead.
 - `app/shared/` is reserved for future physical shared packages. Current shared contracts and helpers remain in `app/core`, `app/schemas`, `app/utils`, and endpoint dependencies.
 - `app/config/` is a re-export package; `from app.config import settings` is the canonical import location (delegates to `app/core/config.py`).
-- AI provider abstraction lives in `app/services/ai/` with a factory (`get_ai_provider`) supporting Gemini and GLM providers. All AI features (vastu, tour AI, blog generation) go through this layer with automatic retries and fallback.
+- AI provider abstraction lives in `app/services/ai/` with a factory (`get_ai_provider`) backed by Agnes AI only. Vastu and tour AI go through this layer with automatic exponential-backoff retries, except the Daytona sandbox tour planner (`USE_DAYTONA_SANDBOX`, off by default), which calls Gemini directly inside the sandbox (`app/services/tour_ai/daytona_service.py`) until the Agnes-only decision covers it. There is no provider fallback. Image generation (`app/services/ai/image_gen/`) and the AI agent call Agnes AI directly.
 - Blog SEO fields (meta_title, meta_description, focus_keyword, canonical_url, og_image_url, reading_time_minutes, word_count) are auto-computed from the post title/body when not explicitly provided, via helpers in `app/services/blog.py`.
 
 ## Contributor Requirements

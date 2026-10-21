@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,10 +26,18 @@ from app.models.social import UserReport
 from app.models.users import User
 from app.schemas.flatmates import ListingModerationAction, ReportModerationAction
 from app.schemas.flatmates_admin import (
+    FlatmateListingAdmin,
+    FlatmateReportAdmin,
+    ListingModerationResult,
+    ListingPrescreenResult,
+    ReportModerationResult,
+)
+from app.schemas.flatmates_admin import (
     serialize_flatmate_listing as _serialize_flatmate_listing,
 )
 from app.schemas.flatmates_admin import serialize_report as _serialize_report
 from app.schemas.pagination import (
+    CursorPage,
     CursorParams,
     build_cursor_page,
     keyset_filter,
@@ -88,9 +96,16 @@ async def _dispatch_moderation_notification(
     )
 
 
-@router.get("/moderation/listings", summary="List pending listings")
+@router.get(
+    "/moderation/listings",
+    response_model=CursorPage[FlatmateListingAdmin],
+    summary="List pending listings",
+)
 async def get_pending_listings(
-    status: str = Query(default="pending_review", description="Filter by status"),
+    status: ListingModerationStatus = Query(
+        default=ListingModerationStatus.pending_review,
+        description="Filter by moderation status",
+    ),
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -99,18 +114,24 @@ async def get_pending_listings(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
+    # ponytail: this read writes. The stale-listing pause also runs inline on property browse,
+    # search and recommendations, and no scheduler calls it. Move it to a scheduled job if the
+    # admin queue must never write on read.
     await pause_stale_flatmate_listings(db)
 
-    cursor_payload: dict[str, Any] = page.decoded()
+    filters = {"status": ListingModerationStatus(status).value}
+    cursor_payload: dict[str, Any] = page.decoded(filters)
     base_stmt = (
         select(Property)
         .options(selectinload(Property.images), selectinload(Property.owner))
-        .where(*_flatmate_listing_filters(status))
+        .where(*_flatmate_listing_filters(ListingModerationStatus(status).value))
     )
     count_total: int | None = None
     if page.include_total:
         count_result = await db.execute(
-            select(func.count()).select_from(Property).where(*_flatmate_listing_filters(status))
+            select(func.count())
+            .select_from(Property)
+            .where(*_flatmate_listing_filters(ListingModerationStatus(status).value))
         )
         count_total = count_result.scalar_one()
     predicate = keyset_filter(Property.created_at, Property.id, cursor_payload, descending=False)
@@ -120,20 +141,23 @@ async def get_pending_listings(
     listings = list((await db.execute(stmt)).scalars().all())
     next_payload: dict[str, Any] | None = None
     if len(listings) > page.limit:
-        listings = listings[:page.limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(listings[-1].created_at), listings[-1].id
-        )
+        listings = listings[: page.limit]
+        next_payload = keyset_payload(keyset_sort_value(listings[-1].created_at), listings[-1].id)
 
     return build_cursor_page(
         [_serialize_flatmate_listing(listing) for listing in listings],
         limit=page.limit,
         next_payload=next_payload,
         total=count_total,
+        filters=filters,
     )
 
 
-@router.put("/moderation/listings/{listing_id}", summary="Moderate listing")
+@router.put(
+    "/moderation/listings/{listing_id}",
+    response_model=ListingModerationResult,
+    summary="Moderate listing",
+)
 async def moderate_listing(
     listing_id: int,
     payload: ListingModerationAction,
@@ -171,18 +195,11 @@ async def moderate_listing(
         dict(listing.listing_preferences) if isinstance(listing.listing_preferences, dict) else {}
     )
     moderated_at = datetime.now(timezone.utc)
-    approval_boost_granted = False
     preferences["moderation_status"] = moderation_status
     preferences["moderated_by"] = current_user.id
     preferences["moderated_at"] = moderated_at.isoformat()
     if reason:
         preferences["moderation_reason"] = reason
-    if payload.action == "approve" and not preferences.get("approval_boost_granted_at"):
-        approval_boost_granted = True
-        preferences["first_approved_at"] = moderated_at.isoformat()
-        preferences["approval_boost_granted_at"] = moderated_at.isoformat()
-        preferences["boosted_until"] = (moderated_at + timedelta(hours=24)).isoformat()
-        preferences["boost_reason"] = "first_approval"
     listing.listing_preferences = preferences
 
     await db.commit()
@@ -212,7 +229,6 @@ async def moderate_listing(
             db,
             recipient_db_id=listing.owner_id,
             listing_title=listing.title or "Your listing",
-            boosted_for_hours=24 if approval_boost_granted else None,
             realtime_publish_immediately=True,
         )
     elif payload.action == "reject":
@@ -234,9 +250,13 @@ async def moderate_listing(
     }
 
 
-@router.get("/moderation/reports", summary="List pending reports")
+@router.get(
+    "/moderation/reports",
+    response_model=CursorPage[FlatmateReportAdmin],
+    summary="List pending reports",
+)
 async def get_pending_reports(
-    status: str = Query(default="open", description="Filter by status"),
+    status: UserReportStatus = Query(default=UserReportStatus.open, description="Filter by status"),
     page: CursorParams = Depends(),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -245,7 +265,8 @@ async def get_pending_reports(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    cursor_payload: dict[str, Any] = page.decoded()
+    filters = {"status": UserReportStatus(status).value}
+    cursor_payload: dict[str, Any] = page.decoded(filters)
     base_stmt = select(UserReport).where(UserReport.status == status)
     count_total: int | None = None
     if page.include_total:
@@ -253,22 +274,22 @@ async def get_pending_reports(
             select(func.count()).select_from(UserReport).where(UserReport.status == status)
         )
         count_total = count_result.scalar_one()
-    predicate = keyset_filter(UserReport.created_at, UserReport.id, cursor_payload, descending=False)
+    predicate = keyset_filter(
+        UserReport.created_at, UserReport.id, cursor_payload, descending=False
+    )
     if predicate is not None:
         base_stmt = base_stmt.where(predicate)
-    stmt = base_stmt.order_by(UserReport.created_at.asc(), UserReport.id.asc()).limit(page.limit + 1)
+    stmt = base_stmt.order_by(UserReport.created_at.asc(), UserReport.id.asc()).limit(
+        page.limit + 1
+    )
     reports = list((await db.execute(stmt)).scalars().all())
     next_payload: dict[str, Any] | None = None
     if len(reports) > page.limit:
-        reports = reports[:page.limit]
-        next_payload = keyset_payload(
-            keyset_sort_value(reports[-1].created_at), reports[-1].id
-        )
+        reports = reports[: page.limit]
+        next_payload = keyset_payload(keyset_sort_value(reports[-1].created_at), reports[-1].id)
 
     user_ids = {
-        uid
-        for report in reports
-        for uid in (report.reporter_user_id, report.reported_user_id)
+        uid for report in reports for uid in (report.reporter_user_id, report.reported_user_id)
     }
     user_map: dict[int, User] = {}
     if user_ids:
@@ -280,10 +301,15 @@ async def get_pending_reports(
         limit=page.limit,
         next_payload=next_payload,
         total=count_total,
+        filters=filters,
     )
 
 
-@router.put("/moderation/reports/{report_id}", summary="Moderate report")
+@router.put(
+    "/moderation/reports/{report_id}",
+    response_model=ReportModerationResult,
+    summary="Moderate report",
+)
 async def moderate_report(
     report_id: int,
     payload: ReportModerationAction,
@@ -310,8 +336,10 @@ async def moderate_report(
         ReportAction.escalate: "reviewed",
     }
     report.status = UserReportStatus(report_status_map[ReportAction(payload.action)])
+    report.moderated_by = current_user.id
+    report.moderated_at = datetime.now(timezone.utc)
     if notes:
-        report.notes = notes
+        report.moderator_notes = notes
 
     from app.services.push_notification import _dispatch
 
@@ -378,11 +406,15 @@ async def moderate_report(
         "report_id": report_id,
         "action": action,
         "status": report.status,
-        "notes": notes,
+        "moderator_notes": report.moderator_notes,
     }
 
 
-@router.post("/moderation/prescreen/{listing_id}", summary="Prescreen listing")
+@router.post(
+    "/moderation/prescreen/{listing_id}",
+    response_model=ListingPrescreenResult,
+    summary="Prescreen listing",
+)
 async def prescreen_listing(
     listing_id: int,
     current_user: User = Depends(get_current_active_user),

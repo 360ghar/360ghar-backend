@@ -839,7 +839,7 @@ async def test_visit(db_session, test_user, test_property, test_agent) -> Visit:
         property_obj=test_property,
         agent_id=test_agent.id,
         scheduled_date=datetime.now(timezone.utc) + timedelta(days=3),
-        status=VisitStatus.scheduled,
+        status=VisitStatus.requested,
     )
 
 
@@ -856,7 +856,7 @@ async def test_visits(db_session, test_user, test_property, test_agent) -> list[
 
     visits = []
     statuses = [
-        (VisitStatus.scheduled, 3),
+        (VisitStatus.requested, 3),
         (VisitStatus.confirmed, 5),
         (VisitStatus.completed, -10),  # Past visit
     ]

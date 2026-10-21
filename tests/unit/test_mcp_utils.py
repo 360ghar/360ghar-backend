@@ -15,22 +15,12 @@ from app.mcp.utils import (
     serialize_lease,
     serialize_maintenance_request,
     serialize_property_full,
-    serialize_user_basic,
 )
 
 
 class _EnumLike:
     def __init__(self, value: str):
         self.value = value
-
-
-def test_serialize_property_full_prefers_model_dump_when_available():
-    class PydanticLike:
-        def model_dump(self):
-            return {"id": 10, "kind": "pydantic"}
-
-    serialized = serialize_property_full(PydanticLike())
-    assert serialized == {"id": 10, "kind": "pydantic"}
 
 
 def test_serialize_property_full_handles_property_amenities_with_and_without_wrapper():
@@ -96,7 +86,7 @@ def test_serialize_property_full_handles_property_amenities_with_and_without_wra
     serialized = serialize_property_full(prop)
 
     assert serialized["amenities"][0]["id"] == 11
-    assert serialized["amenities"][0]["title"] == "Gym"
+    assert serialized["amenities"][0]["name"] == "Gym"
     assert serialized["amenities"][1]["id"] == 12
     assert serialized["images"][0]["url"] == "https://example.com/1.jpg"
 
@@ -150,7 +140,7 @@ def test_serialize_lease_maps_new_fields():
         updated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
     )
 
-    serialized = serialize_lease(lease)
+    serialized = serialize_lease(lease, None)
     assert serialized["late_fee_amount"] == 500
     assert serialized["late_fee_percentage"] == 2.5
     assert serialized["terms"] == "No smoking"
@@ -343,7 +333,7 @@ def test_serialize_booking_and_lease_handle_none_enum_and_numeric_fields():
     )
 
     serialized_booking = serialize_booking(booking)
-    serialized_lease = serialize_lease(lease)
+    serialized_lease = serialize_lease(lease, None)
     assert serialized_booking["booking_status"] is None
     assert serialized_booking["total_amount"] == 0.0
     assert serialized_lease["status"] is None
@@ -391,10 +381,3 @@ def test_serialize_maintenance_request_status_mapping_branches(
     serialized = serialize_maintenance_request(req)
     assert serialized["priority"] == "high"
     assert serialized["status"] == expected_status
-
-
-def test_serialize_user_basic_defaults():
-    user = SimpleNamespace(id=1)
-    serialized = serialize_user_basic(user)
-    assert serialized["role"] == "user"
-    assert serialized["full_name"] is None

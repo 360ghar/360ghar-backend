@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.exceptions import BadRequestException
+from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.mcp.admin.agent_tools.common import (
     MCP_SECURITY_SCHEMES_OAUTH2_ONLY,
     AuthRequiredError,
@@ -13,7 +13,6 @@ from app.mcp.admin.agent_tools.common import (
     _require_auth,
     admin_mcp,
     get_db,
-    get_user_role,
     internal_error_response,
     invalid_input_response,
     logger,
@@ -21,8 +20,10 @@ from app.mcp.admin.agent_tools.common import (
     serialize_booking,
 )
 from app.mcp.apps_sdk import build_widget_tool_meta
-from app.models.enums import BookingStatus, UserRole
-from app.schemas.pagination import decode_cursor, encode_cursor
+from app.models.enums import BookingStatus
+from app.schemas.pagination import decode_cursor
+
+BOOKING_STATUS_VALUES = ("confirmed", "checked_in", "checked_out", "cancelled", "completed")
 
 AGENT_BOOKINGS_LIST_META = build_widget_tool_meta(
     widget_uri="ui://widget/visitlistwidget.html",
@@ -44,9 +45,10 @@ AGENT_BOOKINGS_LIST_META = build_widget_tool_meta(
 )
 async def agent_bookings_list_all(
     property_id: int | None = None,
-    status: str | None = None,
+    status: BookingStatus | None = None,
     cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List all bookings for managed properties.
 
@@ -54,11 +56,21 @@ async def agent_bookings_list_all(
         property_id: Filter by property
         status: Filter by booking status
         cursor: Opaque pagination cursor from a prior response's next_cursor
-        limit: Items per page
+        limit: Items per page (1-100)
+        include_total: Set true to get the count of matching bookings
     """
     try:
+        from app.mcp.tool_ops import list_managed_bookings
+        from app.services.pm_authz import get_accessible_owner_ids
+
         limit = min(max(1, limit), 100)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        status_norm = status.lower().strip() if status else None
+        if status_norm is not None and status_norm not in BOOKING_STATUS_VALUES:
+            return invalid_input_response(
+                f"status must be one of: {', '.join(BOOKING_STATUS_VALUES)}"
+            )
+        filters = {"property_id": property_id, "status": status_norm}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async for db in get_db():
             user = await _get_user(db)
@@ -72,38 +84,21 @@ async def agent_bookings_list_all(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
-            from app.services import booking as booking_svc
-
-            user_role = get_user_role(user)
-            filter_agent_id = None
-
-            # Agents can only see bookings for their assigned users/properties
-            if user_role == UserRole.agent and user.agent_id:
-                filter_agent_id = user.agent_id
-
-            rows, next_payload, _total = await booking_svc.get_all_bookings(
+            accessible = await get_accessible_owner_ids(db, actor=user)
+            result = await list_managed_bookings(
                 db,
+                owner_ids=None if accessible is None else list(accessible),
+                property_id=property_id,
+                status=status_norm,
                 cursor_payload=cursor_payload,
                 limit=limit,
-                with_total=False,
-                status=status,
-                filter_agent_id=filter_agent_id,
-                property_id=property_id,
-                user_id=None,
+                filters=filters,
+                include_total=include_total,
             )
-
-            items = [serialize_booking(b) for b in rows]
-
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "bookings": items,
-            }).model_dump()
+            return MCPResponse.success(result).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -112,6 +107,7 @@ async def agent_bookings_list_all(
         logger.error("Error in agent.bookings.list_all: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list bookings: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_bookings_update_status",
@@ -125,10 +121,10 @@ async def agent_bookings_list_all(
 )
 async def agent_bookings_update_status(
     booking_id: int,
-    status: str,
+    status: BookingStatus,
     notes: str | None = None,
 ) -> dict[str, Any]:
-    """Update the status of a booking.
+    """Update the status of a booking on a property the caller can access.
 
     Args:
         booking_id: ID of the booking
@@ -136,9 +132,11 @@ async def agent_bookings_update_status(
         notes: Status update notes
     """
     try:
-        valid_statuses = ['confirmed', 'checked_in', 'checked_out', 'cancelled', 'completed']
-        if status.lower() not in valid_statuses:
-            return invalid_input_response(f"status must be one of: {', '.join(valid_statuses)}")
+        status_norm = status.lower().strip()
+        if status_norm not in BOOKING_STATUS_VALUES:
+            return invalid_input_response(
+                f"status must be one of: {', '.join(BOOKING_STATUS_VALUES)}"
+            )
 
         async for db in get_db():
             user = await _get_user(db)
@@ -152,28 +150,36 @@ async def agent_bookings_update_status(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
-            from app.services import booking as booking_svc
+            from app.mcp.tool_ops import update_booking_status
+            from app.models.bookings import Booking
 
-            booking = await booking_svc.get_booking(db, booking_id)
-            if not booking:
+            result = await update_booking_status(
+                db,
+                actor=user,
+                booking_id=booking_id,
+                status=BookingStatus(status_norm),
+                notes=notes,
+            )
+            if result.get("error"):
                 return not_found_response("Booking", booking_id)
-
-            booking.booking_status = BookingStatus(status.lower())
-            if notes:
-                booking.internal_notes = notes
-            await db.flush()
-            await db.refresh(booking)
-            await db.commit()
-
-            return MCPResponse.success({
-                "message": f"Booking status updated to {status}",
-                "booking": serialize_booking(booking),
-            }).model_dump()
+            booking = await db.get(Booking, booking_id)
+            return MCPResponse.success(
+                {
+                    "message": f"Booking status updated to {status_norm}",
+                    "booking": serialize_booking(booking),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
+    except NotFoundException:
+        return not_found_response("Booking", booking_id)
+    except ForbiddenException as e:
+        return MCPResponse.failure(
+            MCPErrorCode.INSUFFICIENT_PERMISSIONS, str(e.detail)
+        ).model_dump()
     except BadRequestException as e:
         return invalid_input_response(str(e))
     except Exception as e:

@@ -577,7 +577,9 @@ paths:
     get:
       tags: [Conversations]
       summary: Get conversation messages
-      description: Fetch messages for a conversation. Automatically marks unread messages as read.
+      description: >-
+        Fetch messages for a conversation, newest page first, oldest message first within a page.
+        Only the first page (no cursor) marks the peer's messages as read. Cursor pages never change read state.
       operationId: getConversationMessages
       security:
         - BearerAuth: []
@@ -587,28 +589,49 @@ paths:
           required: true
           schema:
             type: integer
-        - name: before
+        - name: cursor
           in: query
           schema:
-            type: integer
-          description: Fetch messages before this message ID (for pagination)
+            type: string
+          description: Opaque cursor from a prior response's next_cursor. Bound to this conversation.
         - name: limit
           in: query
           schema:
             type: integer
             minimum: 1
             maximum: 100
-            default: 50
+            default: 20
           description: Number of messages to return
+        - name: include_total
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: If true, total is the count of all messages in the conversation.
       responses:
         '200':
-          description: List of messages
+          description: One page of messages
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/MessageOut'
+                type: object
+                required: [items, next_cursor, has_more, limit]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MessageOut'
+                  next_cursor:
+                    type: string
+                    nullable: true
+                  has_more:
+                    type: boolean
+                  limit:
+                    type: integer
+                  total:
+                    type: integer
+                    nullable: true
+                    description: Set only when include_total=true; otherwise null.
 
     post:
       tags: [Conversations]
@@ -673,42 +696,6 @@ paths:
       summary: Save Q&A answers
       description: Save guided Q&A answers for a match. Answers are visible to both parties.
       operationId: saveQnAAnswers
-      security:
-        - BearerAuth: []
-      parameters:
-        - name: conversation_id
-          in: path
-          required: true
-          schema:
-            type: integer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/QnAAnswers'
-      responses:
-        '200':
-          description: Q&A answers saved
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: success
-                  match_id:
-                    type: integer
-        '404':
-          $ref: '#/components/responses/NotFound'
-
-  /flatmates/conversations/{conversation_id}/qa:
-    post:
-      tags: [Conversations]
-      summary: Save Q&A answers (short alias)
-      description: Alias for `/flatmates/conversations/{conversation_id}/qna`. Saves guided Q&A answers for a match.
-      operationId: saveQaAnswers
       security:
         - BearerAuth: []
       parameters:
@@ -1502,6 +1489,29 @@ paths:
                     example: Device unregistered successfully
 
   # ===================== BLOCKS & REPORTS =====================
+  /flatmates/unmatch:
+    post:
+      tags: [Blocks & Reports]
+      summary: Unmatch a pair without blocking
+      description: |
+        Unmatch the pair and close their 1:1 conversation. Creates no block.
+      operationId: unmatchPair
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UnmatchPairRequest'
+      responses:
+        '200':
+          description: Pair unmatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchStatusOut'
+
   /flatmates/blocks:
     get:
       tags: [Blocks & Reports]
@@ -1536,8 +1546,11 @@ paths:
       tags: [Blocks & Reports]
       summary: Block a user
       description: |
-        Block a user. This closes any active conversation and prevents future matching.
-        Set `unmatch_only=true` to unmatch without blocking.
+        Block a user. This closes the pair even when it never matched: the match is closed,
+        any conversation is closed, and both users' likes for the pair are deleted.
+        The pair stays closed after the unblock. It reopens only when both users like
+        each other again. An unmatched pair never reopens.
+        To unmatch without blocking, use POST /flatmates/unmatch.
       operationId: blockUser
       security:
         - BearerAuth: []
@@ -1548,18 +1561,12 @@ paths:
             schema:
               $ref: '#/components/schemas/BlockCreate'
       responses:
-        '200':
+        '201':
           description: User blocked
           content:
             application/json:
               schema:
-                oneOf:
-                  - $ref: '#/components/schemas/BlockOut'
-                  - type: object
-                    properties:
-                      message:
-                        type: string
-                        example: Users unmatched successfully
+                $ref: '#/components/schemas/BlockOut'
 
   /flatmates/blocks/{blocked_user_id}:
     delete:
@@ -3153,12 +3160,28 @@ components:
     BlockCreate:
       type: object
       required: [blocked_user_id]
+      additionalProperties: false
       properties:
         blocked_user_id:
           type: integer
-        unmatch_only:
-          type: boolean
-          default: false
+
+    UnmatchPairRequest:
+      type: object
+      required: [peer_user_id]
+      additionalProperties: false
+      properties:
+        peer_user_id:
+          type: integer
+
+    MatchStatusOut:
+      type: object
+      required: [id, status]
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [active, unmatched, blocked]
 
     BlockOut:
       type: object

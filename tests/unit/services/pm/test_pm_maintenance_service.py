@@ -2,7 +2,6 @@
 Tests for PM maintenance service module.
 """
 
-
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,13 +76,14 @@ class TestUpdateMaintenanceRequest:
         test_maintenance_request,
     ):
         """Test updating maintenance request status."""
+        from app.schemas.pm_maintenance import MaintenanceRequestUpdate
         from app.services.pm_maintenance import update_maintenance_request
 
         result = await update_maintenance_request(
             db_session,
             actor=test_user,
             request_id=test_maintenance_request.id,
-            request_status=MaintenanceRequestStatus.in_review,
+            body=MaintenanceRequestUpdate(request_status=MaintenanceRequestStatus.in_review),
         )
 
         assert result is not None
@@ -97,13 +97,14 @@ class TestUpdateMaintenanceRequest:
         test_maintenance_request,
     ):
         """Test updating maintenance request estimated cost."""
+        from app.schemas.pm_maintenance import MaintenanceRequestUpdate
         from app.services.pm_maintenance import update_maintenance_request
 
         result = await update_maintenance_request(
             db_session,
             actor=test_user,
             request_id=test_maintenance_request.id,
-            estimated_cost=2500.0,
+            body=MaintenanceRequestUpdate(estimated_cost=2500.0),
         )
 
         assert result is not None

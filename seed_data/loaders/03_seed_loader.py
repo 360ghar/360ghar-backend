@@ -46,7 +46,6 @@ from app.models.tours import (
     MediaFile,
     Scene,
     Tour,
-    TourBranding,
     TourLocation,
 )
 from app.models.users import User
@@ -160,6 +159,10 @@ async def load_seed_properties(id_map: IDMap, media_urls: dict[str, str]) -> dic
     return {"created": 0, "skipped": 0}
 
 
+# Lease statuses covered by the uq_leases_property_active partial unique index.
+OCCUPYING_LEASE_STATUSES = ("active", "expiring_soon")
+
+
 async def load_all_seed(id_map: IDMap, media_urls: dict[str, str]) -> dict[str, dict[str, int]]:
     """Load all Category 2 seed data in dependency order."""
     results: dict[str, dict[str, int]] = {}
@@ -250,7 +253,6 @@ async def load_all_seed(id_map: IDMap, media_urls: dict[str, str]) -> dict[str, 
     for label, fname, model_cls in [
         ("seed_tour_locations", "10_tour_locations.json", TourLocation),
         ("seed_floor_plans", "11_floor_plans.json", FloorPlan),
-        ("seed_tour_branding", "12_tour_branding.json", TourBranding),
         ("seed_media_files", "13_media_files.json", MediaFile),
         ("seed_ai_jobs", "14_ai_jobs.json", AIJob),
     ]:
@@ -312,17 +314,17 @@ async def load_all_seed(id_map: IDMap, media_urls: dict[str, str]) -> dict[str, 
                         if lease_ref:
                             id_map.put("lease", lease_ref, existing[0].id)
                         continue
-                # Partial unique index uq_leases_property_active only allows
-                # one active lease per property.  If an active lease already
-                # exists for this property, mark the new one as "expired".
-                if prop_id and clean.get("status", "draft") == "active":
-                    active_check = await session.execute(
+                # Partial unique index uq_leases_property_active allows one occupying
+                # (active or expiring_soon) lease per property. A later lease for the
+                # same property is stored as "expired".
+                if prop_id and clean.get("status", "draft") in OCCUPYING_LEASE_STATUSES:
+                    occupied = await session.execute(
                         select(Lease.id).where(
                             Lease.property_id == prop_id,
-                            Lease.status == "active",
+                            Lease.status.in_(OCCUPYING_LEASE_STATUSES),
                         ).limit(1)
                     )
-                    if active_check.first():
+                    if occupied.first():
                         clean["status"] = "expired"
                 record = Lease(**clean)
                 session.add(record)

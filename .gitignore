@@ -189,12 +189,23 @@ blog_verify_full.png
 
 # Disk cache files
 cache/
+!app/core/cache/
 
 # Local audit run artifacts — contain live Supabase admin JWTs and must
 # never be committed. Regenerated on demand by the audit script.
 .audit-tokens.json
 audit_results_*.json
 /tmp/360ghar-audit-*
+
+# Local splat lab datasets & one-off artifacts
+test_clips/
+uploads/
+test_clips/**/*.mp4
+uploads/**/*.mp4
+test_clips/**/*.webm
+uploads/**/*.webm
+ns_help.txt
+test.zip
 
 # Local GS datasets / Modal artifacts (large; not for git)
 data/nerfstudio_images/kitchen_ready/
@@ -204,7 +215,6 @@ data/nerfstudio_images/**/*.splat
 data/nerfstudio_images/**/*.ply
 data/nerfstudio_images/**/*.npy
 data/nerfstudio_images/**/*.ckpt
-data/nerfstudio_images/**/config.yml
 data/.venv_dl/
 data/**/_hf/
 

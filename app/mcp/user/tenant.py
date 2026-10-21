@@ -7,6 +7,7 @@ Tools for tenants to manage their rental experience:
 - Create maintenance request
 - List maintenance requests
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -31,10 +32,12 @@ from app.mcp.tool_ops import (
     get_tenant_current_lease,
     list_maintenance_requests,
 )
+from app.mcp.tool_ops.maintenance import MaintenancePriorityLabel, MaintenanceStatusLabel
 
 # Import the user MCP server instance to register tools
 from app.mcp.user.server import _get_user, _require_auth, user_mcp
 from app.mcp.utils import get_db
+from app.models.enums import MaintenanceCategory
 from app.schemas.pagination import decode_cursor
 
 logger = get_logger(__name__)
@@ -90,6 +93,7 @@ async def tenant_lease_current() -> dict[str, Any]:
             result = await get_tenant_current_lease(
                 db,
                 tenant_user_id=user.id,
+                viewer=user,
             )
 
             return MCPResponse.success(result).model_dump()
@@ -115,6 +119,7 @@ async def tenant_lease_current() -> dict[str, Any]:
 async def tenant_rent_history(
     cursor: str | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """Get rent payment history for the tenant.
 
@@ -134,12 +139,15 @@ async def tenant_rent_history(
                     scope="mcp:read",
                 )
 
-            cursor_payload = decode_cursor(cursor) if cursor else None
+            filters: dict = {}
+            cursor_payload = decode_cursor(cursor, filters) if cursor else None
             result = await get_rent_history(
                 db,
                 tenant_user_id=user.id,
                 cursor_payload=cursor_payload,
                 limit=limit,
+                filters=filters,
+                include_total=include_total,
             )
 
             return MCPResponse.success(result).model_dump()
@@ -166,8 +174,8 @@ async def tenant_maintenance_create(
     property_id: int,
     title: str,
     description: str,
-    category: str,
-    priority: str = "medium",
+    category: MaintenanceCategory,
+    priority: MaintenancePriorityLabel = "medium",
 ) -> dict[str, Any]:
     """Submit a maintenance request for a property you're renting.
 
@@ -209,15 +217,18 @@ async def tenant_maintenance_create(
                 if code == TOOL_OPS_INVALID_INPUT:
                     if "category" in msg.lower():
                         from app.models.enums import MaintenanceCategory
+
                         valid_categories = [c.value for c in MaintenanceCategory]
                         return invalid_input_response(
                             f"Invalid category: {category}.",
                             details={"valid_categories": valid_categories},
                         )
                     if "priority" in msg.lower():
+                        from app.models.enums import PRIORITY_TO_URGENCY
+
                         return invalid_input_response(
                             f"Invalid priority: {priority}.",
-                            details={"valid_priorities": ["low", "medium", "high", "urgent"]},
+                            details={"valid_priorities": list(PRIORITY_TO_URGENCY)},
                         )
                 return internal_error_response(msg)
 
@@ -244,7 +255,8 @@ async def tenant_maintenance_create(
 async def tenant_maintenance_list(
     cursor: str | None = None,
     limit: int = 20,
-    status: str | None = None,
+    status: MaintenanceStatusLabel | None = None,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List maintenance requests submitted by the tenant.
 
@@ -265,13 +277,16 @@ async def tenant_maintenance_list(
                     scope="mcp:read",
                 )
 
-            cursor_payload = decode_cursor(cursor) if cursor else None
+            filters = {"status": status}
+            cursor_payload = decode_cursor(cursor, filters) if cursor else None
             result = await list_maintenance_requests(
                 db,
                 tenant_user_id=user.id,
                 cursor_payload=cursor_payload,
                 limit=limit,
                 status=status,
+                filters=filters,
+                include_total=include_total,
             )
 
             if result.get("error"):
@@ -283,6 +298,10 @@ async def tenant_maintenance_list(
     except AuthRequiredError:
         raise
     except Exception as e:
+        if getattr(e, "error_code", None) == "INVALID_CURSOR":
+            return invalid_input_response(
+                "Invalid cursor for this filter. Start again without a cursor."
+            )
         logger.error("Error in tenant.maintenance.list: %s", e, exc_info=True)
         return internal_error_response("Failed to list maintenance requests.")
     return {}

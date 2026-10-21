@@ -5,6 +5,7 @@ These tests verify the swipe-related API endpoints work correctly.
 They mock the service layer to isolate endpoint testing.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -18,10 +19,10 @@ class TestRecordSwipeEndpoint:
     async def test_record_swipe_like(self, authenticated_client: AsyncClient):
         """Test recording a like swipe."""
         with patch(
-            "app.api.api_v1.endpoints.swipes.record_swipe",
+            "app.api.api_v1.endpoints.swipes.upsert_property_swipe",
             new_callable=AsyncMock,
         ) as mock_swipe:
-            mock_swipe.return_value = True
+            mock_swipe.return_value = (SimpleNamespace(id=7, is_liked=True), True)
 
             response = await authenticated_client.post(
                 "/api/v1/swipes/",
@@ -31,18 +32,17 @@ class TestRecordSwipeEndpoint:
                 },
             )
 
-            assert response.status_code == 200
-            data = response.json()
-            assert "message" in data
+            assert response.status_code == 201
+            assert response.json() == {"id": 7, "property_id": 1, "is_liked": True}
 
     @pytest.mark.asyncio
     async def test_record_swipe_dislike(self, authenticated_client: AsyncClient):
         """Test recording a dislike swipe."""
         with patch(
-            "app.api.api_v1.endpoints.swipes.record_swipe",
+            "app.api.api_v1.endpoints.swipes.upsert_property_swipe",
             new_callable=AsyncMock,
         ) as mock_swipe:
-            mock_swipe.return_value = True
+            mock_swipe.return_value = (SimpleNamespace(id=8, is_liked=False), False)
 
             response = await authenticated_client.post(
                 "/api/v1/swipes/",
@@ -53,8 +53,7 @@ class TestRecordSwipeEndpoint:
             )
 
             assert response.status_code == 200
-            data = response.json()
-            assert "message" in data
+            assert response.json() == {"id": 8, "property_id": 1, "is_liked": False}
 
     @pytest.mark.asyncio
     async def test_record_swipe_unauthorized(self, client: AsyncClient):
@@ -128,7 +127,8 @@ class TestUndoSwipeEndpoint:
 
             response = await authenticated_client.delete("/api/v1/swipes/undo/")
 
-            assert response.status_code == 200
+            assert response.status_code == 204
+            assert response.content == b""
 
     @pytest.mark.asyncio
     async def test_undo_swipe_no_swipes(self, authenticated_client: AsyncClient):
@@ -161,13 +161,12 @@ class TestToggleSwipeEndpoint:
             "app.api.api_v1.endpoints.swipes.toggle_swipe",
             new_callable=AsyncMock,
         ) as mock_toggle:
-            mock_toggle.return_value = {"new_status": True, "property_id": 1}
+            mock_toggle.return_value = {"id": 1, "new_status": True, "property_id": 1}
 
             response = await authenticated_client.put("/api/v1/swipes/1/toggle/")
 
             assert response.status_code == 200
-            data = response.json()
-            assert "message" in data
+            assert response.json() == {"id": 1, "property_id": 1, "is_liked": True}
 
     @pytest.mark.asyncio
     async def test_toggle_swipe_not_found(self, authenticated_client: AsyncClient):

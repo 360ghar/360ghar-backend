@@ -57,7 +57,30 @@ class ClientRegistrationRequest(BaseModel):
         return v
 
 
-@registration_router.post("/mcp/oauth/register", summary="Register OAuth client")
+class ClientRegistrationResponse(BaseModel):
+    """RFC 7591 registration response. Public clients have no client_secret fields."""
+
+    client_id: str
+    client_id_issued_at: int
+    client_name: str
+    redirect_uris: list[str]
+    client_uri: str
+    logo_uri: str
+    contacts: list[str]
+    grant_types: list[str]
+    response_types: list[str]
+    token_endpoint_auth_method: str
+    scope: str
+    client_secret: str | None = None
+    client_secret_expires_at: int | None = None
+
+
+@registration_router.post(
+    "/mcp/oauth/register",
+    response_model=ClientRegistrationResponse,
+    status_code=201,
+    summary="Register OAuth client",
+)
 async def register_client(
     request: Request,
     registration: ClientRegistrationRequest,

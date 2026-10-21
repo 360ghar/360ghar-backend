@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,28 +12,33 @@ from app.core.cache import PropertyCacheManager
 from app.core.exceptions import (
     InsufficientPermissionsError,
     PropertyNotFoundException,
+    PropertyOwnershipError,
+    ValidationException,
 )
 from app.core.logging import get_logger
+from app.mcp.tool_ops.dashboard import compute_portfolio_stats
 from app.mcp.utils import (
     serialize_lease,
     serialize_property_basic,
     serialize_property_full,
-    serialize_user_basic,
 )
-from app.models.enums import LeaseStatus, PropertyPurpose, PropertyType
+from app.models.enums import PropertyPurpose, PropertyType
 from app.models.pm_leases import Lease
 from app.models.properties import PropertyAmenity
 from app.models.users import User as UserModel
 from app.schemas.pagination import encode_cursor
-from app.schemas.property import PropertyCreate
+from app.schemas.property import PropertyCreate, PropertyUpdate
 from app.schemas.user import User as UserSchema
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 from app.services.pm_authz import assert_can_access_property
 from app.services.pm_properties import (
     create_managed_property,
     get_managed_property_detail,
     list_managed_properties,
 )
+from app.services.property import attach_owner_agents, update_property
 from app.services.user import get_user_by_id
+from app.services.visibility import mask_user_ref
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
@@ -65,7 +71,7 @@ async def enrich_properties_with_lease_info(
         lease_stmt = (
             select(Lease.property_id, UserModel.full_name)
             .join(UserModel, UserModel.id == Lease.tenant_user_id)
-            .where(Lease.property_id.in_(property_ids), Lease.status == LeaseStatus.active)
+            .where(Lease.property_id.in_(property_ids), Lease.status.in_(OCCUPIED_LEASE_STATUSES))
         )
         lease_result = await db.execute(lease_stmt)
         for prop_id, tenant_name in lease_result.all():
@@ -102,18 +108,25 @@ async def list_properties_enriched(
     *,
     actor,
     owner_id: int,
-    occupancy: str | None = None,
+    occupancy: Literal["occupied", "vacant"] | None = None,
     q: str | None = None,
     cursor_payload: dict | None = None,
     limit: int = 20,
+    include_total: bool = False,
 ) -> dict:
-    """List managed properties with active-lease enrichment."""
+    """List managed properties with active-lease enrichment.
+
+    ``total`` is the count of matching properties when ``include_total`` is set, else
+    null. ``stats`` covers every property the owner has, not only the page. The cursor
+    is bound to ``occupancy`` and ``q``; see ``list_properties_filters``.
+    """
     limit = min(max(1, limit), 100)
     actor_schema = _user_schema(actor)
     if cursor_payload is None:
         cursor_payload = {}
+    filters = list_properties_filters(owner_id=owner_id, occupancy=occupancy, q=q)
 
-    rows, next_payload, _total = await list_managed_properties(
+    rows, next_payload, total = await list_managed_properties(
         db,
         actor=actor_schema,
         owner_id=owner_id,
@@ -121,18 +134,25 @@ async def list_properties_enriched(
         q=q,
         cursor_payload=cursor_payload,
         limit=limit,
+        with_total=include_total,
     )
 
-    items, stats = await enrich_properties_with_lease_info(db, rows)
+    items, _page_stats = await enrich_properties_with_lease_info(db, rows)
+    stats = await compute_portfolio_stats(db, owner_ids=[owner_id])
 
     return {
         "items": items,
-        "total": len(items),
-        "next_cursor": encode_cursor(next_payload) if next_payload else None,
+        "total": total,
+        "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
         "has_more": next_payload is not None,
         "limit": limit,
         "stats": stats,
     }
+
+
+def list_properties_filters(*, owner_id: int, occupancy: str | None, q: str | None) -> dict:
+    """Cursor filter key for the owner property list. Every caller binds its cursor with this."""
+    return {"owner_id": owner_id, "occupancy": occupancy, "q": q}
 
 
 async def create_property(
@@ -140,8 +160,8 @@ async def create_property(
     *,
     actor,
     owner_id: int,
-    property_type: str,
-    purpose: str,
+    property_type: PropertyType,
+    purpose: PropertyPurpose,
     title: str,
     full_address: str,
     city: str,
@@ -216,7 +236,7 @@ async def create_property(
         floor_number=floor_number,
         total_floors=total_floors,
         max_occupancy=max_occupancy,
-        minimum_stay_days=minimum_stay_days,
+        minimum_stay_days=minimum_stay_days if minimum_stay_days is not None else 1,
         main_image_url=main_image_url,
         virtual_tour_url=virtual_tour_url,
     )
@@ -228,7 +248,11 @@ async def create_property(
         extra["grace_period_days"] = grace_period_days
 
     prop = await create_managed_property(
-        db, actor=actor_schema, owner_id=owner_id, property_data=property_data, **extra  # type: ignore[arg-type]
+        db,
+        actor=actor_schema,
+        owner_id=owner_id,
+        property_data=property_data,
+        **extra,  # type: ignore[arg-type]
     )
 
     # Add amenities if provided
@@ -242,7 +266,7 @@ async def create_property(
 
     return {
         "message": "Property created successfully",
-        "property": serialize_property_full(prop),
+        "property": serialize_property_full(prop, viewer=actor),
     }
 
 
@@ -259,27 +283,37 @@ async def get_property_detail(
     try:
         result = await get_managed_property_detail(db, actor=actor_schema, property_id=property_id)
     except PropertyNotFoundException:
-        return {"error": True, "code": TOOL_OPS_NOT_FOUND, "message": f"Property {property_id} not found."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_NOT_FOUND,
+            "message": f"Property {property_id} not found.",
+        }
     except InsufficientPermissionsError:
-        return {"error": True, "code": TOOL_OPS_FORBIDDEN, "message": "You do not have access to this property."}
+        return {
+            "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
+            "message": "You do not have access to this property.",
+        }
 
     prop = result["property"]
     active_lease = result.get("active_lease")
+    # Non-owners see the assigned agent's number, so the agent must be loaded before masking.
+    await attach_owner_agents(db, [prop])
 
     response = {
-        "property": serialize_property_full(prop),
-        "active_lease": serialize_lease(active_lease) if active_lease else None,
+        "property": serialize_property_full(prop, viewer=actor),
+        "active_lease": serialize_lease(active_lease, actor) if active_lease else None,
     }
 
     if include_owner_tenant:
         if prop.owner_id:
             owner = await get_user_by_id(db, prop.owner_id)
             if owner:
-                response["owner"] = serialize_user_basic(owner)
+                response["owner"] = mask_user_ref(owner, actor, owner_id=prop.owner_id)
         if active_lease and active_lease.tenant_user_id:
             tenant = await get_user_by_id(db, active_lease.tenant_user_id)
             if tenant:
-                response["tenant"] = serialize_user_basic(tenant)
+                response["tenant"] = mask_user_ref(tenant, actor, owner_id=prop.owner_id)
 
     return response
 
@@ -291,23 +325,39 @@ async def update_property_fields(
     property_id: int,
     updates: dict[str, Any],
 ) -> dict:
-    """Update specific fields on a property."""
+    """Update specific fields on a property. Same rules as PUT /properties/{id}: the shared
+    PropertyUpdate field rules, then crud.update_property (access, rent and cache checks)."""
     actor_schema = _user_schema(actor)
+    # None means "not sent" for these callers (the AI agent passes every key), as before.
+    provided = {k: v for k, v in updates.items() if v is not None}
 
-    prop = await assert_can_access_property(db, actor=actor_schema, property_id=property_id)
+    try:
+        body = PropertyUpdate.model_validate(provided)
+    except ValidationError as exc:
+        return {
+            "error": True,
+            "code": TOOL_OPS_INVALID_INPUT,
+            "message": exc.errors()[0].get("msg", "Invalid input"),
+        }
 
-    for field, value in updates.items():
-        if value is not None:
-            setattr(prop, field, value)
+    try:
+        prop = await update_property(db, property_id, body, actor_schema)
+    except PropertyNotFoundException:
+        return {
+            "error": True,
+            "code": TOOL_OPS_NOT_FOUND,
+            "message": f"Property {property_id} not found.",
+        }
+    except (InsufficientPermissionsError, PropertyOwnershipError):
+        return {
+            "error": True,
+            "code": TOOL_OPS_FORBIDDEN,
+            "message": "You do not have access to this property.",
+        }
+    except ValidationException as exc:
+        return {"error": True, "code": TOOL_OPS_INVALID_INPUT, "message": str(exc.detail)}
 
-    await db.flush()
-    await db.refresh(prop)
     await db.commit()
-
-    # These direct ORM writes bypass services/property/crud.update_property, so
-    # invalidate the property caches explicitly (mirrors crud.update_property).
-    await PropertyCacheManager.invalidate_property_caches(property_id)
-    await PropertyCacheManager.invalidate_property_detail_cache(property_id)
 
     return {
         "message": "Property updated successfully",

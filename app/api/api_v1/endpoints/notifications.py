@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.auth import (
@@ -16,12 +16,19 @@ from app.config import settings
 from app.core.database import get_db
 from app.core.db_resilience import (
     apply_statement_timeout,
-    execute_with_transient_retry,
     raise_read_service_unavailable,
 )
+from app.core.exceptions import (
+    ConflictException,
+    ForbiddenException,
+    NotFoundException,
+    UnauthorizedException,
+)
+from app.models.enums import AppKey, DevicePlatform, UserRole
+from app.schemas.base import UtcDateTime, WriteModel
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.user import User as UserSchema
-from app.services.notification_config import NOTIFICATION_TYPES, NotificationCategory
+from app.services.notification_config import MarketingTypeKey, NotificationTypeKey
 from app.services.notification_dispatcher import (
     count_users_for_segment,
     dispatch_notification_to_user,
@@ -29,257 +36,197 @@ from app.services.notification_dispatcher import (
     find_user_ids_for_segment,
 )
 from app.services.notifications import (
-    list_notifications_for_user,
+    list_deliveries_for_user,
     mark_delivery_opened,
     register_device_token,
     unregister_device_token,
 )
-from app.services.notifications import (
-    send_bulk as svc_send_bulk,
-)
-from app.services.notifications import (
-    send_to_token as svc_send_to_token,
-)
-from app.services.notifications import (
-    send_to_topic as svc_send_to_topic,
-)
-from app.services.notifications import (
-    send_to_user as svc_send_to_user,
-)
 
 router = APIRouter()
-MAX_MARKETING_RECIPIENTS = 5000
+
+# Recipients per dispatch batch for a marketing send. Each batch is awaited in turn.
+MARKETING_BATCH_SIZE = 200
 
 
-class DeviceRegister(BaseModel):
-    token: str
-    platform: Literal["android", "ios", "web"]
+# ---------------------------------------------------------------------------
+# Device tokens
+# ---------------------------------------------------------------------------
+
+
+class DeviceRegisterIn(WriteModel):
+    """Register a push token. The owner comes from the bearer token, never from the body."""
+
+    token: str = Field(min_length=1, max_length=4096)
+    platform: DevicePlatform
+    app_key: AppKey
+    app_version: str | None = Field(default=None, max_length=64)
+    locale: str | None = Field(default=None, max_length=32)
+
+
+class DeviceRegistration(BaseModel):
+    platform: DevicePlatform
+    app_key: AppKey
     app_version: str | None = None
     locale: str | None = None
-    # user_id optional (ignored for untrusted callers); prefer auth header user
-    user_id: str | None = None
+    last_seen: UtcDateTime
 
 
-@router.post("/devices/register", summary="Register notification device")
+@router.post(
+    "/devices/register",
+    status_code=status.HTTP_201_CREATED,
+    response_model=DeviceRegistration,
+    summary="Register notification device",
+)
 async def devices_register(
-    payload: DeviceRegister,
+    payload: DeviceRegisterIn,
     current_user: UserSchema | None = Depends(get_current_user_optional),
-):
-    # Require authentication before binding a device token to a user.
-    # Anonymous callers may register a token, but it will remain unassociated
-    # with any user_id to avoid impersonation.
-    """Register notification device."""
-    if current_user and getattr(current_user, "supabase_user_id", None):
-        user_id = current_user.supabase_user_id
-    else:
-        if payload.user_id is not None:
-            # Prevent unauthenticated clients from registering a token against an
-            # arbitrary user id.
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "code": "AUTH_REQUIRED_FOR_USER_BIND",
-                    "message": "Authentication is required to associate a device with a user",
-                },
-            )
-        user_id = None
-    return await register_device_token(
+) -> DeviceRegistration:
+    """Register a push token for the caller's app.
+
+    A signed-in caller binds the token to its own user. An anonymous caller
+    cannot change a token that belongs to a user.
+    """
+    user_id = getattr(current_user, "supabase_user_id", None) if current_user else None
+    result = await register_device_token(
         token=payload.token,
         platform=payload.platform,
+        app_key=payload.app_key,
         user_id=user_id,
         app_version=payload.app_version,
         locale=payload.locale,
     )
+    return DeviceRegistration(**result)
 
 
-@router.delete("/devices/unregister", summary="Unregister notification device")
+class DeviceUnregisterIn(WriteModel):
+    token: str = Field(min_length=1, max_length=4096)
+
+
+@router.delete(
+    "/devices/unregister",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Unregister notification device",
+)
 async def devices_unregister(
-    token: str = Query(..., min_length=1),
-    _: UserSchema | None = Depends(get_current_user_optional),
-):
-    """Unregister notification device."""
-    return await unregister_device_token(token=token)
+    payload: DeviceUnregisterIn,
+    current_user: UserSchema = Depends(get_current_active_user),
+) -> None:
+    """Deactivate one of the caller's own device tokens. Other users' tokens are not changed."""
+    user_id = getattr(current_user, "supabase_user_id", None)
+    if not user_id:
+        raise UnauthorizedException(detail="Authentication required")
+    await unregister_device_token(token=payload.token, user_id=user_id)
 
 
-class SendToToken(BaseModel):
-    token: str
+# ---------------------------------------------------------------------------
+# Inbox (read state is per delivery)
+# ---------------------------------------------------------------------------
+
+
+class NotificationItem(BaseModel):
+    """One delivery of a notification. ``id`` is the delivery id, the read-state key."""
+
+    id: str
+    type: str | None = None
     title: str
     body: str
-    data: dict[str, str] | None = None
-    deep_link: str | None = None
-    image: str | None = None
+    data: dict[str, Any] | None = None
+    created_at: UtcDateTime | None = None
+    read_at: UtcDateTime | None = None
 
 
-@router.post("/send/token", summary="Send notification to token")
-async def send_token(req: SendToToken, _: UserSchema = Depends(get_current_admin)):
-    """Send notification to token."""
-    return await svc_send_to_token(
-        token=req.token,
-        title=req.title,
-        body=req.body,
-        data=req.data,
-        deep_link=req.deep_link,
-        image=req.image,
-        type_key="admin_broadcast",
+class NotificationPage(CursorPage[NotificationItem]):
+    unread_count: int = Field(description="Deliveries the caller has not opened.")
+
+
+@router.get("/me", response_model=NotificationPage, summary="List my notifications")
+async def list_my_notifications(
+    page: CursorParams = Depends(),
+    unread_only: bool = Query(False),
+    current_user: UserSchema = Depends(get_current_active_user),
+) -> NotificationPage:
+    """Return the caller's in-app inbox, newest first. One row per notification, with or without a device."""
+    filters = {"unread_only": unread_only}
+    cursor_payload = page.decoded(filters)
+    user_id = getattr(current_user, "supabase_user_id", None)
+    if not user_id:
+        return NotificationPage(
+            items=[], limit=page.limit, unread_count=0, total=0 if page.include_total else None
+        )
+    try:
+        rows, next_payload, total, unread_count = await list_deliveries_for_user(
+            user_id,
+            unread_only=unread_only,
+            cursor_payload=cursor_payload,
+            limit=page.limit,
+            with_total=page.include_total,
+            in_app_only=True,
+        )
+    except Exception as exc:
+        raise_read_service_unavailable(
+            exc,
+            endpoint="notifications_me",
+            detail="Notifications are temporarily unavailable. Please retry shortly.",
+        )
+        raise
+    base = build_cursor_page(
+        [NotificationItem(**row) for row in rows],
+        limit=page.limit,
+        next_payload=next_payload,
+        total=total,
+        filters=filters,
     )
+    return NotificationPage(**base, unread_count=unread_count)
 
 
-class SendToUser(BaseModel):
-    user_id: str
-    title: str
-    body: str
-    data: dict[str, str] | None = None
-    deep_link: str | None = None
+class DeliveryReadOut(BaseModel):
+    delivery_id: str
+    read_at: UtcDateTime
 
 
-@router.post("/send/user", summary="Send notification to user")
-async def send_user(req: SendToUser, _: UserSchema = Depends(get_current_admin)):
-    """Send notification to user."""
-    return await svc_send_to_user(
-        user_id=req.user_id,
-        title=req.title,
-        body=req.body,
-        data=req.data,
-        deep_link=req.deep_link,
-        type_key="admin_broadcast",
-    )
-
-
-class SendToTopic(BaseModel):
-    topic: str
-    title: str
-    body: str
-    data: dict[str, str] | None = None
-    deep_link: str | None = None
-
-
-@router.post("/send/topic", summary="Send notification to topic")
-async def send_topic(req: SendToTopic, _: UserSchema = Depends(get_current_admin)):
-    """Send notification to topic."""
-    return await svc_send_to_topic(
-        topic=req.topic,
-        title=req.title,
-        body=req.body,
-        data=req.data,
-        deep_link=req.deep_link,
-        type_key="admin_broadcast",
-    )
-
-
-class SendBulk(BaseModel):
-    tokens: list[str] = Field(..., min_length=1, max_length=500)
-    title: str
-    body: str
-    data: dict[str, str] | None = None
-    deep_link: str | None = None
-
-
-@router.post("/send/bulk", summary="Send bulk notifications")
-async def send_bulk(req: SendBulk, _: UserSchema = Depends(get_current_admin)):
-    """Send bulk notifications."""
-    return await svc_send_bulk(
-        tokens=req.tokens,
-        title=req.title,
-        body=req.body,
-        data=req.data,
-        deep_link=req.deep_link,
-        type_key="admin_broadcast",
-    )
-
-
-@router.post("/deliveries/{delivery_id}/opened", summary="Mark delivery as opened")
+@router.post(
+    "/deliveries/{delivery_id}/opened",
+    response_model=DeliveryReadOut,
+    summary="Mark delivery as opened",
+)
 async def delivery_opened(
     delivery_id: str,
     current_user: UserSchema = Depends(get_current_active_user),
-):
-    """Mark a delivery as opened for the current authenticated user."""
+) -> DeliveryReadOut:
+    """Mark one of the caller's deliveries as read. A second call keeps the first read time."""
     res = await mark_delivery_opened(
         delivery_id,
         user_supabase_id=getattr(current_user, "supabase_user_id", None),
     )
     if not res.get("ok"):
         if res.get("error") == "not_found":
-            raise HTTPException(status_code=404, detail="Delivery not found")
+            raise NotFoundException(detail="Delivery not found", error_code="DELIVERY_NOT_FOUND")
         if res.get("error") == "forbidden":
-            raise HTTPException(status_code=403, detail="Not allowed to update this notification")
-        raise HTTPException(status_code=401, detail="Authentication required")
-    return res
+            raise ForbiddenException(detail="Not allowed to update this notification")
+        raise UnauthorizedException(detail="Authentication required")
+    return DeliveryReadOut(delivery_id=res["delivery_id"], read_at=res["read_at"])
 
 
-class TypedUserNotification(BaseModel):
-    user_id: int
-    type_key: str
-    title: str
-    body: str
-    data: dict[str, str] | None = None
-    deep_link: str | None = None
-
-
-@router.post("/send/typed/user", summary="Send typed notification to user")
-async def send_typed_user(
-    req: TypedUserNotification,
-    _: UserSchema = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Send a typed, multi-channel notification to a single user by DB id."""
-    return await dispatch_notification_to_user(
-        db,
-        user_db_id=req.user_id,
-        type_key=req.type_key,
-        title=req.title,
-        body=req.body,
-        data=req.data,
-        deep_link=req.deep_link,
-    )
-
-
-class NotificationLogEntry(BaseModel):
-    id: str
-    title: str
-    body: str
-    data: dict[str, Any] | None = None
-    audience_type: str | None = None
-    target_user_id: str | None = None
-    topic: str | None = None
-    created_at: str | None = None
-
-
-@router.get("/users/{user_id}", response_model=CursorPage[NotificationLogEntry], summary="List user notifications")
+@router.get(
+    "/users/{user_id}",
+    response_model=CursorPage[NotificationItem],
+    summary="List user notifications",
+)
 async def list_user_notifications(
     user_id: int,
+    page: CursorParams = Depends(),
     _: UserSchema = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
-    page: CursorParams = Depends(),
-):
-    """Return notifications sent to the specified user (by DB id)."""
+) -> CursorPage[NotificationItem]:
+    """Admin: the deliveries of one user, by DB id."""
     from app.models.users import User as UserModel
 
+    filters: dict[str, Any] = {}
     try:
         await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-        user_stmt = select(UserModel.supabase_user_id).where(UserModel.id == user_id)
-        user_result = await execute_with_transient_retry(
-            db,
-            lambda: db.execute(user_stmt),
-            operation_name="notification_user_lookup",
-        )
-        supabase_user_id = user_result.scalar_one_or_none()
-        if not supabase_user_id:
-            raise HTTPException(status_code=404, detail="User not found or not linked to Supabase")
-        records, next_payload, total = await list_notifications_for_user(
-            supabase_user_id,
-            cursor_payload=page.decoded(),
-            limit=page.limit,
-            with_total=page.include_total,
-        )
-        # Supabase may return ints/other types for id; normalise to strings for the API
-        normalised: list[NotificationLogEntry] = []
-        for rec in records:
-            rec = dict(rec)
-            rec["id"] = str(rec.get("id"))
-            normalised.append(NotificationLogEntry(**rec))
-        return build_cursor_page(normalised, limit=page.limit, next_payload=next_payload, total=total)
-    except HTTPException:
-        raise
+        supabase_user_id = (
+            await db.execute(select(UserModel.supabase_user_id).where(UserModel.id == user_id))
+        ).scalar_one_or_none()
     except Exception as exc:
         raise_read_service_unavailable(
             exc,
@@ -288,18 +235,132 @@ async def list_user_notifications(
             extra={"target_user": user_id},
         )
         raise
+    if not supabase_user_id:
+        raise NotFoundException(
+            detail="User not found or not linked to Supabase", error_code="USER_NOT_FOUND"
+        )
+    try:
+        rows, next_payload, total, _unread = await list_deliveries_for_user(
+            supabase_user_id,
+            cursor_payload=page.decoded(filters),
+            limit=page.limit,
+            with_total=page.include_total,
+        )
+    except Exception as exc:
+        raise_read_service_unavailable(
+            exc,
+            endpoint="notifications_user_list",
+            detail="Notifications are temporarily unavailable. Please retry shortly.",
+            extra={"target_user": user_id},
+        )
+        raise
+    return CursorPage[NotificationItem](
+        **build_cursor_page(
+            [NotificationItem(**row) for row in rows],
+            limit=page.limit,
+            next_payload=next_payload,
+            total=total,
+            filters=filters,
+        )
+    )
 
 
-class MarketingNotification(BaseModel):
+# ---------------------------------------------------------------------------
+# Admin sends. Every send goes through the consent gate of the dispatcher.
+# ---------------------------------------------------------------------------
+
+
+class ChannelOutcome(BaseModel):
+    ok: bool
+    sent: int | None = None
+    error: str | None = None
+
+
+class NotificationDispatchResult(BaseModel):
     type_key: str
     title: str
     body: str
+    sent_at: UtcDateTime
+    channels: dict[str, ChannelOutcome]
+    error: str | None = None
+
+
+class TypedUserNotification(WriteModel):
+    user_id: int
+    type_key: NotificationTypeKey
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=1000)
     data: dict[str, str] | None = None
-    deep_link: str | None = None
+    deep_link: str | None = Field(default=None, max_length=512)
 
 
-class SegmentFilter(BaseModel):
-    role: Literal["user", "agent", "admin"] | None = None
+@router.post(
+    "/send/typed/user",
+    response_model=NotificationDispatchResult,
+    summary="Send typed notification to user",
+)
+async def send_typed_user(
+    req: TypedUserNotification,
+    _: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> NotificationDispatchResult:
+    """Send a typed, multi-channel notification to one user by DB id."""
+    result = await dispatch_notification_to_user(
+        db,
+        user_db_id=req.user_id,
+        type_key=req.type_key,
+        title=req.title,
+        body=req.body,
+        data=req.data,
+        deep_link=req.deep_link,
+    )
+    if result.get("error") == "user_not_found":
+        raise NotFoundException(detail="User not found", error_code="USER_NOT_FOUND")
+    return NotificationDispatchResult(**result)
+
+
+class SendToTopic(WriteModel):
+    topic: str = Field(min_length=1, max_length=900, pattern=r"^[A-Za-z0-9\-_.~%]+$")
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=1000)
+    data: dict[str, str] | None = None
+    deep_link: str | None = Field(default=None, max_length=512)
+
+
+@router.post(
+    "/send/topic",
+    response_model=NotificationDispatchResult,
+    responses={
+        409: {"description": "The topic channel is disabled. No client subscribes to topics."}
+    },
+    summary="Send notification to topic (disabled)",
+)
+async def send_topic(
+    req: SendToTopic,
+    _: UserSchema = Depends(get_current_admin),
+) -> NotificationDispatchResult:
+    """Always returns 409 TOPIC_CHANNEL_DISABLED.
+
+    A topic message reaches every subscriber without a consent check, and no
+    client subscribes to a topic. The route stays until the admin UI removes
+    its topic tab.
+    """
+    raise ConflictException(
+        detail="The topic channel is disabled. Send to typed users instead.",
+        error_code="TOPIC_CHANNEL_DISABLED",
+    )
+
+
+class MarketingNotification(WriteModel):
+    type_key: MarketingTypeKey
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(min_length=1, max_length=1000)
+    data: dict[str, str] | None = None
+    deep_link: str | None = Field(default=None, max_length=512)
+
+
+class SegmentFilter(WriteModel):
+    role: UserRole | None = None
     agent_id: int | None = None
     is_active: bool | None = True
 
@@ -308,60 +369,47 @@ class MarketingSegmentRequest(MarketingNotification):
     filter: SegmentFilter
 
 
-def _ensure_marketing_type(type_key: str) -> None:
-    cfg = NOTIFICATION_TYPES.get(type_key)
-    if not cfg or cfg.category is not NotificationCategory.MARKETING:
-        raise HTTPException(
-            status_code=400,
-            detail="type_key must be a configured marketing notification type",
-        )
+class MarketingSendResult(BaseModel):
+    requested: int = Field(description="Active users in the audience.")
+    processed: int = Field(description="Users the send was dispatched to.")
+    succeeded: int = Field(
+        description="Dispatches that reported no error. Consent may still block a channel."
+    )
 
 
-@router.post("/marketing/broadcast", summary="Send marketing broadcast")
-async def send_marketing_broadcast(
+async def _dispatch_marketing(
+    db: AsyncSession,
+    *,
+    user_ids: list[int],
     req: MarketingNotification,
-    _: UserSchema = Depends(get_current_admin),
-    db: AsyncSession = Depends(get_db),
-):
-    """Send a marketing notification to all active users (broadcast)."""
-    _ensure_marketing_type(req.type_key)
-    from app.models.users import User as UserModel
-
-    try:
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-        total_stmt = select(func.count(UserModel.id)).where(UserModel.is_active.is_(True))
-        total_result = await execute_with_transient_retry(
-            db,
-            lambda: db.execute(total_stmt),
-            operation_name="notification_marketing_broadcast_count",
-        )
-        total_users = int(total_result.scalar_one() or 0)
-        stmt = (
-            select(UserModel.id)
-            .where(UserModel.is_active.is_(True))
-            .order_by(UserModel.id)
-            .limit(MAX_MARKETING_RECIPIENTS)
-        )
-        res = await execute_with_transient_retry(
-            db,
-            lambda: db.execute(stmt),
-            operation_name="notification_marketing_broadcast_users",
-        )
-        user_ids = [row[0] for row in res.all()]
+) -> int:
+    succeeded = 0
+    for start in range(0, len(user_ids), MARKETING_BATCH_SIZE):
         summary = await dispatch_notification_to_users(
             db,
-            user_db_ids=user_ids,
+            user_db_ids=user_ids[start : start + MARKETING_BATCH_SIZE],
             type_key=req.type_key,
             title=req.title,
             body=req.body,
             data=req.data,
             deep_link=req.deep_link,
         )
-        return {
-            "requested": total_users,
-            "processed": len(user_ids),
-            "summary": summary,
-        }
+        succeeded += int(summary["succeeded"])
+    return succeeded
+
+
+@router.post(
+    "/marketing/broadcast", response_model=MarketingSendResult, summary="Send marketing broadcast"
+)
+async def send_marketing_broadcast(
+    req: MarketingNotification,
+    _: UserSchema = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+) -> MarketingSendResult:
+    """Send a marketing notification to every active user. Consent is checked per user."""
+    try:
+        requested = await count_users_for_segment(db, is_active=True)
+        user_ids = await find_user_ids_for_segment(db, is_active=True, limit=None)
     except Exception as exc:
         raise_read_service_unavailable(
             exc,
@@ -369,46 +417,27 @@ async def send_marketing_broadcast(
             detail="Marketing broadcast is temporarily unavailable. Please retry shortly.",
         )
         raise
+    succeeded = await _dispatch_marketing(db, user_ids=user_ids, req=req)
+    return MarketingSendResult(requested=requested, processed=len(user_ids), succeeded=succeeded)
 
 
-@router.post("/marketing/segment", summary="Send marketing segment")
+@router.post(
+    "/marketing/segment", response_model=MarketingSendResult, summary="Send marketing segment"
+)
 async def send_marketing_segment(
     req: MarketingSegmentRequest,
     _: UserSchema = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
-):
-    """Send a marketing notification to a segment of users based on simple filters."""
-    _ensure_marketing_type(req.type_key)
+) -> MarketingSendResult:
+    """Send a marketing notification to a segment of users. Consent is checked per user."""
+    role = req.filter.role.value if req.filter.role else None
     try:
         requested = await count_users_for_segment(
-            db,
-            role=req.filter.role,
-            agent_id=req.filter.agent_id,
-            is_active=req.filter.is_active,
+            db, role=role, agent_id=req.filter.agent_id, is_active=req.filter.is_active
         )
         user_ids = await find_user_ids_for_segment(
-            db,
-            role=req.filter.role,
-            agent_id=req.filter.agent_id,
-            is_active=req.filter.is_active,
-            limit=MAX_MARKETING_RECIPIENTS,
+            db, role=role, agent_id=req.filter.agent_id, is_active=req.filter.is_active, limit=None
         )
-        if not user_ids:
-            return {"requested": 0, "processed": 0, "summary": {"requested": 0, "succeeded": 0, "details": []}}
-        summary = await dispatch_notification_to_users(
-            db,
-            user_db_ids=user_ids,
-            type_key=req.type_key,
-            title=req.title,
-            body=req.body,
-            data=req.data,
-            deep_link=req.deep_link,
-        )
-        return {
-            "requested": requested,
-            "processed": len(user_ids),
-            "summary": summary,
-        }
     except Exception as exc:
         raise_read_service_unavailable(
             exc,
@@ -416,3 +445,5 @@ async def send_marketing_segment(
             detail="Marketing segment is temporarily unavailable. Please retry shortly.",
         )
         raise
+    succeeded = await _dispatch_marketing(db, user_ids=user_ids, req=req)
+    return MarketingSendResult(requested=requested, processed=len(user_ids), succeeded=succeeded)

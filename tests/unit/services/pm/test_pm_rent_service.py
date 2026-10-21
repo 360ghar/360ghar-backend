@@ -171,7 +171,7 @@ class TestRentChargeStatus:
         """Test that full payment updates charge status to paid."""
         from app.services.pm_rent import record_rent_payment
 
-        # Make a full payment
+        # Make a full payment of the rent
         await record_rent_payment(
             db_session,
             actor=test_user,
@@ -180,7 +180,18 @@ class TestRentChargeStatus:
             paid_at=datetime.now(timezone.utc),
         )
 
-        # Refresh the charge
+        # The lease has a late fee and grace days. A charge past grace owes the fee at payment time.
         await db_session.refresh(test_rent_charge)
+        fee = float(test_rent_charge.late_fee_assessed or 0)
+        if fee > 0:
+            assert test_rent_charge.status == RentChargeStatus.overdue
+            await record_rent_payment(
+                db_session,
+                actor=test_user,
+                charge_id=test_rent_charge.id,
+                amount_paid=fee,
+                paid_at=datetime.now(timezone.utc),
+            )
+            await db_session.refresh(test_rent_charge)
 
         assert test_rent_charge.status == RentChargeStatus.paid

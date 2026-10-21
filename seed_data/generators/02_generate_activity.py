@@ -252,7 +252,7 @@ def generate_flatmate_visits(users: list[dict], properties: list[dict]) -> list[
             "counterparty_user_id_ref": random.choice(user_emails),
             "visit_context": "flatmate_meet",
             "scheduled_date": _rand_dt(14),
-            "status": random.choice(["scheduled", "confirmed", "completed"]),
+            "status": random.choice(["requested", "confirmed", "completed"]),
         })
     return visits
 
@@ -371,7 +371,6 @@ def generate_auction_alerts(users: list[dict]) -> list[dict]:
             "min_price": random.randint(1000000, 5000000),
             "max_price": random.randint(5000000, 30000000),
             "bank_name": random.choice(BANKS[:4]),  # SBI, PNB, HDFC Ltd, ICICI Bank
-            "alert_channels": ["email"],
             "is_active": True,
         })
     return alerts

@@ -1,93 +1,83 @@
 /**
  * PropertySearchWidget - Displays search results in a grid layout.
  *
- * Tool: discovery.search
+ * Tools: discovery_search, discovery_recommendations, discovery_shortlist
  */
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { useToolOutput, useTheme, useCallTool, useSendMessage } from '../utils/bridge';
+import type { PropertyRow, PropertySearchOutput } from '../api/wire';
+import {
+  isToolFailure,
+  toolFailureMessage,
+  useCallTool,
+  useSendMessage,
+  useTheme,
+  useToolInput,
+  useToolOutput,
+} from '../utils/bridge';
+import { formatFilterValue } from '../utils/format';
+import { pageArgs, readPage, usePagedRows, type PagedView } from '../utils/paging';
 import { themeColors } from '../utils/theme';
 import { PropertyCard } from '../components/property/PropertyCard';
+import { FullError, InlineError, LoadMore, LoadingNote, LoginRequired } from '../components/common/Notices';
 
-interface Property {
-  id: number;
-  title: string;
-  locality?: string;
-  city?: string;
-  base_price?: number;
-  monthly_rent?: number;
-  bedrooms?: number;
-  bathrooms?: number;
-  area_sqft?: number;
-  property_type?: string;
-  purpose?: string;
-  main_image_url?: string;
-}
-
-interface SearchOutput {
-  properties: Property[];
-  total?: number;
-  next_cursor: string | null;
-  has_more: boolean;
-  limit: number;
-  filters_applied?: Record<string, unknown>;
-  error?: boolean;
-  message?: string;
+/** discovery_search sends `items`. discovery_recommendations and discovery_shortlist send `properties`. */
+function readSearch(payload: PropertySearchOutput): PagedView<PropertyRow> | null {
+  const rows = payload.items ?? payload.properties;
+  return rows ? { rows, page: readPage(payload) } : null;
 }
 
 function PropertySearchWidget() {
   const theme = useTheme();
   const colors = themeColors[theme];
-  const data = useToolOutput<SearchOutput>();
+  const data = useToolOutput<PropertySearchOutput>();
+  const toolInput = useToolInput();
   const callTool = useCallTool();
   const sendMessage = useSendMessage();
   const [loading, setLoading] = React.useState(false);
-  const [allProperties, setAllProperties] = React.useState<Property[]>([]);
-
-  // Accumulate properties across pages via upsert merge
-  React.useEffect(() => {
-    const incoming = data?.properties;
-    if (!incoming) return;
-    setAllProperties(prev => {
-      const byId = new Map(prev.map((p) => [p.id, p]));
-      for (const item of incoming) {
-        byId.set(item.id, item);
-      }
-      return Array.from(byId.values());
-    });
-  }, [data]);
+  const [error, setError] = React.useState<string | null>(null);
+  const { rows: properties, page, append } = usePagedRows(data, readSearch);
 
   if (!data) {
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: colors.textSecondary }}>
-        Loading...
-      </div>
-    );
+    return <LoadingNote text="Loading..." />;
+  }
+
+  if (data.requires_auth) {
+    return <LoginRequired message="Please log in to view your shortlist." />;
   }
 
   if (data.error) {
-    return (
-      <div style={{ padding: 20, textAlign: 'center', color: colors.error }}>
-        {data.message || 'An error occurred'}
-      </div>
-    );
+    return <FullError message={data.message || 'An error occurred'} />;
   }
 
-  const { total, next_cursor, has_more, filters_applied } = data;
-  const properties = allProperties;
+  const { total, filters_applied } = data;
+  // Only discovery_shortlist sends `properties` with a cursor. Its cursor is not bound to a search.
+  const isShortlist = data.properties != null;
 
   const handleLoadMore = async () => {
-    if (loading || !has_more || !next_cursor) return;
+    if (loading || !page.has_more || !page.next_cursor) return;
     setLoading(true);
-    try {
-      await callTool('discovery.search', {
-        ...filters_applied,
-        cursor: next_cursor,
-      });
-    } finally {
-      setLoading(false);
+    setError(null);
+
+    // The cursor is bound to the filters of the call that made it. Resend that call's
+    // arguments (the model's input), or the applied filters when the host sent no input.
+    const limit = data.limit ? { limit: data.limit } : {};
+    const result = isShortlist
+      ? await callTool<PropertySearchOutput>('discovery_shortlist', { cursor: page.next_cursor, ...limit })
+      : await callTool<PropertySearchOutput>(
+          'discovery_search',
+          Object.keys(toolInput).length > 0
+            ? pageArgs(toolInput, page.next_cursor)
+            : { ...filters_applied, cursor: page.next_cursor, ...limit },
+        );
+
+    if (isToolFailure(result)) {
+      setError(toolFailureMessage(result));
+    } else {
+      append(result);
     }
+    setLoading(false);
   };
 
   const handleRefineSearch = () => {
@@ -104,7 +94,9 @@ function PropertySearchWidget() {
       {/* Header */}
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 20, fontWeight: 600, marginBottom: 4 }}>
-          {total ?? properties.length} Properties Found
+          {typeof total === 'number'
+            ? `${total} ${total === 1 ? 'Property' : 'Properties'} Found`
+            : `${properties.length} ${properties.length === 1 ? 'Property' : 'Properties'} Shown`}
         </h2>
         {filters_applied && Object.keys(filters_applied).length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
@@ -119,7 +111,7 @@ function PropertySearchWidget() {
                   color: colors.textSecondary,
                 }}
               >
-                {key}: {String(value)}
+                {key}: {formatFilterValue(value)}
               </span>
             ))}
             <button
@@ -165,27 +157,8 @@ function PropertySearchWidget() {
           </div>
 
           {/* Pagination */}
-          {has_more && (
-            <div style={{ marginTop: 20, textAlign: 'center' }}>
-              <button
-                onClick={handleLoadMore}
-                disabled={loading}
-                style={{
-                  padding: '12px 24px',
-                  backgroundColor: colors.primary,
-                  color: '#3D3829',
-                  border: 'none',
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.6 : 1,
-                }}
-              >
-                {loading ? 'Loading...' : 'Load More'}
-              </button>
-            </div>
-          )}
+          <InlineError message={error} />
+          <LoadMore hasMore={page.has_more && page.next_cursor !== null} loading={loading} onClick={handleLoadMore} />
         </>
       )}
     </div>

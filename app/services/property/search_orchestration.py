@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -14,10 +16,15 @@ from app.core.db_resilience import (
 from app.core.exceptions import BadRequestException, ServiceUnavailableException
 from app.core.logging import get_logger
 from app.models.enums import (
+    FurnishingLevel,
+    KitchenType,
     ListingGenderPreference,
     ListingSharingType,
+    MoveInTimeline,
     PropertyPurpose,
+    PropertyStatus,
     PropertyType,
+    VentilationType,
 )
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
@@ -37,6 +44,7 @@ def build_property_search_filters(
     property_ids: list[int] | None = None,
     property_type: list[PropertyType] | None = None,
     purpose: PropertyPurpose | None = None,
+    status: PropertyStatus | None = None,
     price_min: float | None = None,
     price_max: float | None = None,
     bedrooms_min: int | None = None,
@@ -47,18 +55,21 @@ def build_property_search_filters(
     area_max: float | None = None,
     city: str | None = None,
     locality: str | None = None,
+    sub_locality: str | None = None,
     pincode: str | None = None,
+    society_type: str | None = None,
+    society_vibe_tags: list[str] | None = None,
     amenities: list[str] | None = None,
     features: list[str] | None = None,
-    furnishing: list[str] | None = None,
-    kitchen_type: list[str] | None = None,
-    ventilation_type: list[str] | None = None,
+    furnishing: list[FurnishingLevel] | None = None,
+    kitchen_type: list[KitchenType] | None = None,
+    ventilation_type: list[VentilationType] | None = None,
     windows_min: int | None = None,
     has_lift: bool | None = None,
     gender_preference: ListingGenderPreference | None = None,
     sharing_type: ListingSharingType | None = None,
-    available_from: str | None = None,
-    move_in: str | None = None,
+    available_from: date | None = None,
+    move_in: MoveInTimeline | None = None,
     parking_spaces_min: int | None = None,
     floor_number_min: int | None = None,
     floor_number_max: int | None = None,
@@ -78,6 +89,7 @@ def build_property_search_filters(
         property_ids=property_ids,
         property_type=property_type,
         purpose=purpose,
+        status=status,
         price_min=price_min,
         price_max=price_max,
         bedrooms_min=bedrooms_min,
@@ -88,7 +100,10 @@ def build_property_search_filters(
         area_max=area_max,
         city=city,
         locality=locality,
+        sub_locality=sub_locality,
         pincode=pincode,
+        society_type=society_type,
+        society_vibe_tags=society_vibe_tags,
         amenities=amenities,
         features=features,
         furnishing=furnishing,

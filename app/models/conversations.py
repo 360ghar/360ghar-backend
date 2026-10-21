@@ -4,12 +4,14 @@ App-scoped threads that work across flatmates, property management,
 real estate, and stays. Supports N-party conversations via a
 separate participants table (not just 1:1 pairs).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    BigInteger,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -17,14 +19,14 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
+from app.core.database import Base, db_enum
 from app.models.enums import ConversationApp, ConversationSource, ConversationStatus, MessageType
 
 if TYPE_CHECKING:
@@ -50,6 +52,13 @@ class Conversation(Base):
             "context_id",
             postgresql_where=text("context_id IS NOT NULL"),
         ),
+        # One booking chat per booking: concurrent first messages cannot open two threads.
+        Index(
+            "uq_conversations_stays_booking",
+            "context_id",
+            unique=True,
+            postgresql_where=text("app = 'stays' AND context_type = 'booking'"),
+        ),
         CheckConstraint(
             "status IN ('active', 'archived', 'blocked', 'closed')",
             name="ck_conversations_status",
@@ -61,13 +70,13 @@ class Conversation(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     app: Mapped[ConversationApp] = mapped_column(
-        SQLEnum(ConversationApp, name="conversation_app"),
+        db_enum(ConversationApp, "conversation_app"),
         default=ConversationApp.flatmates,
     )
     created_by_user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[ConversationStatus] = mapped_column(
@@ -77,15 +86,10 @@ class Conversation(Base):
         String(30), default=ConversationSource.listing_interest
     )
     last_message_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
-    last_message_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     context_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    context_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    context_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    context_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -112,29 +116,28 @@ class ConversationParticipant(Base):
         ),
         Index("idx_conv_participants_user", "user_id"),
         Index("idx_conv_participants_user_unread", "user_id", "last_read_at"),
+        UniqueConstraint(
+            "conversation_id",
+            "user_id",
+            name="conversation_participants_conversation_id_user_id_key",
+        ),
         CheckConstraint(
             "role IN ('member', 'admin')",
             name="ck_conv_participants_role",
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     user_id: Mapped[int] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     role: Mapped[str] = mapped_column(String(20), default="member")
-    joined_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
-    last_read_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    muted_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    muted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     conversation: Mapped[Conversation] = relationship(back_populates="participants")
     user: Mapped[User] = relationship(foreign_keys=[user_id])
@@ -159,27 +162,19 @@ class Message(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False
     )
     sender_id: Mapped[int | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    message_type: Mapped[MessageType] = mapped_column(
-        String(30), default=MessageType.text
-    )
+    message_type: Mapped[MessageType] = mapped_column(String(30), default=MessageType.text)
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     attachment_url: Mapped[str | None] = mapped_column(Text, nullable=True)
-    message_metadata: Mapped[dict | None] = mapped_column(
-        "metadata", JSONB, nullable=True
-    )
-    read_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    message_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

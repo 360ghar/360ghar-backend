@@ -12,10 +12,10 @@ from app.core.database import get_db
 from app.core.logging import get_logger
 from app.schemas.custom_domain import (
     CustomDomainCreate,
-    CustomDomainList,
     CustomDomainResponse,
     CustomDomainVerification,
 )
+from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page
 from app.schemas.user import User as UserSchema
 from app.services import custom_domain as custom_domain_service
 
@@ -23,7 +23,12 @@ router = APIRouter()
 logger = get_logger(__name__)
 
 
-@router.post("", response_model=CustomDomainResponse, status_code=status.HTTP_201_CREATED, summary="Create custom domain")
+@router.post(
+    "",
+    response_model=CustomDomainResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create custom domain",
+)
 async def create_custom_domain(
     domain_data: CustomDomainCreate,
     db: AsyncSession = Depends(get_db),
@@ -48,19 +53,23 @@ async def create_custom_domain(
         ) from None
 
 
-@router.get("", response_model=CustomDomainList, summary="List custom domains")
+@router.get("", response_model=CursorPage[CustomDomainResponse], summary="List custom domains")
 async def list_custom_domains(
+    page: CursorParams = Depends(),
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """
-    List all custom domains for the current user.
+    List the custom domains of the current user, newest first.
     """
-    domains = await custom_domain_service.get_user_domains(
+    items, next_payload, total = await custom_domain_service.get_user_domains_page(
         db=db,
         user_id=current_user.id,
+        cursor_payload=page.decoded(),
+        limit=page.limit,
+        include_total=page.include_total,
     )
-    return CustomDomainList(items=domains, total=len(domains))
+    return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 
 
 @router.get("/{domain_id}", response_model=CustomDomainResponse, summary="Get custom domain")
@@ -85,7 +94,9 @@ async def get_custom_domain(
     return domain
 
 
-@router.post("/{domain_id}/verify", response_model=CustomDomainVerification, summary="Verify custom domain")
+@router.post(
+    "/{domain_id}/verify", response_model=CustomDomainVerification, summary="Verify custom domain"
+)
 async def verify_custom_domain(
     domain_id: str,
     db: AsyncSession = Depends(get_db),
@@ -111,7 +122,9 @@ async def verify_custom_domain(
         ) from None
 
 
-@router.delete("/{domain_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete custom domain")
+@router.delete(
+    "/{domain_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete custom domain"
+)
 async def delete_custom_domain(
     domain_id: str,
     db: AsyncSession = Depends(get_db),

@@ -2,7 +2,6 @@
 Tests for app.schemas.property module — PropertyCreate, PropertyUpdate, UnifiedPropertyFilter.
 """
 
-
 import pytest
 from pydantic import ValidationError
 
@@ -13,7 +12,6 @@ from app.schemas.property import Property, PropertyCreate, PropertyUpdate
 # Custom validators raise ValidationException (HTTPException subclass), not pydantic ValidationError.
 # Pydantic model_validator raises ValidationError for cross-field checks (like PG+buy).
 # Both are valid rejection paths — we catch either.
-
 
 
 def _assert_validation_error(exc_info):
@@ -142,8 +140,20 @@ class TestPropertyCreate:
                 title="Expensive",
                 property_type=PropertyType.apartment,
                 purpose=PropertyPurpose.buy,
-                base_price=1e9,
+                base_price=1e10,
             )
+
+    def test_base_price_cap_is_numeric_12_2_ceiling(self):
+        from app.schemas.property import BASE_PRICE_MAX
+
+        assert BASE_PRICE_MAX == 9_999_999_999.99
+        listing = PropertyCreate(
+            title="Top listing",
+            property_type=PropertyType.apartment,
+            purpose=PropertyPurpose.buy,
+            base_price=BASE_PRICE_MAX,
+        )
+        assert listing.base_price == BASE_PRICE_MAX
 
     def test_invalid_pincode_rejected(self):
         with pytest.raises((ValidationError, ValidationException)):
@@ -303,43 +313,35 @@ class TestPropertyUpdate:
 class TestFurnishingLevelNormalization:
     """Legacy DB values must never 422 response validation (homepage 422)."""
 
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("furnished", "furnished"),
-            ("fully-furnished", "furnished"),
-            ("Fully Furnished", "furnished"),
-            ("fully_furnished", "furnished"),
-            ("semi-furnished", "semi_furnished"),
-            ("Semi-Furnished", "semi_furnished"),
-            ("partially_furnished", "semi_furnished"),
-            ("unfurnished", "unfurnished"),
-            ("none", "unfurnished"),
-            (None, None),
-            ("", None),
-            ("luxury-plus", None),
-        ],
-    )
-    def test_create_normalizes_legacy_values(self, raw, expected):
+    @pytest.mark.parametrize("value", ["fully-furnished", "Fully Furnished", "luxury-plus", ""])
+    def test_create_rejects_non_canonical_values(self, value):
+        """A write with a value outside the canonical set is a 422, not a silent drop."""
+        with pytest.raises(ValidationError):
+            PropertyCreate(
+                title="Furnishing",
+                property_type=PropertyType.apartment,
+                purpose=PropertyPurpose.buy,
+                base_price=5000000,
+                furnishing_level=value,
+            )
+
+    @pytest.mark.parametrize("value", ["furnished", "semi_furnished", "unfurnished", None])
+    def test_create_accepts_canonical_values(self, value):
         data = PropertyCreate(
             title="Furnishing",
             property_type=PropertyType.apartment,
             purpose=PropertyPurpose.buy,
             base_price=5000000,
-            furnishing_level=raw,
+            furnishing_level=value,
         )
-        assert data.furnishing_level == expected
+        assert data.furnishing_level == value
 
-    def test_update_normalizes_legacy_values(self):
+    def test_update_rejects_non_canonical_values(self):
+        with pytest.raises(ValidationError):
+            PropertyUpdate(furnishing_level="fully-furnished")
         assert (
-            PropertyUpdate(furnishing_level="fully-furnished").furnishing_level
-            == "furnished"
+            PropertyUpdate(furnishing_level="semi_furnished").furnishing_level == "semi_furnished"
         )
-        assert (
-            PropertyUpdate(furnishing_level="semi-furnished").furnishing_level
-            == "semi_furnished"
-        )
-        assert PropertyUpdate(furnishing_level="unknown-thing").furnishing_level is None
 
     def test_response_model_accepts_legacy_db_value(self):
         """Exact homepage-422 scenario: a DB row with fully-furnished validates."""
@@ -360,6 +362,7 @@ class TestFurnishingLevelNormalization:
                 "like_count": 0,
                 "interest_count": 0,
                 "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00Z",
             }
         )
         assert prop.furnishing_level == "furnished"

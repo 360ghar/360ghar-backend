@@ -12,11 +12,13 @@ The layer follows a service class pattern: each service takes an `AsyncSession` 
 app/services/
 ├── core.py                         # CoreService (bugs, pages, app versions, FAQs)
 ├── user.py                         # User CRUD, account deletion, Supabase sync (951 lines)
-├── property/                       # property/crud.py, search.py, recommendations.py, helpers.py
+├── property/                       # property/crud.py, search.py, recommendations.py, helpers.py, keyset.py
 ├── agent/                          # Agent service package
 ├── booking.py                      # 360 Stays bookings
 ├── visit.py                        # Property visit scheduling
 ├── swipe.py                        # Swipe interactions
+├── lead.py                         # Public callback requests (leads)
+├── visibility.py                   # Viewer identity and owner or counterparty contact masking
 ├── blog.py                         # Blog CRUD + SEO fields
 ├── blog_auto_publish.py            # Auto-publish pipeline
 ├── blog_auto_publish_scheduler.py  # Blog cron registration
@@ -35,14 +37,13 @@ app/services/
 ├── notification_scheduler.py       # Notification cron registration
 ├── notifications/                  # crud, fcm, helpers, push
 ├── oauth_token_store.py            # OAuth token/code storage via CacheManager
-├── payments.py
 ├── pm_*.py                         # 12 PM service modules (leases, rent, maintenance, etc.)
 ├── push_notification.py            # FCM push dispatch
 ├── sms.py
 ├── storage/                        # Storage service package
 ├── storage_paths.py                # Upload path generation + sanitization
-├── tour/                           # Tour service package
-├── tour_ai/                        # Tour AI processing (+ stitch.py panorama stitching, world3d.py skybox-mesh GLB)
+├── tour/                           # Tour service package (+ floorplan_layout.py schematic plan renderer)
+├── tour_ai/                        # Tour AI processing (+ stitch.py panorama stitching, world3d.py skybox-mesh GLB, daytona_service.py sandbox tour generation, spatial.py navigation graph, floor_plan_ai.py)
 ├── tour_reel/
 ├── vector_sync_scheduler.py        # Vector sync cron registration
 └── ai/                             # AI provider factory + providers + vastu + image_gen
@@ -88,7 +89,7 @@ Services own the unit of work: they begin queries on the injected session, commi
 ## Entry points for modification
 
 - New business rule: add a method to the relevant service (or a new service module), then call it from the endpoint, MCP tool, and AI agent tool bridge via `tool_ops`.
-- New list endpoint: return a 3-tuple `(items, next_cursor, has_more)` and use `keyset_filter` / `keyset_payload` from `app/schemas/pagination.py`.
+- New list endpoint: return `CursorPage[T]`, read `CursorParams`, pass the same filter dict to `decoded()` and `build_cursor_page()`, and use `keyset_filter` / `keyset_payload` from `app/schemas/pagination.py`. Property lists are the reference (see [features/ghar-core](../features/ghar-core.md)).
 - New background job: register it on the shared scheduler via a `start_*_scheduler` function called from `app/infrastructure/lifespan.py`.
 
 ## Key source files
@@ -96,8 +97,10 @@ Services own the unit of work: they begin queries on the injected session, commi
 | File | Role |
 |---|---|
 | `app/services/user.py` | User CRUD, account deletion, Supabase sync |
+| `app/services/visibility.py` | Who sees owner contact, listing_preferences moderator keys, and visit counterparty contact (`Viewer`, `mask_owner_contact`, `mask_listing_preferences`) |
 | `app/services/property/crud.py` | Property CRUD with cache and repo integration |
 | `app/services/property/search.py` | Property search (707 lines) |
+| `app/services/property/keyset.py` | Keyset cursor predicate for property lists (sort keys, then id). `read_cursor_key` rejects a cursor whose shape, value types or ranges do not match the sort |
 | `app/services/flatmates/compatibility.py` | 7-dimension flatmate compatibility engine |
 | `app/services/core.py` | CoreService pattern reference |
 | `app/services/booking.py` | 360 Stays bookings (overlapping bookings allowed) |

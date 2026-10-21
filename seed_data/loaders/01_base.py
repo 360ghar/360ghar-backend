@@ -33,6 +33,12 @@ MEDIA_DIR = SEED_DIR / "media"
 
 BATCH_SIZE = 50
 
+# Stored in a NOT NULL media column when a ``media/...`` ref cannot be resolved (for
+# example ``--skip-media``). Nullable columns get NULL instead. The URL is an image for
+# every media type, including documents, and re-seeding does not overwrite an existing row.
+# Use ``--skip-media`` on a throwaway database only; reset it before a run with real media.
+SKIP_MEDIA_PLACEHOLDER_URL = "https://placehold.co/2048x1024.jpg"
+
 
 class IDMap:
     """Maps natural keys to database IDs resolved during loading.
@@ -279,6 +285,14 @@ def _model_columns(model: type | None) -> set[str] | None:
     return set(model.__table__.columns.keys())
 
 
+def _column_is_required(model: type | None, key: str) -> bool:
+    """True when ``key`` is a NOT NULL column without a server default of ``model``."""
+    if model is None or key not in model.__table__.columns:
+        return False
+    column = model.__table__.columns[key]
+    return not column.nullable and column.server_default is None
+
+
 def resolve_media_value(
     value: Any, media_urls: dict[str, str] | None, *, key: str = ""
 ) -> Any:
@@ -419,7 +433,15 @@ def resolve_refs(
     # relative path) — see resolve_media_value for the rule.
     if media_urls is not None:
         for key, value in list(out.items()):
-            out[key] = resolve_media_value(value, media_urls, key=key)
+            resolved = resolve_media_value(value, media_urls, key=key)
+            if (
+                resolved is None
+                and isinstance(value, str)
+                and value.startswith("media/")
+                and _column_is_required(model, key)
+            ):
+                resolved = SKIP_MEDIA_PLACEHOLDER_URL
+            out[key] = resolved
 
     # Default updated_at to now() if not present (remote DB has NOT NULL constraint)
     # Only inject when the model actually has an updated_at column

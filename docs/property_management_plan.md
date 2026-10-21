@@ -340,7 +340,7 @@ Rent Ledger:
 - `POST /pm/rent/charges/generate` (owner/RM/admin, idempotent) → generate upcoming charges
 - `GET /pm/rent/charges` (owner/RM/tenant) → due/overdue
 - `POST /pm/rent/payments` (owner/RM) → record payment (manual)
-- `POST /pm/rent/charges/{charge_id}/tenant-payment-intent` (tenant) → “I paid” + receipt upload (manual verification)
+- `POST /pm/rent/payments` (tenant) → “I paid” claim, stored as pending; the owner confirms it with `POST /pm/rent/payments/{payment_id}/settle`
 - `GET /pm/rent/payments` → payment history
 
 Expenses:

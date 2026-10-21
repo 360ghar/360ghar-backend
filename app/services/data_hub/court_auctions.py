@@ -1,4 +1,5 @@
 """Court auction scraper — DRT Chandigarh and eCourts notices."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,12 +8,14 @@ import re
 from datetime import date
 
 from bs4 import BeautifulSoup
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.data_hub import CourtAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.utils import normalize_auction_property_type
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +69,8 @@ class CourtAuctionScraper(BaseScraper):
                         rec["borrower_name"] = val
                     elif "property" in h and "description" in h:
                         rec["property_description"] = val
+                    elif "property" in h and "type" in h:
+                        rec["property_type"] = val
                     elif "reserve" in h:
                         try:
                             rec["reserve_price"] = float(
@@ -93,6 +98,8 @@ class CourtAuctionScraper(BaseScraper):
         for rec in records:
             try:
                 rec.setdefault("auction_date", date(1970, 1, 1))  # sentinel for unknown date
+                if "property_type" in rec:
+                    rec["property_type"] = normalize_auction_property_type(rec["property_type"])
                 values = {
                     k: v
                     for k, v in rec.items()
@@ -104,6 +111,10 @@ class CourtAuctionScraper(BaseScraper):
                     set_={
                         "reserve_price": stmt.excluded.reserve_price,
                         "raw_data": stmt.excluded.raw_data,
+                        # A source with no type column keeps the stored value.
+                        "property_type": func.coalesce(
+                            stmt.excluded.property_type, CourtAuction.property_type
+                        ),
                         "is_active": True,
                     },
                 )

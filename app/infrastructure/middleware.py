@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.middleware.body_limit import BodyLimitMiddleware
 from app.middleware.cache_control import CacheControlMiddleware
+from app.middleware.etag import ETagMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
 from app.middleware.security import (
     RequestIDMiddleware,
@@ -61,6 +63,10 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
         cors_origins = settings.CORS_ORIGINS
         cors_credentials = True
 
+    # Added first, so it is the innermost of these three: the rate limiter counts a 413,
+    # and CORS adds its headers to it so browsers can read the error.
+    app.add_middleware(BodyLimitMiddleware)
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -83,6 +89,8 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
 
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(CacheControlMiddleware)
+    # Added after CacheControl so it wraps it: a 304 keeps the Cache-Control/Vary it set.
+    app.add_middleware(ETagMiddleware)
     app.add_middleware(StripTrailingSlashMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(RequestLoggingMiddleware, prefix="")

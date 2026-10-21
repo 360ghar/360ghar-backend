@@ -115,7 +115,7 @@ docker-compose up -d db redis  # Start only database services for local dev
 Copy `.env.example` to `.env` and configure. Key variable groups:
 - **Database/Supabase**: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_*_KEY`
 - **Redis/Cache**: `REDIS_URL`
-- **AI Providers**: `PERPLEXITY_API_KEY`, `GLM_API_KEY`, `GOOGLE_API_KEY`
+- **AI Providers**: `AGNES_AI_API_KEY`, `PERPLEXITY_API_KEY`, `GOOGLE_API_KEY` (embeddings only)
 - **Notifications**: `EMAIL_*`, `SMS_*`, `ENABLE_NOTIF_SCHEDULER`
 - **Vector Search**: `VECTOR_SYNC_ENABLED`, `GEMINI_EMBED_MODEL`
 - **Blog Auto-Publish**: `AUTO_BLOG_ENABLED`, `AUTO_BLOG_CRON`
@@ -124,7 +124,7 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 
 ### CI/CD Pipeline
 GitHub Actions (`.github/workflows/tests.yml`) runs on push/PR to `main`/`develop`:
-1. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
+1. **test** — PostGIS + Redis services, `pytest` per shard, then a `coverage-check` job that combines the shard data and fails under 60% (a temporary floor, the target is 90), Codecov upload
 2. **lint** — `ruff check app/` and `mypy app/`
 
 ### Deployment
@@ -141,8 +141,8 @@ app/
 │   ├── api_v1/dependencies/ # Shared auth dependencies (get_current_user, get_current_agent, etc.)
 │   └── share.py            # Social share preview endpoints
 ├── services/               # Async business logic (main logic layer)
-│   ├── ai/                 # AI provider factory (gemini, glm) + vastu analyzer
-│   │   ├── providers/      # GeminiProvider, GLMProvider (httpx + tenacity retries)
+│   ├── ai/                 # AI provider factory (Agnes AI) + vastu analyzer
+│   │   ├── providers/      # AgnesProvider (httpx + tenacity retries)
 │   │   └── vastu/          # Vastu analyzer, prompts, schemas
 │   ├── ai_agent/           # Pydantic AI agent (agent_service, tool_bridge, conversation_store, system_prompt)
 │   ├── blog_service/       # Blog content generation (generator.py)
@@ -404,7 +404,7 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - PropertyStatus: available, sold, rented, under_offer, maintenance
 - PaymentStatus: pending, partial, paid, refunded, failed
 - BookingStatus: pending, confirmed, checked_in, checked_out, cancelled, completed
-- VisitStatus: scheduled, confirmed, completed, cancelled, rescheduled
+- VisitStatus: requested, confirmed, completed, cancelled, reschedule_suggested
 - VisitContext: property_tour, flatmate_meet
 - FlatmatesMode: room_poster, seeker, co_hunter, open_to_both
 - FlatmatesProfileStatus: draft, pending_review, active, paused
@@ -420,7 +420,9 @@ All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lin
 - ListingSharingType: private_room, shared_room
 - LeaseStatus: draft, pending_signature, active, expiring_soon, expired, terminated, renewed
 - ManagedPropertyStatus: draft, active, archived
-- TenantStatus: applicant, approved, active, notice_period, vacated, rejected
+- RentalApplicationStatus: applicant, approved, rejected
+- ApplicationFieldType: text, textarea, number, date, boolean, select (custom form questions, JSON, not a DB enum)
+- TenantStatus: active, vacated (computed tenancy state)
 - RentChargeStatus: pending, partial, paid, overdue, waived
 - ExpenseCategory: maintenance, repairs, insurance, property_tax, hoa, utilities, marketing, legal, other
 - MaintenanceCategory: plumbing, electrical, hvac, appliance, structural, pest_control, cleaning, other
@@ -548,8 +550,9 @@ When running locally:
 - ReDoc: http://localhost:3600/api/v1/redoc
 - OpenAPI YAML: http://localhost:3600/api/v1/openapi.yaml
 - Health: http://localhost:3600/health
-- WebSocket (AI jobs): `ws://localhost:3600/ws/jobs/{job_id}?token=...`
-- WebSocket (notifications): `ws://localhost:3600/ws/notifications?token=...`
+- WebSocket (AI jobs): `ws://localhost:3600/ws/jobs/{job_id}`
+- WebSocket (notifications): `ws://localhost:3600/ws/user`
+- WebSocket auth: the token is never in the URL. The client sends `{"type": "auth", "token": "<JWT>"}` as the first text frame. A missing or invalid token closes the socket with 4001. An unknown job closes with 4004.
 - AI Agent chat (auth): `POST /api/v1/agent/chat`
 - AI Agent chat (guest): `POST /api/v1/agent/chat-public`
 
@@ -558,7 +561,7 @@ When running locally:
 The in-app assistants (Flutter `360-ghar-app`, web `360ghar-web-ui`) do **not** speak
 MCP. They POST to `/api/v1/agent/chat` and consume an SSE stream of
 `conversation_info`, `text_chunk`, `tool_call_start`, `tool_call_end`, `widget`,
-`fallback`, `done`, `error` frames. Frames are produced by
+`done`, `error` frames. Frames are produced by
 `PydanticAIAgentService.stream_events()` (typed `(name, data)` pairs) and serialized
 with `sse_event()`. **Consumers that need the payloads must iterate `stream_events`
 — never re-parse the serialized frames.**

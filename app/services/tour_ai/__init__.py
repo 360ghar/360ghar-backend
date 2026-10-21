@@ -2,7 +2,7 @@
 AI Services for 360 Virtual Tour Operations.
 
 This package provides AI-powered features for scene analysis,
-hotspot suggestions, and description generation using the Gemini AI provider.
+hotspot suggestions, and description generation using the Agnes AI provider.
 
 All public functions are re-exported here for backward compatibility.
 Existing imports like ``from app.services.tour_ai import process_ai_job``
@@ -14,10 +14,12 @@ continue to work unchanged.
 from .background import (
     _run_tour_generation,
     _run_tour_optimization,
+    analyze_floor_plan_ai,
     apply_hotspot_suggestions,
     apply_scene_analysis,
     generate_tour,
     optimize_tour,
+    spatial_connect_existing_tour,
 )
 from .helpers import (
     _AI_TASK_SEMAPHORE,
@@ -27,6 +29,7 @@ from .helpers import (
     ROOM_TYPES,
     SCENE_ANALYSIS_PROMPT,
     _build_hotspot_suggestion_prompt,
+    _call_ai_with_retry,
     _complete_json_with_retry,
     _create_retry_decorator,
     _download_image_as_base64,
@@ -70,14 +73,6 @@ from .stitch import (
     request_scene_stitch,
 )
 
-# ---- world3d (textured skybox mesh generation) ----
-from .world3d import (
-    _run_generate_3d_world,
-    build_skybox_glb,
-    equirect_to_cubemap,
-    generate_3d_world,
-)
-
 __all__ = [
     # helpers
     "MAX_RETRIES",
@@ -87,6 +82,7 @@ __all__ = [
     "SCENE_ANALYSIS_PROMPT",
     "_AI_TASK_SEMAPHORE",
     "_build_hotspot_suggestion_prompt",
+    "_call_ai_with_retry",
     "_complete_json_with_retry",
     "_create_retry_decorator",
     "_download_image_as_base64",
@@ -120,12 +116,10 @@ __all__ = [
     "optimize_tour",
     "_run_tour_generation",
     "_run_tour_optimization",
+    # spatial plan (Daytona sandbox / graph linking)
+    "spatial_connect_existing_tour",
+    "analyze_floor_plan_ai",
     # stitch
     "request_scene_stitch",
     "_run_scene_stitch",
-    # world3d
-    "build_skybox_glb",
-    "equirect_to_cubemap",
-    "generate_3d_world",
-    "_run_generate_3d_world",
 ]

@@ -6,10 +6,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.enums import LeaseStatus, MaintenanceRequestStatus
+from app.models.enums import MaintenanceRequestStatus
 from app.models.pm_leases import Lease
 from app.models.pm_maintenance import MaintenanceRequest
 from app.models.properties import Property
+from app.services.pm.occupancy import OCCUPIED_LEASE_STATUSES
 
 logger = get_logger(__name__)
 
@@ -38,7 +39,9 @@ async def compute_dashboard_metrics(
     total_properties = (await db.execute(prop_stmt)).scalar() or 0
 
     # Active leases
-    lease_stmt = select(func.count(Lease.id)).where(Lease.status == LeaseStatus.active)
+    lease_stmt = select(func.count(Lease.id)).where(
+        Lease.status.in_(OCCUPIED_LEASE_STATUSES)
+    )
     if owner_ids is not None:
         lease_stmt = lease_stmt.where(Lease.owner_id.in_(owner_ids))
     active_leases = (await db.execute(lease_stmt)).scalar() or 0
@@ -54,8 +57,10 @@ async def compute_dashboard_metrics(
         maint_stmt = maint_stmt.where(MaintenanceRequest.owner_id.in_(owner_ids))
     open_maintenance = (await db.execute(maint_stmt)).scalar() or 0
 
-    # Expected monthly rent from active leases
-    rent_stmt = select(func.sum(Lease.monthly_rent)).where(Lease.status == LeaseStatus.active)
+    # Expected monthly rent from occupying leases (active and expiring soon)
+    rent_stmt = select(func.sum(Lease.monthly_rent)).where(
+        Lease.status.in_(OCCUPIED_LEASE_STATUSES)
+    )
     if owner_ids is not None:
         rent_stmt = rent_stmt.where(Lease.owner_id.in_(owner_ids))
     monthly_rent_expected = float((await db.execute(rent_stmt)).scalar() or 0)
@@ -87,4 +92,27 @@ def _empty_dashboard() -> dict:
         "occupancy_rate": 0.0,
         "maintenance": {"open": 0},
         "rent": {"expected_monthly": 0.0},
+    }
+
+
+async def compute_portfolio_stats(
+    db: AsyncSession,
+    *,
+    owner_ids: list[int] | None,
+) -> dict:
+    """Portfolio stats over every property in scope, not over one page.
+
+    The owner and agent property lists and the dashboard overview all return this
+    shape. ``owner_ids=None`` means every owner.
+    """
+    metrics = await compute_dashboard_metrics(db, owner_ids=owner_ids)
+    properties = metrics["properties"]
+    return {
+        "total_properties": properties["total"],
+        "occupied": properties["occupied"],
+        "vacant": properties["vacant"],
+        "occupancy_rate": metrics["occupancy_rate"],
+        "total_monthly_income": metrics["rent"]["expected_monthly"],
+        "monthly_rent_expected": metrics["rent"]["expected_monthly"],
+        "open_maintenance_requests": metrics["maintenance"]["open"],
     }

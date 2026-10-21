@@ -12,11 +12,10 @@ Active contributors: Saksham, Ravi
 | `app/models/agents.py` | `Agent`, `AgentInteraction` |
 | `app/models/properties.py` | `Property`, `PropertyImage`, `Amenity`, `PropertyAmenity`, `Visit` |
 | `app/models/bookings.py` | `Booking` |
-| `app/models/payments.py` | `PaymentMethod` |
 | `app/models/core.py` | `BugReport`, `Page`, `AppVersion`, `FAQ` |
 | `app/models/blogs.py` | `BlogPost`, `BlogCategory`, `BlogTag`, `BlogPostCategory`, `BlogPostTag` |
 | `app/models/social.py` | `UserMatch`, `UserConversation`, `UserMessage`, `UserBlock`, `UserReport`, `AppCatalog`, `MatchQnAAnswer`, `FlatmateProfileViewEvent`, `FlatmateSuperLikeUsage` |
-| `app/models/tours.py` | `Tour`, `Scene`, `Hotspot`, `TourAnalyticsEvent`, `AIJob`, `MediaFile`, `UserSession`, `TourLocation`, `SearchIndex`, `CacheEntry`, `FloorPlan`, `TourBranding`, `CustomDomain`, `VideoMetadata` |
+| `app/models/tours.py` | `Tour`, `Scene`, `Hotspot`, `TourAnalyticsEvent`, `AIJob`, `MediaFile`, `TourLocation`, `FloorPlan`, `CustomDomain`, `TourLike` |
 | `app/models/pm_leases.py` | `Lease` |
 | `app/models/pm_tenants.py` | `RentalApplication`, `RentalApplicationForm` |
 | `app/models/pm_finance.py` | `RentCharge`, `RentPayment`, `Expense` |
@@ -33,8 +32,8 @@ Active contributors: Saksham, Ravi
 - **Property**: `PropertyType`, `PropertyPurpose`, `PropertyStatus`, `ImageCategory`, `ManagedPropertyStatus`
 - **Booking/Visit**: `BookingStatus`, `PaymentStatus`, `VisitStatus`, `VisitContext`
 - **Flatmates/Social**: `FlatmatesMode`, `FlatmatesProfileStatus`, `SwipeAction`, `SwipeTargetType`, `ConversationSource`, `ConversationStatus`, `UserMatchStatus`, `MessageType`, `ListingGenderPreference`, `ListingSharingType`, `UserReportReason`, `UserReportStatus`, `ListingModerationStatus`, `ModerationAction`, `ReportAction`
-- **PM**: `LeaseStatus`, `TenantStatus`, `RentChargeStatus`, `ExpenseCategory`, `MaintenanceCategory`, `MaintenanceUrgency`, `MaintenanceRequestStatus`, `WorkOrderStatus`, `DocumentType`, `InspectionType`
-- **Tours**: `TourStatus`, `TourVisibility`, `HotspotType`, `AIJobStatus`, `AIJobType` (`scene_analysis`, `hotspot_generation`, `floor_plan_processing`, `panorama_stitch`, `generate_3d_world`), `CustomDomainVerificationStatus`, `CustomDomainSSLStatus`
+- **PM**: `LeaseStatus`, `RentalApplicationStatus`, `ApplicationFieldType`, `TenantStatus`, `RentChargeStatus`, `ExpenseCategory`, `MaintenanceCategory`, `MaintenanceUrgency`, `MaintenanceRequestStatus`, `WorkOrderStatus`, `DocumentType`, `InspectionType`
+- **Tours**: `TourStatus`, `TourVisibility`, `HotspotType`, `AIJobStatus`, `AIJobType` (`analyze_scene`, `analyze_scenes`, `generate_description`, `generate_descriptions`, `generate_tour`, `optimize_tour`, `spatial_connect`, `analyze_floor_plan`, `suggest_hotspots`, `suggest_tour_hotspots`, `panorama_stitch`), `CustomDomainVerificationStatus`, `CustomDomainSSLStatus`
 - **Data Hub**: `ScraperStatus`, `AuctionSource`, `GazetteType`, `ComplaintNature`
 - **Identity**: `UserRole`, `AuthMethod`, `AgentType`, `ExperienceLevel`, `AgentInteractionType`
 

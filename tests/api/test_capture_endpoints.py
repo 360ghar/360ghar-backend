@@ -53,8 +53,6 @@ async def test_cross_user_access_forbidden(
             json={"title": "Hijack"},
         )
         assert patch.status_code == 403
-        frames = await other.get(f"/api/v1/capture-sessions/{session_id}/status")
-        assert frames.status_code == 403
         complete = await other.post(f"/api/v1/capture-sessions/{session_id}/complete")
         assert complete.status_code == 403
         cancel = await other.post(f"/api/v1/capture-sessions/{session_id}/cancel")
@@ -184,7 +182,7 @@ async def test_list_and_get_capture_session(user_client: AsyncClient):
     assert create.status_code == 201
     session_id = create.json()["id"]
 
-    listed = await user_client.get("/api/v1/capture-sessions")
+    listed = await user_client.get("/api/v1/capture-sessions", params={"include_total": "true"})
     assert listed.status_code == 200
     payload = listed.json()
     assert payload["total"] >= 1
@@ -255,10 +253,10 @@ async def test_update_plan_and_register_frame(user_client: AsyncClient):
     assert body["room_id"] == "r1"
     assert body["metadata"]["pose"]["yaw_deg"] == 0.0
 
-    status_resp = await user_client.get(f"/api/v1/capture-sessions/{session_id}/status")
-    assert status_resp.status_code == 200
-    assert status_resp.json()["frame_count"] == 1
-    assert status_resp.json()["status"] == "capturing"
+    detail_resp = await user_client.get(f"/api/v1/capture-sessions/{session_id}")
+    assert detail_resp.status_code == 200
+    assert len(detail_resp.json()["frames"]) == 1
+    assert detail_resp.json()["status"] == "capturing"
 
 
 @pytest.mark.asyncio
@@ -351,7 +349,7 @@ async def test_patch_cannot_jump_to_server_controlled_states(user_client: AsyncC
     assert create.status_code == 201, create.text
     session_id = create.json()["id"]
 
-    for status in ("ready", "processing", "failed", "cancelled"):
+    for status in ("ready", "processing", "cancelled"):
         response = await user_client.patch(
             f"/api/v1/capture-sessions/{session_id}",
             json={"status": status},

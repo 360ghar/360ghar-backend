@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING
 from geoalchemy2 import Geography
 from geoalchemy2.functions import ST_AsBinary, ST_GeogFromText
 from sqlalchemy import (
-    JSON,
+    BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -18,13 +19,12 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import TSVECTOR
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
-from sqlalchemy.types import Enum as SQLEnum
 
-from app.core.database import Base
+from app.core.database import Base, db_enum
 from app.models.enums import (
     ImageCategory,
     KitchenType,
@@ -33,6 +33,7 @@ from app.models.enums import (
     PropertyStatus,
     PropertyType,
     VentilationType,
+    VisitContext,
     VisitStatus,
 )
 
@@ -75,12 +76,16 @@ class Property(Base):
         Index('idx_property_filters', 'property_type', 'purpose', 'is_available'),
         Index('idx_property_price', 'base_price'),
         Index('idx_properties_created_at', 'created_at'),
+        CheckConstraint(
+            "furnishing_level IS NULL OR furnishing_level IN ('furnished', 'semi_furnished', 'unfurnished')",
+            name='properties_furnishing_level_check',
+        ),
         # PostGIS and FTS indexes are created by migrations:
         # - supabase/migrations/20250818081100_add_geography_to_properties.sql
         # - supabase/migrations/20250818081200_add_full_text_search_to_properties.sql
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     # FTS column is trigger-maintained in Postgres and named "__ts_vector__" in the DB.
     # The Python attribute must NOT be a dunder, or SQLAlchemy's declarative mapper skips
     # it (leaving it unmapped and uncompilable). deferred=True keeps the large tsvector out
@@ -90,9 +95,9 @@ class Property(Base):
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    property_type: Mapped[PropertyType] = mapped_column(SQLEnum(PropertyType, name='property_type'), nullable=False)
-    purpose: Mapped[PropertyPurpose] = mapped_column(SQLEnum(PropertyPurpose, name='property_purpose'), nullable=False)
-    status: Mapped[PropertyStatus] = mapped_column(SQLEnum(PropertyStatus, name='property_status'), default=PropertyStatus.available)
+    property_type: Mapped[PropertyType] = mapped_column(db_enum(PropertyType, 'property_type'), nullable=False)
+    purpose: Mapped[PropertyPurpose] = mapped_column(db_enum(PropertyPurpose, 'property_purpose'), nullable=False)
+    status: Mapped[PropertyStatus] = mapped_column(db_enum(PropertyStatus, 'property_status'), default=PropertyStatus.available)
 
     # Location
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -112,12 +117,12 @@ class Property(Base):
     area_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # Pricing
-    base_price: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    price_per_sqft: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    monthly_rent: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    daily_rate: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    security_deposit: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    maintenance_charges: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    base_price: Mapped[float] = mapped_column(Numeric(12, 2), nullable=False)
+    price_per_sqft: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    monthly_rent: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    daily_rate: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    security_deposit: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    maintenance_charges: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
 
     # Details
     area_sqft: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -132,12 +137,12 @@ class Property(Base):
     minimum_stay_days: Mapped[int] = mapped_column(Integer, default=1)
 
     # Features
-    features: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    listing_preferences: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    features: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    listing_preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Flatmates listing enhancements
-    kitchen_type: Mapped[KitchenType | None] = mapped_column(SQLEnum(KitchenType, name="property_kitchen_type"), nullable=True)
-    ventilation_type: Mapped[VentilationType | None] = mapped_column(SQLEnum(VentilationType, name="property_ventilation_type"), nullable=True)
+    kitchen_type: Mapped[KitchenType | None] = mapped_column(db_enum(KitchenType, "property_kitchen_type"), nullable=True)
+    ventilation_type: Mapped[VentilationType | None] = mapped_column(db_enum(VentilationType, "property_ventilation_type"), nullable=True)
     windows_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ventilation_shafts: Mapped[int | None] = mapped_column(Integer, nullable=True)
     setup_cost: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
@@ -147,14 +152,14 @@ class Property(Base):
     main_image_url: Mapped[str | None] = mapped_column(String, nullable=True)
     virtual_tour_url: Mapped[str | None] = mapped_column(String, nullable=True)
     google_street_view_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    video_urls: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    video_urls: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     floor_plan_url: Mapped[str | None] = mapped_column(String, nullable=True)
     video_tour_url: Mapped[str | None] = mapped_column(String, nullable=True)
-    tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     search_keywords: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Owner info
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    owner_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
     owner_name: Mapped[str | None] = mapped_column(String, nullable=True)
     owner_contact: Mapped[str | None] = mapped_column(String, nullable=True)
     builder_name: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -163,24 +168,26 @@ class Property(Base):
     # Property Management
     is_managed: Mapped[bool] = mapped_column(Boolean, default=False)
     management_status: Mapped[ManagedPropertyStatus] = mapped_column(
-        SQLEnum(ManagedPropertyStatus, name="managed_property_status"),
+        db_enum(ManagedPropertyStatus, "managed_property_status"),
         default=ManagedPropertyStatus.active,
     )
     payment_due_day: Mapped[int] = mapped_column(Integer, default=1)
     grace_period_days: Mapped[int] = mapped_column(Integer, default=5)
-    late_fee_policy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    current_lease_id: Mapped[int | None] = mapped_column(ForeignKey("leases.id"), nullable=True)
-    current_tenant_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    late_fee_policy: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    current_lease_id: Mapped[int | None] = mapped_column(ForeignKey("leases.id", ondelete="SET NULL"), nullable=True)
+    current_tenant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)
     is_seed_data: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     available_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    calendar_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    calendar_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     view_count: Mapped[int] = mapped_column(Integer, default=0)
     like_count: Mapped[int] = mapped_column(Integer, default=0)
     interest_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     # Relationships
     owner: Mapped[User] = relationship(
@@ -216,15 +223,17 @@ class Property(Base):
 class PropertyImage(Base):
     __tablename__ = "property_images"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    property_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("properties.id", ondelete="CASCADE"))
     image_url: Mapped[str] = mapped_column(String, nullable=False)
     caption: Mapped[str | None] = mapped_column(String, nullable=True)
-    image_category: Mapped[ImageCategory] = mapped_column(SQLEnum(ImageCategory, name='image_category'), default=ImageCategory.others)
-    display_order: Mapped[int] = mapped_column(Integer, default=0)
+    image_category: Mapped[ImageCategory] = mapped_column(db_enum(ImageCategory, 'image_category'), default=ImageCategory.others)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"), nullable=False)
     is_main_image: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     property: Mapped[Property] = relationship(back_populates="images")
 
@@ -232,12 +241,14 @@ class Amenity(Base):
     __tablename__ = "amenities"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String, nullable=False, unique=True)
-    icon: Mapped[str | None] = mapped_column(String, nullable=True)
-    category: Mapped[str | None] = mapped_column(String, nullable=True)  # e.g., "safety", "recreation", "convenience"
+    title: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    icon: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(50), nullable=True)  # e.g., "safety", "recreation", "convenience"
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
     # Relationships
     property_amenities: Mapped[list[PropertyAmenity]] = relationship(back_populates="amenity", cascade="all, delete-orphan")
@@ -249,7 +260,7 @@ class PropertyAmenity(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
+    property_id: Mapped[int] = mapped_column(Integer, ForeignKey("properties.id", ondelete="CASCADE"))
     amenity_id: Mapped[int] = mapped_column(ForeignKey("amenities.id", ondelete="CASCADE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -263,11 +274,12 @@ class Visit(Base):
         Index("idx_visits_scheduled_date", "scheduled_date"),
     )
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
-    property_id: Mapped[int] = mapped_column(ForeignKey("properties.id", ondelete="CASCADE"))
-    agent_id: Mapped[int | None] = mapped_column(ForeignKey("agents.id"), nullable=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    property_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("properties.id", ondelete="CASCADE"))
+    agent_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("agents.id"), nullable=True)
     counterparty_user_id: Mapped[int | None] = mapped_column(
+        Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
@@ -276,14 +288,18 @@ class Visit(Base):
         nullable=True,
     )
     match_id: Mapped[int | None] = mapped_column(
+        BigInteger,
         ForeignKey("user_matches.id", ondelete="SET NULL"),
         nullable=True,
     )
-    visit_context: Mapped[str] = mapped_column(String(32), default="property_tour")
+    visit_context: Mapped[VisitContext] = mapped_column(
+        db_enum(VisitContext, 'visit_context'), default=VisitContext.property_tour
+    )
     scheduled_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actual_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[VisitStatus] = mapped_column(SQLEnum(VisitStatus, name='visit_status'), default=VisitStatus.scheduled)
+    status: Mapped[VisitStatus] = mapped_column(db_enum(VisitStatus, 'visit_status'), default=VisitStatus.requested)
     special_requirements: Mapped[str | None] = mapped_column(Text, nullable=True)
+    time_slot_label: Mapped[str | None] = mapped_column(String(64), nullable=True)
     visit_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     visitor_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     interest_level: Mapped[str | None] = mapped_column(String, nullable=True)

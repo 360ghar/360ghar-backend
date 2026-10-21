@@ -12,18 +12,15 @@ from app.schemas.booking import (
     BookingUpdate,
 )
 from app.schemas.common import (
-    AnalyticsData,
     MessageResponse,
     NotificationSettings,
+    NotificationSettingsWrite,
     PrivacySettings,
-    SearchParams,
 )
 from app.schemas.data_hub import (
     AuctionAlertCreate,
     AuctionAlertResponse,
-    AuctionAlertUpdate,
     BankAuctionResponse,
-    BankRateResponse,
     BuilderReputationResponse,
     CircleRateResponse,
     ColonyApprovalResponse,
@@ -40,28 +37,17 @@ from app.schemas.data_hub import (
     StampDutyCalculationResponse,
     ZoningDataResponse,
 )
-from app.schemas.payment import (
-    PaymentMethodCreate,
-    PaymentMethodOut,
-    PaymentMethodUpdate,
-    RazorpayOrderRequest,
-    RazorpayOrderResponse,
-    RazorpayVerifyRequest,
-)
 from app.schemas.property import (
     ListingPreferences,
-    PropertyBase,
     PropertyCreate,
-    PropertyFilter,
+    PropertyDetail,
+    PropertyFields,
     PropertyImageBase,
-    PropertyImageCreate,
     PropertyInDB,
-    PropertyInterest,
     PropertySwipe,
     PropertyUpdate,
     SortBy,
     UnifiedPropertyFilter,
-    UnifiedPropertyResponse,
 )
 from app.schemas.property import (
     Property as PropertySchema,
@@ -72,11 +58,8 @@ from app.schemas.property import (
 from app.schemas.user import (
     LocationUpdate,
     Token,
-    TokenData,
     UserBase,
-    UserCreate,
     UserInDB,
-    UserLogin,
     UserPreferences,
     UserUpdate,
 )
@@ -91,38 +74,31 @@ from app.schemas.visit import (
     VisitCancel,
     VisitCreate,
     VisitReschedule,
-    VisitSlice,
     VisitUpdate,
 )
 
 __all__ = [
     # User schemas
     "UserBase",
-    "UserCreate",
     "UserUpdate",
-    "UserLogin",
     "UserInDB",
     "UserSchema",
     "Token",
-    "TokenData",
     "UserPreferences",
     "LocationUpdate",
     # Property schemas
     "ListingPreferences",
     "PropertyImageBase",
-    "PropertyImageCreate",
     "PropertyImageSchema",
-    "PropertyBase",
+    "PropertyFields",
     "PropertyCreate",
     "PropertyUpdate",
     "PropertyInDB",
     "PropertySchema",
-    "PropertyFilter",
+    "PropertyDetail",
     "PropertySwipe",
-    "PropertyInterest",
     "SortBy",
     "UnifiedPropertyFilter",
-    "UnifiedPropertyResponse",
     # Visit schemas
     "VisitBase",
     "VisitCreate",
@@ -130,7 +106,6 @@ __all__ = [
     "VisitReschedule",
     "VisitCancel",
     "VisitSchema",
-    "VisitSlice",
     # Booking schemas
     "BookingBase",
     "BookingCreate",
@@ -141,18 +116,10 @@ __all__ = [
     "BookingSchema",
     "BookingAvailability",
     "BookingPricing",
-    # Payment schemas
-    "RazorpayOrderRequest",
-    "RazorpayOrderResponse",
-    "RazorpayVerifyRequest",
-    "PaymentMethodCreate",
-    "PaymentMethodUpdate",
-    "PaymentMethodOut",
     # Common schemas
     "MessageResponse",
-    "SearchParams",
-    "AnalyticsData",
     "NotificationSettings",
+    "NotificationSettingsWrite",
     "PrivacySettings",
     # Data Hub schemas
     "DataHubMeta",
@@ -160,9 +127,7 @@ __all__ = [
     "ReraProjectResponse",
     "BankAuctionResponse",
     "AuctionAlertCreate",
-    "AuctionAlertUpdate",
     "AuctionAlertResponse",
-    "BankRateResponse",
     "JamabandiLookupRequest",
     "JamabandiLookupResponse",
     "ZoningDataResponse",

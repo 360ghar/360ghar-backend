@@ -1,10 +1,11 @@
 """MDA (Meerut Development Authority) auction scraper."""
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,7 +67,7 @@ def _parse_date(val: str) -> date | None:
     """Try common Indian date formats."""
     for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%Y-%m-%d", "%d.%m.%Y", "%B %d, %Y"):
         try:
-            return datetime.strptime(val.strip(), fmt).date()
+            return datetime.strptime(val.strip(), fmt).replace(tzinfo=UTC).date()
         except ValueError:
             continue
     return None
@@ -130,7 +131,13 @@ class MdaAuctionScraper(BaseScraper):
                         record["full_address"] = val
                     elif "sector" in h or "locality" in h or "area" in h and "sq" not in h:
                         record["locality"] = val
-                    elif ("area" in h and ("sq" in h or "size" in h or "size" in h)) or "sqft" in h or "sqm" in h or "sqyd" in h or "size" in h:
+                    elif (
+                        ("area" in h and ("sq" in h or "size" in h or "size" in h))
+                        or "sqft" in h
+                        or "sqm" in h
+                        or "sqyd" in h
+                        or "size" in h
+                    ):
                         area_val = re.sub(r"[^\d.]", "", val.replace(",", ""))
                         try:
                             record["area_sqft"] = float(area_val)

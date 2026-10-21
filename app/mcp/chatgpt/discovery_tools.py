@@ -10,6 +10,7 @@ These tools enable property discovery features:
 - Get shortlist (liked properties)
 - Get AI recommendations
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -36,6 +37,7 @@ from app.mcp.tool_ops.search_ops import (
     build_empty_result_message,
     normalize_city,
     parse_natural_query,
+    search_properties,
 )
 
 # Import the user MCP server to register tools
@@ -44,6 +46,7 @@ from app.mcp.utils import (
     get_user_from_mcp_context,
     serialize_property_basic,
     serialize_property_full,
+    utc_iso,
 )
 from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.pagination import decode_cursor, encode_cursor
@@ -52,6 +55,7 @@ from app.services.property.search_orchestration import (
     build_property_search_filters,
     run_property_search,
 )
+from app.services.visibility import Viewer, mask_owner_contact
 
 logger = get_logger(__name__)
 
@@ -134,8 +138,8 @@ async def discovery_search(
     latitude: float | None = None,
     longitude: float | None = None,
     radius_km: int = 5,
-    property_type: str | None = None,
-    purpose: str | None = None,
+    property_type: PropertyType | list[PropertyType] | None = None,
+    purpose: PropertyPurpose | None = None,
     price_min: float | None = None,
     price_max: float | None = None,
     bedrooms_min: int | None = None,
@@ -145,6 +149,7 @@ async def discovery_search(
     locality: str | None = None,
     cursor: str | None = None,
     limit: int | None = None,
+    include_total: bool = False,
     # ChatGPT / Apps SDK sometimes send multi-query batches and max_results
     # instead of the canonical query + limit shape.
     queries: list[dict[str, Any]] | None = None,
@@ -162,7 +167,7 @@ async def discovery_search(
         latitude: Search center latitude for location-based search
         longitude: Search center longitude for location-based search
         radius_km: Search radius in kilometers (default 5, max 100)
-        property_type: Filter by type (house, apartment, builder_floor, room)
+        property_type: One property type, or a list of types
         purpose: Filter by purpose (buy, rent, short_stay)
         price_min: Minimum price filter
         price_max: Maximum price filter
@@ -176,6 +181,7 @@ async def discovery_search(
         queries: Optional ChatGPT-style batch: list of {query, max_results}.
             First entry is used when query/limit are not set.
         max_results: Alias for limit (ChatGPT clients often send this).
+        include_total: Set true to get the count of matching properties
 
     Returns:
         Property search results with pagination info.
@@ -206,8 +212,6 @@ async def discovery_search(
             limit = min(max(1, int(limit)), 50)
         except (TypeError, ValueError):
             limit = 20
-        cursor_payload = decode_cursor(cursor) if cursor else {}
-
         # Coerce amenities from string to list (MCP clients may send "wifi,pool" as a string)
         if isinstance(amenities, str):
             amenities = [a.strip() for a in amenities.split(",") if a.strip()]
@@ -257,27 +261,54 @@ async def discovery_search(
                 except ValueError:
                     valid = [e.value for e in PropertyPurpose]
                     return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        data={
+                            "error": True,
+                            "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}",
+                        },
                         content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
                         widget_uri=get_widget_for_tool("discovery_search"),
                     )
 
+            # One type or a list of types. FastMCP validates each value against PropertyType.
             property_type_val: list[PropertyType] | None = None
             if property_type:
-                try:
-                    property_type_val = [PropertyType(property_type)]
-                except ValueError:
-                    valid = [e.value for e in PropertyType]
-                    return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid property_type: '{property_type}'. Valid values: {valid}"},
-                        content_summary=f"Invalid property type '{property_type}'. Valid options are: {', '.join(valid)}.",
-                        widget_uri=get_widget_for_tool("discovery_search"),
-                    )
+                property_type_val = (
+                    [property_type]
+                    if isinstance(property_type, PropertyType)
+                    else list(property_type)
+                )
 
-            filters = build_property_search_filters(
-                search_query=query,
+            # The cursor is bound to the final filters. A cursor from another search fails with 422.
+            cursor_filters = {
+                k: v
+                for k, v in {
+                    "query": query,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "radius_km": radius_km,
+                    "property_type": [t.value for t in property_type_val]
+                    if property_type_val
+                    else None,
+                    "purpose": purpose,
+                    "price_min": price_min,
+                    "price_max": price_max,
+                    "bedrooms_min": bedrooms_min,
+                    "bedrooms_max": bedrooms_max,
+                    "amenities": amenities,
+                    "city": city,
+                    "locality": locality,
+                }.items()
+                if v is not None
+            }
+            cursor_payload = decode_cursor(cursor, cursor_filters) if cursor else {}
+
+            # Execute search (shared body with the AI agent's guest_property_search)
+            rows, next_payload, total_count = await search_properties(
+                db,
+                query=query,
                 latitude=latitude,
                 longitude=longitude,
+                radius_km=radius_km,
                 property_type=property_type_val,
                 purpose=purpose_val,
                 price_min=price_min,
@@ -287,59 +318,64 @@ async def discovery_search(
                 amenities=amenities,
                 city=city,
                 locality=locality,
-                radius_km=radius_km if (latitude is not None and longitude is not None) else 5,
-            )
-
-            # Execute search
-            rows, next_payload, total_count = await run_property_search(
-                db=db,
-                filters=filters,
                 user_id=user_id,
                 cursor_payload=cursor_payload,
                 limit=limit,
-                with_total=True,
+                with_total=include_total,
                 endpoint_name="discovery_search",
                 stale_listing_context="ChatGPT discovery search",
                 unavailable_detail="Property search is temporarily unavailable. Please retry shortly.",
             )
 
             # Serialize properties
-            properties = [serialize_property_basic(p) for p in rows]
-            total = total_count or 0
+            items = [serialize_property_basic(p) for p in rows]
 
             # Format response
+            # Every filter that changed the result set, so a client can resend the same search.
+            has_location = latitude is not None and longitude is not None
             filters_applied = {
-                k: v for k, v in {
+                k: v
+                for k, v in {
                     "query": query,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                    "radius_km": radius_km if has_location else None,
                     "property_type": property_type,
                     "purpose": purpose,
                     "price_min": price_min,
                     "price_max": price_max,
                     "bedrooms_min": bedrooms_min,
                     "bedrooms_max": bedrooms_max,
+                    "amenities": amenities or None,
                     "city": city,
                     "locality": locality,
-                }.items() if v is not None
+                }.items()
+                if v is not None
             }
 
             # Provide helpful message when no results found
-            if total == 0:
+            shown = total_count if total_count is not None else len(items)
+            if shown == 0:
                 content_summary = build_empty_result_message(filters_applied, city=city)
             else:
-                content_summary = format_property_list_summary(properties, total, filters_applied)
+                content_summary = format_property_list_summary(items, shown, filters_applied)
 
             return format_chatgpt_response(
                 data={
-                    "properties": properties,
-                    "total": total,
-                    "next_cursor": encode_cursor(next_payload) if next_payload else None,
+                    "items": items,
+                    "total": total_count,
+                    "next_cursor": encode_cursor(next_payload, cursor_filters)
+                    if next_payload
+                    else None,
                     "has_more": next_payload is not None,
                     "limit": limit,
                     "filters_applied": filters_applied,
                 },
                 content_summary=content_summary,
                 meta={
-                    "search_center": {"latitude": latitude, "longitude": longitude} if latitude and longitude else None,
+                    "search_center": {"latitude": latitude, "longitude": longitude}
+                    if latitude and longitude
+                    else None,
                 },
                 widget_uri=get_widget_for_tool("discovery_search"),
             )
@@ -348,9 +384,7 @@ async def discovery_search(
         return _safe_discovery_error_response(
             exc=e,
             tool_name="discovery_search",
-            fallback_message=(
-                "Sorry, there was an error searching properties. Please try again."
-            ),
+            fallback_message=("Sorry, there was an error searching properties. Please try again."),
         )
 
 
@@ -386,15 +420,17 @@ async def discovery_property_get(
             # Get optional user to check if property is liked
             user = await _get_optional_user(db)
 
-            # Get property details
+            # Get property details; owner contact is masked for every non-owner viewer.
             property_obj = await get_property(db, property_id)
+            property_obj = mask_owner_contact(property_obj, Viewer.from_user(user))
 
             # Serialize with full details
-            property_data = serialize_property_full(property_obj)  # type: ignore[arg-type]
+            property_data = serialize_property_full(property_obj, viewer=Viewer.from_user(user))
 
             # Check if user has liked this property
             if user:
                 from app.services.swipe import get_user_like_for_property
+
                 liked = await get_user_like_for_property(db, user.id, property_id)
                 property_data["user_liked"] = liked
 
@@ -435,7 +471,7 @@ async def discovery_property_get(
 async def discovery_feed(
     latitude: float | None = None,
     longitude: float | None = None,
-    purpose: str | None = None,
+    purpose: PropertyPurpose | None = None,
     limit: int = 10,
 ) -> AppsSDKToolResult:
     """Get a discovery feed of properties for swipe-style browsing.
@@ -470,7 +506,10 @@ async def discovery_feed(
                 except ValueError:
                     valid = [e.value for e in PropertyPurpose]
                     return format_chatgpt_response(
-                        data={"error": True, "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}"},
+                        data={
+                            "error": True,
+                            "message": f"Invalid purpose: '{purpose}'. Valid values: {valid}",
+                        },
                         content_summary=f"Invalid purpose '{purpose}'. Valid options are: {', '.join(valid)}.",
                         widget_uri=get_widget_for_tool("discovery_feed"),
                     )
@@ -545,8 +584,7 @@ async def discovery_amenities() -> AppsSDKToolResult:
             amenities = result.scalars().all()
 
             amenity_list: list[dict[str, Any]] = [
-                {"id": a.id, "name": a.title, "icon": a.icon}
-                for a in amenities
+                {"id": a.id, "name": a.title, "icon": a.icon} for a in amenities
             ]
 
             return format_chatgpt_response(
@@ -559,9 +597,7 @@ async def discovery_amenities() -> AppsSDKToolResult:
         return _safe_discovery_error_response(
             exc=e,
             tool_name="discovery_amenities",
-            fallback_message=(
-                "Sorry, there was an error loading amenities. Please try again."
-            ),
+            fallback_message=("Sorry, there was an error loading amenities. Please try again."),
         )
 
 
@@ -618,14 +654,26 @@ async def discovery_swipe(
 
             # Record swipe
             swipe_data = PropertySwipe(property_id=property_id, is_liked=is_liked)
-            success = await record_swipe(db, user.id, swipe_data)
+            recorded = await record_swipe(db, user.id, swipe_data)
             await db.commit()
+
+            if not recorded:
+                # record_swipe returns False when the property is missing or owned by the user.
+                return format_chatgpt_response(
+                    data={
+                        "error": True,
+                        "code": "SWIPE_NOT_ALLOWED",
+                        "property_id": property_id,
+                    },
+                    content_summary=f"Property with ID {property_id} is missing or is yours, so it cannot be swiped.",
+                    is_error=True,
+                    widget_uri=get_widget_for_tool("discovery_swipe"),
+                )
 
             action = "liked" if is_liked else "passed on"
 
             return format_chatgpt_response(
                 data={
-                    "success": success,
                     "property_id": property_id,
                     "is_liked": is_liked,
                 },
@@ -639,9 +687,7 @@ async def discovery_swipe(
         return _safe_discovery_error_response(
             exc=e,
             tool_name="discovery_swipe",
-            fallback_message=(
-                "Sorry, there was an error recording your swipe. Please try again."
-            ),
+            fallback_message=("Sorry, there was an error recording your swipe. Please try again."),
         )
 
 
@@ -705,7 +751,7 @@ async def discovery_shortlist(
             for swipe in swipes:
                 if swipe.property:
                     prop_data = serialize_property_basic(swipe.property)
-                    prop_data["swiped_at"] = swipe.created_at.isoformat() if swipe.created_at else None
+                    prop_data["swiped_at"] = utc_iso(swipe.created_at)
                     properties.append(prop_data)
 
             total = total_count or 0

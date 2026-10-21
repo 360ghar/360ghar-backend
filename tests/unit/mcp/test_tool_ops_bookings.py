@@ -252,9 +252,17 @@ class TestGetPricing:
 # ---------------------------------------------------------------------------
 
 
+def _profile_user():
+    """A user with the contact details a booking needs."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(full_name="Asha Rao", phone="+919876543210", email="asha@example.com")
+
+
 class TestCreateBooking:
     async def test_success(self) -> None:
         db = AsyncMock()
+        db.get = AsyncMock(return_value=_profile_user())
         avail_mock = AsyncMock(return_value={"available": True, "max_occupancy": 5})
         created = _make_booking(booking_id=42)
         create_mock = AsyncMock(return_value=created)
@@ -287,6 +295,7 @@ class TestCreateBooking:
 
     async def test_property_not_found(self) -> None:
         db = AsyncMock()
+        db.get = AsyncMock(return_value=_profile_user())
         avail_mock = AsyncMock(
             return_value={"available": False, "reason": "Property not found"}
         )
@@ -318,6 +327,7 @@ class TestCreateBooking:
         check exists, so two overlapping date ranges should both succeed.
         """
         db = AsyncMock()
+        db.get = AsyncMock(return_value=_profile_user())
         avail_mock = AsyncMock(return_value={"available": True, "max_occupancy": 5})
 
         first_booking = _make_booking(booking_id=1)
@@ -362,6 +372,14 @@ class TestCreateBooking:
 
 
 class TestListUserBookings:
+    _COUNTS = {"total": 2, "upcoming": 1, "completed": 1, "cancelled": 0}
+
+    @pytest.fixture(autouse=True)
+    def _counts(self, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+        mock = AsyncMock(return_value=dict(self._COUNTS))
+        monkeypatch.setattr(bookings_tool_ops, "_booking_status_counts", mock)
+        return mock
+
     async def test_returns_bookings(self) -> None:
         db = AsyncMock()
         rows = [
@@ -374,12 +392,23 @@ class TestListUserBookings:
             result = await bookings_tool_ops.list_user_bookings(db, user_id=10, limit=20)
 
         assert result["total"] == 2
-        assert result["upcoming"] == 1
-        assert result["completed"] == 1
-        assert result["cancelled"] == 0
+        assert result["counts"] == self._COUNTS
+        assert result["limit"] == 20
         assert result["has_more"] is False
         assert result["next_cursor"] is None
-        assert len(result["bookings"]) == 2
+        assert len(result["items"]) == 2
+        assert "bookings" not in result and "upcoming" not in result
+
+    async def test_counts_come_from_all_bookings_not_the_page(self, _counts: AsyncMock) -> None:
+        db = AsyncMock()
+        svc_mock = AsyncMock(return_value=([_make_booking(booking_id=1)], None, 45))
+
+        with patch.object(bookings_tool_ops.booking_svc, "get_user_bookings", svc_mock):
+            result = await bookings_tool_ops.list_user_bookings(db, user_id=10, limit=1)
+
+        assert result["total"] == 45
+        assert result["counts"]["total"] == 2  # the grouped query, not len(page)
+        _counts.assert_awaited_once_with(db, 10)
 
     async def test_empty_result(self) -> None:
         db = AsyncMock()
@@ -389,21 +418,18 @@ class TestListUserBookings:
             result = await bookings_tool_ops.list_user_bookings(db, user_id=10)
 
         assert result["total"] == 0
-        assert result["upcoming"] == 0
-        assert result["completed"] == 0
-        assert result["bookings"] == []
+        assert result["items"] == []
 
     async def test_status_filter(self) -> None:
         db = AsyncMock()
         rows = [
             _make_booking(booking_id=1, status=BookingStatus.confirmed),
-            _make_booking(booking_id=2, status=BookingStatus.cancelled),
             _make_booking(booking_id=3, status=BookingStatus.confirmed),
         ]
         # Status filtering is delegated to the service server-side; the wrapper
         # coerces the string to the enum (case-insensitively, as historically),
         # passes it through and trusts the filtered rows + accurate total.
-        svc_mock = AsyncMock(return_value=([rows[0], rows[2]], None, 2))
+        svc_mock = AsyncMock(return_value=(rows, None, 2))
 
         with patch.object(bookings_tool_ops.booking_svc, "get_user_bookings", svc_mock):
             result = await bookings_tool_ops.list_user_bookings(
@@ -412,8 +438,7 @@ class TestListUserBookings:
 
         assert svc_mock.await_args.kwargs["status"] == BookingStatus.confirmed
         assert result["total"] == 2
-        assert all(b["booking_status"] == "confirmed" for b in result["bookings"])
-        assert result["upcoming"] == 2
+        assert all(b["booking_status"] == "confirmed" for b in result["items"])
 
     async def test_invalid_status_passes_none(self) -> None:
         db = AsyncMock()
@@ -457,6 +482,7 @@ class TestListUserBookings:
 
         assert result["has_more"] is True
         assert result["next_cursor"] is not None
+        assert result["total"] == 50
 
 
 # ---------------------------------------------------------------------------

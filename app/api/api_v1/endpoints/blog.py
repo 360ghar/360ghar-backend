@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +14,7 @@ from app.core.database import get_db
 from app.core.db_resilience import extract_db_error_code, is_transient_db_error
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
-from app.models.enums import UserRole
+from app.models.enums import BlogPostStatus, UserRole
 from app.schemas.blog import (
     BlogCategory,
     BlogCategoryCreate,
@@ -21,8 +23,10 @@ from app.schemas.blog import (
     BlogGenerateFromTopicRequest,
     BlogGenerationResult,
     BlogPost,
+    BlogPostAdmin,
     BlogPostCreate,
     BlogPostPreviewResponse,
+    BlogPostPreviewToken,
     BlogPostUpdate,
     BlogTag,
     BlogTagCreate,
@@ -61,7 +65,8 @@ logger = get_logger(__name__)
 
 @router.post(
     "/posts",
-    response_model=BlogPost,
+    response_model=BlogPostAdmin,
+    status_code=201,
     summary="Create blog post",
     openapi_extra={
         "requestBody": {
@@ -96,7 +101,9 @@ async def create_post(
         raise
     except Exception as e:
         logger.error("Error in create_post: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/posts", response_model=CursorPage[BlogPost], summary="List blog posts")
@@ -104,8 +111,7 @@ async def list_posts(
     q: str | None = Query(None, description="Search query across title and content"),
     categories: list[str] | None = Query(None, description="Filter by category slugs or names"),
     tags: list[str] | None = Query(None, description="Filter by tag slugs or names"),
-    keywords: list[str] | None = Query(None, description="Alias for tags"),
-    status: str | None = Query(
+    status: BlogPostStatus | None = Query(
         None,
         description="Admin only: filter by lifecycle status (draft/published/archived/scheduled)",
     ),
@@ -115,9 +121,27 @@ async def list_posts(
 ):
     """List blog posts with cursor pagination, filters for categories, tags, and text search."""
     try:
-        all_tags = (tags or []) + (keywords or [])
-        is_admin = bool(current_user and getattr(current_user, "role", None) == UserRole.admin.value)
-        cursor_payload = page.decoded()
+        is_admin = bool(
+            current_user and getattr(current_user, "role", None) == UserRole.admin.value
+        )
+        if status is not None and not is_admin:
+            # Public reads return published posts only. Do not drop the filter silently.
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "STATUS_FILTER_ADMIN_ONLY",
+                    "message": "The status filter is available to admins only",
+                    "field": "query.status",
+                },
+            )
+        all_tags = tags or []
+        filters: dict[str, Any] = {
+            "q": q,
+            "categories": categories,
+            "tags": tags,
+            "status": status.value if status is not None else None,
+        }
+        cursor_payload = page.decoded(filters)
 
         if is_admin:
             # Admin path: uncached, includes inactive posts, supports include_total
@@ -131,7 +155,7 @@ async def list_posts(
                 limit=page.limit,
                 with_total=page.include_total,
                 include_inactive=True,
-                status=status,
+                status=filters["status"],
             )
         elif page.include_total:
             # Public + include_total: bypass cache so count is always fresh
@@ -156,7 +180,9 @@ async def list_posts(
                 limit=page.limit,
             )
 
-        return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=count_total)
+        return build_cursor_page(
+            items, limit=page.limit, next_payload=next_payload, total=count_total, filters=filters
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -172,10 +198,16 @@ async def list_posts(
                 details={"error_code": error_code, "endpoint": "list_posts"},
             ) from e
         logger.error("Error in list_posts: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.get("/posts/preview/{token}", response_model=BlogPostPreviewResponse, summary="Preview blog post by token")
+@router.get(
+    "/posts/preview/{token}",
+    response_model=BlogPostPreviewResponse,
+    summary="Preview blog post by token",
+)
 async def get_post_by_preview(
     token: str,
     db: AsyncSession = Depends(get_db),
@@ -194,10 +226,16 @@ async def get_post_by_preview(
         raise
     except Exception as e:
         logger.error("Error in get_post_by_preview: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.post("/posts/{post_id}/preview-token", summary="Generate preview token")
+@router.post(
+    "/posts/{post_id}/preview-token",
+    response_model=BlogPostPreviewToken,
+    summary="Generate preview token",
+)
 @invalidate_cache([CacheKeyPatterns.BLOG_POSTS])
 async def create_preview_token(
     post_id: int,
@@ -207,13 +245,17 @@ async def create_preview_token(
     """Generate (or rotate) a preview token for a blog post. Admin only."""
     try:
         post = await generate_preview_token(db, post_id)
+        if post.preview_token is None:
+            raise HTTPException(status_code=500, detail="Preview token was not generated")
         preview_url = f"/api/v1/blog/posts/preview/{post.preview_token}"
-        return {"preview_token": post.preview_token, "preview_url": preview_url}
+        return BlogPostPreviewToken(preview_token=post.preview_token, preview_url=preview_url)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in create_preview_token: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/posts/{identifier}", response_model=BlogPost, summary="Get blog post")
@@ -247,12 +289,14 @@ async def get_post(
                 details={"error_code": error_code, "endpoint": "get_post"},
             ) from e
         logger.error("Error in get_post: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.put(
     "/posts/{identifier}",
-    response_model=BlogPost,
+    response_model=BlogPostAdmin,
     summary="Update blog post",
     openapi_extra={
         "requestBody": {
@@ -286,10 +330,12 @@ async def update_post(
         raise
     except Exception as e:
         logger.error("Error in update_post: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.delete("/posts/{identifier}", summary="Delete blog post")
+@router.delete("/posts/{identifier}", status_code=204, summary="Delete blog post")
 @invalidate_cache([CacheKeyPatterns.BLOG_POSTS])
 async def delete_post(
     identifier: str,
@@ -299,16 +345,22 @@ async def delete_post(
     """Delete a blog post by ID or slug (admin only)."""
     try:
         await delete_blog_post(db, identifier, current_user)
-        return {"message": "Blog post deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in delete_post: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 # AI-powered generation endpoints
-@router.post("/generate-from-topic", response_model=BlogGenerationResult, summary="Generate blog from topic")
+@router.post(
+    "/generate-from-topic",
+    response_model=BlogGenerationResult,
+    status_code=201,
+    summary="Generate blog from topic",
+)
 async def generate_from_topic(
     payload: BlogGenerateFromTopicRequest,
     db: AsyncSession = Depends(get_db),
@@ -322,10 +374,17 @@ async def generate_from_topic(
         raise
     except Exception as e:
         logger.error("Error in generate_from_topic: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.post("/generate-bulk", response_model=list[BlogGenerationResult], summary="Generate blogs in bulk")
+@router.post(
+    "/generate-bulk",
+    response_model=CursorPage[BlogGenerationResult],
+    status_code=201,
+    summary="Generate blogs in bulk",
+)
 async def generate_bulk(
     payload: BlogGenerateBulkRequest,
     db: AsyncSession = Depends(get_db),
@@ -334,16 +393,21 @@ async def generate_bulk(
     """Generate multiple draft blogs by first researching topics, then generating each one. Admin only."""
     try:
         results = await generate_bulk_blogs(db, count=payload.count, actor=current_user)
-        return results
+        # ponytail: the batch is generated in one call, so the page holds every result.
+        return build_cursor_page(results, limit=len(results), next_payload=None)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in generate_bulk: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 # Category Management Endpoints
-@router.post("/categories", response_model=BlogCategory, status_code=201, summary="Create blog category")
+@router.post(
+    "/categories", response_model=BlogCategory, status_code=201, summary="Create blog category"
+)
 @invalidate_cache([CacheKeyPatterns.BLOG_CATEGORIES])
 async def create_category_endpoint(
     payload: BlogCategoryCreate,
@@ -352,12 +416,14 @@ async def create_category_endpoint(
 ):
     """Create a new blog category (admin only). Invalidates category cache."""
     try:
-        return await create_category(db, payload.name, payload.description)
+        return await create_category(db, payload.name, payload.description, payload.slug)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in create_category_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/categories", response_model=CursorPage[BlogCategory], summary="List blog categories")
@@ -384,12 +450,16 @@ async def list_categories_endpoint(
                 cursor_payload=cursor_payload,
                 limit=page.limit,
             )
-        return build_cursor_page(categories, limit=page.limit, next_payload=next_payload, total=count_total)
+        return build_cursor_page(
+            categories, limit=page.limit, next_payload=next_payload, total=count_total
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in list_categories_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/categories/{identifier}", response_model=BlogCategory, summary="Get blog category")
@@ -420,10 +490,12 @@ async def update_category_endpoint(
         raise
     except Exception as e:
         logger.error("Error in update_category_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.delete("/categories/{identifier}", summary="Delete blog category")
+@router.delete("/categories/{identifier}", status_code=204, summary="Delete blog category")
 @invalidate_cache([CacheKeyPatterns.BLOG_CATEGORIES])
 async def delete_category_endpoint(
     identifier: str,
@@ -433,12 +505,13 @@ async def delete_category_endpoint(
     """Delete a category by ID or slug (admin only). Invalidates category cache."""
     try:
         await delete_category(db, identifier)
-        return {"message": "Category deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in delete_category_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 # Tag Management Endpoints
@@ -451,12 +524,14 @@ async def create_tag_endpoint(
 ):
     """Create a new blog tag (admin only). Invalidates tag cache."""
     try:
-        return await create_tag(db, payload.name)
+        return await create_tag(db, payload.name, payload.slug)
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in create_tag_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/tags", response_model=CursorPage[BlogTag], summary="List blog tags")
@@ -483,12 +558,16 @@ async def list_tags_endpoint(
                 cursor_payload=cursor_payload,
                 limit=page.limit,
             )
-        return build_cursor_page(tags, limit=page.limit, next_payload=next_payload, total=count_total)
+        return build_cursor_page(
+            tags, limit=page.limit, next_payload=next_payload, total=count_total
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in list_tags_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
 @router.get("/tags/{identifier}", response_model=BlogTag, summary="Get blog tag")
@@ -521,10 +600,12 @@ async def update_tag_endpoint(
         raise
     except Exception as e:
         logger.error("Error in update_tag_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None
 
 
-@router.delete("/tags/{identifier}", summary="Delete blog tag")
+@router.delete("/tags/{identifier}", status_code=204, summary="Delete blog tag")
 @invalidate_cache([CacheKeyPatterns.BLOG_TAGS])
 async def delete_tag_endpoint(
     identifier: str,
@@ -534,9 +615,10 @@ async def delete_tag_endpoint(
     """Delete a tag by ID or slug (admin only). Invalidates tag cache."""
     try:
         await delete_tag(db, identifier)
-        return {"message": "Tag deleted successfully"}
     except HTTPException:
         raise
     except Exception as e:
         logger.error("Error in delete_tag_endpoint: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error. Please try again later.") from None
+        raise HTTPException(
+            status_code=500, detail="Internal server error. Please try again later."
+        ) from None

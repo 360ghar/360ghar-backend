@@ -5,7 +5,7 @@ gets navigation hotspots placed on the actual doorway/opening that leads to the
 correct adjacent room. Panorama-only — no floor plan is used.
 
 This is the automated implementation of the manual procedure documented in
-``360-viewer/docs/spatial-tour-sop.md``. It reuses the existing Gemini provider
+``360-viewer/docs/spatial-tour-sop.md``. It reuses the existing Agnes AI provider
 (``app.services.ai``) for vision + structured JSON output.
 
 Pipeline:
@@ -52,11 +52,16 @@ SPATIAL_SYSTEM_PROMPT = (
     "(0 = top, 1 = bottom; a doorway threshold floor is usually 0.6-0.8).\n\n"
     "Rules:\n"
     "- Classify the room from PIXELS, never assume from any filename hint.\n"
-    "- An opening is a doorway (open or closed), an open archway, a glass sliding "
-    "door to a balcony/terrace, or a passage. Do NOT report plain windows or mirrors "
-    "(a mirror reflects the SAME room; a real opening shows a DIFFERENT space).\n"
+    "- An opening is a physical doorway (open or closed), an open archway, a glass sliding "
+    "door to a balcony/terrace, or a passage. Do NOT report plain windows, mirrors, walls, "
+    "curtains, or furniture as openings. DO report stairs (specify if they go UP or DOWN).\n"
+    "- BE CONSERVATIVE: Most rooms only have 1 or 2 doorways. Do NOT hallucinate doorways.\n"
+    "- NEVER return multiple openings for the same physical doorway. Group them into one.\n"
     "- For each opening, say which room type is visible THROUGH it (leads_to_room_type) "
     "and your confidence. If the door is closed/unknown, set leads_to_room_type to null.\n"
+    "- CRITICAL for matching: Describe the VISUAL CONTEXT visible outside/through the doorway "
+    "(e.g. 'red carpet', 'hardwood floor', 'white tile', 'glass railing', 'brick wall'). "
+    "If the door is closed, describe the door itself (e.g. 'brown wooden door', 'white paneled door').\n"
     "- Respond with STRICT JSON only, no prose."
 )
 
@@ -75,11 +80,13 @@ def _build_user_prompt(filename_hint: str | None) -> str:
         "feature or the most important onward doorway),\n"
         '  "openings": [\n'
         "    {\n"
-        f'      "type": one of [{", ".join(OPENING_TYPES)}],\n'
+        f'      "type": one of [{", ".join(OPENING_TYPES)}, "stairs_up", "stairs_down"],\n'
         '      "x_fraction": 0.0-1.0,\n'
         '      "floor_y_fraction": 0.0-1.0,\n'
         '      "leads_to_room_type": one of the room types or null if unknown,\n'
         '      "leads_to_confidence": 0.0-1.0,\n'
+        '      "visual_context": "short description of what is visible through the door '
+        '(flooring, colors) or the door itself if closed",\n'
         '      "label": "short label e.g. \\"to kitchen\\""\n'
         "    }\n"
         "  ]\n"
@@ -124,9 +131,25 @@ async def analyze_panorama(
         room_type = "other"
 
     openings: list[dict[str, Any]] = []
+    # Deduplicate openings that are too close horizontally (e.g. the same doorway
+    # reported twice) — keep the higher-confidence one.
+    _raw_ops: list[dict[str, Any]] = []
     for op in raw.get("openings", []) or []:
         if not isinstance(op, dict) or "x_fraction" not in op:
             continue
+        x_frac = float(op["x_fraction"])
+        is_duplicate = False
+        for ext in _raw_ops:
+            if min(abs(ext["x_fraction"] - x_frac), 1.0 - abs(ext["x_fraction"] - x_frac)) < 0.08:
+                is_duplicate = True
+                # If this one has higher confidence, keep it instead.
+                if float(op.get("leads_to_confidence", 0)) > float(ext.get("leads_to_confidence", 0)):
+                    ext.update(op)
+                break
+        if not is_duplicate:
+            _raw_ops.append(op)
+
+    for op in _raw_ops:
         leads = op.get("leads_to_room_type")
         leads = str(leads).strip().lower().replace(" ", "_") if leads else None
         if leads not in ROOM_TYPES:
@@ -138,6 +161,7 @@ async def analyze_panorama(
                 "pitch": _frac_to_floor_pitch(op.get("floor_y_fraction")),
                 "leads_to_room_type": leads,
                 "leads_to_confidence": float(op.get("leads_to_confidence") or 0.0),
+                "visual_context": str(op.get("visual_context") or "").strip(),
                 "label": str(op.get("label") or "").strip(),
             }
         )
@@ -210,13 +234,51 @@ def _match_target(
     candidates = [s for s in scenes if s["room_type"] == leads and s["id"] != source["id"]]
     if not candidates:
         return None
+
+    # Stair logic: an opening that is stairs must connect to a scene whose own
+    # opening reports the complementary stair direction.
+    op_type = opening.get("type")
+    if op_type in ("stairs_up", "stairs_down"):
+        expected_reciprocal = "stairs_down" if op_type == "stairs_up" else "stairs_up"
+        stair_candidates = [
+            c for c in candidates
+            if any(o.get("type") == expected_reciprocal for o in c.get("openings", []))
+        ]
+        if stair_candidates:
+            candidates = stair_candidates
+        elif len(candidates) > 1:
+            # No complementary stairs found — likely hallucinated; stay conservative.
+            return None
+
     if len(candidates) == 1:
         return cast(str, candidates[0]["id"])
-    # Multiple: prefer one not already linked from this source.
+
+    # Multiple candidates: score by reciprocal opening + visual-context overlap.
+    scored_candidates: list[tuple[int, dict[str, Any]]] = []
     for c in candidates:
+        score = 0
         if c["id"] not in already_linked:
-            return cast(str, c["id"])
-    return cast(str, candidates[0]["id"])
+            score += 10  # strongly prefer unlinked rooms
+        # Look for a reciprocal opening pointing back to our room type.
+        reciprocals = [
+            o for o in c.get("openings", [])
+            if o.get("leads_to_room_type") == source["room_type"]
+        ]
+        if reciprocals:
+            score += 5
+            my_ctx = set(opening.get("visual_context", "").lower().replace(",", "").split())
+            best_overlap = max(
+                (
+                    len(my_ctx.intersection(set(o.get("visual_context", "").lower().replace(",", "").split())))
+                    for o in reciprocals
+                ),
+                default=0,
+            )
+            score += best_overlap
+        scored_candidates.append((score, c))
+
+    scored_candidates.sort(key=lambda item: item[0], reverse=True)
+    return cast(str, scored_candidates[0][1]["id"])
 
 
 def _add_hotspot(scene: dict[str, Any], target_id: str, opening: dict[str, Any], target_title: str) -> None:
@@ -279,6 +341,25 @@ def build_graph(scenes: list[dict[str, Any]]) -> list[dict[str, Any]]:
         for i, hs in enumerate(deduped):
             hs["order_index"] = i
         s["hotspots"] = deduped
+
+    # Pass 4: compute target_view for a traveling effect — when entering a scene,
+    # face away from the doorway you came through.
+    for s in scenes:
+        for hs in s["hotspots"]:
+            target_scene = by_id.get(hs["target_scene_id"])
+            if not target_scene:
+                continue
+            # Find the reciprocal hotspot in target leading back to this scene.
+            reciprocal = next(
+                (th for th in target_scene["hotspots"] if th["target_scene_id"] == s["id"]),
+                None,
+            )
+            if reciprocal:
+                entry_yaw = reciprocal["position"]["yaw"]
+                target_yaw = (entry_yaw + 180) % 360
+                if target_yaw > 180:
+                    target_yaw -= 360
+                hs.setdefault("custom_data", {})["target_view"] = {"yaw": target_yaw, "pitch": 0}
 
     return scenes
 
@@ -408,6 +489,107 @@ def _fallback_opening(scene: dict[str, Any]) -> dict[str, Any]:
     return {"yaw": round(scene.get("facing_yaw", 0.0), 1), "pitch": NAV_PITCH_DEFAULT, "type": "other"}
 
 
+def graph_summary(scenes: list[dict[str, Any]]) -> dict[str, Any]:
+    """Quality report for a built scene graph, for the review step.
+
+    Reports what a reviewer needs to see before trusting the linking: rooms with
+    no links, one-way edges, rooms unreachable from the start scene, and
+    doorways the linker could not use. Unknowns are listed explicitly rather
+    than papered over.
+
+    An opening lands in ``unmatched_openings`` when no scene in the tour has the
+    room type it leads to (nothing to link to), and in ``unlinked_openings``
+    when such a scene exists but no link was placed (the matcher stays
+    conservative, e.g. stairs whose direction has no counterpart). The two read
+    very differently to a reviewer, so they are kept apart.
+    """
+    by_id = {s["id"]: s for s in scenes}
+    link_count = sum(len(s.get("hotspots", [])) for s in scenes)
+
+    rooms_without_links = [s["id"] for s in scenes if not s.get("hotspots")]
+
+    one_way_links: list[str] = []
+    for s in scenes:
+        for hs in s.get("hotspots", []):
+            target = by_id.get(hs.get("target_scene_id"))
+            if target is None:
+                continue
+            if not any(h.get("target_scene_id") == s["id"] for h in target.get("hotspots", [])):
+                one_way_links.append(f"{s['id']}->{target['id']}")
+
+    room_types_present = {s.get("room_type") for s in scenes}
+    unmatched_openings: list[dict[str, Any]] = []
+    unlinked_openings: list[dict[str, Any]] = []
+    for s in scenes:
+        linked_types = {
+            by_id[h["target_scene_id"]].get("room_type")
+            for h in s.get("hotspots", [])
+            if h.get("target_scene_id") in by_id
+        }
+        for op in s.get("openings", []):
+            leads = op.get("leads_to_room_type")
+            if not leads or leads in linked_types:
+                continue
+            entry = {
+                "scene_id": s["id"],
+                "leads_to_room_type": leads,
+                "label": op.get("label") or "",
+            }
+            if leads in room_types_present:
+                unlinked_openings.append(entry)
+            else:
+                unmatched_openings.append(entry)
+
+    unreachable_scenes: list[str] = []
+    if scenes:
+        start = start_scene_id(scenes)
+        reached = {start}
+        queue = deque([start])
+        while queue:
+            current = queue.popleft()
+            for hs in by_id[current].get("hotspots", []):
+                target_id = hs.get("target_scene_id")
+                if target_id in by_id and target_id not in reached:
+                    reached.add(target_id)
+                    queue.append(target_id)
+        unreachable_scenes = [s["id"] for s in scenes if s["id"] not in reached]
+
+    warnings: list[str] = []
+    if rooms_without_links:
+        warnings.append(
+            f"{len(rooms_without_links)} room(s) have no doorway links yet: "
+            + ", ".join(rooms_without_links)
+        )
+    if one_way_links:
+        warnings.append(f"{len(one_way_links)} link(s) only go one way and cannot be walked back.")
+    if unreachable_scenes:
+        warnings.append(
+            f"{len(unreachable_scenes)} room(s) are not reachable from the start: "
+            + ", ".join(unreachable_scenes)
+        )
+    if unmatched_openings:
+        warnings.append(
+            f"{len(unmatched_openings)} doorway(s) lead to rooms without a scene, "
+            "so no link could be placed there."
+        )
+    if unlinked_openings:
+        warnings.append(
+            f"{len(unlinked_openings)} doorway(s) could not be matched to a room in this tour "
+            "(a stair direction with no counterpart, for example), so no link was placed there."
+        )
+
+    return {
+        "scene_count": len(scenes),
+        "link_count": link_count,
+        "rooms_without_links": rooms_without_links,
+        "one_way_links": one_way_links,
+        "unreachable_scenes": unreachable_scenes,
+        "unmatched_openings": unmatched_openings[:20],
+        "unlinked_openings": unlinked_openings[:20],
+        "warnings": warnings,
+    }
+
+
 def scenes_to_tour_plan(title: str, scenes: list[dict[str, Any]]) -> dict[str, Any]:
     """Serialize graph scenes into the tour.json / API shape."""
     ordered = sorted(scenes, key=lambda s: (_ORDER_PRIORITY.get(s["room_type"], 50), s["id"]))
@@ -446,7 +628,7 @@ async def analyze_and_build_scenes(
 
     Args:
         panoramas: list of {key, image_base64, mime_type, image_url, filename_hint?}
-        provider: an AIProvider (Gemini). Reused via complete_json.
+        provider: an AIProvider (Agnes AI). Reused via complete_json.
     """
     import asyncio
 
@@ -514,6 +696,7 @@ __all__ = [
     "assign_scene_ids",
     "build_graph",
     "build_spatial_tour",
+    "graph_summary",
     "scenes_to_tour_plan",
     "start_scene_id",
     "tour_plan_summary",

@@ -26,7 +26,6 @@ from app.mcp.utils import (
     serialize_maintenance_request,
     serialize_property_basic,
     serialize_property_full,
-    serialize_user_basic,
 )
 
 __all__ = [
@@ -50,7 +49,6 @@ __all__ = [
     "serialize_maintenance_request",
     "serialize_property_basic",
     "serialize_property_full",
-    "serialize_user_basic",
     "utc_now",
     "utc_now_iso",
 ]

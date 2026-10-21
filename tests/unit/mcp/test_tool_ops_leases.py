@@ -8,11 +8,17 @@ pm_authz / user helpers to verify that each function:
 - Returns the expected error payloads (property/lease not found, bad status)
 - Honors the active-lease guard on terminate
 """
+
 from __future__ import annotations
 
+from datetime import date
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.core.exceptions import NotFoundException, PropertyNotFoundException
+from app.core.exceptions import (
+    BadRequestException,
+    PropertyNotFoundException,
+)
 from app.mcp.tool_ops import leases as leases_tool_ops
 from app.models.enums import LeaseStatus
 from tests.unit.mcp.conftest import make_lease, make_property, make_user
@@ -31,6 +37,7 @@ def _scalar_result(value):
     """
     result = MagicMock()
     result.scalar_one_or_none = MagicMock(return_value=value)
+    result.scalar_one = MagicMock(return_value=value)
     return result
 
 
@@ -80,6 +87,13 @@ def _make_lease_obj(
 # ---------------------------------------------------------------------------
 
 
+def _stats_result(active_count: int, active_rent: float):
+    """Mock result of the lease portfolio stats query: one row (count, sum)."""
+    result = MagicMock()
+    result.one.return_value = (active_count, active_rent)
+    return result
+
+
 class TestGetTenantCurrentLease:
     async def test_returns_active_lease(self) -> None:
         db = AsyncMock()
@@ -126,37 +140,43 @@ class TestListLeases:
     async def test_returns_leases(self) -> None:
         db = AsyncMock()
         leases = [_make_lease_obj(lease_id=1), _make_lease_obj(lease_id=2)]
-        db.execute = AsyncMock(return_value=_scalars_result(leases))
+        db.execute = AsyncMock(
+            side_effect=[_scalars_result(leases), _scalar_result(2), _stats_result(2, 50000)]
+        )
 
-        result = await leases_tool_ops.list_leases(db, actor=make_user(), limit=20)
+        result = await leases_tool_ops.list_leases(
+            db, actor=make_user(), limit=20, include_total=True
+        )
 
         assert result["total"] == 2
-        assert len(result["items"]) == 2
+        assert len(result["leases"]) == 2
         assert result["has_more"] is False
         assert result["next_cursor"] is None
         assert result["limit"] == 20
 
     async def test_empty_result(self) -> None:
         db = AsyncMock()
-        db.execute = AsyncMock(return_value=_scalars_result([]))
+        db.execute = AsyncMock(
+            side_effect=[_scalars_result([]), _scalar_result(0), _stats_result(0, 0)]
+        )
 
-        result = await leases_tool_ops.list_leases(db, actor=make_user())
+        result = await leases_tool_ops.list_leases(db, actor=make_user(), include_total=True)
 
         assert result["total"] == 0
-        assert result["items"] == []
+        assert result["leases"] == []
         assert result["has_more"] is False
 
     async def test_pagination(self) -> None:
         db = AsyncMock()
         # Return limit+1 items to signal has_more=True (limit+1 fetch pattern)
         leases = [_make_lease_obj(lease_id=i) for i in range(6)]
-        db.execute = AsyncMock(return_value=_scalars_result(leases))
+        db.execute = AsyncMock(side_effect=[_scalars_result(leases), _stats_result(6, 150000)])
 
         result = await leases_tool_ops.list_leases(db, actor=make_user(), limit=5)
 
         assert result["has_more"] is True
         assert result["next_cursor"] is not None
-        assert len(result["items"]) == 5
+        assert len(result["leases"]) == 5
 
 
 # ---------------------------------------------------------------------------
@@ -170,19 +190,28 @@ class TestCreateLease:
         actor = make_user()
         prop = make_property(property_id=3, owner_id=10)
         tenant = make_user(user_id=11, full_name="Tenant User")
-
-        async def _refresh(obj, *args, **kwargs):
-            obj.id = 42
-
-        db.refresh = AsyncMock(side_effect=_refresh)
-        # db.add() is synchronous on AsyncSession; override the AsyncMock attr
-        db.add = MagicMock()
+        created = SimpleNamespace(
+            id=42,
+            property_id=3,
+            owner_id=10,
+            tenant_user_id=11,
+            status=LeaseStatus.active,
+            start_date=date(2026, 7, 1),
+            end_date=date(2027, 6, 30),
+            monthly_rent=30000,
+            security_deposit=60000,
+            payment_due_day=1,
+            grace_period_days=5,
+        )
 
         with (
             patch.object(
                 leases_tool_ops, "assert_can_access_property", AsyncMock(return_value=prop)
             ),
             patch.object(leases_tool_ops, "get_user_by_id", AsyncMock(return_value=tenant)),
+            patch.object(
+                leases_tool_ops, "create_pm_lease", AsyncMock(return_value=created)
+            ) as mock_create,
         ):
             result = await leases_tool_ops.create_lease(
                 db,
@@ -200,9 +229,41 @@ class TestCreateLease:
         assert result["lease"]["monthly_rent"] == 30000.0
         assert result["lease"]["security_deposit"] == 60000.0
         assert result["lease"]["status"] == "active"
-        db.add.assert_called_once()
-        db.flush.assert_awaited_once()
+        # The PM service writes the row, with the owner of the property and no grace override.
+        kwargs = mock_create.await_args.kwargs
+        assert kwargs["owner_id"] == 10
+        assert kwargs["status"] == LeaseStatus.active
+        assert kwargs["grace_period_days"] is None
         db.commit.assert_awaited_once()
+
+    async def test_service_refusal_is_returned_as_an_error(self) -> None:
+        db = AsyncMock()
+        prop = make_property(property_id=3, owner_id=10)
+        tenant = make_user(user_id=11)
+        refusal = BadRequestException(detail="Property already has an active lease")
+
+        with (
+            patch.object(
+                leases_tool_ops, "assert_can_access_property", AsyncMock(return_value=prop)
+            ),
+            patch.object(leases_tool_ops, "get_user_by_id", AsyncMock(return_value=tenant)),
+            patch.object(leases_tool_ops, "create_pm_lease", AsyncMock(side_effect=refusal)),
+        ):
+            result = await leases_tool_ops.create_lease(
+                db,
+                actor=make_user(),
+                property_id=3,
+                tenant_user_id=11,
+                start_date="2026-07-01",
+                end_date="2027-06-30",
+                monthly_rent=30000,
+            )
+
+        assert result == {
+            "error": True,
+            "message": "Property already has an active lease",
+        }
+        db.commit.assert_not_awaited()
 
     async def test_end_date_before_start(self) -> None:
         db = AsyncMock()
@@ -253,63 +314,4 @@ class TestCreateLease:
         assert result["error"] is True
         assert "not found" in result["message"].lower()
         db.add.assert_not_called()
-        db.commit.assert_not_awaited()
-
-
-# ---------------------------------------------------------------------------
-# terminate_lease
-# ---------------------------------------------------------------------------
-
-
-class TestTerminateLease:
-    async def test_terminate_success(self) -> None:
-        db = AsyncMock()
-        actor = make_user()
-        lease = _make_lease_obj(lease_id=5, status=LeaseStatus.active)
-
-        with patch.object(
-            leases_tool_ops, "assert_can_access_lease", AsyncMock(return_value=lease)
-        ):
-            result = await leases_tool_ops.terminate_lease(
-                db, actor=actor, lease_id=5, reason="Tenant moving out"
-            )
-
-        assert result["message"] == "Lease terminated successfully"
-        assert lease.status == LeaseStatus.terminated
-        assert "Terminated: Tenant moving out" in lease.special_clauses
-        assert result["lease"]["status"] == "terminated"
-        db.flush.assert_awaited_once()
-        db.commit.assert_awaited_once()
-
-    async def test_lease_not_found(self) -> None:
-        db = AsyncMock()
-        actor = make_user()
-
-        with patch.object(
-            leases_tool_ops,
-            "assert_can_access_lease",
-            AsyncMock(side_effect=NotFoundException(detail="Lease not found")),
-        ):
-            result = await leases_tool_ops.terminate_lease(
-                db, actor=actor, lease_id=999, reason="N/A"
-            )
-
-        assert result["error"] is True
-        assert "not found" in result["message"].lower()
-        db.commit.assert_not_awaited()
-
-    async def test_already_terminated(self) -> None:
-        db = AsyncMock()
-        actor = make_user()
-        lease = _make_lease_obj(lease_id=5, status=LeaseStatus.terminated)
-
-        with patch.object(
-            leases_tool_ops, "assert_can_access_lease", AsyncMock(return_value=lease)
-        ):
-            result = await leases_tool_ops.terminate_lease(
-                db, actor=actor, lease_id=5, reason="N/A"
-            )
-
-        assert result["error"] is True
-        assert "terminated" in result["message"].lower()
         db.commit.assert_not_awaited()

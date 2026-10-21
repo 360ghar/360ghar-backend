@@ -4,6 +4,7 @@ Provides reusable factories and mock helpers for testing MCP tools
 without a real database. All factories return ``SimpleNamespace`` objects
 or ``AsyncMock`` instances that match the shapes expected by tool functions.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
@@ -255,7 +256,7 @@ def make_rent_charge(
         amount_due=amount_due,
         amount_paid=amount_paid,
         status=status,
-        late_fee=0,
+        late_fee_assessed=0,
     )
 
 

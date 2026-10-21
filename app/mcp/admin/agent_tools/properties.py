@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from app.core.exceptions import (
     BadRequestException,
@@ -24,11 +24,15 @@ from app.mcp.admin.agent_tools.common import (
     serialize_lease,
     serialize_property_basic,
     serialize_property_full,
-    serialize_user_basic,
     utc_now_iso,
 )
 from app.mcp.apps_sdk import build_widget_tool_meta
+from app.mcp.tool_ops import compute_portfolio_stats, enrich_properties_with_lease_info
+from app.mcp.tool_ops.scope import owner_scope
+from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.pagination import decode_cursor, encode_cursor
+from app.services.property import attach_owner_agents
+from app.services.visibility import mask_user_ref
 from app.utils.validators import ValidationUtils
 
 AGENT_PROPERTIES_LIST_META = build_widget_tool_meta(
@@ -59,8 +63,9 @@ async def agent_properties_list(
     owner_id: int | None = None,
     cursor: str | None = None,
     limit: int = 50,
-    occupancy: str | None = None,
+    occupancy: Literal["occupied", "vacant"] | None = None,
     q: str | None = None,
+    include_total: bool = False,
 ) -> dict[str, Any]:
     """List managed properties for agents/admins.
 
@@ -76,7 +81,8 @@ async def agent_properties_list(
     """
     try:
         limit = min(max(1, limit), 100)
-        cursor_payload = decode_cursor(cursor) if cursor else {}
+        filters = {"owner_id": owner_id, "occupancy": occupancy, "q": q}
+        cursor_payload = decode_cursor(cursor, filters) if cursor else {}
 
         async for db in get_db():
             user = await _get_user(db)
@@ -90,7 +96,7 @@ async def agent_properties_list(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -99,7 +105,7 @@ async def agent_properties_list(
             user_schema = UserSchema.model_validate(user)
 
             try:
-                rows, next_payload, _total = await list_managed_properties(
+                rows, next_payload, total = await list_managed_properties(
                     db,
                     actor=user_schema,
                     owner_id=owner_id,
@@ -107,22 +113,29 @@ async def agent_properties_list(
                     q=q,
                     cursor_payload=cursor_payload,
                     limit=limit,
+                    with_total=include_total,
                 )
             except InsufficientPermissionsError as e:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    str(e)
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, str(e)
                 ).model_dump()
 
-            items = [serialize_property_basic(p) for p in rows]
+            # has_active_lease and tenant_name, the same enrichment as owner_properties_list.
+            items, _page_stats = await enrich_properties_with_lease_info(db, rows)
+            stats = await compute_portfolio_stats(
+                db, owner_ids=await owner_scope(db, user, owner_id)
+            )
 
-            return MCPResponse.success({
-                "total": len(items),
-                "next_cursor": encode_cursor(next_payload) if next_payload else None,
-                "has_more": next_payload is not None,
-                "limit": limit,
-                "items": items,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "total": total,
+                    "next_cursor": encode_cursor(next_payload, filters) if next_payload else None,
+                    "has_more": next_payload is not None,
+                    "limit": limit,
+                    "items": items,
+                    "stats": stats,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -131,6 +144,7 @@ async def agent_properties_list(
         logger.error("Error in agent.properties.list: %s", e, exc_info=True)
         return internal_error_response(f"Failed to list properties: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_get",
@@ -164,7 +178,7 @@ async def agent_properties_get(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -182,38 +196,41 @@ async def agent_properties_get(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             prop = result["property"]
             active_lease = result.get("active_lease")
 
-            property_data = serialize_property_full(prop)
+            await attach_owner_agents(db, [prop])
+            property_data = serialize_property_full(prop, viewer=user)
 
             # Get owner info
             owner_data = None
             if prop.owner_id:
                 from app.services.user import get_user_by_id
+
                 owner = await get_user_by_id(db, prop.owner_id)
                 if owner:
-                    owner_data = serialize_user_basic(owner)
+                    owner_data = mask_user_ref(owner, user, owner_id=prop.owner_id)
 
             lease_data = None
             tenant_data = None
             if active_lease:
-                lease_data = serialize_lease(active_lease)
+                lease_data = serialize_lease(active_lease, user)
                 if active_lease.tenant_user_id:
                     tenant = await get_user_by_id(db, active_lease.tenant_user_id)
                     if tenant:
-                        tenant_data = serialize_user_basic(tenant)
+                        tenant_data = mask_user_ref(tenant, user, owner_id=prop.owner_id)
 
-            return MCPResponse.success({
-                "property": property_data,
-                "owner": owner_data,
-                "active_lease": lease_data,
-                "tenant": tenant_data,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "property": property_data,
+                    "owner": owner_data,
+                    "active_lease": lease_data,
+                    "tenant": tenant_data,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -222,6 +239,7 @@ async def agent_properties_get(
         logger.error("Error in agent.properties.get: %s", e, exc_info=True)
         return internal_error_response(f"Failed to get property: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_create_for_owner",
@@ -236,8 +254,8 @@ async def agent_properties_get(
 async def agent_properties_create_for_owner(
     owner_id: int,
     title: str,
-    property_type: str,
-    purpose: str,
+    property_type: PropertyType,
+    purpose: PropertyPurpose,
     full_address: str,
     city: str,
     locality: str,
@@ -288,7 +306,7 @@ async def agent_properties_create_for_owner(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.property import PropertyCreate
@@ -298,7 +316,10 @@ async def agent_properties_create_for_owner(
             user_schema = UserSchema.model_validate(user)
 
             if main_image_url is not None and not ValidationUtils.is_absolute_url(main_image_url):
-                logger.warning("Non-absolute main_image_url in agent_properties_create_for_owner: %s", main_image_url)
+                logger.warning(
+                    "Non-absolute main_image_url in agent_properties_create_for_owner: %s",
+                    main_image_url,
+                )
 
             property_data = PropertyCreate(
                 title=title,
@@ -331,14 +352,15 @@ async def agent_properties_create_for_owner(
                 await db.commit()
             except InsufficientPermissionsError as e:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    str(e)
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, str(e)
                 ).model_dump()
 
-            return MCPResponse.success({
-                "message": "Property created successfully",
-                "property": serialize_property_basic(prop),
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": "Property created successfully",
+                    "property": serialize_property_basic(prop),
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:
@@ -347,6 +369,7 @@ async def agent_properties_create_for_owner(
         logger.error("Error in agent.properties.create_for_owner: %s", e, exc_info=True)
         return internal_error_response(f"Failed to create property: {str(e)}")
     return {}
+
 
 @admin_mcp.tool(
     "agent_properties_verify",
@@ -383,7 +406,7 @@ async def agent_properties_verify(
             if not _require_agent_or_admin(user):
                 return MCPResponse.failure(
                     MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "This endpoint is for agents and admins only"
+                    "This endpoint is for agents and admins only",
                 ).model_dump()
 
             from app.schemas.user import User as UserSchema
@@ -399,8 +422,7 @@ async def agent_properties_verify(
                 return not_found_response("Property", property_id)
             except InsufficientPermissionsError:
                 return MCPResponse.failure(
-                    MCPErrorCode.INSUFFICIENT_PERMISSIONS,
-                    "You do not have access to this property"
+                    MCPErrorCode.INSUFFICIENT_PERMISSIONS, "You do not have access to this property"
                 ).model_dump()
 
             preferences = dict(prop.listing_preferences or {})
@@ -418,11 +440,13 @@ async def agent_properties_verify(
             await db.commit()
 
             status = "verified" if is_verified else "unverified"
-            return MCPResponse.success({
-                "message": f"Property marked as {status}",
-                "property_id": property_id,
-                "is_verified": is_verified,
-            }).model_dump()
+            return MCPResponse.success(
+                {
+                    "message": f"Property marked as {status}",
+                    "property_id": property_id,
+                    "is_verified": is_verified,
+                }
+            ).model_dump()
     except AuthRequiredError:
         raise
     except BadRequestException as e:

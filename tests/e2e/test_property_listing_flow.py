@@ -5,6 +5,7 @@ End-to-end tests for property listing flow.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -49,7 +50,7 @@ def create_mock_property_dict(
         "interest_count": 0,
         "is_managed": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": None,
+        "updated_at": "2026-10-01T00:00:00Z",
         "images": [],
         "amenities": [],
     }
@@ -59,9 +60,7 @@ class TestPropertyListingFlow:
     """Tests for complete property listing flow."""
 
     @pytest.mark.asyncio
-    async def test_create_and_list_property(
-        self, authenticated_client: AsyncClient
-    ):
+    async def test_create_and_list_property(self, authenticated_client: AsyncClient):
         """Test creating a property and seeing it in listings."""
         from unittest.mock import NonCallableMock
 
@@ -129,7 +128,7 @@ class TestPropertyListingFlow:
             mock_property.management_status = None
             mock_property.late_fee_policy = None
             mock_property.created_at = datetime.now(timezone.utc)
-            mock_property.updated_at = None
+            mock_property.updated_at = datetime(2026, 10, 1, tzinfo=timezone.utc)
             mock_property.images = []
             mock_property.amenities = []
             mock_create.return_value = mock_property
@@ -155,7 +154,7 @@ class TestPropertyListingFlow:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
 
         # Step 2: List properties
         with patch(
@@ -188,9 +187,9 @@ class TestPropertySearchFlow:
             response = await client.get(
                 "/api/v1/properties/",
                 params={
-                    "latitude": 19.1136,
-                    "longitude": 72.8697,
-                    "radius_km": 10,
+                    "lat": 19.1136,
+                    "lng": 72.8697,
+                    "radius": 10,
                 },
             )
 
@@ -276,9 +275,9 @@ class TestPropertySwipeFlow:
         """Test swiping and viewing liked properties."""
         # Step 1: Like a property
         with patch(
-            "app.api.api_v1.endpoints.swipes.record_swipe", new_callable=AsyncMock
+            "app.api.api_v1.endpoints.swipes.upsert_property_swipe", new_callable=AsyncMock
         ) as mock_swipe:
-            mock_swipe.return_value = True
+            mock_swipe.return_value = (SimpleNamespace(id=1, is_liked=True), True)
 
             response = await authenticated_client.post(
                 "/api/v1/swipes/",
@@ -288,7 +287,8 @@ class TestPropertySwipeFlow:
                 },
             )
 
-            assert response.status_code == 200
+            assert response.status_code == 201
+            assert response.json() == {"id": 1, "property_id": test_property.id, "is_liked": True}
 
         # Step 2: View swipe history (includes likes)
         with patch(
@@ -307,9 +307,7 @@ class TestPropertyUpdateFlow:
     """Tests for property update flow."""
 
     @pytest.mark.asyncio
-    async def test_owner_updates_property(
-        self, authenticated_client: AsyncClient, test_property
-    ):
+    async def test_owner_updates_property(self, authenticated_client: AsyncClient, test_property):
         """Test owner updating their property."""
         with patch(
             "app.api.api_v1.endpoints.properties.update_property",
@@ -337,9 +335,7 @@ class TestPropertyToggleAvailability:
     """
 
     @pytest.mark.asyncio
-    async def test_toggle_availability(
-        self, authenticated_client: AsyncClient, test_property
-    ):
+    async def test_toggle_availability(self, authenticated_client: AsyncClient, test_property):
         """Test changing property availability via update."""
         with patch(
             "app.api.api_v1.endpoints.properties.update_property",

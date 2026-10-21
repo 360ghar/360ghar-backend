@@ -4,13 +4,14 @@
  *
  * Runtime detection: if `window.openai` is present at module load → OpenAI host.
  * Otherwise, if running inside an iframe → MCP Apps host (lightweight JSON-RPC
- * over postMessage — no heavy SDK dependency).
+ * over postMessage, with no heavy SDK dependency).
  *
  * The exported hooks have identical signatures regardless of runtime, so all
  * widgets work without any per-widget changes.
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
+import type { ToolName } from '../generated/tool-names';
 import type { OpenAiApi, OpenAiGlobals } from '../types/openai';
 
 // ---------------------------------------------------------------------------
@@ -28,11 +29,16 @@ function detectHost(): HostType {
 
 const HOST: HostType = detectHost();
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // ---------------------------------------------------------------------------
 // Reactive store (shared by both paths)
 // ---------------------------------------------------------------------------
 
 interface BridgeStore {
+  toolInput: Record<string, unknown> | null;
   toolOutput: Record<string, unknown> | null;
   toolMeta: Record<string, unknown> | null;
   theme: 'light' | 'dark';
@@ -40,6 +46,7 @@ interface BridgeStore {
 }
 
 let store: BridgeStore = {
+  toolInput: null,
   toolOutput: null,
   toolMeta: null,
   theme:
@@ -53,21 +60,19 @@ let store: BridgeStore = {
 /**
  * Widgets read their fields off the top level of `structuredContent`.
  *
- * Not every tool ships them there: the `app/mcp/user/*` tools return an
- * `MCPResponse` envelope — `{ok: true, data: {...}}` — while the
- * `app/mcp/chatgpt/*` tools return the payload flat. Unwrapping here rather
- * than in each widget means every widget accepts either shape, on every host,
- * and a new tool cannot silently render an empty widget by picking the
- * envelope. An error envelope (`ok: false`) is left alone, since widgets read
- * its `error`/`message` keys.
+ * Not every tool ships them there: the `app/mcp/user/*` and admin tools return an
+ * `MCPResponse` envelope, `{ok: true, data: {...}}`, while the `app/mcp/chatgpt/*` tools
+ * return the payload flat. Unwrapping here rather than in each widget means every widget
+ * accepts either shape, on every host, and a new tool cannot silently render an empty
+ * widget by picking the envelope. An error envelope (`ok: false`) is left alone, since
+ * widgets read its `error` and `message` keys.
  */
 function unwrapToolOutput(raw: unknown): Record<string, unknown> | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const obj = raw as Record<string, unknown>;
-  if (obj.ok === true && obj.data && typeof obj.data === 'object' && !Array.isArray(obj.data)) {
-    return obj.data as Record<string, unknown>;
+  if (!isRecord(raw)) return null;
+  if (raw.ok === true && isRecord(raw.data)) {
+    return raw.data;
   }
-  return obj;
+  return raw;
 }
 
 const listeners = new Set<() => void>();
@@ -83,13 +88,13 @@ function getStore() { return store; }
 // ---------------------------------------------------------------------------
 
 let _nextId = 1;
-const _pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
+const _pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 let _mcpReady = false;
 let _mcpReadyPromise: Promise<void> | null = null;
 let _mcpReadyResolve: (() => void) | null = null;
 
 /** Send a JSON-RPC request to the host and await the response. */
-function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<any> {
+function mcpRequest(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
   return new Promise((resolve, reject) => {
     const id = _nextId++;
     _pending.set(id, { resolve, reject });
@@ -120,67 +125,64 @@ function mcpNotify(method: string, params: Record<string, unknown> = {}): void {
 
 /** Handle incoming JSON-RPC messages from the host. */
 function handleMcpMessage(event: MessageEvent): void {
-  const data = event.data;
-  if (!data || data.jsonrpc !== '2.0') return;
+  const data: unknown = event.data;
+  if (!isRecord(data) || data.jsonrpc !== '2.0') return;
 
   // Response to a request we sent
-  if (data.id != null && _pending.has(data.id)) {
-    const { resolve, reject } = _pending.get(data.id)!;
+  if (typeof data.id === 'number' && _pending.has(data.id) && typeof data.method !== 'string') {
+    const pending = _pending.get(data.id)!;
     _pending.delete(data.id);
-    if (data.error) {
-      reject(new Error(data.error.message || 'MCP error'));
+    if (isRecord(data.error)) {
+      pending.reject(new Error(typeof data.error.message === 'string' ? data.error.message : 'MCP error'));
     } else {
-      resolve(data.result);
+      pending.resolve(data.result);
     }
     return;
   }
 
+  const method = typeof data.method === 'string' ? data.method : null;
+  if (method === null) return;
+  const params = isRecord(data.params) ? data.params : {};
+
   // Incoming notification from host
-  if (data.method) {
-    switch (data.method) {
-      case 'ui/notifications/tool-result': {
-        const p = data.params ?? {};
-        store = {
-          ...store,
-          toolOutput: unwrapToolOutput(p.structuredContent),
-          toolMeta: (p._meta ?? null) as Record<string, unknown> | null,
-        };
+  switch (method) {
+    case 'ui/notifications/tool-result': {
+      store = {
+        ...store,
+        toolOutput: unwrapToolOutput(params.structuredContent),
+        toolMeta: isRecord(params._meta) ? params._meta : null,
+      };
+      emitChange();
+      break;
+    }
+    case 'ui/notifications/tool-input': {
+      // The arguments of the call that produced this widget. Load More and refresh resend them.
+      store = { ...store, toolInput: isRecord(params.arguments) ? params.arguments : null };
+      emitChange();
+      break;
+    }
+    case 'ui/notifications/host-context-changed': {
+      if (params.theme) {
+        store = { ...store, theme: params.theme === 'dark' ? 'dark' : 'light' };
         emitChange();
-        break;
       }
-      case 'ui/notifications/tool-input': {
-        // Tool arguments — some hosts send this before tool-result
-        break;
-      }
-      case 'ui/notifications/host-context-changed': {
-        const p = data.params ?? {};
-        if (p.theme) {
-          store = { ...store, theme: p.theme === 'dark' ? 'dark' : 'light' };
-          emitChange();
-        }
-        break;
-      }
-      case 'ui/notifications/tool-cancelled': {
-        // Optionally surface this — for now just log
-        console.warn('[360Ghar] Tool cancelled:', data.params?.reason);
-        break;
-      }
+      break;
+    }
+    case 'ui/notifications/tool-cancelled': {
+      // Optionally surface this. For now just log.
+      console.warn('[360Ghar] Tool cancelled:', params.reason);
+      break;
     }
   }
 
   // Incoming request from host (we need to respond)
-  if (data.method && data.id != null) {
-    switch (data.method) {
-      case 'ui/resource-teardown': {
-        // Acknowledge teardown
-        window.parent.postMessage({
-          jsonrpc: '2.0',
-          id: data.id,
-          result: {},
-        }, '*');
-        break;
-      }
-    }
+  if (data.id != null && method === 'ui/resource-teardown') {
+    // Acknowledge teardown
+    window.parent.postMessage({
+      jsonrpc: '2.0',
+      id: data.id,
+      result: {},
+    }, '*');
   }
 }
 
@@ -196,7 +198,7 @@ async function initMcpApps(): Promise<void> {
   });
 
   // Extract host context
-  const ctx = result?.hostContext;
+  const ctx = isRecord(result) && isRecord(result.hostContext) ? result.hostContext : null;
   if (ctx?.theme) {
     store = { ...store, theme: ctx.theme === 'dark' ? 'dark' : 'light' };
     emitChange();
@@ -286,6 +288,7 @@ function useOpenAiGlobal<K extends keyof OpenAiGlobals>(key: K): OpenAiGlobals[K
       return () => window.removeEventListener(SET_GLOBALS_EVENT_TYPE, handler);
     },
     () => readGlobal(key),
+    () => readGlobal(key),
   );
 }
 
@@ -300,7 +303,22 @@ export function useToolOutput<T = Record<string, unknown>>(): T | null {
   if (HOST === 'openai') {
     return unwrapToolOutput(useOpenAiGlobal('toolOutput')) as T | null;
   }
-  return useSyncExternalStore(subscribe, () => getStore().toolOutput as T | null);
+  const read = () => getStore().toolOutput as T | null;
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+const NO_INPUT: Record<string, unknown> = {};
+
+/**
+ * Get the arguments of the tool call that produced this widget. A cursor is bound to the
+ * filters of its call, so Load More and refresh resend these arguments with the new cursor.
+ */
+export function useToolInput(): Record<string, unknown> {
+  if (HOST === 'openai') {
+    return useOpenAiGlobal('toolInput') ?? NO_INPUT;
+  }
+  const read = () => getStore().toolInput ?? NO_INPUT;
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**
@@ -310,26 +328,28 @@ export function useToolMeta<T = Record<string, unknown>>(): T | null {
   if (HOST === 'openai') {
     return useOpenAiGlobal('toolResponseMetadata') as T | null;
   }
-  return useSyncExternalStore(subscribe, () => getStore().toolMeta as T | null);
+  const read = () => getStore().toolMeta as T | null;
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**
- * Get and set widget state.
+ * Get and set widget state. The state lives in memory (MCP Apps hosts) or in the host
+ * (OpenAI). Nothing is written to browser storage: it would hold one account's data with no
+ * schema version, no account scope and no purge on sign-out.
  */
 export function useWidgetState<T extends object>(): [T | null, (state: T) => void] {
   if (HOST === 'openai') {
-    const state = useOpenAiGlobal('widgetState') as unknown as T | null;
+    const state = useOpenAiGlobal('widgetState') as T | null;
     const setState = useCallback((newState: T) => {
       getBridge()?.setWidgetState(newState as Record<string, unknown>);
     }, []);
     return [state, setState];
   }
 
-  // MCP Apps: use localStorage for persistence
-  const state = useSyncExternalStore(subscribe, () => getStore().widgetState as T | null);
+  const read = () => getStore().widgetState as T | null;
+  const state = useSyncExternalStore(subscribe, read, read);
   const setState = useCallback((newState: T) => {
     store = { ...store, widgetState: newState as Record<string, unknown> };
-    try { localStorage.setItem('mcp-widget-state', JSON.stringify(newState)); } catch { /* sandboxed */ }
     emitChange();
   }, []);
   return [state, setState];
@@ -343,55 +363,155 @@ export function useTheme(): 'light' | 'dark' {
     const theme = useOpenAiGlobal('theme');
     return theme === 'dark' ? 'dark' : 'light';
   }
-  return useSyncExternalStore(subscribe, () => getStore().theme);
+  const read = () => getStore().theme;
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+// ---------------------------------------------------------------------------
+// Tool calls
+// ---------------------------------------------------------------------------
+
+export type ToolArgs = Record<string, unknown>;
+
+/**
+ * A tool result that is an error. Two backend shapes reach the widgets:
+ * - the chatgpt tools send `{error: true, code?, message?}` (and `{requires_auth: true}` for a sign-in challenge);
+ * - the MCPResponse tools send `{ok: false, error: {code, message, details}, message}`.
+ * A call that throws or returns nothing becomes `{error: true, message}` here.
+ */
+export interface ToolFailure {
+  ok?: false;
+  error: true | { code?: string; message?: string; details?: unknown };
+  code?: string;
+  message?: string;
+  requires_auth?: boolean;
+}
+
+export type ToolResult<T> = T | ToolFailure;
+
+export function isToolFailure(value: unknown): value is ToolFailure {
+  if (!isRecord(value)) return false;
+  return value.ok === false || Boolean(value.error) || value.requires_auth === true;
+}
+
+const FAILURE_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'This item was not found.',
+  FORBIDDEN: 'You do not have access to this.',
+  INSUFFICIENT_PERMISSIONS: 'You do not have access to this.',
+  INVALID_INPUT: 'Some details are not valid.',
+  INVALID_DATE: 'The date is not valid.',
+  PAST_DATE: 'Choose a date and time in the future.',
+  INVALID_STATUS: 'This action does not apply to the current status.',
+  INVALID_CURSOR: 'The list changed. Reload it and try again.',
+  SWIPE_NOT_ALLOWED: 'This property cannot be saved.',
+  INVALID_METHOD: 'Choose a valid payment method.',
+};
+
+/** A message for the user. Read from the failure, else from its code, else a generic line. */
+export function toolFailureMessage(failure: ToolFailure): string {
+  if (failure.requires_auth) return 'Sign in to 360Ghar to continue.';
+  const nested = typeof failure.error === 'object' ? failure.error : null;
+  const code = failure.code ?? nested?.code;
+  return (
+    failure.message ??
+    nested?.message ??
+    (code ? FAILURE_MESSAGES[code] : undefined) ??
+    'The request failed. Try again.'
+  );
+}
+
+/** The text of a tool result's `content`: a string, or a list of `{type: 'text', text}` blocks. */
+function contentText(content: unknown, separator: string): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((c): c is { type: string; text: string } =>
+      isRecord(c) && c.type === 'text' && typeof c.text === 'string')
+    .map((c) => c.text)
+    .join(separator);
+}
+
+/** One MCP CallToolResult. The payload is its structuredContent, else its JSON text content. */
+function readCallToolResult(result: unknown): unknown {
+  if (!isRecord(result)) return null;
+  if (isRecord(result.structuredContent)) return result.structuredContent;
+
+  const text = contentText(result.content, result.isError ? '\n' : '');
+
+  if (result.isError) {
+    throw new Error(text || 'Tool call failed');
+  }
+  try {
+    return JSON.parse(text || '{}');
+  } catch {
+    return null;
+  }
+}
+
+async function callOne(name: ToolName, args: ToolArgs): Promise<unknown> {
+  if (HOST === 'openai') {
+    const bridge = getBridge();
+    if (!bridge?.callTool) {
+      throw new Error(`Tool bridge unavailable. Cannot call "${name}".`);
+    }
+    const result = await bridge.callTool<unknown>(name, args);
+    if (result.structuredContent != null) return result.structuredContent;
+    // No structured payload: the host sent an error as text, or nothing. An unknown-tool message
+    // is thrown, so useCallTool tries the next name, as it does for a rejected call.
+    const message = contentText(result.content, '\n');
+    if (isUnknownToolError(message)) throw new Error(message);
+    return { error: true, message: message || undefined };
+  }
+
+  // MCP Apps: send tools/call request via postMessage
+  await waitForMcpReady();
+  return readCallToolResult(await mcpRequest('tools/call', { name, arguments: args }));
+}
+
+/** The host rejected the name: the tool is not on the MCP server this widget came from. */
+function isUnknownToolError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /unknown tool|no such tool|tool\b[^.]{0,80}\bnot (found|registered|available)|method not found/i.test(message);
 }
 
 /**
- * Call an MCP tool and get the structured content back.
+ * Call an MCP tool and get its payload back.
+ *
+ * The result is unwrapped, so a widget reads the same keys for a flat result and for an
+ * `{ok, data}` envelope. The call never rejects: a failure comes back as a `ToolFailure`.
+ * Test it with `isToolFailure()`.
+ *
+ * A widget is linked to tools on two servers: `/mcp` (owner, tenant, visits, discovery) and
+ * `/mcp-admin` (agent). Pass the names in order to try them. The next name is tried only when
+ * the host says the tool is unknown, so the real error of a registered tool is never hidden.
  */
 export function useCallTool() {
-  return useCallback(async <T = any>(
-    name: string,
-    args: Record<string, unknown>,
-  ): Promise<T> => {
-    if (HOST === 'openai') {
-      const bridge = getBridge();
-      if (!bridge?.callTool) {
-        throw new Error(`Tool bridge unavailable. Cannot call "${name}".`);
+  return useCallback(async <T = Record<string, unknown>>(
+    names: ToolName | readonly ToolName[],
+    args: ToolArgs,
+  ): Promise<ToolResult<T>> => {
+    const candidates = typeof names === 'string' ? [names] : names;
+    let firstError: unknown = null;
+
+    for (const name of candidates) {
+      try {
+        const payload = unwrapToolOutput(await callOne(name, args));
+        if (payload === null) {
+          return { error: true, message: 'The tool returned no data.' };
+        }
+        return payload as ToolResult<T>;
+      } catch (err) {
+        if (!isUnknownToolError(err)) {
+          return { error: true, message: err instanceof Error ? err.message : 'The request failed.' };
+        }
+        firstError ??= err;
       }
-      const result = await bridge.callTool<T>(name, args);
-      return result.structuredContent;
     }
 
-    // MCP Apps: send tools/call request via postMessage
-    await waitForMcpReady();
-    const result = await mcpRequest('tools/call', { name, arguments: args });
-
-    if (result?.isError) {
-      const errText = Array.isArray(result.content)
-        ? result.content
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.text)
-            .join('\n')
-        : 'Tool call failed';
-      throw new Error(errText);
-    }
-
-    // Prefer structuredContent, fall back to parsing text content
-    if (result?.structuredContent) {
-      return result.structuredContent as T;
-    }
-    const textContent = Array.isArray(result?.content)
-      ? result.content
-          .filter((c: any) => c.type === 'text')
-          .map((c: any) => c.text)
-          .join('')
-      : '';
-    try {
-      return JSON.parse(textContent || '{}') as T;
-    } catch {
-      return textContent as unknown as T;
-    }
+    return {
+      error: true,
+      message: firstError instanceof Error ? firstError.message : 'No tool is available for this action.',
+    };
   }, []);
 }
 
