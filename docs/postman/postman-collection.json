@@ -354,35 +354,6 @@
           "response": []
         },
         {
-          "name": "Link OAuth Identity (auth)",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{BASE_URL}}/api/v1/auth/link-identity",
-              "host": [
-                "{{BASE_URL}}"
-              ],
-              "path": [
-                "api",
-                "v1",
-                "auth",
-                "link-identity"
-              ]
-            },
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"provider\": \"google\",\n  \"id_token\": \"eyJhbGciOiJSUzI1NiIs...\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
-          },
-          "response": []
-        },
-        {
           "name": "Delete Account (auth)",
           "request": {
             "method": "POST",

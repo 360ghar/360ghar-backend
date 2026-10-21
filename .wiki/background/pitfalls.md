@@ -16,7 +16,7 @@ The same property can be booked by multiple people for the same or overlapping d
 
 When `SERVERLESS_ENABLED=true` (production on Railway), the app uses `NullPool` for both main and background DB engines. Every request opens a fresh Postgres connection, hands it to the Supabase transaction pooler on port `6543`, and closes it. The trade-off is 10-50ms of added latency per request - acceptable for an API that scales to zero, unacceptable for a high-throughput always-on service. Do not use the shared session pooler on port `5432` for serverless production.
 
-In serverless mode, all in-process schedulers (blog, notifications, vector sync, data hub) are skipped. Cron work must move to Railway cron jobs or an external scheduler. The cache falls back to in-memory if Redis is unavailable - this means cache entries are not shared across instances, so rate limiting and notification frequency caps become per-instance rather than global.
+In serverless mode, all in-process schedulers (blog, notifications, vector sync, data hub) are skipped. Cron work must move to Railway cron jobs or an external scheduler. The PM daily lifecycle (overdue charges, late fees, lease expiry) runs as `python -m scripts.run_pm_lifecycle`, daily at 19:00 UTC. The cache falls back to in-memory if Redis is unavailable - this means cache entries are not shared across instances, so rate limiting and notification frequency caps become per-instance rather than global.
 
 **Do not** re-enable schedulers in serverless mode without addressing multi-instance coordination. Two scheduler instances will double-fire blog posts, notifications, and scrapers.
 
