@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS localities (
     landmarks   JSONB        NOT NULL DEFAULT '[]'::jsonb,
     source      VARCHAR(100),
     created_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
-    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now()
+    updated_at  TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT localities_place_type_check
+        CHECK (place_type IN ('locality', 'sector', 'society', 'village', 'road', 'township', 'phase'))
 );
 
 CREATE INDEX IF NOT EXISTS ix_localities_city ON localities (city);
@@ -71,6 +73,8 @@ CREATE TABLE IF NOT EXISTS generated_images (
     retry_after  TIMESTAMPTZ,
     created_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at   TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT generated_images_subject_type_check
+        CHECK (subject_type IN ('city', 'locality', 'property', 'blog')),
     CONSTRAINT generated_images_status_check
         CHECK (status IN ('pending', 'ready', 'failed'))
 );
@@ -80,6 +84,15 @@ CREATE INDEX IF NOT EXISTS ix_generated_images_subject
 CREATE INDEX IF NOT EXISTS ix_generated_images_retry
     ON generated_images (retry_after)
     WHERE status = 'failed';
+
+-- content_blocks.updated_at is set by the application on purpose: the manifest serves it as the
+-- page's last-modified date, so a bookkeeping write (a failure note) must not move it.
+DROP TRIGGER IF EXISTS update_localities_updated_at ON localities;
+CREATE TRIGGER update_localities_updated_at
+    BEFORE UPDATE ON localities FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+DROP TRIGGER IF EXISTS update_generated_images_updated_at ON generated_images;
+CREATE TRIGGER update_generated_images_updated_at
+    BEFORE UPDATE ON generated_images FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 ALTER TABLE content_blocks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE generated_images ENABLE ROW LEVEL SECURITY;

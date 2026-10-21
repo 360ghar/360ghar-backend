@@ -14,6 +14,7 @@ Active contributors: Saksham, Ravi
 | `app/models/bookings.py` | `Booking` |
 | `app/models/core.py` | `BugReport`, `Page`, `AppVersion`, `FAQ` |
 | `app/models/blogs.py` | `BlogPost`, `BlogCategory`, `BlogTag`, `BlogPostCategory`, `BlogPostTag` |
+| `app/models/content.py` | `ContentBlock`, `Locality`, `GeneratedImage` |
 | `app/models/social.py` | `UserMatch`, `UserConversation`, `UserMessage`, `UserBlock`, `UserReport`, `AppCatalog`, `MatchQnAAnswer`, `FlatmateProfileViewEvent`, `FlatmateSuperLikeUsage` |
 | `app/models/tours.py` | `Tour`, `Scene`, `Hotspot`, `TourAnalyticsEvent`, `AIJob`, `MediaFile`, `TourLocation`, `FloorPlan`, `CustomDomain`, `TourLike` |
 | `app/models/pm_leases.py` | `Lease` |

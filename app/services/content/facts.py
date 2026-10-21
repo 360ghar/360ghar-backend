@@ -25,7 +25,7 @@ from app.models.content import Locality
 from app.models.data_hub import BankAuction, CircleRate, ReraProject
 from app.models.enums import PropertyPurpose, PropertyStatus
 from app.models.properties import Amenity, Property, PropertyAmenity
-from app.services.content.numbers import allowed_numbers
+from app.services.content.numbers import Allowed, allowed_numbers
 
 SNAPSHOT = Path(__file__).parent / "data" / "locality_seed.json"
 
@@ -90,14 +90,18 @@ class FactSheet:
     def allowed_names(self) -> set[str]:
         return {*BASE_NAMES, self.name, self.city, *self.names}
 
-    def allowed_numbers(self) -> set[float]:
-        shown = [f.display for f in self.facts] + [f.as_of for f in self.facts if f.as_of]
-        shown += [self.name]
-        return allowed_numbers([s for s in shown if s])
+    def allowed_numbers(self) -> Allowed:
+        shown = [f.display for f in self.facts]
+        # A date may be quoted by year only. Owner-written titles never add numbers.
+        shown += [f.as_of[:4] for f in self.facts if f.as_of]
+        if self.entity_type == "locality":
+            shown.append(self.name)
+        return allowed_numbers(shown)
 
     def facts_hash(self) -> str:
+        # Everything the prompt carries: facts (label and value), allowed names, owner text.
         payload = json.dumps(
-            [(f.key, f.display) for f in self.facts] + [sorted(self.names)],
+            [(f.key, f.label, f.display) for f in self.facts] + [sorted(self.names), self.quoted_text],
             ensure_ascii=False,
         )
         return hashlib.sha256(payload.encode()).hexdigest()
@@ -117,11 +121,29 @@ class FactSheet:
 
 def inr(value: float | Decimal) -> str:
     x = float(value)
-    if x >= 1e7:
+    if x >= 1e7 or round(x / 1e5, 2) >= 100:  # 99.999 lakh rounds up to 1 crore, not 100 lakh
         return f"₹{x / 1e7:.2f} crore"
     if x >= 1e5:
         return f"₹{x / 1e5:.2f} lakh"
     return f"₹{x:,.0f}"
+
+
+_UNIT = re.compile(r"\b(lakhs?|crores?)\b", re.IGNORECASE)
+
+
+def money_range(text: str) -> str:
+    """'85 lakhs - 3.5 crore' -> '₹85 lakh to ₹3.5 crore'; '15,000 - 85,000/month' -> per month."""
+    suffix = ""
+    if text.endswith("/month"):
+        text, suffix = text[: -len("/month")], " per month"
+    parts = [p.strip() for p in text.split(" - ")]
+    unit = _UNIT.search(parts[-1])
+    out = []
+    for p in parts:
+        if unit and not _UNIT.search(p):
+            p = f"{p} {unit.group(1)}"
+        out.append("₹" + re.sub(r"\blakhs\b", "lakh", p, flags=re.IGNORECASE))
+    return " to ".join(out) + suffix
 
 
 def _range(lo: float, hi: float) -> str:
@@ -288,10 +310,11 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
     city_ctx = snapshot()["price_context"].get(_price_context_key(loc.city))
     if city_ctx:
         sheet.add(Fact("city_buy_range", f"Typical apartment price range across {loc.city} (editorial estimate)",
-                       city_ctx["buy"]["apartment"].replace("lakhs", "lakh"), "360 Ghar market ranges",
+                       money_range(city_ctx["buy"]["apartment"]), "360 Ghar market ranges",
                        snapshot()["generated_on"], "city_price"))
         sheet.add(Fact("city_rent_range", f"Typical apartment rent range across {loc.city} (editorial estimate)",
-                       city_ctx["rent"]["apartment"], "360 Ghar market ranges", snapshot()["generated_on"],
+                       money_range(city_ctx["rent"]["apartment"]), "360 Ghar market ranges",
+                       snapshot()["generated_on"],
                        "city_price"))
     return sheet
 
@@ -324,9 +347,12 @@ async def build_property_sheet(db: AsyncSession, property_id: int, today: date |
     purpose = prop.purpose.value
     add("kind", "Listing", f"{ptype} for {'sale' if purpose == 'buy' else purpose.replace('_', ' ')}")
     add("location", "Location", place or None, "listing", *(x for x in (prop.sub_locality, prop.locality, prop.city) if x))
+    # Each purpose has its own price column. Never quote a sale price for a rental.
     if purpose == "rent" and prop.monthly_rent:
         add("price", "Rent", f"{inr(prop.monthly_rent)} per month", "price")
-    elif prop.base_price:
+    elif purpose == "short_stay" and prop.daily_rate:
+        add("price", "Nightly rate", f"{inr(prop.daily_rate)} per night", "price")
+    elif purpose == "buy" and prop.base_price:
         add("price", "Price", inr(prop.base_price), "price")
     if prop.price_per_sqft and purpose == "buy":
         add("psf", "Price per sq ft", f"₹{float(prop.price_per_sqft):,.0f} per sq ft", "price")

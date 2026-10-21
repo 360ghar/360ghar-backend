@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Load app/services/content/data/locality_seed.json into the localities table.
 
-One-time import (safe to repeat: it upserts by slug). The snapshot is committed in this
-repo, so the website repo is never read at runtime. Refuses a non-local database unless
---allow-remote is given.
+One-time import. Safe to repeat: it upserts by slug, and --prune also deletes slugs that left
+the snapshot. The snapshot is committed in this repo, so the website repo is never read at
+runtime. Refuses a non-local database unless --allow-remote is given.
 
 Usage:
     DATABASE_URL=postgresql+psycopg://user:pass@localhost:5432/db \
@@ -17,13 +17,9 @@ import json
 import os
 import sys
 from pathlib import Path
-from urllib.parse import urlparse
 
 import sqlalchemy as sa
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
-from scripts.run_supabase_migrations import _normalise_database_url  # noqa: E402
+from sqlalchemy.engine import make_url
 
 SNAPSHOT = Path(__file__).resolve().parents[1] / "app/services/content/data/locality_seed.json"
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -42,7 +38,7 @@ UPSERT = sa.text(
 
 
 def snapshot_rows() -> list[dict[str, object]]:
-    data = json.loads(SNAPSHOT.read_text())
+    data = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
     landmarks = data["landmarks"]
     return [
         {
@@ -62,18 +58,28 @@ def snapshot_rows() -> list[dict[str, object]]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-remote", action="store_true")
+    parser.add_argument("--prune", action="store_true", help="delete rows whose slug is not in the snapshot")
     args = parser.parse_args()
-    url = os.environ.get("DATABASE_URL")
-    if not url:
+    raw = os.environ.get("DATABASE_URL")
+    if not raw:
         sys.exit("DATABASE_URL is not set")
-    url = _normalise_database_url(url)
-    if urlparse(url).hostname not in LOCAL_HOSTS and not args.allow_remote:
+    url = make_url(raw)  # handles percent-encoded passwords and bracketed IPv6 hosts
+    local = url.host in LOCAL_HOSTS
+    if not local and not args.allow_remote:
         sys.exit("Refusing a non-local database. Pass --allow-remote to override.")
+    url = url.set(drivername="postgresql+psycopg")
+    if not local:
+        url = url.update_query_dict({"sslmode": "require"})
     rows = snapshot_rows()
-    engine = sa.create_engine(url.replace("postgresql://", "postgresql+psycopg://", 1))
+    engine = sa.create_engine(url)
     with engine.begin() as conn:
         conn.execute(UPSERT, rows)
-    print(f"imported {len(rows)} localities")
+        pruned = 0
+        if args.prune:
+            pruned = conn.execute(
+                sa.text("DELETE FROM localities WHERE slug <> ALL(:slugs)"), {"slugs": [r["slug"] for r in rows]}
+            ).rowcount
+    print(f"imported {len(rows)} localities, pruned {pruned}")
 
 
 if __name__ == "__main__":
