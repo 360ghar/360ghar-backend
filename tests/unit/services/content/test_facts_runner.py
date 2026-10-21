@@ -21,11 +21,11 @@ async def build(db):
 async def test_locality_sheet_has_sourced_facts_and_passes_threshold(db_session, sector_data):
     sheet = await build(db_session)
     keys = {f.key for f in sheet.facts}
-    assert {"place", "landmark_1", "median_sale", "price_sale", "circle_rate", "rera_count", "rera_projects"} <= keys
+    assert {"place", "landmark_1", "median_sale", "price_sale", "circle_rate_residential", "rera_count", "rera_projects"} <= keys
     assert all(f.source and f.display for f in sheet.facts)
     shown = {f.key: f.display for f in sheet.facts}
     assert shown["median_sale"] == "₹1.25 crore"
-    assert shown["circle_rate"] == "₹45,000 per sq yd"
+    assert shown["circle_rate_residential"] == "₹45,000 per sq yd"
     assert "Skyline Heights" in sheet.allowed_names()
     assert sheet.meets_threshold
 
@@ -128,3 +128,29 @@ async def test_sheet_failed_status_never_indexable_and_hi_locale_separate_rows(d
     await runner.run_batch(db_session, provider, entity_type="locality", locales=["en", "hi"], slugs=["sector-56"])
     rows = (await db_session.execute(select(ContentBlock.locale))).scalars().all()
     assert sorted(rows) == ["en", "hi"]
+
+
+async def test_small_samples_state_a_price_not_a_median(db_session, test_user):
+    from decimal import Decimal
+
+    from app.models.enums import PropertyPurpose
+    from tests.fixtures.factories import PropertyFactory
+
+    db_session.add(Locality(slug="solo", name="Solo Sector", city="Gurugram", place_type="sector"))
+    await PropertyFactory.create(
+        db_session, owner=test_user, purpose=PropertyPurpose.buy, base_price=Decimal("20000000"),
+        city="Gurugram", locality="Solo Sector", area_sqft=Decimal("1000"),
+    )
+    await db_session.flush()
+    sheet = await facts.build_locality_sheet(db_session, await db_session.get(Locality, "solo"))
+    keys = {f.key for f in sheet.facts}
+    assert "price_sale" in keys and "median_sale" not in keys and "median_psf" not in keys
+    assert {f.key: f.display for f in sheet.facts}["price_sale"] == "₹2.00 crore"
+
+
+async def test_city_wide_ranges_do_not_count_toward_the_threshold(db_session):
+    db_session.add(Locality(slug="tiny2", name="Tiny Two", city="Gurugram", place_type="locality"))
+    await db_session.flush()
+    sheet = await facts.build_locality_sheet(db_session, await db_session.get(Locality, "tiny2"))
+    assert any(f.group == "city_price" for f in sheet.facts)
+    assert sheet.fact_count == len(sheet.facts) - 2

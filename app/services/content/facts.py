@@ -71,7 +71,8 @@ class FactSheet:
 
     @property
     def fact_count(self) -> int:
-        return len(self.facts)
+        """Facts about this entity. City-wide ranges are shown to the model but do not count."""
+        return sum(1 for f in self.facts if f.group != "city_price")
 
     @property
     def key_fact(self) -> bool:
@@ -192,17 +193,24 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
         suffix = " per month" if key == "rent" else ""
         sheet.add(Fact(f"listings_{key}", f"{label}: active listings on 360 Ghar", str(count),
                        "360 Ghar listings", now, "listing"))
+        # Medians and ranges of one or two listings say little: state the price plainly.
+        if count == 1:
+            sheet.add(Fact(f"price_{key}", f"{label}: listed price", inr(lo) + suffix,
+                           "360 Ghar listings", now, "price"))
+            continue
         sheet.add(Fact(f"price_{key}", f"{label}: listed price range",
                        _range(float(lo), float(hi)) + suffix, "360 Ghar listings", now, "price"))
-        sheet.add(Fact(f"median_{key}", f"{label}: median listed price",
-                       inr(median) + suffix, "360 Ghar listings", now, "price"))
-    psf = (
+        if count >= 3:
+            sheet.add(Fact(f"median_{key}", f"{label}: median listed price",
+                           inr(median) + suffix, "360 Ghar listings", now, "price"))
+    psf_row = (
         await db.execute(
-            select(func.percentile_cont(0.5).within_group(Property.base_price / Property.area_sqft)).where(
+            select(func.count(), func.percentile_cont(0.5).within_group(Property.base_price / Property.area_sqft)).where(
                 live, Property.purpose == PropertyPurpose.buy, Property.area_sqft > 0, Property.base_price > 0
             )
         )
-    ).scalar()
+    ).one()
+    psf = psf_row[1] if psf_row[0] >= 3 else None
     if psf:
         sheet.add(Fact("median_psf", "For sale: median price per sq ft", f"₹{float(psf):,.0f} per sq ft",
                        "360 Ghar listings", now, "price"))
@@ -216,22 +224,25 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
         sheet.add(Fact("bhk_options", "BHK options currently listed",
                        ", ".join(f"{b} BHK" for b in beds), "360 Ghar listings", now, "listing"))
 
-    # Government circle rates.
+    # Government circle rates, one fact per land use (a residential rate is not a commercial one).
     circle = (
         await db.execute(
             select(
-                func.count(), func.min(CircleRate.rate_per_sqyd), func.max(CircleRate.rate_per_sqyd),
-                func.max(CircleRate.revision_year), func.max(CircleRate.source_url),
-            ).where(
+                CircleRate.property_type, func.min(CircleRate.rate_per_sqyd),
+                func.max(CircleRate.rate_per_sqyd), func.max(CircleRate.revision_year),
+                func.max(CircleRate.source_url),
+            )
+            .where(
                 func.lower(CircleRate.district).in_(cities),
                 or_(func.lower(CircleRate.sector).in_(names), func.lower(CircleRate.colony).in_(names)),
                 CircleRate.rate_per_sqyd.is_not(None),
             )
+            .group_by(CircleRate.property_type)
+            .order_by(CircleRate.property_type.desc())
         )
-    ).one()
-    if circle[0]:
-        _, lo, hi, year, url = circle
-        sheet.add(Fact("circle_rate", f"Government circle rate (revision {year})",
+    ).all()
+    for ptype, lo, hi, year, url in circle:
+        sheet.add(Fact(f"circle_rate_{ptype}", f"Government circle rate, {ptype} (revision {year})",
                        f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{year}-04-01",
                        "circle_rate", url))
 
