@@ -536,6 +536,8 @@ Child entities (PropertyImage, Visit, Booking, Tour, BlogPost, PM entities, soci
 | Property images | `PROPERTY_IMAGE` | `360ghar/properties/{property_id}` |
 | Property videos | `PROPERTY_VIDEO` | `360ghar/properties/{property_id}/videos` |
 | Blog covers | `BLOG_COVER` | `360ghar/blog-covers` |
+| AI art | `AI_ART` | `360ghar/generated/art` |
+| OG cards | `OG_CARD` | `360ghar/generated/og` |
 | Tour assets | `TOUR_*` / `SCENE_*` | `360ghar/tours/{tour_id}/...` |
 | Documents | `DOCUMENT_*` | `360ghar/documents/{type}` |
 | Agent avatars | `AGENT_AVATAR` | `360ghar/agents/{agent_id}/avatars` |

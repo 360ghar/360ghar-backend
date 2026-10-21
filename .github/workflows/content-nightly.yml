@@ -24,7 +24,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 350
     env:
       BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -45,7 +45,8 @@ jobs:
           set -euo pipefail
           for entity in $ENTITY_TYPES; do
             after=""
-            for round in $(seq 1 60); do
+            finished=false
+            for round in $(seq 1 120); do
               payload=$(jq -nc --arg e "$entity" --arg a "$after" --argjson f "$FORCE" \
                 '{entity_type: $e, max_entities: 10, force: $f} + (if $a == "" then {} else {after: $a} end)')
               status=$(curl -sS -o resp.json -w '%{http_code}' --max-time 330 -X POST \
@@ -57,7 +58,7 @@ jobs:
               fi
               jq -r --arg e "$entity" --argjson r "$round" \
                 '"\($e) round \($r): generated \(.generated), skipped \(.skipped), failed \(.failed), review \(.needs_review), rejected \(.rejected), calls \(.calls), stop \(.stopped_reason // "none")"' resp.json
-              if [ "$(jq -r .done resp.json)" = "true" ]; then break; fi
+              if [ "$(jq -r .done resp.json)" = "true" ]; then finished=true; break; fi
               reason=$(jq -r '.stopped_reason // ""' resp.json)
               if [ "$reason" = "rate_limited" ] || [ "$reason" = "provider_errors" ]; then
                 echo "::notice::$entity stopped early ($reason). The next nightly run resumes it."
@@ -65,4 +66,7 @@ jobs:
               fi
               after=$(jq -r '.next_after // ""' resp.json)
             done
+            if [ "$finished" != "true" ]; then
+              echo "::notice::$entity is not finished. Completed entities are skipped, so the next nightly run continues."
+            fi
           done

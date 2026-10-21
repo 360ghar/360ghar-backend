@@ -21,7 +21,8 @@ def block(slug: str, status: str = "auto", locale: str = "en", **kw) -> ContentB
     return ContentBlock(
         entity_type=kw.pop("entity_type", "locality"), slug=slug, locale=locale, body=BODY,
         facts_hash="h", prompt_version="v1", review_status=status, fact_count=kw.pop("fact_count", 7),
-        key_fact=kw.pop("key_fact", True), indexable=kw.pop("indexable", True), **kw,
+        key_fact=kw.pop("key_fact", True), indexable=kw.pop("indexable", True),
+        dup_score=kw.pop("dup_score", 0.1), **kw,
     )
 
 
@@ -41,7 +42,7 @@ async def test_public_get_serves_auto_and_approved_with_cache_headers(client: As
     data = ok.json()
     assert data["slug"] == "a" and data["locale"] == "en" and data["indexable"] is True
     assert "errors" not in data and "review_status" not in data
-    assert "s-maxage=3600" in ok.headers["cache-control"] and "public" in ok.headers["cache-control"]
+    assert ok.headers["cache-control"] == "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
     assert (await client.get("/api/v1/content/locality/b")).status_code == 200
     for hidden in ("c", "d", "missing"):
         assert (await client.get(f"/api/v1/content/locality/{hidden}")).status_code == 404
@@ -69,7 +70,10 @@ async def test_manifest_lists_only_served_rows(client: AsyncClient, db_session):
     assert [(i["entity_type"], i["slug"], i["locale"], i["indexable"]) for i in items] == [
         ("locality", "a", "en", True), ("locality", "a", "hi", True), ("property", "9", "en", False),
     ]
-    assert "s-maxage" in resp.headers["cache-control"]
+    assert resp.json()["truncated"] is False
+    assert resp.headers["cache-control"] == "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+    short = await client.get("/api/v1/content/manifest?limit=1")
+    assert len(short.json()["items"]) == 1 and short.json()["truncated"] is True
     only = await client.get("/api/v1/content/manifest?entity_type=property")
     assert [i["slug"] for i in only.json()["items"]] == ["9"]
 
@@ -111,6 +115,8 @@ async def test_run_generates_and_is_idempotent(client: AsyncClient, cron_secret,
     assert len(provider.calls) == 1
     served = await client.get("/api/v1/content/locality/sector-56")
     assert served.status_code == 200 and served.json()["indexable"] is True
+    stored = (await db_session.execute(select(ContentBlock))).scalar_one()
+    assert stored.prompt_version == runner.PROMPT_VERSION and stored.model == "fake-model"
 
 
 async def test_run_without_ai_key_is_503(client: AsyncClient, cron_secret, monkeypatch):
@@ -120,7 +126,13 @@ async def test_run_without_ai_key_is_503(client: AsyncClient, cron_secret, monke
 
 
 async def test_run_validates_body(client: AsyncClient, cron_secret):
-    for bad in ({"max_entities": 500}, {"locales": ["fr"]}, {"entity_type": "city"}, {"extra": 1}):
+    bad_bodies = (
+        {"max_entities": 500}, {"locales": ["fr"]}, {"entity_type": "city"}, {"extra": 1},
+        {"locales": ["en", "en"]},
+        {"entity_type": "property", "after": "12abc"}, {"entity_type": "property", "slugs": ["x"]},
+        {"entity_type": "property", "after": "9" * 40},
+    )
+    for bad in bad_bodies:
         resp = await client.post("/api/v1/admin/content/run", json=bad, headers=CRON)
         assert resp.status_code == 422, bad
 
@@ -174,10 +186,20 @@ async def test_status_update_rules(admin_authenticated_client: AsyncClient, auth
     assert rejected.json()["indexable"] is False
     assert (await admin_authenticated_client.patch("/api/v1/admin/content/999999/status",
                                                    json={"review_status": "approved"})).status_code == 404
+    assert (await admin_authenticated_client.patch(f"/api/v1/admin/content/{2**70}/status",
+                                                   json={"review_status": "approved"})).status_code == 422
+    # A failed block cannot reach approval by way of another status either.
+    await db_session.refresh(failed)
+    assert failed.review_status == "failed"
+    failed.review_status, failed.dup_score = "rejected", None
+    await db_session.flush()
+    again = await admin_authenticated_client.patch(f"/api/v1/admin/content/{failed.id}/status",
+                                                   json={"review_status": "approved"})
+    assert again.status_code == 409
     assert (await admin_authenticated_client.patch(f"/api/v1/admin/content/{rich.id}/status",
                                                    json={"review_status": "failed"})).status_code == 422
     stored = (await db_session.execute(select(ContentBlock.review_status).where(ContentBlock.id == rich.id))).scalar_one()
-    assert stored == "rejected" and runner.PROMPT_VERSION
+    assert stored == "rejected"
 
 
 # ── market digest and the property write trigger ────────────────────────────
@@ -210,3 +232,4 @@ async def test_property_create_and_update_trigger_content_task(authenticated_cli
     updated = await authenticated_client.put(f"/api/v1/properties/{pid}", json={"base_price": 9000000})
     assert updated.status_code == 200, updated.text
     assert task.await_count == 2
+    assert task.await_args_list[1].args == (pid,)

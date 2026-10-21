@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +32,11 @@ from app.schemas.pagination import (
     trim_keyset_lookahead,
     validate_keyset_payload,
 )
-from app.services.content import digest, runner
+from app.services.content import (  # noqa: F401 (registers the property enricher)
+    digest,
+    property_summary,
+    runner,
+)
 from app.services.content.facts import MIN_FACTS_FOR_INDEX
 from app.services.content.runner import make_provider
 
@@ -148,18 +152,20 @@ async def review_list(
     summary="Approve or reject a content block (admin)",
 )
 async def update_status(
-    block_id: int,
     body: ContentStatusUpdate,
+    block_id: int = Path(..., ge=1, le=2**63 - 1),
     _: User = Depends(get_current_admin),
     db: AsyncSession = Depends(get_db),
 ) -> ContentBlock:
-    """Approve serves the block. It is indexable only with enough verified facts. A failed block
-    has invalid text and cannot be approved: run it again instead."""
+    """Approve serves the block. It is indexable only with enough verified facts. A block whose
+    text failed validation cannot be approved: run it again instead."""
     block = await db.get(ContentBlock, block_id)
     if block is None:
         raise NotFoundException("Content block not found", error_code="CONTENT_NOT_FOUND")
-    if block.review_status == "failed" and body.review_status == "approved":
-        raise ConflictException("A failed block cannot be approved", error_code="CONTENT_FAILED")
+    # A block that never passed the validator has no duplicate score. It stays unapprovable
+    # whatever status an admin gave it in between.
+    if body.review_status == "approved" and (block.review_status == "failed" or block.dup_score is None):
+        raise ConflictException("A block that failed validation cannot be approved", error_code="CONTENT_FAILED")
     block.review_status = body.review_status
     block.indexable = body.review_status == "approved" and block.fact_count >= MIN_FACTS_FOR_INDEX and block.key_fact
     await db.commit()

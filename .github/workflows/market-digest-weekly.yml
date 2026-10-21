@@ -3,7 +3,8 @@ name: Market digest weekly
 # Asks the backend to write the weekly Gurugram market digest from data-hub changes.
 # Needs the repository secrets BACKEND_BASE_URL and CRON_SECRET. Without them the run
 # skips with a notice. The backend skips the post when fewer than 3 changes happened and
-# saves a draft instead of a published post when the text does not validate.
+# saves a draft instead of a published post when the text does not validate (or when
+# MARKET_DIGEST_AUTO_PUBLISH is off). A failed run exits with an error.
 
 on:
   schedule:
@@ -44,6 +45,12 @@ jobs:
             exit 1
           fi
           jq -r '"digest: \(.status) (\(.reason // "ok")), changes \(.changes), post \(.post_slug // "none")"' resp.json
-          if [ "$(jq -r .status resp.json)" = "draft" ]; then
-            echo "::notice::The digest did not validate and was saved as a draft. Review it in the blog admin."
+          result=$(jq -r .status resp.json)
+          reason=$(jq -r '.reason // "none"' resp.json)
+          if [ "$result" = "failed" ]; then
+            echo "::error::The digest failed ($reason) and nothing was saved."
+            exit 1
+          fi
+          if [ "$result" = "draft" ]; then
+            echo "::notice::The digest was saved as a draft (reason: $reason). Review it in the blog admin."
           fi

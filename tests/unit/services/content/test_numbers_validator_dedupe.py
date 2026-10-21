@@ -54,17 +54,46 @@ def test_extract_amounts_units_and_digits():
     assert {1.2e7, 8.5e6, 125000, 1.2e6, 2.5e7, 8e7} <= values
 
 
-def test_matches_within_half_percent():
-    allowed = {10_000_000.0}
-    assert matches(10_040_000.0, allowed)
-    assert not matches(10_060_000.0, allowed)
+def amount(text: str):
+    return extract_amounts(text)[0]
 
 
-def test_area_conversions_are_allowed():
-    allowed = allowed_numbers(["1,800 sq ft", "₹45,000 per sq yd"])
-    assert matches(200.0, allowed)  # 1,800 sq ft is 200 sq yd
-    assert matches(5000.0, allowed)  # 45,000 per sq yd is 5,000 per sq ft
-    assert not matches(333.0, allowed)
+def test_large_values_match_within_half_percent_small_values_exactly():
+    allowed = allowed_numbers(["₹1.00 crore", "200 units", "year 2019"])
+    assert matches(amount("₹1.004 crore"), allowed)
+    assert not matches(amount("₹1.006 crore"), allowed)
+    assert matches(amount("200 units"), allowed) and not matches(amount("201 units"), allowed)
+    assert matches(amount("2019"), allowed) and not matches(amount("2020"), allowed)
+
+
+def test_amounts_match_only_their_own_kind():
+    allowed = allowed_numbers(["Sector 55-56 Metro Station (metro), 0.5 km"])
+    assert matches(amount("0.5 km"), allowed) and matches(amount("500 metres"), allowed)
+    assert not matches(amount("₹0.5 crore"), allowed)
+    assert not matches(amount("0.5"), allowed)
+
+
+def test_area_and_rate_conversions_go_the_right_way():
+    allowed = allowed_numbers(["1,200 sq ft", "₹45,000 per sq yd"])
+    assert matches(amount("133.3 sq yd"), allowed)  # 1,200 sq ft is 133.3 sq yd
+    assert matches(amount("111.5 sqm"), allowed)
+    assert not matches(amount("10,800 sq ft"), allowed)  # not the reverse conversion
+    assert matches(amount("₹5,000 per sq ft"), allowed)  # 45,000 per sq yd
+    assert matches(amount("₹45,000 per sq yd"), allowed)
+    assert not matches(amount("₹45,000 per sq ft"), allowed)
+
+
+def test_commas_only_group_digits():
+    assert [a.value for a in extract_amounts("5,10 and 1,2")] == [5, 10, 1, 2]
+    assert [a.value for a in extract_amounts("1,25,000 and 12,345.5")] == [125000, 12345.5]
+
+
+def test_spelled_numbers_are_checked_like_digits():
+    allowed = allowed_numbers(["3 BHK"])
+    assert all(matches(a, allowed) for a in extract_amounts("three bedrooms"))
+    assert not all(matches(a, allowed) for a in extract_amounts("twenty towers"))
+    assert not all(matches(a, allowed) for a in extract_amounts("ten crore"))
+    assert extract_amounts("one of the homes") == []
 
 
 def test_good_output_passes():
@@ -166,6 +195,93 @@ def test_dedupe_thresholds():
     assert dedupe.decision(0.49) == "review"
     assert dedupe.decision(0.35) == "review"
     assert dedupe.decision(0.34) == "ok"
-    score, twin = dedupe.max_similarity(text, {"a": "completely different words here today", "b": text})
+    sib = {"a": dedupe.shingles("completely different words here today"), "b": dedupe.shingles(text)}
+    score, twin = dedupe.max_similarity(text, sib)
     assert (score, twin) == (1.0, "b")
     assert dedupe.max_similarity(text, {}) == (0.0, None)
+
+
+def test_dedupe_counts_devanagari_words_whole_and_normalises_apostrophes():
+    assert dedupe.shingles("सुंदर घर में आपका स्वागत है यहाँ") != set()
+    assert ("सुंदर", "घर", "में", "आपका", "स्वागत") in dedupe.shingles("सुंदर घर में आपका स्वागत है")
+    assert dedupe.shingles("Bangalore’s new homes are here today") == dedupe.shingles("Bangalore's new homes are here today")
+
+
+def test_dedupe_text_includes_who_it_suits_and_sections():
+    text = dedupe.content_text({"summary": "a", "who_it_suits": "families", "sections": [{"body": "weekly"}]})
+    assert "families" in text and "weekly" in text
+
+
+def test_possessive_of_an_allowed_name_is_fine_and_unknown_one_is_not():
+    out = good_locality()
+    out["highlights"][1] = "Gurugram's metro station is 0.5 km away"
+    assert validator.validate(out, make_sheet(), "en").ok
+    out["highlights"][1] = "Mumbai's metro station is 0.5 km away"
+    assert any("'Mumbai'" in e for e in validator.validate(out, make_sheet(), "en").errors)
+
+
+def test_sentence_start_checks_company_names_and_cities():
+    out = good_locality()
+    out["faqs"][0]["answer"] = "Sobha City is a larger registered project."
+    assert any("'Sobha'" in e for e in validator.validate(out, make_sheet(), "en").errors)
+    out["faqs"][0]["answer"] = "Mumbai is nearby."
+    assert any("'Mumbai'" in e for e in validator.validate(out, make_sheet(), "en").errors)
+    out["faqs"][0]["answer"] = "Listings run from ₹85 lakh to ₹3.50 crore."
+    assert validator.validate(out, make_sheet(), "en").ok
+
+
+def test_lakh_and_crore_words_are_not_names():
+    out = good_locality()
+    out["highlights"][0] = "Median listed price is ₹1.25 Crore"
+    assert validator.validate(out, make_sheet(), "en").ok
+
+
+def test_item_types_are_checked():
+    out = good_locality()
+    out["faqs"][0]["answer"] = None
+    assert any("question and answer" in e for e in validator.validate(out, make_sheet(), "en").errors)
+    out = good_locality()
+    out["highlights"][0] = {"x": 1}
+    assert any("highlights must be text" in e for e in validator.validate(out, make_sheet(), "en").errors)
+
+
+@pytest.mark.parametrize("phrase", ["The finest homes", "Safest sector in town", "The most popular choice"])
+def test_more_subjective_superlatives_rejected(phrase):
+    out = good_locality()
+    out["highlights"][2] = phrase
+    assert any("banned claim" in e for e in validator.validate(out, make_sheet(), "en").errors)
+
+
+def test_dates_allow_only_the_year_and_titles_add_no_numbers():
+    sheet = make_sheet()
+    out = good_locality()
+    out["highlights"][0] = "Data from 2024"
+    assert validator.validate(out, sheet, "en").ok
+    out["highlights"][0] = "Data from month 10"
+    assert not validator.validate(out, sheet, "en").ok
+
+
+def test_inr_rounds_across_the_lakh_crore_boundary():
+    from app.services.content.facts import inr, money_range
+
+    assert inr(9_999_900) == "₹1.00 crore"
+    assert inr(9_990_000) == "₹99.90 lakh"
+    assert money_range("85 lakhs - 3.5 crore") == "₹85 lakh to ₹3.5 crore"
+    assert money_range("15,000 - 85,000/month") == "₹15,000 to ₹85,000 per month"
+    assert money_range("1.5 - 5 lakh/month") == "₹1.5 lakh to ₹5 lakh per month"
+
+
+def test_range_shares_the_per_area_unit():
+    allowed = allowed_numbers(["₹58,230 to ₹1.14 lakh per sq yd"])
+    assert matches(amount("₹58,230 per sq yd"), allowed)
+    assert matches(amount("₹1.14 lakh per sq yd"), allowed)
+    assert not matches(amount("₹58,230"), allowed)
+
+
+def test_rs_inside_a_word_is_not_a_currency_sign():
+    assert [(a.kind, a.value) for a in extract_amounts("It offers 3 BHK with 2 bathrooms")] == [
+        ("plain", 3.0), ("plain", 2.0),
+    ]
+    assert [(a.kind, a.value) for a in extract_amounts("Rs. 5,000 or INR 7,000")] == [
+        ("money", 5000.0), ("money", 7000.0),
+    ]

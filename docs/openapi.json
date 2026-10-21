@@ -232,7 +232,7 @@
           "content"
         ],
         "summary": "List served content",
-        "description": "Every served (entity, locale) with its indexable flag and last update. For sitemaps and builds.",
+        "description": "Every served (entity, locale) with its indexable flag and last update. For sitemaps and builds.\n\nReturns at most ``limit`` rows (default 5,000). ``truncated`` is true when there are more.",
         "operationId": "content_manifest_api_v1_content_manifest_get",
         "parameters": [
           {
@@ -388,7 +388,7 @@
           "content-admin"
         ],
         "summary": "Generate content for changed entities (cron)",
-        "description": "One bounded batch. Entities whose facts are unchanged are skipped, so repeating a call\nis cheap and safe. Call again with ``next_after`` until ``done`` is true.",
+        "description": "One bounded batch. Entities whose facts are unchanged are skipped, so repeating a call\nis cheap and safe. Call again with ``next_after`` until ``done`` is true. Overlapping calls\nonly waste quota: each result is an upsert on (entity, slug, locale).",
         "operationId": "run_content_api_v1_admin_content_run_post",
         "parameters": [
           {
@@ -668,7 +668,7 @@
           "content-admin"
         ],
         "summary": "Approve or reject a content block (admin)",
-        "description": "Approve serves the block. It is indexable only with enough verified facts. A failed block\nhas invalid text and cannot be approved: run it again instead.",
+        "description": "Approve serves the block. It is indexable only with enough verified facts. A block whose\ntext failed validation cannot be approved: run it again instead.",
         "operationId": "update_status_api_v1_admin_content__block_id__status_patch",
         "parameters": [
           {
@@ -677,6 +677,8 @@
             "required": true,
             "schema": {
               "type": "integer",
+              "maximum": 9223372036854775807,
+              "minimum": 1,
               "title": "Block Id"
             }
           }
@@ -36600,11 +36602,17 @@
             },
             "type": "array",
             "title": "Items"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "True when more served rows exist than `limit` returned"
           }
         },
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "truncated"
         ],
         "title": "ContentManifest"
       },
@@ -36717,6 +36725,13 @@
           },
           "review_status": {
             "type": "string",
+            "enum": [
+              "auto",
+              "needs_review",
+              "approved",
+              "rejected",
+              "failed"
+            ],
             "title": "Review Status"
           },
           "dup_score": {

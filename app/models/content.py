@@ -90,7 +90,13 @@ class Locality(Base):
     """Locality master data, loaded from a committed snapshot by scripts/import_localities.py."""
 
     __tablename__ = "localities"
-    __table_args__ = (Index("ix_localities_city", "city"),)
+    __table_args__ = (
+        Index("ix_localities_city", "city"),
+        CheckConstraint(
+            "place_type IN ('locality', 'sector', 'society', 'village', 'road', 'township', 'phase')",
+            name="localities_place_type_check",
+        ),
+    )
 
     slug: Mapped[str] = mapped_column(String(200), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -122,6 +128,10 @@ class GeneratedImage(Base):
             "ix_generated_images_retry",
             "retry_after",
             postgresql_where=text("status = 'failed'"),
+        ),
+        CheckConstraint(
+            "subject_type IN ('city', 'locality', 'property', 'blog')",
+            name="generated_images_subject_type_check",
         ),
         CheckConstraint(
             "status IN ('pending', 'ready', 'failed')", name="generated_images_status_check"

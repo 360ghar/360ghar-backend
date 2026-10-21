@@ -49,12 +49,12 @@ def compose(sheet: FactSheet, **overrides: Any) -> dict[str, Any]:
             "The area suits families who want a settled neighbourhood with steady listing activity and "
             "clear price data. Check each listing before you plan a visit."
         ),
-        "highlights": [f"Median listed price is {median}", f"Listed range is {low_high}", "Ready homes are available"],
+        "highlights": [f"Median listed price is {median}", f"Listed range is {low_high}", f"{sheet.name} is a sector"],
         "faqs": [
             {"question": "What is the median price?", "answer": f"The median listed price is {median}."},
             {"question": "What is the price range?", "answer": f"Listings range from {low_high}."},
             {"question": "Is the area residential?", "answer": f"{sheet.name} is a sector in {sheet.city}."},
-            {"question": "Can I see listings?", "answer": "Yes, active listings appear on 360 Ghar."},
+            {"question": "What is the typical price?", "answer": f"The median listed price is {median}."},
         ],
         "meta_description": f"{sheet.name}, {sheet.city}: listed prices and homes for sale.",
     }

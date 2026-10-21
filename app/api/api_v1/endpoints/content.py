@@ -24,18 +24,23 @@ async def content_manifest(
     limit: int = Query(5000, ge=1, le=20000),
     db: AsyncSession = Depends(get_db),
 ) -> ContentManifest:
-    """Every served (entity, locale) with its indexable flag and last update. For sitemaps and builds."""
+    """Every served (entity, locale) with its indexable flag and last update. For sitemaps and builds.
+
+    Returns at most ``limit`` rows (default 5,000). ``truncated`` is true when there are more."""
     stmt = (
-        select(ContentBlock)
+        select(
+            ContentBlock.entity_type, ContentBlock.slug, ContentBlock.locale,
+            ContentBlock.indexable, ContentBlock.updated_at,
+        )
         .where(ContentBlock.review_status.in_(SERVED_STATUSES))
         .order_by(ContentBlock.entity_type, ContentBlock.slug, ContentBlock.locale)
-        .limit(limit)
+        .limit(limit + 1)
     )
     if entity_type:
         stmt = stmt.where(ContentBlock.entity_type == entity_type)
-    rows = (await db.execute(stmt)).scalars().all()
+    rows = [dict(r._mapping) for r in (await db.execute(stmt)).all()]
     response.headers["Cache-Control"] = CACHE_HEADER
-    return ContentManifest.model_validate({"items": rows})
+    return ContentManifest.model_validate({"items": rows[:limit], "truncated": len(rows) > limit})
 
 
 @router.get("/{entity_type}/{slug}", response_model=ContentBlockOut, summary="Get generated content")

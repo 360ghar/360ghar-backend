@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.schemas.base import UtcDateTime, WriteModel
 
@@ -40,11 +40,12 @@ class ContentManifestItem(BaseModel):
 
 class ContentManifest(BaseModel):
     items: list[ContentManifestItem]
+    truncated: bool = Field(description="True when more served rows exist than `limit` returned")
 
 
 class ContentReviewItem(ContentBlockOut):
     id: int
-    review_status: str
+    review_status: Literal["auto", "needs_review", "approved", "rejected", "failed"]
     dup_score: float | None
     fact_count: int
     key_fact: bool
@@ -67,6 +68,22 @@ class ContentRunRequest(WriteModel):
     city: str | None = Field(None, max_length=100)
     force: bool = False
     retry_failed: bool = False
+
+    @field_validator("locales")
+    @classmethod
+    def _unique_locales(cls, value: list[Locale]) -> list[Locale]:
+        if len(set(value)) != len(value):
+            raise ValueError("locales must not repeat")
+        return value
+
+    @model_validator(mode="after")
+    def _property_ids(self) -> ContentRunRequest:
+        """Property slugs and the cursor are ids. Reject anything else before it reaches SQL."""
+        if self.entity_type == "property":
+            for value in [*(self.slugs or []), *([self.after] if self.after else [])]:
+                if not value.isdigit() or len(value) > 18:
+                    raise ValueError("property slugs and cursor must be numeric ids")
+        return self
 
 
 class ContentRunItem(BaseModel):

@@ -13,7 +13,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,19 +35,18 @@ MIN_FACTS_TO_GENERATE = 3
 ENTITY_TYPES = ("locality", "property")
 
 # Optional per-type step that adds to the body after validation (property image alt text).
-# It returns the extra body keys and the number of model calls it made.
+# It awaits ``before_call`` ahead of each model call and returns the extra body keys.
 Throttle = Callable[[], Awaitable[None]]
-Enricher = Callable[
-    [AsyncSession, AIProvider, FactSheet, str, Throttle], Awaitable[tuple[dict[str, Any], int]]
-]
+Enricher = Callable[[AsyncSession, AIProvider, FactSheet, str, Throttle], Awaitable[dict[str, Any]]]
+ENRICHERS: dict[str, Enricher] = {}
 
 
-def _enricher(entity_type: str) -> Enricher | None:
-    if entity_type == "property":
-        from app.services.content.property_summary import enrich_property
+class BudgetExceeded(Exception):
+    """A run limit was reached between model calls. ``reason`` becomes the stop reason."""
 
-        return enrich_property
-    return None
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
 
 
 @dataclass
@@ -145,7 +144,7 @@ async def generate(
     return Generation(previous, errors, calls, False)
 
 
-async def _siblings(db: AsyncSession, entity_type: str, locale: str) -> dict[str, str]:
+async def _siblings(db: AsyncSession, entity_type: str, locale: str) -> dict[str, dedupe.Shingles]:
     rows = (
         await db.execute(
             select(ContentBlock.slug, ContentBlock.body).where(
@@ -155,12 +154,19 @@ async def _siblings(db: AsyncSession, entity_type: str, locale: str) -> dict[str
             )
         )
     ).all()
-    return {slug: dedupe.content_text(body) for slug, body in rows}
+    return {slug: dedupe.shingles(dedupe.content_text(body)) for slug, body in rows}
+
+
+def _property_id(value: str) -> int:
+    if not value.isdigit() or len(value) > 18:
+        raise ValueError(f"invalid property id: {value!r}")
+    return int(value)
 
 
 async def _entity_slugs(
     db: AsyncSession, entity_type: str, after: str | None, slugs: list[str] | None, city: str | None
 ) -> list[str]:
+    """Slugs in a stable order. Raises ValueError for a malformed property cursor or id."""
     if entity_type == "locality":
         stmt = select(Locality.slug).order_by(Locality.slug)
         if after:
@@ -176,9 +182,9 @@ async def _entity_slugs(
         .order_by(Property.id)
     )
     if after:
-        pstmt = pstmt.where(Property.id > int(after))
+        pstmt = pstmt.where(Property.id > _property_id(after))
     if slugs:
-        pstmt = pstmt.where(Property.id.in_([int(s) for s in slugs]))
+        pstmt = pstmt.where(Property.id.in_([_property_id(s) for s in slugs]))
     return [str(i) for i in (await db.execute(pstmt)).scalars()]
 
 
@@ -191,9 +197,21 @@ async def build_sheet(db: AsyncSession, entity_type: str, slug: str) -> FactShee
 
 async def _store(db: AsyncSession, values: dict[str, Any]) -> None:
     stmt = insert(ContentBlock).values(**values)
-    update = {k: v for k, v in values.items() if k not in ("entity_type", "slug", "locale")}
+    now = func.now()
+    changes = {k: v for k, v in values.items() if k not in ("entity_type", "slug", "locale")}
+    changes |= {"generated_at": now, "updated_at": now}
     await db.execute(
-        stmt.on_conflict_do_update(index_elements=["entity_type", "slug", "locale"], set_=update)
+        stmt.on_conflict_do_update(index_elements=["entity_type", "slug", "locale"], set_=changes)
+    )
+    await db.commit()
+
+
+async def _note_failure(db: AsyncSession, entity_type: str, slug: str, locale: str, notes: list[str]) -> None:
+    """A failed regeneration keeps the block that is already served and only records why."""
+    await db.execute(
+        update(ContentBlock)
+        .where(ContentBlock.entity_type == entity_type, ContentBlock.slug == slug, ContentBlock.locale == locale)
+        .values(errors=notes)
     )
     await db.commit()
 
@@ -220,32 +238,53 @@ async def run_batch(
     max_calls: int = 120,
     max_seconds: float = 240.0,
     min_interval: float = 0.0,
+    throttle: Throttle | None = None,
     after: str | None = None,
     slugs: list[str] | None = None,
     city: str | None = None,
     force: bool = False,
     retry_failed: bool = False,
 ) -> RunStats:
-    """Generate content for up to ``max_entities`` changed entities, then stop."""
-    stats = RunStats()
+    """Generate content for up to ``max_entities`` changed entities, then stop.
+
+    ``max_calls`` and ``max_seconds`` are enforced before every model call, so a slow or
+    throttled call cannot run past them. ``throttle`` replaces the per-run call spacing, so
+    several runs in one process can share one spacing clock.
+    """
+    stats = RunStats(next_after=after)
     started = time.monotonic()
-    throttle = make_throttle(min_interval)
+    spacing = throttle or make_throttle(min_interval)
+
+    async def before_call() -> None:
+        if stats.calls >= max_calls:
+            raise BudgetExceeded("call_limit")
+        if time.monotonic() - started > max_seconds:
+            raise BudgetExceeded("time_budget")
+        stats.calls += 1
+        await spacing()
+
     existing = {
-        (slug, loc): (h, v, st)
-        for slug, loc, h, v, st in (
+        (slug, loc): (h, v, st, pending)
+        for slug, loc, h, v, st, pending in (
             await db.execute(
                 select(
                     ContentBlock.slug, ContentBlock.locale, ContentBlock.facts_hash,
                     ContentBlock.prompt_version, ContentBlock.review_status,
+                    ContentBlock.body.has_key("image_alts_pending"),
                 ).where(ContentBlock.entity_type == entity_type)
             )
         ).all()
     }
     siblings = {loc: await _siblings(db, entity_type, loc) for loc in locales}
-    enrich = _enricher(entity_type)
+    enrich = ENRICHERS.get(entity_type)
     todo = await _entity_slugs(db, entity_type, after, slugs, city)
     consecutive_errors = 0
     entities_done = 0
+    frozen = False  # once an entity is unfinished the cursor stays before it
+
+    def advance(slug: str) -> None:
+        if not frozen:
+            stats.next_after = slug
 
     for slug in todo:
         if entities_done >= max_entities:
@@ -259,11 +298,11 @@ async def run_batch(
             break
         sheet = await build_sheet(db, entity_type, slug)
         if sheet is None:
-            stats.next_after = slug
+            advance(slug)
             continue
         if sheet.fact_count < MIN_FACTS_TO_GENERATE:
             stats.thin += 1
-            stats.next_after = slug
+            advance(slug)
             continue
         digest = sheet.facts_hash()
         worked = False
@@ -274,13 +313,21 @@ async def run_batch(
                 and not force
                 and prior[0] == digest
                 and prior[1] == PROMPT_VERSION
+                and not prior[3]
                 and (prior[2] != "failed" or not retry_failed)
             ):
                 stats.skipped += 1
                 continue
             try:
-                gen = await generate(provider, sheet, locale, throttle)
+                gen = await generate(provider, sheet, locale, before_call)
+                extra: dict[str, Any] = {}
+                if gen.ok and enrich:
+                    extra = await enrich(db, provider, sheet, locale, before_call)
+            except BudgetExceeded as exc:
+                stats.stopped_reason = exc.reason
+                return stats
             except AIProviderError as exc:
+                frozen = True
                 stats.provider_errors += 1
                 consecutive_errors += 1
                 logger.warning("content generation provider error: %s", exc)
@@ -292,29 +339,27 @@ async def run_batch(
                     return stats
                 continue
             consecutive_errors = 0
-            stats.calls += gen.calls
             worked = True
-            body = gen.output or {}
+            body = {**(gen.output or {}), **extra}
             others = {k: v for k, v in siblings[locale].items() if k != slug}
             score, twin = dedupe.max_similarity(dedupe.content_text(body), others) if gen.ok else (0.0, None)
             status, indexable, notes = decide(sheet, gen, score, twin)
-            if gen.ok and status in ("auto", "needs_review") and enrich:
-                extra, extra_calls = await enrich(db, provider, sheet, locale, throttle)
-                body = {**body, **extra}
-                stats.calls += extra_calls
-            await _store(
-                db,
-                {
-                    "entity_type": entity_type, "slug": slug, "locale": locale, "body": body,
-                    "sources": sheet.sources(), "facts_hash": digest, "fact_count": sheet.fact_count,
-                    "key_fact": sheet.key_fact, "model": provider.config.model,
-                    "prompt_version": PROMPT_VERSION, "data_as_of": sheet.data_as_of,
-                    "review_status": status, "indexable": indexable, "dup_score": score if gen.ok else None,
-                    "errors": notes,
-                },
-            )
-            if status in ("auto", "needs_review"):
-                siblings[locale][slug] = dedupe.content_text(body)
+            if status == "failed" and prior and prior[2] in (*SERVED_STATUSES, "needs_review"):
+                await _note_failure(db, entity_type, slug, locale, notes)
+            else:
+                await _store(
+                    db,
+                    {
+                        "entity_type": entity_type, "slug": slug, "locale": locale, "body": body,
+                        "sources": sheet.sources(), "facts_hash": digest, "fact_count": sheet.fact_count,
+                        "key_fact": sheet.key_fact, "model": provider.config.model,
+                        "prompt_version": PROMPT_VERSION, "data_as_of": sheet.data_as_of,
+                        "review_status": status, "indexable": indexable,
+                        "dup_score": score if gen.ok else None, "errors": notes,
+                    },
+                )
+                if status in ("auto", "needs_review"):
+                    siblings[locale][slug] = dedupe.shingles(dedupe.content_text(body))
             stats.generated += status in ("auto", "needs_review")
             stats.failed += status == "failed"
             stats.rejected += status == "rejected"
@@ -324,8 +369,8 @@ async def run_batch(
                  "dup_score": round(score, 3), "calls": gen.calls}
             )
         entities_done += worked
-        stats.next_after = slug  # the cursor only moves past finished entities
+        advance(slug)  # the cursor only moves past finished entities
     else:
-        stats.done = True
-        stats.next_after = None
+        stats.done = not frozen
+        stats.next_after = None if not frozen else stats.next_after
     return stats

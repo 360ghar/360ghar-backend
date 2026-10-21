@@ -24,6 +24,7 @@ app/services/
 ├── blog_auto_publish_scheduler.py  # Blog cron registration
 ├── blog_service/                   # Blog content generator
 ├── cloudinary/                     # Cloudinary media service
+├── content/                        # AI content engine: facts, prompts, validator, dedupe, runner
 ├── media/                          # Media helpers
 ├── core.py
 ├── custom_domain.py                # Custom domain DNS verification

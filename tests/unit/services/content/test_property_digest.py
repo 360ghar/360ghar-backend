@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.config import settings
 from app.models.blogs import BlogPost
 from app.models.content import ContentBlock
-from app.models.data_hub import BankAuction, ReraProject
+from app.models.data_hub import BankAuction, CircleRate, ReraProject
 from app.models.enums import PropertyPurpose
 from app.models.properties import PropertyImage
 from app.services.content import digest, facts, property_summary, runner
@@ -125,7 +125,8 @@ async def test_property_run_adds_alt_text_for_cloudinary_photos_only(db_session,
 @pytest.mark.parametrize(
     ("alt", "ok"),
     [("A bright living room", True), ("Room with 3 windows", False), ("See https://x.co", False),
-     ("x" * 126, False), ("The best room", False), ("", False), (None, False), ("कमरे में १२ खिड़कियां", False)],
+     ("x" * 121, False), ("x" * 120, True), ("The best room", False), ("", False), (None, False),
+     ("कमरे में १२ खिड़कियां", False), ("A sofa. A lamp too.", False), ("Une salle à manger", False)],
 )
 def test_clean_alt(alt, ok):
     assert (property_summary.clean_alt(alt) is not None) is ok
@@ -234,3 +235,98 @@ async def test_auto_publish_switch_keeps_valid_digest_as_draft(db_session, hub_c
     sheet = await sheet_for_today(db_session)
     res = await digest.generate_market_digest(db_session, FakeProvider([compose_digest(sheet)]))
     assert res["status"] == "draft" and res["reason"] is None
+
+
+async def test_failed_photo_marks_alts_pending_and_next_run_retries(db_session, test_user, monkeypatch):
+    prop = await make_property(db_session, test_user)
+    for i, name in enumerate(["a", "b"]):
+        db_session.add(PropertyImage(property_id=prop.id, image_url=f"https://res.cloudinary.com/x/{name}.jpg",
+                                     display_order=i))
+    await db_session.flush()
+    sheet = await facts.build_property_sheet(db_session, prop.id)
+
+    class Provider(FakeProvider):
+        async def complete_json(self, messages, vision_input=None, json_schema=None):
+            if vision_input is not None:
+                return {"alt": "A bright living room"}
+            return await super().complete_json(messages, vision_input, json_schema)
+
+    async def flaky(url):
+        if url.endswith("/a.jpg"):
+            raise RuntimeError("connection reset")  # not an AIProviderError: must not lose the summary
+        return "aGVsbG8=", "image/jpeg"
+
+    monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", flaky)
+    provider = Provider([compose_property(sheet)])
+    await runner.run_batch(db_session, provider, entity_type="property", locales=["en"], slugs=[str(prop.id)])
+    row = (await db_session.execute(select(ContentBlock))).scalar_one()
+    assert row.review_status == "auto" and row.body["image_alts_pending"] is True and len(row.body["image_alts"]) == 1
+
+    async def fine(url):
+        return "aGVsbG8=", "image/jpeg"
+
+    monkeypatch.setattr("app.services.tour_ai.helpers._download_image_as_base64", fine)
+    await runner.run_batch(db_session, provider, entity_type="property", locales=["en"], slugs=[str(prop.id)])
+    await db_session.refresh(row)
+    assert "image_alts_pending" not in row.body and len(row.body["image_alts"]) == 2
+
+
+async def test_digest_ignores_other_cities(db_session, test_admin_user, monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    for i in range(3):
+        db_session.add(ReraProject(rera_number=f"MH/{i}", project_name=f"Mumbai Tower {i}", location="Andheri",
+                                   district="Mumbai"))
+    db_session.add(BankAuction(source="ibapi", bank_name="Acme Bank", property_description="Flat", locality="Dwarka",
+                               city="Delhi", reserve_price=Decimal("5000000")))
+    db_session.add(CircleRate(district="Delhi", sector="Dwarka", property_type="residential", revision_year=2024,
+                              slug="cr-dwarka", rate_per_sqyd=Decimal("1000")))
+    await db_session.flush()
+    res = await digest.generate_market_digest(db_session, FakeProvider([{}]))
+    assert res["status"] == "skipped" and res["changes"] == 0
+
+
+async def test_provider_failure_returns_failed_not_an_exception(db_session, hub_changes, test_admin_user, monkeypatch):
+    from app.services.ai.base import AIProviderError
+
+    monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    err = AIProviderError("down", provider="Agnes AI", status_code=500)
+    res = await digest.generate_market_digest(db_session, FakeProvider([err]))
+    assert res["status"] == "failed" and res["reason"] == "provider_error"
+    quota = AIProviderError("usage limit reached", provider="Agnes AI", status_code=429)
+    res = await digest.generate_market_digest(db_session, FakeProvider([quota]))
+    assert res["reason"] == "rate_limited"
+
+
+async def test_one_digest_per_iso_week_and_draft_keeps_the_sections(db_session, hub_changes, test_admin_user, monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    monday, friday = date(2026, 10, 19), date(2026, 10, 23)
+    sheet = (await digest.build_digest_sheet(db_session, friday))[0]
+    bad = compose_digest(sheet, meta_description="Guaranteed returns this week.")
+    first = await digest.generate_market_digest(db_session, FakeProvider([bad]), today=monday)
+    assert first["status"] == "draft"
+    post = (await db_session.execute(select(BlogPost).where(BlogPost.slug == first["post_slug"]))).scalar_one()
+    assert "<h2>Bank auctions</h2>" in post.content and post.title == "Gurugram property data digest: week 43 of 2026"
+    later = await digest.generate_market_digest(db_session, FakeProvider([bad]), today=friday)
+    assert later["status"] == "exists"
+
+
+async def test_write_triggered_runs_share_one_throttle(monkeypatch):
+    seen = []
+
+    async def fake_run_batch(db, provider, **kwargs):
+        seen.append(kwargs["throttle"])
+
+    class Session:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, *a):
+            return None
+
+    monkeypatch.setattr(runner, "run_batch", fake_run_batch)
+    monkeypatch.setattr(settings, "CONTENT_ON_WRITE_ENABLED", True)
+    monkeypatch.setattr(runner, "make_provider", lambda: FakeProvider([{}]))
+    monkeypatch.setattr(property_summary, "get_bg_session_factory", lambda: Session)
+    await property_summary.generate_property_content(1)
+    await property_summary.generate_property_content(2)
+    assert len(seen) == 2 and seen[0] is seen[1]
