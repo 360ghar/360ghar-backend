@@ -250,6 +250,7 @@ pytest_plugins = [
     "tests.fixtures.mocks",
     "tests.fixtures.data",
     "tests.fixtures.common",
+    "tests.fixtures.content",
 ]
 
 

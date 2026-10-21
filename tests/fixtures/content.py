@@ -1,3 +1,5 @@
+"""Content engine test helpers: a fake provider, a valid-output composer and sample data."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -21,6 +23,9 @@ class FakeProvider:
     def __init__(self, responses: list[Any]):
         self.responses = list(responses)
         self.calls: list[Any] = []
+
+    async def close(self) -> None:
+        return None
 
     async def complete_json(self, messages, vision_input=None, json_schema=None):
         self.calls.append(messages)
