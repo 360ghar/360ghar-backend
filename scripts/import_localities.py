@@ -70,7 +70,7 @@ def main() -> None:
     if urlparse(url).hostname not in LOCAL_HOSTS and not args.allow_remote:
         sys.exit("Refusing a non-local database. Pass --allow-remote to override.")
     rows = snapshot_rows()
-    engine = sa.create_engine(url)
+    engine = sa.create_engine(url.replace("postgresql://", "postgresql+psycopg://", 1))
     with engine.begin() as conn:
         conn.execute(UPSERT, rows)
     print(f"imported {len(rows)} localities")
