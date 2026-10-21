@@ -45,7 +45,7 @@ scripts/import_localities.py  # loads the snapshot into the localities table
 |---|---|---|
 | `GET /api/v1/content/{entity_type}/{slug}?locale=en` | none | One served block. 404 when none. `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. |
 | `GET /api/v1/content/manifest` | none | Served (entity, locale, indexable, updated_at) rows. |
-| `POST /api/v1/admin/content/run` | `X-Cron-Secret` | One bounded batch. Call again with `next_after` until `done`. |
+| `POST /api/v1/admin/content/run` | `X-Cron-Secret` | One bounded batch. Send the response `next_after` as the next request's `after` until `done` is true. |
 | `GET /api/v1/admin/content/review` | admin | Review queue, newest first. |
 | `PATCH /api/v1/admin/content/{id}/status` | admin | Approve, reject or send back to review. A block that failed validation cannot be approved. |
 
