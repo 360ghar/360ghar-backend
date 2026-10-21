@@ -81,6 +81,7 @@ class ContentRunItem(BaseModel):
 class ContentRunResult(BaseModel):
     generated: int
     skipped: int
+    thin: int
     failed: int
     needs_review: int
     rejected: int
