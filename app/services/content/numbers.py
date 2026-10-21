@@ -30,7 +30,8 @@ _MULTIPLIERS = {
 }  # fmt: skip
 _AREA_UNITS = (
     r"sq\.?\s*ft\.?|sqft|square\s+feet|sq\.?\s*yd\.?s?|sq\.?\s*yards?|sqyd|gaj|"
-    r"sq\.?\s*m(?![a-z])|sqm|square\s+met(?:er|re)s?|वर्ग\s*फुट|वर्ग\s*फ़ुट|वर्ग\s*गज|वर्ग\s*मीटर"
+    r"sq\.?\s*m(?![a-z])|sqm|square\s+met(?:er|re)s?|"
+    r"वर्ग\s*फुट|वर्ग\s*फ़ुट|वर्ग\s*फीट|वर्ग\s*गज|वर्ग\s*यार्ड|वर्ग\s*मीटर"
 )
 # Indian (1,25,000) or western (12,345) grouping, else plain digits. "5,10" is two numbers.
 _NUMBER = r"(?:\d{1,2}(?:,\d{2})+,\d{3}|\d{1,3}(?:,\d{3})+)(?:\.\d+)?|\d+(?:\.\d+)?"
@@ -38,7 +39,7 @@ _TOKEN_RE = re.compile(
     r"(?P<cur>₹|(?<![A-Za-z])(?:rs\.?|inr)(?![A-Za-z]))?\s*"
     rf"(?P<num>{_NUMBER})"
     r"(?:\s*(?P<mult>lakhs?|lacs?|crores?|cr\b|thousand|million|billion|k\b|लाख|करोड़|करोड|हज़ार|हजार))?"
-    rf"(?:\s*(?P<per>/|per\s+)?\s*(?P<area>{_AREA_UNITS}))?"
+    rf"(?:\s*(?P<per>/|per\s+|प्रति\s+)?\s*(?P<area>{_AREA_UNITS}))?"
     r"(?:\s*(?:(?P<km>km\b|kilomet(?:er|re)s?\b|किमी|किलोमीटर)|(?P<m>m\b|metres?\b|meters?\b|मीटर)))?"
     r"(?P<pct>\s*%)?",
     re.IGNORECASE,
@@ -76,7 +77,7 @@ def normalize_digits(text: str) -> str:
 
 def _area_key(unit: str) -> str:
     unit = unit.lower().replace(" ", "").replace(".", "")
-    if "yd" in unit or "yard" in unit or "गज" in unit:
+    if "yd" in unit or "yard" in unit or "गज" in unit or "यार्ड" in unit:
         return "sqyd"
     if unit.endswith("m") or "met" in unit or "मीटर" in unit or unit == "sqm":
         return "sqm"

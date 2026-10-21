@@ -285,3 +285,19 @@ def test_rs_inside_a_word_is_not_a_currency_sign():
     assert [(a.kind, a.value) for a in extract_amounts("Rs. 5,000 or INR 7,000")] == [
         ("money", 5000.0), ("money", 7000.0),
     ]
+
+
+def test_hindi_area_units_make_a_rate():
+    allowed = allowed_numbers(["₹74,367 per sq yd"])
+    assert matches(amount("₹74,367 प्रति वर्ग यार्ड"), allowed)
+    assert matches(amount("₹74,367 प्रति वर्ग गज"), allowed)
+    assert not matches(amount("₹74,367"), allowed)
+
+
+def test_label_words_are_not_names():
+    sheet = make_sheet()
+    sheet.facts[4] = Fact("circle", "Government circle rate, residential", "₹45,000 per sq yd", "HR", "2024-04-01",
+                          "circle_rate")
+    out = good_locality()
+    out["meta_description"] = "Sector 56, Gurugram: Government Circle rate and nearby metro."
+    assert validator.validate(out, sheet, "en").ok
