@@ -24,7 +24,7 @@ from app.core.utils import utc_now
 from app.models.content import Locality
 from app.models.data_hub import BankAuction, CircleRate, ReraProject
 from app.models.enums import PropertyPurpose, PropertyStatus
-from app.models.properties import Amenity, Property, PropertyAmenity
+from app.models.properties import Amenity, Property, PropertyAmenity, PropertyImage
 from app.services.content.numbers import Allowed, allowed_numbers
 
 SNAPSHOT = Path(__file__).parent / "data" / "locality_seed.json"
@@ -63,6 +63,7 @@ class FactSheet:
     facts: list[Fact] = field(default_factory=list)
     names: set[str] = field(default_factory=set)
     quoted_text: str | None = None  # user-written listing text, passed to the model as data
+    salt: str = ""  # other inputs that change the output but are not facts (photo URLs)
 
     def add(self, fact: Fact | None, *names: str) -> None:
         if fact is not None:
@@ -101,7 +102,7 @@ class FactSheet:
     def facts_hash(self) -> str:
         # Everything the prompt carries: facts (label and value), allowed names, owner text.
         payload = json.dumps(
-            [(f.key, f.label, f.display) for f in self.facts] + [sorted(self.names), self.quoted_text],
+            [(f.key, f.label, f.display) for f in self.facts] + [sorted(self.names), self.quoted_text, self.salt],
             ensure_ascii=False,
         )
         return hashlib.sha256(payload.encode()).hexdigest()
@@ -247,25 +248,27 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
                        ", ".join(f"{b} BHK" for b in beds), "360 Ghar listings", now, "listing"))
 
     # Government circle rates, one fact per land use (a residential rate is not a commercial one).
+    # Only the newest revision counts: an older revision is an obsolete rate.
+    matched = and_(
+        func.lower(CircleRate.district).in_(cities),
+        or_(func.lower(CircleRate.sector).in_(names), func.lower(CircleRate.colony).in_(names)),
+        CircleRate.rate_per_sqyd.is_not(None),
+    )
+    newest = (await db.execute(select(func.max(CircleRate.revision_year)).where(matched))).scalar()
     circle = (
         await db.execute(
             select(
                 CircleRate.property_type, func.min(CircleRate.rate_per_sqyd),
-                func.max(CircleRate.rate_per_sqyd), func.max(CircleRate.revision_year),
-                func.max(CircleRate.source_url),
+                func.max(CircleRate.rate_per_sqyd), func.max(CircleRate.source_url),
             )
-            .where(
-                func.lower(CircleRate.district).in_(cities),
-                or_(func.lower(CircleRate.sector).in_(names), func.lower(CircleRate.colony).in_(names)),
-                CircleRate.rate_per_sqyd.is_not(None),
-            )
+            .where(matched, CircleRate.revision_year == newest)
             .group_by(CircleRate.property_type)
             .order_by(CircleRate.property_type.desc())
         )
     ).all()
-    for ptype, lo, hi, year, url in circle:
-        sheet.add(Fact(f"circle_rate_{ptype}", f"Government circle rate, {ptype} (revision {year})",
-                       f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{year}-04-01",
+    for ptype, lo, hi, url in circle:
+        sheet.add(Fact(f"circle_rate_{ptype}", f"Government circle rate, {ptype} (revision {newest})",
+                       f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{newest}-04-01",
                        "circle_rate", url))
 
     # RERA registered projects whose location names this place.
@@ -337,7 +340,8 @@ async def build_property_sheet(db: AsyncSession, property_id: int, today: date |
         return None
     ptype = _PTYPE_LABEL.get(prop.property_type.value, prop.property_type.value)
     place = ", ".join(x for x in (prop.sub_locality, prop.locality, prop.city) if x)
-    sheet = FactSheet("property", str(prop.id), prop.title, prop.city or "")
+    # The owner's title is untrusted text: it goes only into quoted_text, never into the entity name.
+    sheet = FactSheet("property", str(prop.id), f"{ptype} in {place or 'an unlisted place'}", prop.city or "")
     src = "360 Ghar listing"
 
     def add(key: str, label: str, display: str | None, group: str = "listing", *names: str) -> None:
@@ -388,5 +392,12 @@ async def build_property_sheet(db: AsyncSession, property_id: int, today: date |
 
     # Owner-written text is data, never instructions. Its names may be used, its numbers may not.
     sheet.quoted_text = "\n".join(x for x in (prop.title, prop.description) if x)[:1500] or None
-    sheet.names.update(re.findall(r"[A-Z][\w'’-]+", prop.title or ""))
+    photos = (
+        await db.execute(
+            select(PropertyImage.image_url).where(PropertyImage.property_id == prop.id)
+            .order_by(PropertyImage.is_main_image.desc(), PropertyImage.display_order, PropertyImage.id).limit(3)
+        )
+    ).scalars().all()
+    sheet.salt = "|".join(photos)
+    sheet.names.update(re.findall(r"[A-Z][a-z][\w'’-]*", prop.title or ""))  # words like Godrej, not shouting
     return sheet
