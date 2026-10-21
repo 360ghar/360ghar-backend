@@ -52,6 +52,13 @@ class Conversation(Base):
             "context_id",
             postgresql_where=text("context_id IS NOT NULL"),
         ),
+        # One booking chat per booking: concurrent first messages cannot open two threads.
+        Index(
+            "uq_conversations_stays_booking",
+            "context_id",
+            unique=True,
+            postgresql_where=text("app = 'stays' AND context_type = 'booking'"),
+        ),
         CheckConstraint(
             "status IN ('active', 'archived', 'blocked', 'closed')",
             name="ck_conversations_status",

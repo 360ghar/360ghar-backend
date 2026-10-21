@@ -56,7 +56,10 @@ ALTER TABLE public.bookings
 
 -- custom_domains
 UPDATE public.custom_domains SET created_at = now() WHERE created_at IS NULL;
+-- The updated_at trigger would overwrite created_at with now(), so it is off for the backfill.
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_custom_domains_updated_at' AND tgrelid = 'public.custom_domains'::regclass) THEN ALTER TABLE public.custom_domains DISABLE TRIGGER update_custom_domains_updated_at; END IF; END $$;
 UPDATE public.custom_domains SET updated_at = created_at WHERE updated_at IS NULL;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_custom_domains_updated_at' AND tgrelid = 'public.custom_domains'::regclass) THEN ALTER TABLE public.custom_domains ENABLE TRIGGER update_custom_domains_updated_at; END IF; END $$;
 ALTER TABLE public.custom_domains
     ALTER COLUMN created_at SET NOT NULL,
     ALTER COLUMN updated_at SET NOT NULL;

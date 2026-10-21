@@ -2,9 +2,11 @@
 -- BE-property fix round 1). Response models declare these fields non-null. A NULL row gave a
 -- 422 response on the detail and list endpoints, not a 500.
 --
--- Each NULL row takes the model default before NOT NULL is set.
+-- Each NULL row takes the model default before NOT NULL is set, except is_available:
+-- NULL rows are hidden today, so they take false and stay hidden.
 
-UPDATE properties SET is_available = true WHERE is_available IS NULL;
+-- A NULL is_available hides the listing from search today, so it becomes false.
+UPDATE properties SET is_available = false WHERE is_available IS NULL;
 UPDATE properties SET view_count = 0 WHERE view_count IS NULL;
 UPDATE properties SET like_count = 0 WHERE like_count IS NULL;
 UPDATE properties SET interest_count = 0 WHERE interest_count IS NULL;

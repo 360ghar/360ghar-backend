@@ -9,9 +9,8 @@
 -- integration branch.
 -- =============================================================================
 
--- Drop the auto-updated trigger first (table-dependent).
-DROP TRIGGER IF EXISTS set_splat_jobs_updated_at ON splat_jobs;
-
+-- The updated_at trigger drops automatically with the table. A separate DROP TRIGGER
+-- would fail when splat_jobs is absent.
 -- RLS policies on splat_jobs (splat_jobs_select_own / insert_own / update_own /
 -- delete_own) drop automatically with the table. Indexes
 -- (idx_splat_jobs_user_id / idx_splat_jobs_status / idx_splat_jobs_user_created)
