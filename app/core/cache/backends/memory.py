@@ -203,11 +203,12 @@ class InMemoryCacheBackend:
             keys_to_delete = [
                 k for k in self._cache.keys() if fnmatch.fnmatch(k, pattern)
             ]
-            self._counters.delete_pattern(pattern)
             for key in keys_to_delete:
                 del self._cache[key]
                 deleted += 1
 
+        # The counter scan is plain dict work with no await, so it needs no lock.
+        deleted += self._counters.delete_pattern(pattern)
         self.stats.deletes += deleted
         if deleted > 0:
             logger.debug("Pattern delete '%s': %s keys removed", pattern, deleted)
