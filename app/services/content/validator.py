@@ -24,7 +24,7 @@ META_MAX_CHARS = 155
 COUNTS = {
     "locality": {"highlights": (3, 5), "faqs": (4, 6)},
     "property": {"pros": (2, 4), "cons": (1, 3)},
-    "digest": {"sections": (2, 4)},
+    "digest": {"sections": (1, 4)},
 }
 
 BANNED = [

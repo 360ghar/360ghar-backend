@@ -307,6 +307,7 @@ async def run_batch(
         digest = sheet.facts_hash()
         worked = False
         for locale in locales:
+            calls_before = stats.calls
             prior = existing.get((slug, locale))
             if (
                 prior
@@ -366,7 +367,7 @@ async def run_batch(
             stats.needs_review += status == "needs_review"
             stats.items.append(
                 {"slug": slug, "locale": locale, "status": status, "indexable": indexable,
-                 "dup_score": round(score, 3), "calls": gen.calls}
+                 "dup_score": round(score, 3), "calls": stats.calls - calls_before}
             )
         entities_done += worked
         advance(slug)  # the cursor only moves past finished entities
