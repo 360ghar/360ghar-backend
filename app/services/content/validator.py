@@ -109,7 +109,7 @@ def check_names(text: str, allowed_words: set[str]) -> list[str]:
 
     def known(word: str) -> bool:
         w = _POSSESSIVE.sub("", word).lower()
-        return w in allowed_words or w in _COMMON
+        return w in allowed_words or w in _COMMON or (w.endswith("s") and w[:-1] in allowed_words)
 
     for sentence in _SENTENCE_SPLIT.split(text):
         sentence = sentence.strip()

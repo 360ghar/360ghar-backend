@@ -74,7 +74,7 @@ _SHAPES = {
         "summary: 45 to 55 words, plain prose. Count the words before you answer.\n"
         "highlights: 3 to 5 short bullet strings, each a different fact.\n"
         "faqs: 4 to 6 objects with question and answer. Answer each from the facts only.\n"
-        "meta_description: at most 155 characters."
+        "meta_description: at most 140 characters."
     ),
     "digest": (
         "summary: 45 to 55 words, plain prose, the week in brief. Count the words before you answer.\n"
@@ -87,7 +87,7 @@ _SHAPES = {
         "summary: 45 to 55 words, plain prose. Count the words before you answer.\n"
         "who_it_suits: one or two sentences.\n"
         "pros: 2 to 4 short strings. cons: 1 to 3 short strings. Each must rest on a listed fact.\n"
-        "meta_description: at most 155 characters."
+        "meta_description: at most 140 characters."
     ),
 }
 

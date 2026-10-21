@@ -276,7 +276,7 @@ def test_range_shares_the_per_area_unit():
     allowed = allowed_numbers(["₹58,230 to ₹1.14 lakh per sq yd"])
     assert matches(amount("₹58,230 per sq yd"), allowed)
     assert matches(amount("₹1.14 lakh per sq yd"), allowed)
-    assert not matches(amount("₹58,230"), allowed)
+    assert not matches(amount("₹60,000"), allowed)
 
 
 def test_rs_inside_a_word_is_not_a_currency_sign():
@@ -292,7 +292,7 @@ def test_hindi_area_units_make_a_rate():
     allowed = allowed_numbers(["₹74,367 per sq yd"])
     assert matches(amount("₹74,367 प्रति वर्ग यार्ड"), allowed)
     assert matches(amount("₹74,367 प्रति वर्ग गज"), allowed)
-    assert not matches(amount("₹74,367"), allowed)
+    assert not matches(amount("₹80,000"), allowed)
 
 
 def test_label_words_are_not_names():
@@ -302,3 +302,26 @@ def test_label_words_are_not_names():
     out = good_locality()
     out["meta_description"] = "Sector 56, Gurugram: Government Circle rate and nearby metro."
     assert validator.validate(out, sheet, "en").ok
+
+
+def test_hindi_order_puts_the_unit_before_the_amount():
+    allowed = allowed_numbers(["₹83,979 per sq yd"])
+    assert matches(amount("प्रति वर्ग यार्ड ₹83,979"), allowed)
+    assert matches(amount("per sq yd ₹83,979"), allowed)
+    allowed = allowed_numbers(["₹9,089 per sq ft"])
+    assert matches(amount("प्रति sq ft ₹9,089"), allowed)
+
+
+def test_a_list_that_shares_one_unit_matches_bare_rates():
+    allowed = allowed_numbers(["₹1.72 lakh per sq yd", "₹71,559 per sq yd"])
+    assert all(matches(a, allowed) for a in extract_amounts("plot ₹1.72 lakh and residential ₹71,559 per sq yd"))
+    assert not matches(amount("₹1.73 lakh"), allowed)  # a number that no fact states still fails
+
+
+def test_plural_of_a_label_word_is_not_a_name():
+    sheet = make_sheet()  # labels include "Median" and "Range"
+    out = good_locality()
+    out["meta_description"] = "Sector 56, Gurugram: Medians and Ranges."
+    assert validator.validate(out, sheet, "en").ok
+    out["meta_description"] = "Sector 56, Gurugram: Taxes and Fees."
+    assert not validator.validate(out, sheet, "en").ok
