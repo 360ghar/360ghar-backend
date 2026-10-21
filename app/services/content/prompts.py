@@ -38,6 +38,23 @@ SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["summary", "highlights", "faqs", "meta_description"],
         "additionalProperties": False,
     },
+    "digest": {
+        "type": "object",
+        "properties": {
+            "summary": _STR,
+            "sections": _list(
+                {
+                    "type": "object",
+                    "properties": {"heading": _STR, "body": _STR},
+                    "required": ["heading", "body"],
+                    "additionalProperties": False,
+                }
+            ),
+            "meta_description": _STR,
+        },
+        "required": ["summary", "sections", "meta_description"],
+        "additionalProperties": False,
+    },
     "property": {
         "type": "object",
         "properties": {
@@ -57,6 +74,12 @@ _SHAPES = {
         "summary: 40 to 60 words, plain prose.\n"
         "highlights: 3 to 5 short bullet strings, each a different fact.\n"
         "faqs: 4 to 6 objects with question and answer. Answer each from the facts only.\n"
+        "meta_description: at most 155 characters."
+    ),
+    "digest": (
+        "summary: 40 to 60 words, plain prose, the week in brief.\n"
+        "sections: 2 to 4 objects with heading and body. One section per kind of change in the facts "
+        "(new RERA registrations, bank auctions, circle rate updates). Each body is 2 to 4 sentences.\n"
         "meta_description: at most 155 characters."
     ),
     "property": (

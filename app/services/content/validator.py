@@ -19,6 +19,7 @@ META_MAX_CHARS = 155
 COUNTS = {
     "locality": {"highlights": (3, 5), "faqs": (4, 6)},
     "property": {"pros": (2, 4), "cons": (1, 3)},
+    "digest": {"sections": (2, 4)},
 }
 
 BANNED = [
@@ -128,6 +129,11 @@ def validate(output: dict[str, Any], sheet: FactSheet, locale: str) -> Validatio
             for x in items
         ):
             result.errors.append("every FAQ needs a question and an answer")
+        elif key == "sections" and not all(
+            isinstance(x, dict) and str(x.get("heading", "")).strip() and str(x.get("body", "")).strip()
+            for x in items
+        ):
+            result.errors.append("every section needs a heading and a body")
     if kind == "property" and not str(output["who_it_suits"]).strip():
         result.errors.append("who_it_suits is empty")
     if result.errors:

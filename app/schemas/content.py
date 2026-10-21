@@ -91,3 +91,12 @@ class ContentRunResult(BaseModel):
     next_after: str | None
     stopped_reason: str | None
     items: list[ContentRunItem]
+
+
+class MarketDigestResult(BaseModel):
+    status: Literal["published", "draft", "skipped", "exists", "failed"]
+    reason: str | None = None
+    changes: int
+    post_slug: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    calls: int = 0
