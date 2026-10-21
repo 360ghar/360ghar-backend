@@ -116,6 +116,8 @@ exclude_lines = [
     "if __name__ == .__main__.:",
 ]
 show_missing = true
+# Temporary floor: the combined four-shard suite reaches about 65%. Raise it toward the
+# original 90 as coverage grows; never lower it.
 fail_under = 60
 
 [tool.coverage.xml]

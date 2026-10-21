@@ -58,9 +58,22 @@ def test_keyset_after_handles_null_cursor_values():
     assert "IS NULL" in sql  # ASC puts NULL last, so a NULL row comes after a value
 
 
-def test_counters_keep_a_fixed_window_and_cap_their_size():
-    counters = FixedWindowCounters(max_counters=3)
+def test_counters_never_evict_a_live_window():
+    counters = FixedWindowCounters(max_counters=2)
     assert [counters.incr("a", 60) for _ in range(3)] == [1, 2, 3]
-    for key in "bcd":
-        counters.incr(key, 60)
-    assert len(counters._items) <= 3
+    counters.incr("b", 60)
+    assert counters.incr("c", 60) == 1  # full of live windows: "c" is not stored
+    assert counters.incr("c", 60) == 1
+    assert counters.incr("a", 60) == 4  # an active window is untouched
+
+
+def test_counters_delete_pattern():
+    counters = FixedWindowCounters()
+    counters.incr("endpoint_limit:x:1", 60)
+    counters.incr("other", 60)
+    assert counters.delete_pattern("endpoint_limit:*") == 1
+    assert counters.incr("endpoint_limit:x:1", 60) == 1
+
+
+def test_unit_float_survives_huge_ints():
+    assert _unit_float(10**400, 0.5) == 0.5

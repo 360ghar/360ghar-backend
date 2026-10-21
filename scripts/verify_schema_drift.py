@@ -558,7 +558,14 @@ def verify_schema_drift(*, env_file: str | None = None, write_allowlist: bool = 
         print("ERROR: allowlist entries that no longer match (remove them):")
         for line in stale:
             print(f"  - {line}")
-    if drift.errors or unknown or stale:
+    no_reason = sorted(
+        entry for entry, reason in _read_reasons(DEFAULT_ALLOWLIST).items() if "TODO" in reason
+    )
+    if no_reason:
+        print("ERROR: allowlist entries still carry the TODO reason written by --write-allowlist:")
+        for line in no_reason:
+            print(f"  - {line}")
+    if drift.errors or unknown or stale or no_reason:
         return 1
 
     print(f"OK: models match the database (allowlisted differences: {len(drift.diffs)}).")

@@ -87,6 +87,7 @@ class InMemoryCacheBackend:
     async def disconnect(self) -> None:
         """Stop cleanup task and clear cache."""
         self._available = False
+        self._counters.clear()
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -202,6 +203,7 @@ class InMemoryCacheBackend:
             keys_to_delete = [
                 k for k in self._cache.keys() if fnmatch.fnmatch(k, pattern)
             ]
+            self._counters.delete_pattern(pattern)
             for key in keys_to_delete:
                 del self._cache[key]
                 deleted += 1

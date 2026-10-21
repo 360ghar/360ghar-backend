@@ -124,7 +124,7 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 
 ### CI/CD Pipeline
 GitHub Actions (`.github/workflows/tests.yml`) runs on push/PR to `main`/`develop`:
-1. **test** — PostGIS + Redis services, `pytest` with `--cov-fail-under=90`, Codecov upload
+1. **test** — PostGIS + Redis services, `pytest` per shard, then a `coverage-check` job that combines the shard data and fails under 60% (a temporary floor, the target is 90), Codecov upload
 2. **lint** — `ruff check app/` and `mypy app/`
 
 ### Deployment

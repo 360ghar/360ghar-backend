@@ -8,6 +8,7 @@ import re
 from datetime import date
 
 from bs4 import BeautifulSoup
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -110,6 +111,10 @@ class CourtAuctionScraper(BaseScraper):
                     set_={
                         "reserve_price": stmt.excluded.reserve_price,
                         "raw_data": stmt.excluded.raw_data,
+                        # A source with no type column keeps the stored value.
+                        "property_type": func.coalesce(
+                            stmt.excluded.property_type, CourtAuction.property_type
+                        ),
                         "is_active": True,
                     },
                 )

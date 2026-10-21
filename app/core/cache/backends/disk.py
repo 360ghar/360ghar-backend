@@ -75,6 +75,7 @@ class DiskCacheBackend:
     async def disconnect(self) -> None:
         """Stop cleanup. Cached files are kept for process-local reuse while running."""
         self._available = False
+        self._counters.clear()
         if self._cleanup_task:
             self._cleanup_task.cancel()
             try:
@@ -196,6 +197,7 @@ class DiskCacheBackend:
             keys = [key for key in self._entries if fnmatch.fnmatch(key, pattern)]
             for key in keys:
                 await self._delete_locked(key)
+            self._counters.delete_pattern(pattern)
         return len(keys)
 
     async def exists(self, key: str) -> bool:

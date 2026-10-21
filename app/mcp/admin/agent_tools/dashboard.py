@@ -51,7 +51,7 @@ async def agent_dashboard_overview(
         from sqlalchemy import func, select
 
         from app.models.bookings import Booking
-        from app.models.enums import LeaseStatus, MaintenanceRequestStatus
+        from app.models.enums import MaintenanceRequestStatus
         from app.models.pm_leases import Lease
         from app.models.pm_maintenance import MaintenanceRequest
         from app.models.properties import Property
@@ -130,7 +130,9 @@ async def agent_dashboard_overview(
             upcoming_bookings = booking_result.scalar() or 0
 
             # Calculate monthly rent expected
-            rent_stmt = select(func.sum(Lease.monthly_rent)).where(Lease.status == LeaseStatus.active)
+            rent_stmt = select(func.sum(Lease.monthly_rent)).where(
+                Lease.status.in_(OCCUPIED_LEASE_STATUSES)
+            )
             if owner_filter:
                 rent_stmt = rent_stmt.where(Lease.owner_id.in_(owner_filter))
             rent_result = await db.execute(rent_stmt)

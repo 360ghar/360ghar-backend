@@ -65,7 +65,9 @@ export function parseDateOnly(value: string | null | undefined): Date | null {
   const match = DATE_ONLY.exec(value.trim());
   if (!match) return null;
   const [, year, month, day] = match;
-  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  // Date.UTC maps the years 0 to 99 to 1900 to 1999, so the year is set separately.
+  const parsed = new Date(Date.UTC(2000, Number(month) - 1, Number(day)));
+  parsed.setUTCFullYear(Number(year), Number(month) - 1, Number(day));
   if (Number.isNaN(parsed.getTime())) return null;
   // Date.UTC rolls 2026-02-31 into March. Reject a date that did not survive the round trip.
   if (

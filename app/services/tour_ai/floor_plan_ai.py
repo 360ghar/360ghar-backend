@@ -82,7 +82,7 @@ def _unit_float(value: Any, default: float) -> float:
         return default
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return default
     if number != number:  # NaN
         return default

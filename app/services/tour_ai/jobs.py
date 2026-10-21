@@ -84,9 +84,11 @@ async def update_job_status(
     if not job:
         raise NotFoundException(detail="AI job not found")
 
-    if job.status == "cancelled":
-        raise AIJobCancelledError(job_id)
     if job.status in TERMINAL_JOB_STATUSES:
+        # Nothing changes. Commit to release the row lock, so a late worker does not hold it.
+        await db.commit()
+        if job.status == "cancelled":
+            raise AIJobCancelledError(job_id)
         logger.info("AI job %s is %s; ignoring %s update", job_id, job.status, status)
         return job
 
