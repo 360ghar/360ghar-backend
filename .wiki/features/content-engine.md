@@ -39,6 +39,18 @@ scripts/import_localities.py  # loads the snapshot into the localities table
 
 `review_status` values: `auto`, `needs_review`, `approved`, `rejected`, `failed`. The public API serves `auto` and `approved`.
 
+## API
+
+| Route | Auth | Purpose |
+|---|---|---|
+| `GET /api/v1/content/{entity_type}/{slug}?locale=en` | none | One served block. 404 when none. `Cache-Control: public, max-age=300, s-maxage=3600, stale-while-revalidate=86400`. |
+| `GET /api/v1/content/manifest` | none | Served (entity, locale, indexable, updated_at) rows. |
+| `POST /api/v1/admin/content/run` | `X-Cron-Secret` | One bounded batch. Call again with `next_after` until `done`. |
+| `GET /api/v1/admin/content/review` | admin | Review queue, newest first. |
+| `PATCH /api/v1/admin/content/{id}/status` | admin | Approve, reject or send back to review. A block that failed validation cannot be approved. |
+
+`.github/workflows/content-nightly.yml` calls the run endpoint nightly. It needs the repository secrets `BACKEND_BASE_URL` and `CRON_SECRET`, and skips with a notice when they are empty.
+
 ## Entry points for modification
 
 - New fact: add it in `facts.py` with a `group`. Only `price`, `circle_rate` and `rera` count as key facts.
