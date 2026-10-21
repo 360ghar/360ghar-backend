@@ -276,3 +276,12 @@ def test_range_shares_the_per_area_unit():
     assert matches(amount("₹58,230 per sq yd"), allowed)
     assert matches(amount("₹1.14 lakh per sq yd"), allowed)
     assert not matches(amount("₹58,230"), allowed)
+
+
+def test_rs_inside_a_word_is_not_a_currency_sign():
+    assert [(a.kind, a.value) for a in extract_amounts("It offers 3 BHK with 2 bathrooms")] == [
+        ("plain", 3.0), ("plain", 2.0),
+    ]
+    assert [(a.kind, a.value) for a in extract_amounts("Rs. 5,000 or INR 7,000")] == [
+        ("money", 5000.0), ("money", 7000.0),
+    ]

@@ -35,7 +35,7 @@ _AREA_UNITS = (
 # Indian (1,25,000) or western (12,345) grouping, else plain digits. "5,10" is two numbers.
 _NUMBER = r"(?:\d{1,2}(?:,\d{2})+,\d{3}|\d{1,3}(?:,\d{3})+)(?:\.\d+)?|\d+(?:\.\d+)?"
 _TOKEN_RE = re.compile(
-    r"(?P<cur>₹|rs\.?|inr)?\s*"
+    r"(?P<cur>₹|(?<![A-Za-z])(?:rs\.?|inr)(?![A-Za-z]))?\s*"
     rf"(?P<num>{_NUMBER})"
     r"(?:\s*(?P<mult>lakhs?|lacs?|crores?|cr\b|thousand|million|billion|k\b|लाख|करोड़|करोड|हज़ार|हजार))?"
     rf"(?:\s*(?P<per>/|per\s+)?\s*(?P<area>{_AREA_UNITS}))?"
