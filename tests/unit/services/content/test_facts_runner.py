@@ -154,3 +154,12 @@ async def test_city_wide_ranges_do_not_count_toward_the_threshold(db_session):
     sheet = await facts.build_locality_sheet(db_session, await db_session.get(Locality, "tiny2"))
     assert any(f.group == "city_price" for f in sheet.facts)
     assert sheet.fact_count == len(sheet.facts) - 2
+
+
+async def test_thin_sheets_make_no_model_call(db_session):
+    db_session.add(Locality(slug="thin", name="Thin", city="Gurugram", place_type="locality"))
+    await db_session.flush()
+    provider = FakeProvider([{}])
+    stats = await runner.run_batch(db_session, provider, entity_type="locality", locales=["en"])
+    assert (stats.thin, stats.calls, stats.generated) == (1, 0, 0) and not provider.calls
+    assert stats.done
