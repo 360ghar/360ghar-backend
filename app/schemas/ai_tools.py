@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
-from app.models.enums import PropertyPurpose, PropertyType
+from app.models.enums import FurnishingLevel, PropertyPurpose, PropertyType
 from app.schemas.base import WriteModel
 
 PhotoMime = Literal["image/jpeg", "image/png", "image/webp"]
@@ -49,7 +49,7 @@ class ListingHints(WriteModel):
     bedrooms: int | None = Field(default=None, ge=0, le=50)
     bathrooms: int | None = Field(default=None, ge=0, le=50)
     area_sqft: float | None = Field(default=None, gt=0, le=1_000_000)
-    furnishing: Literal["furnished", "semi_furnished", "unfurnished"] | None = None
+    furnishing: FurnishingLevel | None = None
     notes: str | None = Field(default=None, max_length=300)
 
 

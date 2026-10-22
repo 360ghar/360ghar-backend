@@ -47979,18 +47979,12 @@
           "furnishing": {
             "anyOf": [
               {
-                "type": "string",
-                "enum": [
-                  "furnished",
-                  "semi_furnished",
-                  "unfurnished"
-                ]
+                "$ref": "#/components/schemas/FurnishingLevel"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Furnishing"
+            ]
           },
           "notes": {
             "anyOf": [
