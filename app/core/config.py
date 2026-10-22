@@ -282,6 +282,8 @@ class Settings(BaseSettings):
     CONTENT_MIN_CALL_INTERVAL_S: float = Field(default=12.0, ge=0, le=300)
     # Generate a property summary in the background when a listing is created or updated.
     CONTENT_ON_WRITE_ENABLED: bool = False
+    # Neutral brand card that /og/{kind}/{slug} redirects to while a subject has no art yet.
+    OG_FALLBACK_IMAGE_URL: str = "https://360ghar.com/og-image-home.jpg"
     # Publish the weekly market digest when it validates. False keeps every digest a draft.
     MARKET_DIGEST_AUTO_PUBLISH: bool = True
     # Gemini — embeddings only (Agnes has no embedding model)

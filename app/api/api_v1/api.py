@@ -27,6 +27,7 @@ from app.api.api_v1.endpoints import (
     flatmates_admin,
     floor_plans,
     hotspots,
+    imagery,
     leads,
     notifications,
     oauth,
@@ -74,6 +75,8 @@ async def api_v1_ready_redirect() -> RedirectResponse:
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(content.router, prefix="/content", tags=["content"])
 api_router.include_router(admin_content.router, prefix="/admin/content", tags=["content-admin"])
+api_router.include_router(imagery.router, tags=["imagery"])
+api_router.include_router(imagery.admin_router, prefix="/admin/imagery", tags=["imagery-admin"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])

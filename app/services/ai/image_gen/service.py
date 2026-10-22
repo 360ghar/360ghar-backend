@@ -76,12 +76,21 @@ def _is_retryable(exc: BaseException) -> bool:
     return isinstance(exc, _AgnesImageError) and exc.status_code in _RETRYABLE_STATUS_CODES
 
 
-async def generate_image(request: ImageGenRequest) -> ImageGenResponse:
+async def generate_image(
+    request: ImageGenRequest,
+    *,
+    size: str = _IMAGE_SIZE,
+    references: list[str] | None = None,
+    instruction: str | None = None,
+) -> ImageGenResponse:
     """
     Generate an image with Agnes AI.
 
     Args:
         request: Generation request with mode, prompt, ratio, and optional source image.
+        size: Agnes size tier, ``1K`` (default) or ``2K``.
+        references: extra reference images as ``data:`` URLs, sent with the source image.
+        instruction: replaces the default system-style instruction (the house style uses this).
 
     Returns:
         ImageGenResponse with base64 data URL on success, or error details on failure.
@@ -90,7 +99,7 @@ async def generate_image(request: ImageGenRequest) -> ImageGenResponse:
         return _failure("SERVICE_UNAVAILABLE", "AGNES_AI_API_KEY is not set")
 
     try:
-        data = await _call_agnes(_build_payload(request))
+        data = await _call_agnes(_build_payload(request, size, references, instruction))
     except httpx.TimeoutException as exc:
         return _failure("TIMEOUT", exc)
     except _AgnesImageError as exc:
@@ -136,20 +145,29 @@ def _map_error_code(exc: _AgnesImageError) -> str:
     return "GENERATION_FAILED"
 
 
-def _build_payload(request: ImageGenRequest) -> dict[str, Any]:
+def _build_payload(
+    request: ImageGenRequest,
+    size: str = _IMAGE_SIZE,
+    references: list[str] | None = None,
+    instruction_override: str | None = None,
+) -> dict[str, Any]:
     """Build the images/generations request body."""
     is_img2img = request.mode == ImageGenMode.IMAGE_TO_IMAGE and bool(request.image)
-    instruction = _IMG2IMG_INSTRUCTION if is_img2img else _TXT2IMG_INSTRUCTION
+    is_img2img = is_img2img or bool(references)
+    instruction = instruction_override or (_IMG2IMG_INSTRUCTION if is_img2img else _TXT2IMG_INSTRUCTION)
 
     extra_body: dict[str, Any] = {"response_format": "b64_json"}
     if is_img2img:
-        mime = request.mime_type or "image/jpeg"
-        extra_body["image"] = [f"data:{mime};base64,{request.image}"]
+        images: list[str] = []
+        if request.image:
+            images.append(f"data:{request.mime_type or 'image/jpeg'};base64,{request.image}")
+        images.extend(references or [])
+        extra_body["image"] = images
 
     payload: dict[str, Any] = {
         "model": settings.AGNES_IMAGE_MODEL,
         "prompt": f"{instruction}\n\n{request.prompt}",
-        "size": _IMAGE_SIZE,
+        "size": size,
         "ratio": request.ratio,
         "extra_body": extra_body,
     }

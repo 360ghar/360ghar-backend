@@ -732,6 +732,143 @@
         ]
       }
     },
+    "/api/v1/og/{kind}/{slug}": {
+      "get": {
+        "tags": [
+          "imagery"
+        ],
+        "summary": "Share card image for a property, locality, blog post or city",
+        "description": "302 to a 1200x630 card: generated art with the exact title, price and locality as text.\n\nThis never calls the image model. A subject with no art yet gets the neutral brand card, with a\nshort cache time. An unknown subject is 404.",
+        "operationId": "og_card_api_v1_og__kind___slug__get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(property|locality|blog|post|city)$",
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to the share card image"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. Every non-2xx response has this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/imagery/run": {
+      "post": {
+        "tags": [
+          "imagery-admin"
+        ],
+        "summary": "Generate house-style art for subjects that have none (cron)",
+        "description": "One bounded batch, four images at a time. Images already made are skipped, so repeating a\ncall is safe. A provider 429 stops the batch: when nothing was made the answer is 429 with\n``Retry-After``, otherwise 200 with ``retry_after`` set. Call again with a later nightly run.",
+        "operationId": "run_imagery_api_v1_admin_imagery_run_post",
+        "parameters": [
+          {
+            "name": "x-cron-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Cron-Secret"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageryRunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageryRunResult"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "The image provider is rate limited. See Retry-After.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageryRunResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. Every non-2xx response has this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me": {
       "get": {
         "tags": [
@@ -45581,6 +45718,146 @@
           "prompt"
         ],
         "title": "ImageGenRequest"
+      },
+      "ImageryRunItem": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "skipped",
+              "failed",
+              "rate_limited"
+            ],
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "slug",
+          "status"
+        ],
+        "title": "ImageryRunItem"
+      },
+      "ImageryRunRequest": {
+        "properties": {
+          "kinds": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "city",
+                "locality",
+                "property",
+                "blog"
+              ]
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Kinds"
+          },
+          "max_items": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Max Items",
+            "default": 8
+          },
+          "max_seconds": {
+            "type": "integer",
+            "maximum": 280.0,
+            "minimum": 10.0,
+            "title": "Max Seconds",
+            "default": 240
+          },
+          "variant": {
+            "type": "string",
+            "enum": [
+              "og",
+              "hero"
+            ],
+            "title": "Variant",
+            "description": "og is 16:9 at 1K, hero is 16:9 at 2K",
+            "default": "og"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ImageryRunRequest"
+      },
+      "ImageryRunResult": {
+        "properties": {
+          "generated": {
+            "type": "integer",
+            "title": "Generated"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "rate_limited": {
+            "type": "integer",
+            "title": "Rate Limited"
+          },
+          "done": {
+            "type": "boolean",
+            "title": "Done"
+          },
+          "retry_after": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry After",
+            "description": "Seconds to wait before the next call after a provider 429"
+          },
+          "stopped_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped Reason"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ImageryRunItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated",
+          "skipped",
+          "failed",
+          "rate_limited",
+          "done",
+          "stopped_reason",
+          "items"
+        ],
+        "title": "ImageryRunResult"
       },
       "IncomeReport": {
         "properties": {
