@@ -54,31 +54,32 @@ class AgnesProvider(AIProvider):
     def _build_messages(
         self,
         messages: list[AIMessage],
-        vision_input: VisionInput | None = None,
+        vision_input: VisionInput | list[VisionInput] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the messages array for the Agnes API.
 
         Agnes uses the OpenAI-compatible message format with vision support.
         Vision input is attached only to the first user message to avoid
-        duplicating the large base64 string.
+        duplicating the large base64 string. A list attaches every image to that message,
+        in order, so a prompt can refer to "image 1", "image 2".
         """
+        images = vision_input if isinstance(vision_input, list) else ([vision_input] if vision_input else [])
         result = []
         vision_attached = False
 
         for msg in messages:
             role = msg.role.value
 
-            if vision_input and msg.role == AIRole.USER and not vision_attached:
-                content = [
-                    {"type": "text", "text": msg.content},
+            if images and msg.role == AIRole.USER and not vision_attached:
+                content: list[dict[str, Any]] = [{"type": "text", "text": msg.content}]
+                content.extend(
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{vision_input.mime_type};base64,{vision_input.image_base64}"
-                        }
+                        "image_url": {"url": f"data:{img.mime_type};base64,{img.image_base64}"},
                     }
-                ]
+                    for img in images
+                )
                 result.append({"role": role, "content": content})
                 vision_attached = True
             else:
@@ -89,7 +90,7 @@ class AgnesProvider(AIProvider):
     async def complete(
         self,
         messages: list[AIMessage],
-        vision_input: VisionInput | None = None,
+        vision_input: VisionInput | list[VisionInput] | None = None,
     ) -> str:
         """Generate a text completion from Agnes AI (with automatic retries)."""
         url = self._get_api_url()
@@ -122,7 +123,7 @@ class AgnesProvider(AIProvider):
     async def complete_json(
         self,
         messages: list[AIMessage],
-        vision_input: VisionInput | None = None,
+        vision_input: VisionInput | list[VisionInput] | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Generate a structured JSON completion from Agnes AI (with automatic retries)."""

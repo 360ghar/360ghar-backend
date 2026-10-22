@@ -149,7 +149,9 @@
     "webhooks/auth",
     "websocket",
     "imagery",
-    "nl_search"
+    "nl_search",
+    "listing_draft",
+    "legal_draft"
   ],
   "documented_service_modules": [
     "agent/analytics.py",
@@ -300,7 +302,11 @@
     "ai/imagery/service.py",
     "ai/imagery/style.py",
     "ai/nl_search.py",
-    "ai_agent/page_context.py"
+    "ai_agent/page_context.py",
+    "ai/legal_draft.py",
+    "ai/listing_draft.py",
+    "ai/photos.py",
+    "ai/staging.py"
   ],
   "documented_mcp_modules": [
     "admin/server.py",
