@@ -1,6 +1,6 @@
 name: Content nightly
 
-# Calls the backend to generate AI content for localities (and later properties) whose
+# Calls the backend to generate AI content for localities and properties whose
 # facts changed. Needs two repository secrets: BACKEND_BASE_URL (for example
 # https://api.360ghar.com, no trailing slash) and CRON_SECRET (same value as the backend
 # CRON_SECRET setting). Without them the run skips with a notice.
@@ -28,7 +28,7 @@ jobs:
     env:
       BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
-      ENTITY_TYPES: "locality"
+      ENTITY_TYPES: "locality property"
       FORCE: ${{ inputs.force && 'true' || 'false' }}
     steps:
       - name: Check secrets

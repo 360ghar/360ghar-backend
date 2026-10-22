@@ -22,6 +22,7 @@ from app.schemas.content import (
     ContentStatusUpdate,
     EntityType,
     Locale,
+    MarketDigestResult,
 )
 from app.schemas.pagination import (
     CursorPage,
@@ -31,7 +32,11 @@ from app.schemas.pagination import (
     trim_keyset_lookahead,
     validate_keyset_payload,
 )
-from app.services.content import runner
+from app.services.content import (  # noqa: F401 (registers the property enricher)
+    digest,
+    property_summary,
+    runner,
+)
 from app.services.content.facts import MIN_FACTS_FOR_INDEX
 from app.services.content.runner import make_provider
 
@@ -73,6 +78,28 @@ async def run_content(body: ContentRunRequest, db: AsyncSession = Depends(get_db
     finally:
         await provider.close()
     return stats.as_dict()
+
+
+@router.post(
+    "/market-digest",
+    response_model=MarketDigestResult,
+    summary="Write the weekly market digest (cron)",
+    dependencies=[Depends(require_cron_secret)],
+)
+async def run_market_digest(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    """Build the digest from data-hub changes in the last 7 days. Skips with fewer than 3 changes.
+    Saves a blog post: published when it validates, otherwise a draft tagged needs-review.
+    Calling twice in one week saves one post."""
+    try:
+        provider = make_provider()
+    except ValueError as exc:
+        raise ServiceUnavailableException(str(exc), error_code="AI_NOT_CONFIGURED") from exc
+    try:
+        return await digest.generate_market_digest(
+            db, provider, throttle=runner.make_throttle(settings.CONTENT_MIN_CALL_INTERVAL_S)
+        )
+    finally:
+        await provider.close()
 
 
 @router.get(

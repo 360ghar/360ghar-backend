@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -48,6 +48,7 @@ from app.schemas.property import (
 )
 from app.schemas.user import User as UserSchema
 from app.services.auth_user_cache import AuthUserSnapshot
+from app.services.content.property_summary import generate_property_content
 from app.services.flatmates import pause_stale_flatmate_listings
 from app.services.flatmates.compatibility import calculate_property_compatibility_score
 from app.services.property import (
@@ -297,6 +298,7 @@ def build_property_filters(
 )
 async def create_new_property(
     property_data: PropertyCreate,
+    background_tasks: BackgroundTasks,
     owner_id: int | None = Query(None, description="Owner id (admin/agent only)"),
     current_user: UserSchema = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -318,6 +320,7 @@ async def create_new_property(
                 )
         result = await create_property(db, property_data, target_owner_id, current_user)
         logger.info("Property created successfully with ID %s", result.id)
+        background_tasks.add_task(generate_property_content, result.id)
         await attach_owner_agents(db, [result])
         return mask_owner_contact(result, current_user)
     except Exception as e:
@@ -612,11 +615,13 @@ async def get_property_details(
 async def update_property_details(
     property_id: int,
     property_update: PropertyUpdate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: UserSchema = Depends(get_current_active_user),
 ):
     """Update property details (PATCH semantics: send only the keys to change)."""
     result = await update_property(db, property_id, property_update, current_user)
+    background_tasks.add_task(generate_property_content, property_id)
     await attach_owner_agents(db, [result])
     return mask_owner_contact(result, current_user)
 

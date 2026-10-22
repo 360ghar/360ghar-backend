@@ -452,6 +452,66 @@
         }
       }
     },
+    "/api/v1/admin/content/market-digest": {
+      "post": {
+        "tags": [
+          "content-admin"
+        ],
+        "summary": "Write the weekly market digest (cron)",
+        "description": "Build the digest from data-hub changes in the last 7 days. Skips with fewer than 3 changes.\nSaves a blog post: published when it validates, otherwise a draft tagged needs-review.\nCalling twice in one week saves one post.",
+        "operationId": "run_market_digest_api_v1_admin_content_market_digest_post",
+        "parameters": [
+          {
+            "name": "x-cron-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Cron-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MarketDigestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. Every non-2xx response has this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/content/review": {
       "get": {
         "tags": [
@@ -49560,6 +49620,65 @@
         "type": "object",
         "title": "ManagedPropertyUpdate",
         "description": "PATCH body: every editable core listing field, plus the PM fields.\n\nOnly keys the client sends are applied. An explicit null clears a nullable\nfield. A null on a NOT NULL field gives 422."
+      },
+      "MarketDigestResult": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "published",
+              "draft",
+              "skipped",
+              "exists",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "changes": {
+            "type": "integer",
+            "title": "Changes"
+          },
+          "post_slug": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post Slug"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "changes"
+        ],
+        "title": "MarketDigestResult"
       },
       "MarketingNotification": {
         "properties": {

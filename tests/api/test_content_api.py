@@ -200,3 +200,36 @@ async def test_status_update_rules(admin_authenticated_client: AsyncClient, auth
                                                    json={"review_status": "failed"})).status_code == 422
     stored = (await db_session.execute(select(ContentBlock.review_status).where(ContentBlock.id == rich.id))).scalar_one()
     assert stored == "rejected"
+
+
+# ── market digest and the property write trigger ────────────────────────────
+
+
+async def test_market_digest_needs_the_cron_secret(client: AsyncClient, cron_secret):
+    assert (await client.post("/api/v1/admin/content/market-digest")).status_code == 403
+    wrong = await client.post("/api/v1/admin/content/market-digest", headers={"X-Cron-Secret": "nope"})
+    assert wrong.status_code == 403
+
+
+async def test_market_digest_skips_when_quiet(client: AsyncClient, cron_secret, monkeypatch, test_admin_user):
+    monkeypatch.setattr("app.api.api_v1.endpoints.admin_content.make_provider", lambda: FakeProvider([{}]))
+    monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    resp = await client.post("/api/v1/admin/content/market-digest", headers=CRON)
+    assert resp.status_code == 200 and resp.json()["status"] == "skipped" and resp.json()["changes"] == 0
+
+
+async def test_property_create_and_update_trigger_content_task(authenticated_client: AsyncClient, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    task = AsyncMock()
+    monkeypatch.setattr("app.api.api_v1.endpoints.properties.generate_property_content", task)
+    body = {"title": "Flat in Sector 85", "property_type": "apartment", "purpose": "buy",
+            "base_price": 8500000, "city": "Gurugram", "locality": "Sector 85"}
+    created = await authenticated_client.post("/api/v1/properties", json=body)
+    assert created.status_code == 201, created.text
+    pid = created.json()["id"]
+    task.assert_awaited_once_with(pid)
+    updated = await authenticated_client.put(f"/api/v1/properties/{pid}", json={"base_price": 9000000})
+    assert updated.status_code == 200, updated.text
+    assert task.await_count == 2
+    assert task.await_args_list[1].args == (pid,)

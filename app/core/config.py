@@ -280,6 +280,10 @@ class Settings(BaseSettings):
     # (about 1,500 per 5 hours and 15,000 per week).
     CRON_SECRET: str | None = None
     CONTENT_MIN_CALL_INTERVAL_S: float = Field(default=12.0, ge=0, le=300)
+    # Generate a property summary in the background when a listing is created or updated.
+    CONTENT_ON_WRITE_ENABLED: bool = False
+    # Publish the weekly market digest when it validates. False keeps every digest a draft.
+    MARKET_DIGEST_AUTO_PUBLISH: bool = True
     # Gemini — embeddings only (Agnes has no embedding model)
     GOOGLE_API_KEY: str | None = None
     GEMINI_EMBED_MODEL: str = "gemini-embedding-2"

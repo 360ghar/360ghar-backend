@@ -6,6 +6,7 @@
   "/.well-known/oauth-protected-resource/mcp-admin",
   "/.well-known/openid-configuration",
   "/.well-known/openid-configuration/mcp/oauth",
+  "/api/v1/admin/content/market-digest",
   "/api/v1/admin/content/review",
   "/api/v1/admin/content/run",
   "/api/v1/admin/content/{block_id}/status",
