@@ -604,7 +604,9 @@ async def test_legal_narrative_survives_odd_provider_failures(client: AsyncClien
         ("no pets", "Pets are allowed.", False),
         ("no pets", "No pets are permitted.", True),
         ("no parties after 10 pm", "No parties may be held after 10:00 p.m.", True),
-        ("rent for september is not paid after 3 reminders", "The rent for September remains unpaid despite three reminders.", True),
+        ("rent for september is not paid after 3 reminders", "The rent for September is not paid despite three reminders.", True),
+        ("rent for september is not paid after 3 reminders", "The rent for September remains unpaid despite three reminders.", False),
+        ("tenant shall not sublet", "The Tenant shall sublet the premises.", False),
         ("tenant can keep one small dog", "The tenant may not keep a dog.", False),
         ("tenant can keep one small dog", "The Tenant may keep one small dog.", True),
     ],
@@ -613,3 +615,14 @@ def test_faithful_guard(source, item, ok):
     from app.services.ai import legal_draft as ld
 
     assert ld._faithful([item], source) is ok
+
+
+async def test_rent_increase_clause_follows_the_term(client: AsyncClient):
+    async def clause(months: int) -> str:
+        fields = {**AGREEMENT, "duration_months": months, "annual_increase_percent": 5}
+        data = (await client.post("/api/v1/ai/legal-draft", json={"kind": "rent_agreement", "fields": fields})).json()
+        return next(s for s in data["sections"] if s["heading"].endswith("Rent increase"))["body"]
+
+    assert "On renewal the rent increases by 5 percent." == await clause(11)
+    long = await clause(36)
+    assert "each year of the tenancy after the first" in long and "5 percent of the rent then payable" in long

@@ -104,7 +104,6 @@ def _numbers_ok(items: list[str], source: str) -> bool:
 
 
 _NUMBER_WORDS = {w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine ten".split())}
-_AFFIRM = frozenset({"allowed", "permitted", "may", "can", "welcome", "entitled", "free"})
 
 
 def _tokens(text: str) -> list[str]:
@@ -121,15 +120,15 @@ def _stem(token: str) -> str:
 
 def _faithful(items: list[str], source: str) -> bool:
     """A rewrite keeps the user's meaning when most of its content words come from the user's text,
-    it adds no negation the user did not write, and it does not turn a negative into a permission.
+    it adds no negation the user did not write, and it keeps every negation the user wrote.
     This is a guard, not proof: the draft always carries the user's original wording."""
     src = _tokens(source)
     out = _tokens(" ".join(items))
     src_neg, out_neg = _negated(src), _negated(out)
     if out_neg and not src_neg:
         return False
-    if src_neg and not out_neg and any(t in _AFFIRM for t in out):
-        return False
+    if src_neg and not out_neg:
+        return False  # fail closed: a rewrite that loses a negation may have flipped the clause
     stems = {_stem(t) for t in src if len(t) > 2 and t not in _STOP}
     content = [_stem(t) for t in out if len(t) > 2 and t not in _STOP]
     return not content or sum(1 for t in content if t in stems) / len(content) >= MIN_OVERLAP
@@ -242,7 +241,12 @@ def rent_agreement(f: RentAgreementFields, extra: list[str]) -> list[LegalSectio
         LegalSection(
             heading=f"{n}. Rent increase",
             body=(
-                f"On renewal the rent increases by {f.annual_increase_percent} percent."
+                (
+                    f"At the start of each year of the tenancy after the first, and on any renewal, the rent "
+                    f"increases by {f.annual_increase_percent} percent of the rent then payable."
+                    if f.duration_months > 12
+                    else f"On renewal the rent increases by {f.annual_increase_percent} percent."
+                )
                 if f.annual_increase_percent
                 else "On renewal the rent stays the same unless both parties agree to change it."
             ),
