@@ -40,6 +40,15 @@ class FixedWindowCounters:
         self._items[key] = (1, now + ttl if ttl > 0 else None)
         return 1
 
+    def decr(self, key: str) -> int:
+        """Take back one count from a live window (never below 0). Returns the new count."""
+        item = self._items.get(key)
+        if item is None or (item[1] is not None and item[1] <= time.monotonic()):
+            return 0
+        count = max(0, item[0] - 1)
+        self._items[key] = (count, item[1])
+        return count
+
     def _sweep(self, now: float) -> None:
         if now - self._last_sweep < _SWEEP_INTERVAL:
             return
