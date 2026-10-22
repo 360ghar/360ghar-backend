@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.base import WriteModel
 
@@ -15,6 +15,13 @@ class ImageryRunRequest(WriteModel):
     max_items: int = Field(8, ge=1, le=20)
     max_seconds: int = Field(240, ge=10, le=280)
     variant: Literal["og", "hero"] = Field("og", description="og is 16:9 at 1K, hero is 16:9 at 2K")
+
+    @field_validator("kinds")
+    @classmethod
+    def _unique_kinds(cls, value: list[Kind]) -> list[Kind]:
+        if len(set(value)) != len(value):
+            raise ValueError("kinds must not repeat")
+        return value
 
 
 class ImageryRunItem(BaseModel):
