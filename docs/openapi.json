@@ -47585,6 +47585,18 @@
             "description": "Fixed text. Show it with the draft.",
             "default": "This is a draft for general information. It is not legal advice. Have a lawyer review it before you sign it or send it."
           },
+          "original_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Text",
+            "description": "Your own wording, returned when the model reworded it. Show it next to the draft."
+          },
           "narrative_source": {
             "type": "string",
             "enum": [

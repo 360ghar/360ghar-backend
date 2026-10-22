@@ -61,8 +61,11 @@ def test_sniff_and_check_photo():
 
 
 def test_decode_base64_checks():
-    assert pt.decode_base64(b64(PNG), None) == PNG
-    assert pt.decode_base64("data:image/png;base64," + b64(PNG), None) == PNG
+    assert pt.decode_base64(b64(PNG), None) == (PNG, None)
+    assert pt.decode_base64("data:image/png;base64," + b64(PNG), None) == (PNG, "image/png")
+    assert pt.decode_base64("data:image/png;base64," + b64(PNG), "image/png")[1] == "image/png"
+    with pytest.raises(BadRequestException):
+        pt.decode_base64("data:image/png;base64," + b64(PNG), "image/jpeg")
     with pytest.raises(BadRequestException):
         pt.decode_base64("@@@not base64@@@", None)
     with pytest.raises(BadRequestException):
@@ -444,16 +447,19 @@ async def test_no_field_values_reach_the_logs(client: AsyncClient, caplog):
 
 
 def test_body_limits_are_raised_only_on_photo_routes():
-    assert BODY_LIMITS["/api/v1/ai/listing-draft"] == 33_000_000
+    assert BODY_LIMITS["/api/v1/ai/listing-draft"] == 36_000_000
+    assert BODY_LIMITS["/api/v1/ai/listing-draft"] > 8 * (3 * 1024 * 1024 * 4 // 3) + 100_000
     assert BODY_LIMITS["/api/v1/design-studio/stage"] == 7_200_000
-    assert "/api/v1/ai/legal-draft" not in BODY_LIMITS
+    assert BODY_LIMITS["/api/v1/ai/legal-draft"] == 32 * 1024  # a cap, not a raise
     assert "/api/v1/properties/nl-search" not in BODY_LIMITS
 
 
 async def test_oversize_bodies_get_413_on_photo_routes_only(client: AsyncClient):
-    big = {"Content-Length": "34000000", "Content-Type": "application/json"}
+    big = {"Content-Length": "37000000", "Content-Type": "application/json"}
     assert (await client.post("/api/v1/ai/listing-draft", content=b"{}", headers=big)).status_code == 413
     assert (await client.post("/api/v1/design-studio/stage", content=b"{}", headers={**big, "Content-Length": "7300000"})).status_code == 413
+    legal = await client.post("/api/v1/ai/legal-draft", content=b"{}", headers={**big, "Content-Length": "40000"})
+    assert legal.status_code == 413
     ok_size = await client.post("/api/v1/design-studio/stage", content=b"{}", headers={"Content-Type": "application/json"})
     assert ok_size.status_code == 422
 
@@ -472,3 +478,138 @@ def test_agnes_provider_attaches_every_image_in_order():
     assert built[0]["content"] == "s"
     single = provider._build_messages(msgs, imgs[0])
     assert len(single[1]["content"]) == 2
+
+
+# ── review follow-ups ───────────────────────────────────────────────────────
+
+
+def test_malformed_cloudinary_port_is_rejected_not_a_500():
+    assert pt.is_cloudinary_url("https://res.cloudinary.com:abc/democloud/image/upload/a.jpg") is False
+
+
+async def test_data_url_mime_mismatch_is_400(user_client: AsyncClient):
+    photo = {"base64": "data:image/jpeg;base64," + b64(PNG)}  # embedded type says JPEG, bytes are PNG
+    with with_provider(FakeVision(MODEL_ANSWER)):
+        resp = await user_client.post("/api/v1/ai/listing-draft", json={"photos": [photo]})
+    assert resp.status_code == 400 and resp.json()["error"]["code"] == "INVALID_PHOTO"
+
+
+async def test_stage_garbage_model_output_is_422_not_500(client: AsyncClient):
+    junk = ImageGenResponse(success=True, image="data:image/png;base64," + b64(b"not an image"))
+    with patch("app.services.ai.image_gen.service.generate_image", new_callable=AsyncMock, return_value=junk):
+        resp = await client.post("/api/v1/design-studio/stage", json={"image": b64(PNG)})
+    assert resp.status_code == 422 and "GENERATION_FAILED" in resp.text
+
+
+async def test_stage_ratio_follows_exif_rotation(client: AsyncClient):
+    img = Image.new("RGB", (1600, 900), (90, 90, 90))
+    exif = img.getexif()
+    exif[0x0112] = 6  # rotate 90 degrees: the photo is shown portrait
+    out = io.BytesIO()
+    img.save(out, "JPEG", exif=exif)
+    ok = ImageGenResponse(success=True, image=staged_png())
+    with patch("app.services.ai.image_gen.service.generate_image", new_callable=AsyncMock, return_value=ok) as gen:
+        resp = await client.post("/api/v1/design-studio/stage", json={"image": b64(out.getvalue())})
+    assert resp.status_code == 200 and gen.await_args.args[0].ratio == "9:16"
+
+
+async def test_listing_clean_enforces_the_text_contract():
+    from app.services.ai.listing_draft import clean
+
+    photos = [pt.check_photo(PNG, None)]
+    words = " ".join(["Sunny room with a wide window."] * 40)
+    raw = {
+        "title": "Lovely flat Rs. 45,000 per month call 9876543210",
+        "description": f"Call 98765 43210 now. {words}",
+        "rooms": "not a list",
+        "flags": {"x": 1},
+    }
+    out = clean(raw, photos)
+    assert "45,000" not in out.title and "9876543210" not in out.title
+    assert "98765" not in out.description and len(out.description.split()) <= 140
+    assert [r.room_type for r in out.rooms] == ["other"]
+    weird = clean({"title": 5, "description": ["x"], "rooms": [{"photo": 0, "room_type": ["a"]}, "junk"],
+                   "flags": [{"code": ["blurry"]}, {"code": "blurry", "photo": "no"}]}, photos)
+    assert weird.rooms[0].room_type == "other" and [f.code for f in weird.flags][:1] == ["blurry"]
+
+
+async def test_listing_failed_photo_cancels_the_others(user_client: AsyncClient):
+    import asyncio
+
+    from app.api.api_v1.endpoints import listing_draft as ep
+
+    started, cancelled = [], []
+
+    async def slow_fetch(url):
+        started.append(url)
+        try:
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            cancelled.append(url)
+            raise
+        return JPG
+
+    good = "https://res.cloudinary.com/democloud/image/upload/v1/a.jpg"
+    body = {"photos": [{"url": good}, {"url": good + "?2"}, {"base64": b64(b"GIF89a" + b"\x00" * 40)}]}
+    with with_provider(FakeVision(MODEL_ANSWER)), patch.object(ep.photo_tools, "fetch_cloudinary", slow_fetch):
+        resp = await user_client.post("/api/v1/ai/listing-draft", json=body)
+    assert resp.status_code == 400 and len(cancelled) == len(started) == 2
+
+
+def test_rent_start_date_must_be_sane():
+    from pydantic import ValidationError
+
+    from app.schemas.ai_tools import RentAgreementFields
+
+    for bad in ("9999-12-01", "1990-01-01"):
+        with pytest.raises(ValidationError):
+            RentAgreementFields(**{**AGREEMENT, "start_date": bad, "duration_months": 60})
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"items": ["The Tenant may not keep any dog."]},  # reverses the meaning
+        {"items": ["The Landlord pays all bills and the deposit is waived."]},  # unrelated terms
+        {"items": ["Visit example.com for the full rules on small dogs."]},  # a bare domain
+        {"items": ["The tenant can keep one small dog " + "and so on " * 20]},  # over 40 words
+        {"items": ["The tenant pays Rs. 45,000 per month for one small dog."]},  # a field number not in the text
+    ],
+)
+async def test_legal_rewrite_must_stay_faithful(client: AsyncClient, answer):
+    fields = {**AGREEMENT, "additional_terms": "tenant can keep one small dog"}
+    with with_text(FakeText(answer)):
+        data = (await client.post("/api/v1/ai/legal-draft", json={"kind": "rent_agreement", "fields": fields})).json()
+    assert data["narrative_source"] == "template" and data["original_text"] is None
+
+
+async def test_legal_model_rewrite_returns_the_original_wording(client: AsyncClient):
+    fields = {**AGREEMENT, "additional_terms": "tenant can keep one small dog"}
+    with with_text(FakeText({"items": ["The Tenant may keep one small dog."]})):
+        data = (await client.post("/api/v1/ai/legal-draft", json={"kind": "rent_agreement", "fields": fields})).json()
+    assert data["narrative_source"] == "model" and data["original_text"] == "tenant can keep one small dog"
+
+
+async def test_legal_narrative_survives_odd_provider_failures(client: AsyncClient):
+    fields = {**AGREEMENT, "additional_terms": "tenant can keep one small dog"}
+    for err in (TypeError("bad shape"), ValueError("bad json")):
+        with with_text(FakeText(error=err)):
+            data = (await client.post("/api/v1/ai/legal-draft", json={"kind": "rent_agreement", "fields": fields})).json()
+        assert data["narrative_source"] == "template"
+
+
+@pytest.mark.parametrize(
+    "source,item,ok",
+    [
+        ("no pets", "Pets are allowed.", False),
+        ("no pets", "No pets are permitted.", True),
+        ("no parties after 10 pm", "No parties may be held after 10:00 p.m.", True),
+        ("rent for september is not paid after 3 reminders", "The rent for September remains unpaid despite three reminders.", True),
+        ("tenant can keep one small dog", "The tenant may not keep a dog.", False),
+        ("tenant can keep one small dog", "The Tenant may keep one small dog.", True),
+    ],
+)
+def test_faithful_guard(source, item, ok):
+    from app.services.ai import legal_draft as ld
+
+    assert ld._faithful([item], source) is ok

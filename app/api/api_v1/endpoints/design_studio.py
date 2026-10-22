@@ -127,8 +127,8 @@ async def stage_room(request: StageRequest) -> StageResponse:
     from app.services.ai import photos as photo_tools
     from app.services.ai.staging import stage_photo
 
-    data = photo_tools.decode_base64(request.image, request.mime_type, max_bytes=5 * 1024 * 1024)
-    photo = await asyncio.to_thread(photo_tools.check_photo, data, request.mime_type)
+    data, declared = photo_tools.decode_base64(request.image, request.mime_type, max_bytes=5 * 1024 * 1024)
+    photo = await asyncio.to_thread(photo_tools.check_photo, data, declared)
     result = await stage_photo(photo, request.room_type, request.style)
     if not result.success:
         raise_image_failure(result)

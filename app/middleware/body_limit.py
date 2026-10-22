@@ -11,7 +11,8 @@ from app.infrastructure.errors import error_response
 BODY_LIMITS: Mapping[str, int] = {
     "/api/v1/design-studio/generate": 7_200_000,  # 7,000,000 base64 chars plus the prompt
     "/api/v1/design-studio/stage": 7_200_000,  # 5 MB photo as base64 plus the choices
-    "/api/v1/ai/listing-draft": 33_000_000,  # 8 photos of 3 MB decoded, as base64, plus the hints
+    "/api/v1/ai/listing-draft": 36_000_000,  # 8 photos of 3 MiB decoded as base64 (33.6 MB) plus the hints and JSON
+    "/api/v1/ai/legal-draft": 32 * 1024,  # strict text fields only; a small cap stops a huge unknown-key body
     "/api/v1/vastu/analyze": 6 * 1024 * 1024,  # 5 MB image plus multipart framing
 }
 

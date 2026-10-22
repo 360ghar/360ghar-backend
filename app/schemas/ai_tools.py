@@ -6,7 +6,14 @@ import re
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from app.models.enums import FurnishingLevel, PropertyPurpose, PropertyType
 from app.schemas.base import WriteModel
@@ -133,6 +140,13 @@ class RentAgreementFields(WriteModel):
     maintenance_by: Literal["tenant", "landlord"] = "tenant"
     additional_terms: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500), AfterValidator(_plain)] | None = None
 
+    @field_validator("start_date")
+    @classmethod
+    def _sane_start(cls, value: date) -> date:
+        if not date(2000, 1, 1) <= value <= date(2100, 12, 31):
+            raise ValueError("start_date must be between 2000 and 2100")
+        return value
+
     @model_validator(mode="after")
     def _lock_in_within_term(self) -> RentAgreementFields:
         if self.lock_in_months > self.duration_months:
@@ -150,7 +164,7 @@ class LegalNoticeFields(WriteModel):
     recipient_name: Name
     recipient_address: Address
     property_address: Address
-    agreement_date: date | None = None
+    agreement_date: date | None = Field(default=None, ge=date(1950, 1, 1), le=date(2100, 12, 31))
     amount: int | None = Field(default=None, ge=1, le=100_000_000, description="Rupees. Needed for rent_arrears and security_deposit_refund")
     compliance_days: int = Field(15, ge=7, le=90)
     facts: Annotated[str, StringConstraints(strip_whitespace=True, max_length=600), AfterValidator(_plain)] | None = None
@@ -190,6 +204,9 @@ class LegalDraftResponse(BaseModel):
     title: str
     sections: list[LegalSection]
     disclaimer: str = Field(default=DISCLAIMER, description="Fixed text. Show it with the draft.")
+    original_text: str | None = Field(
+        default=None, description="Your own wording, returned when the model reworded it. Show it next to the draft."
+    )
     narrative_source: Literal["model", "template"] = Field(
         description="model when the model reworded your free text, template when your text is used as written"
     )

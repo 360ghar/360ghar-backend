@@ -6,7 +6,7 @@ Active contributors: Saksham, Ravi
 
 ## Router composition
 
-All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter` named `api_router`, which the app factory mounts at `/api/v1`. The file imports 42 endpoint modules (the deep-link fallback pages in `app/api/deeplinks.py` are mounted at the root, not under `/api/v1`) and calls `include_router` 43 times, with explicit `prefix` and `tags`. Tags drive the OpenAPI grouping in Swagger UI at `/api/v1/docs`. The authoritative full OpenAPI spec is committed at `docs/openapi.json` (regenerate with `uv run python scripts/generate_openapi.py`); a curated flatmates-only subset lives at `docs/flatmates-openapi.yaml`.
+All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter` named `api_router`, which the app factory mounts at `/api/v1`. The file imports 49 endpoint modules (the deep-link fallback pages in `app/api/deeplinks.py` are mounted at the root, not under `/api/v1`) and calls `include_router` 51 times, with explicit `prefix` and `tags`. Tags drive the OpenAPI grouping in Swagger UI at `/api/v1/docs`. The authoritative full OpenAPI spec is committed at `docs/openapi.json` (regenerate with `uv run python scripts/generate_openapi.py`); a curated flatmates-only subset lives at `docs/flatmates-openapi.yaml`.
 
 ## Route groups
 
@@ -54,9 +54,9 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/ai` | ai | `ai.py` | Tour AI processing endpoints. Includes `POST /ai/tours/{tour_id}/connect-spatial` (re-runs doorway linking on an existing tour). |
 | `/lab` | lab | `lab.py` | 3D Splat Lab: Gaussian splatting pipeline jobs (create/start/upload/list). `POST /jobs/{id}/start` runs the Daytona sandbox pipeline (`lab_pipeline.py`) when `DAYTONA_API_KEY` is set, else the Modal GPU worker. |
 | `/custom-domains` | custom-domains | `custom_domains.py` | Vanity domain DNS verification. |
-| `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). Both take an optional closed-set `context` (property id or locality slug): the server loads the fact sheet, quotes owner text, caps the message at 500 characters; context calls on `chat-public` are 10/min and 40/day per IP. |
+| `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). Both take an optional closed-set `context` (property id or locality slug): the server loads the fact sheet, quotes owner text, caps the message at 500 characters; context calls on both `chat` and `chat-public` are 10/min and 40/day per IP. |
 | `/properties` | properties | `nl_search.py` | `POST /properties/nl-search {q <= 300}` returns `{filters, explanation}` for `GET /properties` (schema read from its query params, unknown keys dropped, 24 h cache, 20/min per IP). |
-| (root) | imagery | `imagery.py` | `GET /og/{kind}/{slug}` (property, locality, blog or post, city) 302 to a composed 1200x630 share card or the brand fallback; `POST /admin/imagery/run` (header `X-Cron-Secret`, bounded batch, 4-way concurrency, `Retry-After` on provider 429). |
+| (root) | imagery | `imagery.py` | `GET /og/{kind}/{slug}` (property, locality, blog or post, city) 302 to a composed 1200x630 share card or the brand fallback; `POST /admin/imagery/run` (header `X-Cron-Secret`, bounded batch, 4-way concurrency, a provider 429 gives HTTP 429 with `Retry-After` when nothing was made, otherwise 200 with `retry_after` in the body). |
 | `/data-hub` | data-hub | `data_hub/` | Bank auctions, RERA, circle rates, gazette, jamabandi, zoning, neighbourhood. |
 | (root) | webhooks | `webhooks/` | Inbound integrations. Router carries its own `/webhooks/auth` prefix. |
 

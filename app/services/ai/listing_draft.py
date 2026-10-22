@@ -1,6 +1,6 @@
 """Draft a listing from photos: a title, a description, a room tag per photo and quality flags.
 
-One vision call sees every photo (shrunk to 1024 px). Owner hints are data. The answer is
+One vision call sees every photo (shrunk to 768 px). Owner hints are data. The answer is
 cleaned before it is returned: unknown room types become ``other``, every photo gets a tag,
 banned claims are cut, and flags that code can decide (resolution, photo count) are computed here.
 """
@@ -39,10 +39,37 @@ Rules:
 Return one JSON object: {{"title": str, "description": str, "rooms": [{{"photo": int, "room_type": str, "label": str}}], "flags": [{{"photo": int, "code": str, "note": str}}]}}. No markdown."""
 
 
+_PRICE = re.compile(r"(?:₹|\brs\.?|\binr\b)\s*[\d,.]+(?:\s*(?:lakh|lac|crore|cr|k)\b)?", re.IGNORECASE)
+_PHONE = re.compile(r"(?:\+?\d[\s-]?){8,}")
+DESCRIPTION_MAX_WORDS = 140
+
+
 def _clean_text(value: Any, limit: int) -> str:
-    text = " ".join(str(value or "").split())
-    sentences = [s for s in _SENTENCE.split(text) if s and not any(b.search(s) for b in BANNED)]
+    text = " ".join(str(value or "").split()) if isinstance(value, (str, int, float)) else ""
+    sentences = [
+        s
+        for s in _SENTENCE.split(text)
+        if s and not any(b.search(s) for b in BANNED) and not _PHONE.search(s)
+    ]
     return " ".join(sentences)[:limit].rstrip()
+
+
+def _clean_title(value: Any) -> str:
+    return " ".join(_PRICE.sub("", _clean_text(value, 200)).split())[:80].rstrip(" ,-|:")
+
+
+def _clean_description(value: Any) -> str:
+    """Whole sentences, at most DESCRIPTION_MAX_WORDS words, no price figures, no phone numbers."""
+    text = _PRICE.sub("", _clean_text(value, 3000))
+    out: list[str] = []
+    words = 0
+    for sentence in _SENTENCE.split(text):
+        n = len(sentence.split())
+        if words + n > DESCRIPTION_MAX_WORDS:
+            break
+        out.append(sentence)
+        words += n
+    return " ".join(out).strip()
 
 
 def hints_block(hints: ListingHints | None) -> str:
@@ -55,16 +82,19 @@ def clean(raw: Any, photos: list[Photo]) -> ListingDraftResponse:
     raw = raw if isinstance(raw, dict) else {}
     count = len(photos)
     tags: dict[int, RoomTag] = {}
-    for item in raw.get("rooms") or []:
+    rooms_raw = raw.get("rooms") if isinstance(raw.get("rooms"), list) else []
+    flags_raw = raw.get("flags") if isinstance(raw.get("flags"), list) else []
+    for item in rooms_raw:
         if not isinstance(item, dict) or not isinstance(item.get("photo"), int) or not 0 <= item["photo"] < count:
             continue
-        rtype: Any = item.get("room_type") if item.get("room_type") in ROOM_TYPES else "other"
+        kind = item.get("room_type")
+        rtype: Any = kind if isinstance(kind, str) and kind in ROOM_TYPES else "other"
         tags.setdefault(item["photo"], RoomTag(photo=item["photo"], room_type=rtype, label=_clean_text(item.get("label"), 60)))
     rooms = [tags.get(i) or RoomTag(photo=i, room_type="other", label="") for i in range(count)]
 
     flags: list[ListingFlag] = []
-    for item in raw.get("flags") or []:
-        if isinstance(item, dict) and item.get("code") in MODEL_FLAGS:
+    for item in flags_raw:
+        if isinstance(item, dict) and isinstance(item.get("code"), str) and item["code"] in MODEL_FLAGS:
             idx = item.get("photo")
             flags.append(
                 ListingFlag(
@@ -82,8 +112,8 @@ def clean(raw: Any, photos: list[Photo]) -> ListingDraftResponse:
     if not kinds & {"exterior", "entrance"}:
         flags.append(ListingFlag(code="no_exterior_or_entrance", photo=None, note="Add a photo of the building or the entrance."))
     return ListingDraftResponse(
-        title=_clean_text(raw.get("title"), 80),
-        description=_clean_text(raw.get("description"), 1200),
+        title=_clean_title(raw.get("title")),
+        description=_clean_description(raw.get("description")),
         rooms=rooms,
         flags=flags,
     )

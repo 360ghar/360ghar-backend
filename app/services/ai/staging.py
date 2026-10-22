@@ -6,10 +6,12 @@ image is returned only after the "Virtually staged" band is drawn on it.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import math
 
+from app.core.logging import get_logger
 from app.schemas.ai_tools import WATERMARK_TEXT
 from app.services.ai.image_gen.schemas import (
     ALLOWED_RATIOS,
@@ -18,6 +20,8 @@ from app.services.ai.image_gen.schemas import (
     ImageGenResponse,
 )
 from app.services.ai.photos import Photo
+
+logger = get_logger(__name__)
 
 SEND_SIDE = 1600  # longest side sent to the model
 
@@ -42,15 +46,17 @@ def nearest_ratio(width: int, height: int) -> str:
     return min(ALLOWED_RATIOS, key=lambda r: abs(math.log(int(r.split(":")[0]) / int(r.split(":")[1])) - target))
 
 
-def _prepare(photo: Photo) -> bytes:
+def _prepare(photo: Photo) -> tuple[bytes, str]:
+    """(JPEG bytes for the model, the ratio of the picture as it will be seen, after EXIF rotation)."""
     from PIL import Image, ImageOps
 
     with Image.open(io.BytesIO(photo.data)) as img:
         rgb = ImageOps.exif_transpose(img).convert("RGB")
+        ratio = nearest_ratio(*rgb.size)
         rgb.thumbnail((SEND_SIDE, SEND_SIDE))
         out = io.BytesIO()
         rgb.save(out, "JPEG", quality=90)
-    return out.getvalue()
+    return out.getvalue(), ratio
 
 
 def add_watermark(image_bytes: bytes) -> bytes:
@@ -78,17 +84,23 @@ async def stage_photo(photo: Photo, room: str, style: str) -> ImageGenResponse:
     """Success carries a JPEG data URL of the watermarked image. A failure carries the provider code."""
     from app.services.ai.image_gen.service import generate_image
 
-    sent = _prepare(photo)
+    sent, ratio = await asyncio.to_thread(_prepare, photo)
     request = ImageGenRequest(
         mode=ImageGenMode.IMAGE_TO_IMAGE,
         prompt=prompt_for(room, style),
         image=base64.b64encode(sent).decode("ascii"),
         mime_type="image/jpeg",
-        ratio=nearest_ratio(photo.width, photo.height),
+        ratio=ratio,
     )
     result = await generate_image(request, instruction=INSTRUCTION)
     if not result.success or not result.image:
         return result
-    raw = base64.b64decode(result.image.split(",", 1)[1])
-    marked = add_watermark(raw)
+    try:
+        raw = base64.b64decode(result.image.split(",", 1)[1])
+        marked = await asyncio.to_thread(add_watermark, raw)
+    except Exception as exc:  # not an image, or not decodable: never return it unmarked
+        logger.error("Staged image could not be watermarked: %s", type(exc).__name__)
+        return ImageGenResponse(
+            success=False, error="The image could not be generated. Try again.", code="GENERATION_FAILED"
+        )
     return ImageGenResponse(success=True, image="data:image/jpeg;base64," + base64.b64encode(marked).decode("ascii"))

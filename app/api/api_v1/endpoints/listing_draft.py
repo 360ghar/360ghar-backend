@@ -40,11 +40,25 @@ def _provider() -> Any:
 
 async def _load(item: PhotoIn, gate: asyncio.Semaphore) -> photo_tools.Photo:
     async with gate:
+        declared: str | None = item.mime_type
         if item.base64 is not None:
-            data = photo_tools.decode_base64(item.base64, item.mime_type)
+            data, declared = photo_tools.decode_base64(item.base64, item.mime_type)
         else:
             data = await photo_tools.fetch_cloudinary(item.url or "")
-        return await asyncio.to_thread(photo_tools.check_photo, data, item.mime_type)
+        return await asyncio.to_thread(photo_tools.check_photo, data, declared)
+
+
+async def _load_all(items: list[PhotoIn]) -> list[photo_tools.Photo]:
+    """Load every photo; the first failure cancels the rest, so a bad request costs no more bandwidth."""
+    gate = asyncio.Semaphore(FETCH_CONCURRENCY)
+    tasks = [asyncio.create_task(_load(p, gate)) for p in items]
+    try:
+        return list(await asyncio.gather(*tasks))
+    except BaseException:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 @router.post(
@@ -62,8 +76,7 @@ async def listing_draft(body: ListingDraftRequest) -> Any:
     ``rooms`` tag per photo, and ``flags`` for photo problems. Treat the text as a draft: the
     owner reviews it before saving the listing.
     """
-    gate = asyncio.Semaphore(FETCH_CONCURRENCY)
-    photos = list(await asyncio.gather(*(_load(p, gate) for p in body.photos)))
+    photos = await _load_all(body.photos)
     vision = [await asyncio.to_thread(photo_tools.shrink, p) for p in photos]
     provider = _provider()
     try:

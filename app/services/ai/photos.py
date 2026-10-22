@@ -51,11 +51,17 @@ def _bad(message: str) -> BadRequestException:
     return BadRequestException(message, error_code="INVALID_PHOTO")
 
 
-def decode_base64(value: str, declared_mime: str | None, *, max_bytes: int = MAX_PHOTO_BYTES) -> bytes:
-    """Decode strict base64. The decoded size is checked before the decode, from the text length."""
+def decode_base64(
+    value: str, declared_mime: str | None, *, max_bytes: int = MAX_PHOTO_BYTES
+) -> tuple[bytes, str | None]:
+    """(bytes, declared MIME type). Strict base64; the size is checked before the decode, from the
+    text length. A data URL's own MIME type must agree with ``declared_mime`` when both are given."""
     match = _DATA_URL.match(value)
     if match:
-        declared_mime = declared_mime or match.group("mime").lower()
+        embedded = match.group("mime").lower()
+        if declared_mime and declared_mime.lower() != embedded:
+            raise _bad("A photo's mime_type does not match its data URL")
+        declared_mime = declared_mime or embedded
         value = value[match.end() :]
     if len(value) > (max_bytes * 4) // 3 + 8:
         raise _bad(f"A photo is larger than {max_bytes // (1024 * 1024)} MB")
@@ -65,7 +71,7 @@ def decode_base64(value: str, declared_mime: str | None, *, max_bytes: int = MAX
         raise _bad("A photo is not valid base64") from exc
     if len(data) > max_bytes:
         raise _bad(f"A photo is larger than {max_bytes // (1024 * 1024)} MB")
-    return data
+    return data, declared_mime
 
 
 def check_photo(data: bytes, declared_mime: str | None) -> Photo:
@@ -95,6 +101,7 @@ def is_cloudinary_url(url: str) -> bool:
     cloud = settings.CLOUDINARY_CLOUD_NAME
     try:
         parts = urlsplit(url)
+        port = parts.port  # raises ValueError on a malformed port
     except ValueError:
         return False
     return bool(
@@ -102,7 +109,7 @@ def is_cloudinary_url(url: str) -> bool:
         and len(url) <= 600
         and parts.scheme == "https"
         and parts.hostname == "res.cloudinary.com"
-        and parts.port is None
+        and port is None
         and parts.username is None
         and parts.path.startswith(f"/{cloud}/image/upload/")
     )
