@@ -22,6 +22,7 @@ These features span multiple modules and are documented separately:
 - [MCP servers](mcp-servers.md) — two Model Context Protocol servers (`/mcp`, `/mcp-admin`) exposing 40+ tools and 11 React widgets to LLM clients via OAuth 2.1 + PKCE. The largest feature surface in the codebase.
 - [AI agent](ai-agent.md) — a Pydantic AI conversational agent that streams SSE responses, calls into the same shared tool layer as the MCP servers, and supports both authenticated and guest modes.
 - [Blog](blog.md) — AI-generated, SEO-optimised blog content with a daily auto-publish scheduler. Perplexity powers generation; SEO fields are auto-computed from the post body.
+- [Content engine](content-engine.md) — grounded, validated AI text for locality pages and property listings: fact sheets, a number and name validator, duplicate detection and a resumable batch runner.
 - [Notifications](notifications.md) — multi-channel dispatch (push, email, SMS, in-app) driven by a central type registry, with per-user frequency caps and a shared APScheduler job.
 - [Vastu](vastu.md) — a public, AI-powered floor plan analyzer that checks compliance with Vastu Shastra principles using the Gemini and GLM vision providers.
 

@@ -2,7 +2,7 @@
 
 Active contributors: Saksham, Ravi
 
-The models layer defines the database schema as SQLAlchemy 2.0 declarative ORM classes. There are 68 `__tablename__` tables spread across 18 model files, plus a 564-line `enums.py` with 50+ string enums. The `app/models/__init__.py` re-exports every model and enum for convenient imports. Models are the source of truth for table structure; migrations live in `supabase/migrations/`.
+The models layer defines the database schema as SQLAlchemy 2.0 declarative ORM classes. There are 71 `__tablename__` tables spread across 19 model files, plus a 564-line `enums.py` with 50+ string enums. The `app/models/__init__.py` re-exports every model and enum for convenient imports. Models are the source of truth for table structure; migrations live in `supabase/migrations/`.
 
 ## Directory layout
 
@@ -16,6 +16,7 @@ app/models/
 ├── bookings.py             # Booking
 ├── core.py                 # BugReport, Page, AppVersion, FAQ
 ├── blogs.py                # BlogPost, BlogCategory, BlogTag, BlogPostCategory, BlogPostTag
+├── content.py              # ContentBlock, Locality, GeneratedImage (AI content engine)
 ├── tours.py                # Tour, Scene, Hotspot, AIJob, MediaFile, ... (482 lines, largest model file)
 ├── social.py               # UserMatch, UserConversation, UserMessage, UserBlock, UserReport, AppCatalog, ...
 ├── pm_leases.py            # Lease
