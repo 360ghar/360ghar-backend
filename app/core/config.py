@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Any, ClassVar
 
-from pydantic import ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parents[2]
@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     SECRET_FIELD_NAMES: ClassVar[frozenset[str]] = frozenset(
         {
             "AGNES_AI_API_KEY",
+            "CRON_SECRET",
             "DAYTONA_API_KEY",
             "CLOUDINARY_API_KEY",
             "CLOUDINARY_API_SECRET",
@@ -274,6 +275,11 @@ class Settings(BaseSettings):
     AGNES_API_BASE: str = "https://apihub.agnes-ai.com/v1"
     AGNES_TEXT_MODEL: str = "agnes-3.0-flash"
     AGNES_IMAGE_MODEL: str = "agnes-image-2.5-flash"
+    # Content engine (app/services/content). Cron callers send CRON_SECRET in X-Cron-Secret.
+    # Calls are spaced by CONTENT_MIN_CALL_INTERVAL_S to stay inside the Agnes request limits
+    # (about 1,500 per 5 hours and 15,000 per week).
+    CRON_SECRET: str | None = None
+    CONTENT_MIN_CALL_INTERVAL_S: float = Field(default=12.0, ge=0, le=300)
     # Gemini — embeddings only (Agnes has no embedding model)
     GOOGLE_API_KEY: str | None = None
     GEMINI_EMBED_MODEL: str = "gemini-embedding-2"

@@ -6,6 +6,7 @@ from fastapi.responses import RedirectResponse
 from app.api.api_v1.dependencies.query_params import reject_unknown_query_params
 from app.api.api_v1.endpoints import (
     # AI Agent
+    admin_content,
     agent_chat,
     agents,
     ai,
@@ -15,6 +16,7 @@ from app.api.api_v1.endpoints import (
     bookings,
     # Guided capture (mobile)
     capture,
+    content,
     core,
     custom_domains,
     dashboard,
@@ -70,6 +72,8 @@ async def api_v1_ready_redirect() -> RedirectResponse:
 
 
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
+api_router.include_router(content.router, prefix="/content", tags=["content"])
+api_router.include_router(admin_content.router, prefix="/admin/content", tags=["content-admin"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])

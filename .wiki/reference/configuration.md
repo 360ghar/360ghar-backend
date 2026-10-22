@@ -37,6 +37,8 @@ Active contributors: Saksham, Ravi
 | `GOOGLE_API_KEY` | Google API key for Gemini embeddings only. |
 | `AGNES_AI_API_KEY` | Agnes AI key. Required for vastu, tour AI, the AI agent and design-studio image generation. |
 | `AGNES_API_BASE`, `AGNES_TEXT_MODEL`, `AGNES_IMAGE_MODEL` | Optional. Defaults: `https://apihub.agnes-ai.com/v1`, `agnes-3.0-flash`, `agnes-image-2.5-flash`. |
+| `CRON_SECRET` | Shared secret for scheduled callers. They send it in `X-Cron-Secret`. Unset means the cron endpoints return 503. |
+| `CONTENT_MIN_CALL_INTERVAL_S` | Minimum seconds between content-engine model calls. Default 12, range 0 to 300. Keeps runs inside the Agnes limits (about 1,500 requests per 5 hours, 15,000 per week). |
 | `GEMINI_EMBED_MODEL` | Gemini embedding model for pgvector sync (key: `GOOGLE_API_KEY`). |
 
 ## Daytona sandbox (virtual tour generation)

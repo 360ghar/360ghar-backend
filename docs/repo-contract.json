@@ -87,6 +87,7 @@
     ]
   },
   "documented_endpoint_modules": [
+    "admin_content",
     "agent_chat",
     "agents",
     "ai",
@@ -95,6 +96,7 @@
     "blog",
     "bookings",
     "capture",
+    "content",
     "core",
     "custom_domains",
     "dashboard",

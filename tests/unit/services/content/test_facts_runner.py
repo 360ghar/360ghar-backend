@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.models.content import ContentBlock, Locality
 from app.services.ai.base import AIProviderError
 from app.services.content import facts, runner
-from tests.unit.services.content.conftest import FakeProvider, compose
+from tests.fixtures.content import FakeProvider, compose
 
 pytestmark = pytest.mark.asyncio
 
