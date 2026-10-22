@@ -30,7 +30,7 @@ from app.models.enums import (
     VentilationType,
 )
 from app.schemas.amenity import PropertyAmenityResponse
-from app.schemas.base import Money, NotNullable, PatchModel, UtcDateTime
+from app.schemas.base import Money, NotNullable, PatchModel, UtcDateTime, WriteModel
 from app.utils.validators import ValidationUtils
 
 # One cap for every money field on create and update. 9999999999.99 is the largest
@@ -682,3 +682,23 @@ class UnifiedPropertyFilter(BaseModel):
             if min_val is not None and max_val is not None and min_val > max_val:
                 raise ValueError(f"{min_field} ({min_val}) must not exceed {max_field} ({max_val})")
         return self
+
+
+class NLSearchRequest(WriteModel):
+    """Body of POST /properties/nl-search."""
+
+    q: str = Field(..., min_length=1, max_length=300, description="The search, in the visitor's own words")
+
+    @field_validator("q")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("q must not be blank")
+        return value
+
+
+class NLSearchResponse(BaseModel):
+    """Filters for GET /properties and one sentence saying what was searched."""
+
+    filters: dict[str, Any] = Field(description="Query parameters of GET /properties, as sent")
+    explanation: str

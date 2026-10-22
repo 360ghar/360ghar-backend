@@ -206,6 +206,7 @@
   "/api/v1/pm/tenants/{tenant_user_id}",
   "/api/v1/properties",
   "/api/v1/properties/me",
+  "/api/v1/properties/nl-search",
   "/api/v1/properties/recommendations",
   "/api/v1/properties/semantic-search",
   "/api/v1/properties/{property_id}",

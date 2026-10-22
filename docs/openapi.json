@@ -2208,6 +2208,58 @@
         ]
       }
     },
+    "/api/v1/properties/nl-search": {
+      "post": {
+        "tags": [
+          "properties"
+        ],
+        "summary": "Turn a plain-language search into property filters",
+        "description": "Public. 20 requests per minute per IP. Answers are cached for 24 hours by normalised query.\n\n``filters`` uses the query parameter names of ``GET /properties``. Send them to that endpoint\nas they are. Unknown keys and invalid values are dropped. When the model is not available the\nanswer is 503 ``AI_UNAVAILABLE``: fall back to a keyword search with ``q``.",
+        "operationId": "nl_property_search_api_v1_properties_nl_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NLSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NLSearchResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. Every non-2xx response has this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/properties": {
       "post": {
         "tags": [
@@ -24904,7 +24956,7 @@
           "ai-agent"
         ],
         "summary": "Send public agent chat message",
-        "description": "Stream an AI agent response for unauthenticated guests via SSE.\n\nOnly property discovery tools are available. No conversation persistence.\n\nThe main-pool DB session is released before streaming begins and a\nbackground-pool session is used for tool calls, matching the pattern\nin the authenticated ``/chat`` endpoint.",
+        "description": "Stream an AI agent response for unauthenticated guests via SSE.\n\nOnly property discovery tools are available (all read-only). No conversation persistence.\n\nWith ``context`` the server loads the page facts itself (404 when the page does not exist),\nthe message is at most 500 characters and the call also counts against 40 per day per IP.\n\nThe main-pool DB session is released before streaming begins and a\nbackground-pool session is used for tool calls, matching the pattern\nin the authenticated ``/chat`` endpoint.",
         "operationId": "agent_chat_public_api_v1_agent_chat_public_post",
         "requestBody": {
           "content": {
@@ -29151,6 +29203,17 @@
             ],
             "title": "Conversation Id",
             "description": "Existing conversation to continue. Omit to start one."
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional page to ground the answer in. With it the message is at most 500 characters."
           }
         },
         "additionalProperties": false,
@@ -36106,6 +36169,54 @@
           "ok"
         ],
         "title": "ChannelOutcome"
+      },
+      "ChatContext": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "property",
+              "locality"
+            ],
+            "title": "Type"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000000000000000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id",
+            "description": "Property id (type property)"
+          },
+          "slug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slug",
+            "description": "Locality slug (type locality)"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "title": "ChatContext",
+        "description": "The page the visitor asks about. A closed set: the server loads the facts itself.\n\nA property is named by ``id``, a locality by ``slug``. Nothing else is accepted, so a client\ncannot put its own text into the model's context through this field."
       },
       "CircleRateResponse": {
         "properties": {
@@ -44993,6 +45104,17 @@
             "maxLength": 4000,
             "minLength": 1,
             "title": "Message"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChatContext"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional page to ground the answer in. With it the message is at most 500 characters and the call is limited to 10 per minute and 40 per day per IP."
           }
         },
         "additionalProperties": false,
@@ -50575,6 +50697,45 @@
         ],
         "title": "MoveInTimeline",
         "description": "Query value for GET /properties move_in. ``flexible`` applies no filter."
+      },
+      "NLSearchRequest": {
+        "properties": {
+          "q": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Q",
+            "description": "The search, in the visitor's own words"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "q"
+        ],
+        "title": "NLSearchRequest",
+        "description": "Body of POST /properties/nl-search."
+      },
+      "NLSearchResponse": {
+        "properties": {
+          "filters": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Filters",
+            "description": "Query parameters of GET /properties, as sent"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          }
+        },
+        "type": "object",
+        "required": [
+          "filters",
+          "explanation"
+        ],
+        "title": "NLSearchResponse",
+        "description": "Filters for GET /properties and one sentence saying what was searched."
       },
       "NavigationContent": {
         "properties": {},

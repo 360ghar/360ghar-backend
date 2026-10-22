@@ -33,6 +33,37 @@ AGENT_ERROR_MESSAGE = "The assistant could not finish this reply. Try again."
 AgentErrorCode = Literal["AGENT_ERROR", "STREAM_ERROR"]
 
 
+CONTEXT_MESSAGE_MAX = 500
+
+
+class ChatContext(WriteModel):
+    """The page the visitor asks about. A closed set: the server loads the facts itself.
+
+    A property is named by ``id``, a locality by ``slug``. Nothing else is accepted, so a client
+    cannot put its own text into the model's context through this field.
+    """
+
+    type: Literal["property", "locality"]
+    id: int | None = Field(default=None, ge=1, le=10**15, description="Property id (type property)")
+    slug: str | None = Field(
+        default=None, min_length=1, max_length=200, pattern=r"^[a-z0-9][a-z0-9-]*$",
+        description="Locality slug (type locality)",
+    )
+
+    @model_validator(mode="after")
+    def _one_key_for_type(self) -> ChatContext:
+        if self.type == "property" and (self.id is None or self.slug is not None):
+            raise ValueError("a property context needs id and no slug")
+        if self.type == "locality" and (self.slug is None or self.id is not None):
+            raise ValueError("a locality context needs slug and no id")
+        return self
+
+
+def _check_context_message(message: str, context: ChatContext | None) -> None:
+    if context is not None and len(message) > CONTEXT_MESSAGE_MAX:
+        raise ValueError(f"message must be at most {CONTEXT_MESSAGE_MAX} characters when context is set")
+
+
 class AgentChatRequest(WriteModel):
     """Request body for POST /agent/chat."""
 
@@ -40,12 +71,33 @@ class AgentChatRequest(WriteModel):
     conversation_id: int | None = Field(
         default=None, description="Existing conversation to continue. Omit to start one."
     )
+    context: ChatContext | None = Field(
+        default=None,
+        description="Optional page to ground the answer in. With it the message is at most 500 characters.",
+    )
+
+    @model_validator(mode="after")
+    def _context_cap(self) -> AgentChatRequest:
+        _check_context_message(self.message, self.context)
+        return self
 
 
 class GuestChatRequest(WriteModel):
     """Request body for POST /agent/chat-public (no auth)."""
 
     message: str = Field(..., min_length=1, max_length=4000)
+    context: ChatContext | None = Field(
+        default=None,
+        description=(
+            "Optional page to ground the answer in. With it the message is at most 500 characters "
+            "and the call is limited to 10 per minute and 40 per day per IP."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _context_cap(self) -> GuestChatRequest:
+        _check_context_message(self.message, self.context)
+        return self
 
 
 class AIConversationSummary(BaseModel):

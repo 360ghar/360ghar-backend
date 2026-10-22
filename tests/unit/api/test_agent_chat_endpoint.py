@@ -121,6 +121,7 @@ async def test_agent_chat_persists_widget_and_assistant_messages():
         ),
     ):
         response = await agent_chat(
+            request=None,
             body=AgentChatRequest(message="Show dashboard"),
             current_user=current_user,
             db=db,
@@ -170,6 +171,7 @@ async def test_agent_chat_persists_empty_assistant_when_only_widget_event():
         ),
     ):
         response = await agent_chat(
+            request=None,
             body=AgentChatRequest(message="Show rent"),
             current_user=current_user,
             db=db,
@@ -218,6 +220,7 @@ async def test_agent_chat_text_chunk_cannot_clobber_persisted_response():
         ),
     ):
         response = await agent_chat(
+            request=None,
             body=AgentChatRequest(message="explain the sse contract"),
             current_user=current_user,
             db=db,
@@ -254,6 +257,7 @@ async def test_agent_chat_stream_error_emits_error_event():
         ),
     ):
         response = await agent_chat(
+            request=None,
             body=AgentChatRequest(message="trigger error"),
             current_user=current_user,
             db=db,
@@ -385,6 +389,7 @@ async def test_agent_chat_foreign_or_unknown_conversation_is_404():
     ):
         with pytest.raises(HTTPException) as exc:
             await agent_chat(
+                request=None,
                 body=AgentChatRequest(message="hi", conversation_id=999),
                 current_user=current_user,
                 db=db,
@@ -428,6 +433,7 @@ async def test_agent_chat_disconnect_before_done_persists_partial_reply():
         ),
     ):
         response = await agent_chat(
+            request=None,
             body=AgentChatRequest(message="Show dashboard"),
             current_user=SimpleNamespace(id=1),
             db=db,

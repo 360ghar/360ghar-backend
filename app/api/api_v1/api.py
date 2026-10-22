@@ -29,6 +29,7 @@ from app.api.api_v1.endpoints import (
     hotspots,
     imagery,
     leads,
+    nl_search,
     notifications,
     oauth,
     pm_applications,
@@ -78,6 +79,7 @@ api_router.include_router(admin_content.router, prefix="/admin/content", tags=["
 api_router.include_router(imagery.router, tags=["imagery"])
 api_router.include_router(imagery.admin_router, prefix="/admin/imagery", tags=["imagery-admin"])
 api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(nl_search.router, prefix="/properties", tags=["properties"])
 api_router.include_router(properties.router, prefix="/properties", tags=["properties"])
 api_router.include_router(visits.router, prefix="/visits", tags=["visits"])
 api_router.include_router(leads.router, prefix="/leads", tags=["leads"])

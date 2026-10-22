@@ -283,6 +283,6 @@ def _no_vastu_rate_limit(test_app):
     """The 5/min limiter would trip across this file when CI uses a shared cache."""
     from app.api.api_v1.endpoints import vastu
 
-    test_app.dependency_overrides[vastu._check_analyze_rate_limit] = lambda: None
+    test_app.dependency_overrides[vastu._analyze_limit] = lambda: None
     yield
-    test_app.dependency_overrides.pop(vastu._check_analyze_rate_limit, None)
+    test_app.dependency_overrides.pop(vastu._analyze_limit, None)
