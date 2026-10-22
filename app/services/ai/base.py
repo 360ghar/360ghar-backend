@@ -393,7 +393,7 @@ class AIProvider(ABC):
     async def complete(
         self,
         messages: list[AIMessage],
-        vision_input: VisionInput | None = None,
+        vision_input: VisionInput | list[VisionInput] | None = None,
     ) -> str:
         """
         Generate a text completion from the AI model.
@@ -414,7 +414,7 @@ class AIProvider(ABC):
     async def complete_json(
         self,
         messages: list[AIMessage],
-        vision_input: VisionInput | None = None,
+        vision_input: VisionInput | list[VisionInput] | None = None,
         json_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """

@@ -10,6 +10,8 @@ from app.infrastructure.errors import error_response
 # runs dependencies or validators, so the cap has to sit in front of the router.
 BODY_LIMITS: Mapping[str, int] = {
     "/api/v1/design-studio/generate": 7_200_000,  # 7,000,000 base64 chars plus the prompt
+    "/api/v1/design-studio/stage": 7_200_000,  # 5 MB photo as base64 plus the choices
+    "/api/v1/ai/listing-draft": 33_000_000,  # 8 photos of 3 MB decoded, as base64, plus the hints
     "/api/v1/vastu/analyze": 6 * 1024 * 1024,  # 5 MB image plus multipart framing
 }
 

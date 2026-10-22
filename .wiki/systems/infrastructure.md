@@ -21,6 +21,7 @@ app/
     ├── security.py                # SecurityHeaders, RequestID, RequestLogging
     ├── rate_limit.py              # RateLimitMiddleware + EndpointRateLimiter
     ├── body_limit.py              # BodyLimitMiddleware (413 for oversized public upload bodies)
+    ├── ai_limits.py               # ai_limit(): shared per-IP minute/hour/day limits for public AI endpoints
     ├── cache_control.py           # CacheControlMiddleware
     └── trailing_slash.py          # StripTrailingSlashMiddleware
 ```

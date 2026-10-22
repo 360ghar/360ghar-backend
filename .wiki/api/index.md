@@ -41,7 +41,7 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/pm/documents` | pm-documents | `pm_documents.py` | PM document storage. |
 | `/pm/inspections` | pm-inspections | `pm_inspections.py` | Move-in/move-out checklists. |
 | `/pm/reports` | pm-reports | `pm_reports.py` | PM financial and occupancy reports. |
-| `/design-studio` | design-studio | `design_studio.py` | AI image generation (auth required). |
+| `/design-studio` | design-studio | `design_studio.py` | AI image generation (public, 10/min per IP). `POST /design-studio/stage` virtually stages a room photo: fixed room and style choices, a visible "Virtually staged" band, `staged: true`, 5/min per IP, body cap 7.2 MB. |
 | `/vastu` | vastu | `vastu.py` | Vastu checker (public). |
 | `/deeplinks` | deeplinks | `app/api/deeplinks.py` | Public deep-link fallback pages and well-known files (no auth). The JSON link-generation API was removed. |
 | `/tours` | tours | `tours.py` | Virtual tour CRUD. Includes `POST /tours/{tour_id}/generate-3d` (textured skybox mesh AIJob). |
@@ -50,10 +50,13 @@ All REST routers are mounted by `app/api/api_v1/api.py` onto a single `APIRouter
 | `/tours` | floor-plans | `floor_plans.py` | Floor plan CRUD. Includes `POST /tours/{tour_id}/floor-plans/generate`, which draws a schematic plan from the tour's analyzed rooms and doorway links (replaces the previous AI-estimated row). |
 | `/dashboard` | dashboard | `dashboard.py` | Tour analytics dashboard. |
 | `/public` | public-tours | `public.py` | Unauthenticated tour viewer. |
+| `/ai` | ai | `listing_draft.py`, `legal_draft.py` | `POST /ai/listing-draft` (auth; 1 to 8 photos as Cloudinary URLs or base64, size, magic-byte and decode checks; title, description, room tags, flags; 3/min and 20/h per IP; body cap 33 MB). `POST /ai/legal-draft` (public; rent agreement or legal notice from fixed clauses, the model only rewords free text, fixed disclaimer on every response, 5/h per IP, fields never logged). |
 | `/ai` | ai | `ai.py` | Tour AI processing endpoints. Includes `POST /ai/tours/{tour_id}/connect-spatial` (re-runs doorway linking on an existing tour). |
 | `/lab` | lab | `lab.py` | 3D Splat Lab: Gaussian splatting pipeline jobs (create/start/upload/list). `POST /jobs/{id}/start` runs the Daytona sandbox pipeline (`lab_pipeline.py`) when `DAYTONA_API_KEY` is set, else the Modal GPU worker. |
 | `/custom-domains` | custom-domains | `custom_domains.py` | Vanity domain DNS verification. |
-| `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). |
+| `/agent` | ai-agent | `agent_chat.py` | Pydantic AI agent chat (auth + public). Both take an optional closed-set `context` (property id or locality slug): the server loads the fact sheet, quotes owner text, caps the message at 500 characters; context calls on `chat-public` are 10/min and 40/day per IP. |
+| `/properties` | properties | `nl_search.py` | `POST /properties/nl-search {q <= 300}` returns `{filters, explanation}` for `GET /properties` (schema read from its query params, unknown keys dropped, 24 h cache, 20/min per IP). |
+| (root) | imagery | `imagery.py` | `GET /og/{kind}/{slug}` (property, locality, blog or post, city) 302 to a composed 1200x630 share card or the brand fallback; `POST /admin/imagery/run` (header `X-Cron-Secret`, bounded batch, 4-way concurrency, `Retry-After` on provider 429). |
 | `/data-hub` | data-hub | `data_hub/` | Bank auctions, RERA, circle rates, gazette, jamabandi, zoning, neighbourhood. |
 | (root) | webhooks | `webhooks/` | Inbound integrations. Router carries its own `/webhooks/auth` prefix. |
 
