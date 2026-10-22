@@ -99,6 +99,9 @@ async def close_all_providers() -> None:
     for p in _provider_cache.values():
         await p.close()
     _provider_cache.clear()
+    from app.services.ai.nl_search import close_provider
+
+    await close_provider()
 
 
 def get_default_provider() -> AIProvider:

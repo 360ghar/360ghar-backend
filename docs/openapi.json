@@ -50726,6 +50726,7 @@
           },
           "explanation": {
             "type": "string",
+            "minLength": 1,
             "title": "Explanation"
           }
         },

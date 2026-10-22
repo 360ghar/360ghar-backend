@@ -701,4 +701,4 @@ class NLSearchResponse(BaseModel):
     """Filters for GET /properties and one sentence saying what was searched."""
 
     filters: dict[str, Any] = Field(description="Query parameters of GET /properties, as sent")
-    explanation: str
+    explanation: str = Field(min_length=1)

@@ -20,20 +20,22 @@ from pydantic import TypeAdapter, ValidationError
 from app.config import settings
 from app.core.cache import get_cache_manager
 from app.core.logging import get_logger
-from app.services.ai.base import AIMessage, AIProvider, AIProviderConfig, AIRole
+from app.services.ai.base import AIMessage, AIProvider, AIProviderConfig, AIProviderError, AIRole
 
 logger = get_logger(__name__)
 
 CACHE_TTL = 24 * 3600
 MAX_QUERY = 300
+DEFAULT_EXPLANATION = "Showing results for your search."
 MODEL_TIMEOUT = 45  # seconds. The provider retries on its own, so cap the whole call.
 # The filters a sentence can set. Everything else on GET /properties (position, ids, paging
 # state, booking dates, rarely used keys) is left out, so the model has less to guess at.
 ALLOWED = frozenset(
     {
         "q", "property_type", "purpose", "price_min", "price_max", "bedrooms_min", "bedrooms_max",
-        "bathrooms_min", "area_min", "area_max", "city", "locality", "sub_locality", "furnishing",
-        "amenities", "has_lift", "parking_spaces_min", "available_from", "move_in", "age_max", "sort_by",
+        "bathrooms_min", "bathrooms_max", "area_min", "area_max", "city", "locality", "sub_locality", "furnishing",
+        "amenities", "has_lift", "parking_spaces_min", "floor_number_min", "floor_number_max", "available_from", "move_in", "age_max",
+        "sort_by",
     }
 )  # fmt: skip
 # sort_by values that need coordinates or a text query the user did not give.
@@ -166,11 +168,29 @@ async def nl_search(provider: AIProvider, query: str) -> dict[str, Any]:
         AIMessage(role=AIRole.USER, content=f"<search>\n{quoted}\n</search>"),
     ]
     raw = await asyncio.wait_for(provider.complete_json(messages), timeout=MODEL_TIMEOUT)
-    explanation = raw.get("explanation") if isinstance(raw, dict) else ""
-    return {
-        "filters": sanitize(raw.get("filters") if isinstance(raw, dict) else None),
-        "explanation": str(explanation or "")[:300],
-    }
+    if not isinstance(raw, dict) or not isinstance(raw.get("filters"), dict):
+        raise AIProviderError(message="Search answer has no filters object", provider="Agnes AI")
+    explanation = " ".join(str(raw.get("explanation") or "").split())[:300]
+    return {"filters": sanitize(raw["filters"]), "explanation": explanation or DEFAULT_EXPLANATION}
+
+
+_provider: AIProvider | None = None
+
+
+def get_provider() -> AIProvider:
+    """One provider for the process, so uncached searches share one connection pool."""
+    global _provider
+    if _provider is None:
+        _provider = make_provider()
+    return _provider
+
+
+async def close_provider() -> None:
+    """Called from close_all_providers at shutdown."""
+    global _provider
+    if _provider is not None:
+        await _provider.close()
+        _provider = None
 
 
 async def cached_nl_search(provider_factory: Any, query: str) -> dict[str, Any]:
@@ -182,10 +202,6 @@ async def cached_nl_search(provider_factory: Any, query: str) -> dict[str, Any]:
         hit = json.loads(hit)
     if isinstance(hit, dict) and "filters" in hit:
         return hit
-    provider = provider_factory()
-    try:
-        result = await nl_search(provider, query)
-    finally:
-        await provider.close()
+    result = await nl_search(provider_factory(), query)
     await cache.set(key, result, ttl=CACHE_TTL)
     return result
