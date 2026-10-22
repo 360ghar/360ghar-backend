@@ -7,10 +7,10 @@ Supports text-to-image and image-to-image (reimagine) modes.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.logging import get_logger
-from app.middleware.rate_limit import EndpointRateLimiter
+from app.middleware.ai_limits import ai_limit
 from app.services.ai.image_gen.schemas import (
     DesignImageOut,
     ImageGenMode,
@@ -21,25 +21,13 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-_generate_limiter = EndpointRateLimiter(calls=10, period=60)
-
-
-async def _check_generate_rate_limit(request: Request) -> None:
-    """FastAPI dependency: rate-limits image generation (10 req/60s per IP)."""
-    client_id = _generate_limiter.get_client_id(request)
-    allowed = await _generate_limiter.check_rate_limit(client_id, "POST:/design-studio/generate")
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Please try again later.",
-            headers={"Retry-After": "60"},
-        )
+_generate_limit = ai_limit("design-studio:generate", per_minute=10)
 
 
 @router.post("/generate", response_model=DesignImageOut, summary="Generate design image")
 async def generate_design_image(
     request: ImageGenRequest,
-    _rate_limit: None = Depends(_check_generate_rate_limit),
+    _rate_limit: None = Depends(_generate_limit),
 ) -> DesignImageOut:
     """
     Generate an AI design image. Free, no login required. Powered by Agnes AI.

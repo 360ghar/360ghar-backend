@@ -164,6 +164,10 @@ class InMemoryCacheBackend:
         """
         return self._counters.incr(key, ttl if ttl is not None else self._default_ttl)
 
+    async def decr(self, key: str) -> int:
+        """Take back one count from a live ``incr`` window. Used to refund a refused request."""
+        return self._counters.decr(key)
+
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically get value and delete key under the same lock.
 

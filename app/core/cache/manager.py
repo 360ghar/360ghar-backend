@@ -237,6 +237,16 @@ class CacheManager:
             await backend.set(key, count, ttl)
             return count
 
+    async def decr(self, key: str) -> int:
+        """Take back one count from a live ``incr`` counter (never below 0), and return it."""
+        backend = self.backend
+        if hasattr(backend, "decr"):
+            return int(await backend.decr(key))
+        async with self._incr_lock:
+            count = max(0, int(await backend.get(key) or 0) - 1)
+            await backend.set(key, count, None)
+            return count
+
     async def delete(self, key: str) -> bool:
         """Delete key from cache."""
         return await self.backend.delete(key)

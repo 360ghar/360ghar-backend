@@ -148,7 +148,8 @@
     "visits",
     "webhooks/auth",
     "websocket",
-    "imagery"
+    "imagery",
+    "nl_search"
   ],
   "documented_service_modules": [
     "agent/analytics.py",
@@ -297,7 +298,9 @@
     "visibility.py",
     "visit.py",
     "ai/imagery/service.py",
-    "ai/imagery/style.py"
+    "ai/imagery/style.py",
+    "ai/nl_search.py",
+    "ai_agent/page_context.py"
   ],
   "documented_mcp_modules": [
     "admin/server.py",

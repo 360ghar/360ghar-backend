@@ -234,3 +234,7 @@ class EndpointRateLimiter:
         cache = get_cache_manager()
         key = f"endpoint_limit:{endpoint}:{client_id}"
         return await cache.incr(key, ttl=self.period) <= self.calls
+
+    async def refund(self, client_id: str, endpoint: str) -> None:
+        """Take back one count that ``check_rate_limit`` added (a request refused elsewhere)."""
+        await get_cache_manager().decr(f"endpoint_limit:{endpoint}:{client_id}")

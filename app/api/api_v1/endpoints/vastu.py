@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.core.constants import DEFAULT_VISION_PROVIDER, VALID_VISION_PROVIDERS
 from app.core.logging import get_logger
-from app.middleware.rate_limit import EndpointRateLimiter
+from app.middleware.ai_limits import ai_limit
 from app.services.ai.vastu import (
     NorthDirection,
     VastuAnalyzeRequest,
@@ -25,19 +25,7 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-_analyze_limiter = EndpointRateLimiter(calls=5, period=60)
-
-
-async def _check_analyze_rate_limit(request: Request) -> None:
-    """FastAPI dependency: rate-limits the analyze endpoint (5 req/60s per IP)."""
-    client_id = _analyze_limiter.get_client_id(request)
-    allowed = await _analyze_limiter.check_rate_limit(client_id, "POST:/vastu/analyze")
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded. Please try again later.",
-            headers={"Retry-After": "60"},
-        )
+_analyze_limit = ai_limit("vastu:analyze", per_minute=5)
 
 
 # Allowed image types
@@ -58,7 +46,7 @@ async def analyze_floor_plan(
     notes: str | None = Form(
         default=None, description="Additional notes about the property (max 1000 chars)"
     ),
-    _rate_limit: None = Depends(_check_analyze_rate_limit),
+    _rate_limit: None = Depends(_analyze_limit),
 ):
     """
     Analyze a floor plan image for Vastu Shastra compliance.

@@ -325,12 +325,17 @@ class PydanticAIAgentService:
             self.model_name, provider=OpenAIProvider(openai_client=_agnes_client())
         )
 
-    def _build_agent(self, user_role: str, model: Model) -> Agent[AgentDeps, str]:
+    def _build_agent(
+        self, user_role: str, model: Model, context_prompt: str | None = None
+    ) -> Agent[AgentDeps, str]:
         """Build an Agent with the given model and role-specific tools."""
         tools = get_tools_for_role(user_role)
         agent: Agent[AgentDeps, str] = Agent(
             model,
             system_prompt=get_system_prompt(user_role),
+            # Page context goes in as instructions: they are sent on every run, while a system
+            # prompt is skipped when message_history is not empty (a follow-up turn).
+            instructions=context_prompt or None,
             retries=2,
         )
         for name, func, description in tools:
@@ -472,6 +477,7 @@ class PydanticAIAgentService:
         db: AsyncSession | None = None,
         user_role: str | None = None,
         session_factory: Any | None = None,
+        context_prompt: str | None = None,
     ) -> AsyncIterator[AgentStreamFrame]:
         """
         Run the agent and yield typed SSE frames.
@@ -481,6 +487,8 @@ class PydanticAIAgentService:
 
         Pass user_role="guest" with user=None for unauthenticated requests.
         conversation_id=None is allowed for stateless (guest) sessions.
+
+        ``context_prompt`` is a server-built block (page facts) added to the system prompt.
 
         Prefer ``session_factory`` over a long-lived ``db`` so tools open
         short sessions and do not pin Supavisor backends during LLM waits.
@@ -508,7 +516,7 @@ class PydanticAIAgentService:
         message_history = _build_message_history(conversation_history)
 
         try:
-            agent = self._build_agent(role, self._create_model())
+            agent = self._build_agent(role, self._create_model(), context_prompt)
             async for frame in self._run_agent_stream(
                 agent,
                 user_message,

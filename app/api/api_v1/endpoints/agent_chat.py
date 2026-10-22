@@ -22,7 +22,7 @@ from app.api.api_v1.dependencies.auth import get_current_active_user
 from app.core.database import get_db
 from app.core.exceptions import NotFoundException
 from app.core.logging import get_logger
-from app.middleware.rate_limit import EndpointRateLimiter
+from app.middleware.ai_limits import ai_limit
 from app.schemas.ai_agent import (
     AGENT_ERROR_MESSAGE,
     AgentChatRequest,
@@ -40,10 +40,11 @@ from app.schemas.ai_agent import (
     widget_result_dict,
 )
 from app.schemas.pagination import CursorPage, CursorParams, build_cursor_page, decode_cursor
-from app.services.ai_agent import conversation_store, get_agent_service
+from app.services.ai_agent import conversation_store, get_agent_service, page_context
 from app.services.ai_agent.agent_service import sse_frame
 
-_public_chat_limiter = EndpointRateLimiter(calls=10, period=60)
+_public_chat_limit = ai_limit("agent:chat-public", per_minute=10)
+_context_limit = ai_limit("agent:chat-context", per_minute=10, per_day=40)
 
 logger = get_logger(__name__)
 
@@ -78,21 +79,6 @@ AGENT_STREAM_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-async def _check_public_chat_rate_limit(request: Request) -> None:
-    """FastAPI dependency: rate-limits the public chat endpoint (10 req/60s per IP)."""
-    client_id = _public_chat_limiter.get_client_id(request)
-    allowed = await _public_chat_limiter.check_rate_limit(client_id, "POST:/agent/chat-public")
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "code": "RATE_LIMIT_EXCEEDED",
-                "message": "Rate limit exceeded. Please try again later.",
-            },
-            headers={"Retry-After": "60"},
-        )
-
-
 def _error_frame(code: AgentErrorCode = "STREAM_ERROR") -> str:
     """A fixed error frame. The exception text stays in the server log."""
     return sse_frame(ErrorFrame(data=ErrorData(code=code, message=AGENT_ERROR_MESSAGE)))
@@ -105,19 +91,28 @@ def _error_frame(code: AgentErrorCode = "STREAM_ERROR") -> str:
     response_class=_EventStreamResponse,
 )
 async def agent_chat_public(
+    request: Request,
     body: GuestChatRequest,
     db: AsyncSession = Depends(get_db),
-    _rate_limit: None = Depends(_check_public_chat_rate_limit),
+    _rate_limit: None = Depends(_public_chat_limit),
 ) -> StreamingResponse:
     """Stream an AI agent response for unauthenticated guests via SSE.
 
-    Only property discovery tools are available. No conversation persistence.
+    Only property discovery tools are available (all read-only). No conversation persistence.
+
+    With ``context`` the server loads the page facts itself (404 when the page does not exist),
+    the message is at most 500 characters and the call also counts against 40 per day per IP.
 
     The main-pool DB session is released before streaming begins and a
     background-pool session is used for tool calls, matching the pattern
     in the authenticated ``/chat`` endpoint.
     """
     service = get_agent_service()
+
+    stream_extra: dict[str, Any] = {}
+    if body.context is not None:
+        await _context_limit(request)
+        stream_extra["context_prompt"] = await page_context.context_prompt(db, body.context)
 
     # Release the main-pool session — streaming may take minutes and must
     # not pin a Supavisor backend while waiting on the LLM.
@@ -137,6 +132,7 @@ async def agent_chat_public(
                 db=None,
                 user_role="guest",
                 session_factory=AsyncSessionLocalBG,
+                **stream_extra,
             ):
                 yield sse_frame(frame)
         except Exception as exc:
@@ -191,6 +187,7 @@ async def _persist_turn(
     response_class=_EventStreamResponse,
 )
 async def agent_chat(
+    request: Request,
     body: AgentChatRequest,
     current_user=Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
@@ -203,6 +200,11 @@ async def agent_chat(
     main pool is not held for the entire AI response duration.
     """
     service = get_agent_service()
+
+    stream_extra: dict[str, Any] = {}
+    if body.context is not None:
+        await _context_limit(request)
+        stream_extra["context_prompt"] = await page_context.context_prompt(db, body.context)
 
     if body.conversation_id is not None:
         conversation = await conversation_store.get_owned_conversation(
@@ -267,6 +269,7 @@ async def agent_chat(
                 user=current_user,
                 db=None,
                 session_factory=AsyncSessionLocalBG,
+                **stream_extra,
             ):
                 if isinstance(frame, WidgetFrame):
                     widgets.append(frame.data)
