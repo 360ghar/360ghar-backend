@@ -147,7 +147,8 @@
     "vastu",
     "visits",
     "webhooks/auth",
-    "websocket"
+    "websocket",
+    "imagery"
   ],
   "documented_service_modules": [
     "agent/analytics.py",
@@ -294,7 +295,9 @@
     "user.py",
     "vector_sync_scheduler.py",
     "visibility.py",
-    "visit.py"
+    "visit.py",
+    "ai/imagery/service.py",
+    "ai/imagery/style.py"
   ],
   "documented_mcp_modules": [
     "admin/server.py",

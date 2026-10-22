@@ -6,20 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Path, Response
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.api_v1.dependencies.cron import require_cron_secret
 from app.core.database import get_db
-from app.core.exceptions import NotFoundException
 from app.core.logging import get_logger
-from app.models.blogs import BlogPost
-from app.models.content import Locality
-from app.models.enums import PropertyPurpose
-from app.models.properties import Property
 from app.schemas.imagery import ImageryRunRequest, ImageryRunResult
 from app.services.ai.imagery import service, style
-from app.services.content.facts import inr
 
 logger = get_logger(__name__)
 
@@ -30,39 +23,6 @@ OG_KINDS = ("property", "locality", "blog", "city")
 KIND_ALIASES = {"post": "blog"}  # the website names a blog post "post"
 CACHE_ART = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
 CACHE_FALLBACK = "public, max-age=60, s-maxage=300"  # short, so the card appears soon after the art is made
-
-
-async def _card_text(db: AsyncSession, kind: str, slug: str) -> tuple[str, str | None, str | None]:
-    """(title, price line, locality line) for one subject, or NotFound."""
-    if kind == "property":
-        row = (await db.execute(select(Property).where(Property.id == int(slug)))).scalar_one_or_none() if slug.isdigit() and len(slug) < 18 else None
-        if row is None:
-            raise NotFoundException("Not found", error_code="NOT_FOUND")
-        if row.purpose == PropertyPurpose.rent and row.monthly_rent:
-            price = f"{inr(row.monthly_rent)} / month"
-        elif row.purpose == PropertyPurpose.short_stay and row.daily_rate:
-            price = f"{inr(row.daily_rate)} / night"
-        else:
-            price = inr(row.base_price)
-        where = ", ".join(p for p in (row.locality, row.city) if p)
-        return row.title, price, where or None
-    if kind == "locality":
-        loc = (await db.execute(select(Locality).where(Locality.slug == slug))).scalar_one_or_none()
-        if loc is None:
-            raise NotFoundException("Not found", error_code="NOT_FOUND")
-        return loc.name, None, loc.city
-    if kind == "blog":
-        post = (
-            await db.execute(select(BlogPost.title).where(BlogPost.slug == slug, BlogPost.status == "published"))
-        ).scalar_one_or_none()
-        if post is None:
-            raise NotFoundException("Not found", error_code="NOT_FOUND")
-        return post, None, "360Ghar"
-    cities = (await db.execute(select(Locality.city).distinct())).scalars().all()
-    name = next((c for c in cities if c and service.slugify(c) == slug), None)
-    if name is None:
-        raise NotFoundException("Not found", error_code="NOT_FOUND")
-    return name, None, "Real estate on 360Ghar"
 
 
 @router.get(
@@ -82,7 +42,7 @@ async def og_card(
     This never calls the image model. A subject with no art yet gets the neutral brand card, with a
     short cache time. An unknown subject is 404."""
     kind = KIND_ALIASES.get(kind, kind)
-    title, price, where = await _card_text(db, kind, slug)
+    title, price, where = await service.card_text(db, kind, slug)
     key = style.image_key(kind, slug, style.OG_RATIO, style.OG_SIZE)
     row = await service.get_row(db, key)
     if row is not None and row.status == "ready" and row.public_id:
@@ -101,7 +61,9 @@ async def og_card(
     response_model=ImageryRunResult,
     summary="Generate house-style art for subjects that have none (cron)",
     dependencies=[Depends(require_cron_secret)],
-    responses={429: {"description": "The image provider is rate limited. See Retry-After."}},
+    responses={
+        429: {"model": ImageryRunResult, "description": "The image provider is rate limited. See Retry-After."}
+    },
 )
 async def run_imagery(body: ImageryRunRequest, response: Response, db: AsyncSession = Depends(get_db)) -> Any:
     """One bounded batch, four images at a time. Images already made are skipped, so repeating a

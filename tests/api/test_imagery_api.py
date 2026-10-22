@@ -58,11 +58,11 @@ def test_key_changes_with_style_version(monkeypatch):
     assert style.image_key("city", "gurugram", "16:9", "1K") != before
 
 
-def test_prompt_carries_house_style_and_forbids_text_and_faces():
+def test_prompt_is_the_scene_and_the_style_is_the_instruction():
     prompt = style.build_prompt("locality", "Sector 49", "Gurugram")
-    assert "Sector 49" in prompt and "Gurugram" in prompt
+    assert "Sector 49" in prompt and "Gurugram" in prompt and style.HOUSE_STYLE not in prompt
     for banned in ("No text", "no logos", "no faces"):
-        assert banned in prompt
+        assert banned in style.HOUSE_STYLE
 
 
 def test_compose_og_url_escapes_text_and_lays_layers():
@@ -238,3 +238,92 @@ async def test_run_limits_concurrency_to_four(client: AsyncClient, db_session):
     with patch(GEN, side_effect=slow), patch(UPLOAD, side_effect=ok_upload):
         resp = await client.post("/api/v1/admin/imagery/run", json={"kinds": ["city"], "max_items": 10}, headers=CRON)
     assert resp.json()["generated"] == 10 and 1 < peak <= 4
+
+
+# ── review follow-ups ───────────────────────────────────────────────────────
+
+
+async def test_og_post_alias_serves_a_published_post(client: AsyncClient, db_session):
+    from app.models.blogs import BlogPost
+
+    db_session.add(BlogPost(title="Why Sector 49", slug="why-sector-49", content="x", status="published"))
+    db_session.add(GeneratedImage(key=style.image_key("blog", "why-sector-49", "16:9", "1K"), subject_type="blog",
+                                  subject_slug="why-sector-49", public_id="p", url="u", status="ready"))
+    await db_session.flush()
+    with patch(GEN, new_callable=AsyncMock) as gen:
+        resp = await client.get("/api/v1/og/post/why-sector-49", follow_redirects=False)
+    assert resp.status_code == 302 and "Why%20Sector%2049" in resp.headers["location"]
+    assert gen.await_count == 0, "a card request never calls the model"
+
+
+async def test_og_hides_non_live_flatmate_listing_and_odd_digits(client: AsyncClient, db_session, test_user):
+    from app.models.enums import PropertyType
+
+    pg = await PropertyFactory.create(db_session, owner=test_user, property_type=PropertyType.pg,
+                                      listing_preferences={"moderation_status": "paused"})
+    live = await PropertyFactory.create(db_session, owner=test_user, property_type=PropertyType.pg,
+                                        listing_preferences={"moderation_status": "live"})
+    assert (await client.get(f"/api/v1/og/property/{pg.id}", follow_redirects=False)).status_code == 404
+    assert (await client.get(f"/api/v1/og/property/{live.id}", follow_redirects=False)).status_code == 302
+    assert (await client.get("/api/v1/og/property/%C2%B2", follow_redirects=False)).status_code == 404
+
+
+async def test_og_price_follows_purpose(client: AsyncClient, db_session, test_user):
+    from app.models.enums import PropertyPurpose
+
+    prop = await PropertyFactory.create(db_session, owner=test_user, purpose=PropertyPurpose.rent, base_price=Decimal("9000000"))
+    prop.monthly_rent = None
+    db_session.add(GeneratedImage(key=style.image_key("property", str(prop.id), "16:9", "1K"), subject_type="property",
+                                  subject_slug=str(prop.id), public_id="p", url="u", status="ready"))
+    await db_session.flush()
+    title, price, _ = await service.card_text(db_session, "property", str(prop.id))
+    assert price is None, "a rental without a monthly rent must not show the sale price"
+
+
+async def test_run_rejects_repeated_kinds(client: AsyncClient):
+    resp = await client.post("/api/v1/admin/imagery/run", json={"kinds": ["city", "city"]}, headers=CRON)
+    assert resp.status_code == 422
+
+
+async def test_claim_is_taken_once(db_session):
+    subject = service.Subject("city", "gurugram", "Gurugram")
+    key = style.image_key("city", "gurugram", "16:9", "1K")
+    assert await service._claim(db_session, key, subject) is True
+    assert await service._claim(db_session, key, subject) is False  # fresh pending row
+    from datetime import timedelta
+
+    row = await service.get_row(db_session, key)
+    row.updated_at = service.utc_now() - timedelta(hours=1)
+    await db_session.flush()
+    assert await service._claim(db_session, key, subject) is True  # stale pending is taken over
+    row.status = "ready"
+    await db_session.flush()
+    assert await service._claim(db_session, key, subject) is False  # ready is never taken
+
+
+async def test_pending_subjects_pages_past_the_first_page(db_session, monkeypatch):
+    monkeypatch.setattr(service, "PAGE", 2)
+    db_session.add_all([Locality(slug=f"c{i}", name=f"C{i}", city=f"City {i}", place_type="sector") for i in range(5)])
+    await db_session.flush()
+    for slug in ("city-0", "city-1", "city-2"):
+        db_session.add(GeneratedImage(key=style.image_key("city", slug, "16:9", "1K"), subject_type="city",
+                                      subject_slug=slug, public_id="p", url="u", status="ready"))
+    await db_session.flush()
+    todo = await service.pending_subjects(db_session, ["city"], 10)
+    assert [s.slug for s in todo] == ["city-3", "city-4"]
+
+
+async def test_cities_come_from_listings_too(db_session, test_user):
+    await PropertyFactory.create(db_session, owner=test_user, city="Pune")
+    names = {s.name for s in await service.list_subjects(db_session, "city", 50)}
+    assert "Pune" in names
+
+
+async def test_rate_limit_stops_the_rest_of_the_batch(client: AsyncClient, db_session):
+    db_session.add_all([Locality(slug=f"s{i}", name=f"S{i}", city=f"City{i}", place_type="sector") for i in range(8)])
+    await db_session.flush()
+    bad = ImageGenResponse(success=False, error="x", code="QUOTA_EXCEEDED")
+    with patch(GEN, new_callable=AsyncMock, return_value=bad) as gen:
+        resp = await client.post("/api/v1/admin/imagery/run", json={"kinds": ["city"], "max_items": 8}, headers=CRON)
+    assert resp.status_code == 429
+    assert gen.await_count <= service.CONCURRENCY, "no new image starts once the provider said 429"
