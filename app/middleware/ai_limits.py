@@ -39,10 +39,19 @@ class AILimit:
         ]
 
     async def __call__(self, request: Request) -> None:
-        """Count the call in every window. Raise 429 with Retry-After when one is full."""
+        """Count the call in every window. Raise 429 with Retry-After when one is full.
+
+        A refused call costs nothing: the windows it already counted, and the full one, are
+        given back. Windows run longest first, so Retry-After names the window that blocks."""
         client_id = f"ip:{get_client_ip(request)}"
+        counted: list[tuple[EndpointRateLimiter, str]] = []
         for limiter, period in self.windows:
-            if not await limiter.check_rate_limit(client_id, f"AI:{self.name}:{period}"):
+            endpoint = f"AI:{self.name}:{period}"
+            allowed = await limiter.check_rate_limit(client_id, endpoint)
+            counted.append((limiter, endpoint))
+            if not allowed:
+                for done, name in counted:
+                    await done.refund(client_id, name)
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail={

@@ -359,3 +359,42 @@ async def test_nl_search_keeps_bathroom_max_and_floor_filters(client: AsyncClien
     with patch("app.services.ai.nl_search.make_provider", return_value=FakeNL(answer)):
         data = (await client.post("/api/v1/properties/nl-search", json={"q": "floors 3 to 8"})).json()
     assert data["filters"] == {"bathrooms_max": 2, "floor_number_min": 3, "floor_number_max": 8}
+
+
+# ── review follow-ups (round 3) ─────────────────────────────────────────────
+
+
+async def test_refused_call_gives_its_counts_back():
+    limit = ai_limit("t:refund", per_minute=2, per_day=5)
+    await limit(req())
+    await limit(req())
+    for _ in range(20):  # refused by the minute cap: must not drain the day budget
+        with pytest.raises(HTTPException) as exc:
+            await limit(req())
+        assert exc.value.headers["Retry-After"] == "60"
+    cache = __import__("app.middleware.rate_limit", fromlist=["x"]).get_cache_manager()
+    day_key = "endpoint_limit:AI:t:refund:86400:ip:203.0.113.5"
+    assert await cache.incr(day_key, ttl=86400) == 3  # only the two accepted calls were counted
+
+
+async def test_decr_never_goes_below_zero(_cache):
+    assert await _cache.incr("k", ttl=60) == 1
+    assert await _cache.decr("k") == 0
+    assert await _cache.decr("k") == 0
+    assert await _cache.decr("missing") == 0
+    assert await _cache.incr("k", ttl=60) == 1
+
+
+async def test_page_context_reaches_follow_up_turns():
+    """instructions are sent on every run; a system prompt is dropped when history is not empty."""
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+    from pydantic_ai.models.test import TestModel
+
+    from app.services.ai_agent.agent_service import PydanticAIAgentService
+
+    agent = PydanticAIAgentService()._build_agent("guest", TestModel(), "PAGE-CONTEXT-MARKER")
+    history = [ModelRequest(parts=[UserPromptPart(content="earlier question")])]
+    model = TestModel(call_tools=[])
+    result = await agent.run("and the rent?", message_history=history, model=model)
+    sent = repr(result.all_messages())
+    assert "PAGE-CONTEXT-MARKER" in sent

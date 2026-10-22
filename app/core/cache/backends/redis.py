@@ -157,6 +157,22 @@ class RedisCacheBackend:
             self.stats.errors += 1
             return 0
 
+    async def decr(self, key: str) -> int:
+        """Take back one count from a live counter, never below 0. Returns 0 when Redis is down."""
+        if not self._client:
+            return 0
+        try:
+            lua_script = """
+            local n = tonumber(redis.call('GET', KEYS[1]) or '0')
+            if n > 0 then n = redis.call('DECR', KEYS[1]) end
+            return n
+            """
+            return int(await self._client.eval(lua_script, 1, self._make_key(key)))  # type: ignore[misc]
+        except Exception as e:
+            logger.error("Redis decr error for %s: %s", key, e)
+            self.stats.errors += 1
+            return 0
+
     async def get_and_delete(self, key: str) -> Any | None:
         """Atomically retrieve value and delete key from Redis.
 

@@ -332,7 +332,10 @@ class PydanticAIAgentService:
         tools = get_tools_for_role(user_role)
         agent: Agent[AgentDeps, str] = Agent(
             model,
-            system_prompt=get_system_prompt(user_role) + (context_prompt or ""),
+            system_prompt=get_system_prompt(user_role),
+            # Page context goes in as instructions: they are sent on every run, while a system
+            # prompt is skipped when message_history is not empty (a follow-up turn).
+            instructions=context_prompt or None,
             retries=2,
         )
         for name, func, description in tools:
