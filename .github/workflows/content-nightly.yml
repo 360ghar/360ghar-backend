@@ -75,6 +75,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: |
           set -euo pipefail
+          finished=false
           for round in $(seq 1 150); do
             status=$(curl -sS -o resp.json -w '%{http_code}' --max-time 330 -X POST \
               -H "X-Cron-Secret: $CRON_SECRET" -H 'Content-Type: application/json' \
@@ -88,7 +89,7 @@ jobs:
               exit 1
             fi
             jq -r --argjson r "$round" '"imagery round \($r): generated \(.generated), skipped \(.skipped), failed \(.failed), stop \(.stopped_reason // "none")"' resp.json
-            if [ "$(jq -r .done resp.json)" = "true" ]; then break; fi
+            if [ "$(jq -r .done resp.json)" = "true" ]; then finished=true; break; fi
             if [ -n "$(jq -r '.stopped_reason // ""' resp.json)" ]; then
               echo "::notice::Imagery stopped early ($(jq -r .stopped_reason resp.json)). The next nightly run resumes."
               break
@@ -98,3 +99,6 @@ jobs:
               break
             fi
           done
+          if [ "$finished" != "true" ]; then
+            echo "::notice::Imagery is not finished (round limit, rate limit or no progress). The next nightly run continues."
+          fi

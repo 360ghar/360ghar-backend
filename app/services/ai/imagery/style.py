@@ -41,4 +41,5 @@ def build_prompt(subject_type: str, name: str, city: str | None = None) -> str:
         "with a small garden",
         "blog": f"an editorial scene about {name}, Indian real estate, with paper buildings",
     }
-    return f"{scenes[subject_type]}. {HOUSE_STYLE}"
+    # HOUSE_STYLE travels as the generation instruction, so the prompt holds only the scene.
+    return f"{scenes[subject_type]}."

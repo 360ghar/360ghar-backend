@@ -29,8 +29,14 @@ class AILimit:
         per_day: int | None = None,
     ):
         self.name = name
-        windows = ((per_minute, MINUTE), (per_hour, HOUR), (per_day, DAY))
-        self.windows = [(EndpointRateLimiter(calls=calls, period=period), period) for calls, period in windows if calls]
+        windows = [(per_minute, MINUTE), (per_hour, HOUR), (per_day, DAY)]
+        # Longest window first: a call the day cap refuses does not spend a minute of budget, and
+        # Retry-After names the window that actually blocks.
+        self.windows = [
+            (EndpointRateLimiter(calls=calls, period=period), period)
+            for calls, period in sorted(windows, key=lambda w: -w[1])
+            if calls
+        ]
 
     async def __call__(self, request: Request) -> None:
         """Count the call in every window. Raise 429 with Retry-After when one is full."""

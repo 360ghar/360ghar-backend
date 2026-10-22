@@ -34,7 +34,7 @@ async def nl_property_search(body: NLSearchRequest) -> Any:
     answer is 503 ``AI_UNAVAILABLE``: fall back to a keyword search with ``q``.
     """
     try:
-        return await nl.cached_nl_search(nl.make_provider, body.q)
+        return await nl.cached_nl_search(nl.get_provider, body.q)
     except ValueError as exc:
         raise ServiceUnavailableException("Search assistant is not available", error_code="AI_UNAVAILABLE") from exc
     except (AIProviderError, TimeoutError) as exc:

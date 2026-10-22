@@ -15,24 +15,27 @@ from dataclasses import asdict, dataclass, field
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core.exceptions import NotFoundException
 from app.core.logging import get_logger
 from app.core.utils import utc_now
 from app.models.blogs import BlogPost
 from app.models.content import SERVED_STATUSES, ContentBlock, GeneratedImage, Locality
-from app.models.enums import PropertyStatus
+from app.models.enums import PropertyPurpose, PropertyStatus, PropertyType
 from app.models.properties import Property
 from app.services.ai.image_gen.schemas import ImageGenMode, ImageGenRequest
 from app.services.ai.imagery import style
+from app.services.content.facts import inr
 from app.services.storage_paths import StorageFolder
 
 logger = get_logger(__name__)
 
 CONCURRENCY = 4
+PAGE = 500  # subjects read per query when looking for work
 KINDS = ("city", "locality", "property", "blog")
 # A pending row older than this is a worker that died. Another run may take it.
 PENDING_TTL = timedelta(minutes=15)
@@ -76,6 +79,15 @@ def _clip(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
+TITLE_MAX = 120  # characters. Longer text would not fit the card, so it is cut with "..."
+LOCALITY_MAX = 80
+
+
+def _title_size(title: str) -> int:
+    """Smaller type for longer titles, so ordinary titles are shown whole."""
+    return 60 if len(title) <= 40 else 48 if len(title) <= 70 else 38
+
+
 def compose_og_url(
     art_public_id: str, title: str, *, price: str | None = None, locality: str | None = None
 ) -> str:
@@ -99,12 +111,12 @@ def compose_og_url(
 
     chain: list[dict[str, Any]] = [
         {"width": 1200, "height": 630, "crop": "fill", "gravity": "auto", "effect": "brightness:-30"},
-        layer(_clip(title, 64), 60, "bold", 150, "Georgia"),
+        layer(_clip(title, TITLE_MAX), _title_size(title), "bold", 150, "Georgia"),
     ]
     if price:
         chain.append(layer(price, 44, "bold", 84, "Arial"))
     if locality:
-        chain.append(layer(_clip(locality, 60), 32, "normal", 36, "Arial"))
+        chain.append(layer(_clip(locality, LOCALITY_MAX), 32, "normal", 36, "Arial"))
     chain.append({"fetch_format": "auto", "quality": "auto"})
     url, _ = cloudinary_url(art_public_id, transformation=chain, secure=True)
     return str(url)
@@ -133,20 +145,26 @@ def is_workable(row: GeneratedImage | None, now: Any) -> bool:
 
 
 async def _claim(db: AsyncSession, key: str, subject: Subject) -> bool:
-    row = await get_row(db, key)
+    """Take the image for this worker. One statement decides the winner: the row is inserted, or
+    taken over only when it is failed and due, or pending and stale. A ready row is never taken."""
     now = utc_now()
-    if not is_workable(row, now):
-        return False
-    stmt = insert(GeneratedImage).values(
+    base = insert(GeneratedImage).values(
         key=key, subject_type=subject.subject_type, subject_slug=subject.slug, status="pending"
     )
-    await db.execute(
-        stmt.on_conflict_do_update(
-            index_elements=["key"], set_={"status": "pending", "retry_after": None, "updated_at": now}
-        )
-    )
+    stmt = base.on_conflict_do_update(
+        index_elements=["key"],
+        set_={"status": "pending", "retry_after": None, "updated_at": now},
+        where=or_(
+            and_(
+                GeneratedImage.status == "failed",
+                or_(GeneratedImage.retry_after.is_(None), GeneratedImage.retry_after <= now),
+            ),
+            and_(GeneratedImage.status == "pending", GeneratedImage.updated_at <= now - PENDING_TTL),
+        ),
+    ).returning(GeneratedImage.key)
+    won = (await db.execute(stmt)).scalar_one_or_none() is not None
     await db.commit()
-    return True
+    return won
 
 
 async def _finish(db: AsyncSession, key: str, **values: Any) -> None:
@@ -227,12 +245,22 @@ async def ensure_art(
 # ── subjects ────────────────────────────────────────────────────────────────
 
 
-async def list_subjects(db: AsyncSession, kind: str, limit: int) -> list[Subject]:
+async def list_subjects(db: AsyncSession, kind: str, limit: int, offset: int = 0) -> list[Subject]:
     """Entities that should have art: cities with listings or localities, localities with served
-    content, available properties, published posts. ``limit`` bounds the scan, not the run."""
+    content, available properties, published posts. One page of ``limit`` from ``offset``."""
     if kind == "city":
-        cities = (await db.execute(select(Locality.city).distinct().order_by(Locality.city))).scalars().all()
-        return [Subject("city", slugify(c), c) for c in cities if c and slugify(c)][:limit]
+        names: set[str | None] = set((await db.execute(select(Locality.city).distinct())).scalars().all())
+        names |= set(
+            (
+                await db.execute(
+                    select(Property.city)
+                    .where(Property.status == PropertyStatus.available, Property.is_available.is_(True))
+                    .distinct()
+                )
+            ).scalars().all()
+        )
+        by_slug = {slugify(c): c for c in sorted(n for n in names if n) if slugify(c)}
+        return [Subject("city", slug, name) for slug, name in sorted(by_slug.items())][offset : offset + limit]
     if kind == "locality":
         lrows = (
             await db.execute(
@@ -242,6 +270,7 @@ async def list_subjects(db: AsyncSession, kind: str, limit: int) -> list[Subject
                 .distinct()
                 .order_by(Locality.slug)
                 .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [Subject("locality", r.slug, r.name, r.city) for r in lrows]
@@ -252,6 +281,7 @@ async def list_subjects(db: AsyncSession, kind: str, limit: int) -> list[Subject
                 .where(Property.status == PropertyStatus.available, Property.is_available.is_(True))
                 .order_by(Property.id)
                 .limit(limit)
+                .offset(offset)
             )
         ).all()
         return [
@@ -262,8 +292,9 @@ async def list_subjects(db: AsyncSession, kind: str, limit: int) -> list[Subject
         await db.execute(
             select(BlogPost.slug, BlogPost.title)
             .where(BlogPost.status == "published")
-            .order_by(BlogPost.published_at.desc())
+            .order_by(BlogPost.published_at.desc(), BlogPost.slug)
             .limit(limit)
+            .offset(offset)
         )
     ).all()
     return [Subject("blog", r.slug, r.title) for r in brows]
@@ -276,17 +307,22 @@ async def pending_subjects(
     now = utc_now()
     out: list[Subject] = []
     for kind in kinds:
-        subjects = await list_subjects(db, kind, 2000)
-        keys = {style.image_key(s.subject_type, s.slug, ratio, size): s for s in subjects}
-        rows = {}
-        if keys:
+        offset = 0
+        while len(out) < limit:
+            page = await list_subjects(db, kind, PAGE, offset)
+            if not page:
+                break
+            offset += PAGE
+            keys = {style.image_key(s.subject_type, s.slug, ratio, size): s for s in page}
             found = (await db.execute(select(GeneratedImage).where(GeneratedImage.key.in_(list(keys))))).scalars()
             rows = {r.key: r for r in found}
-        for key, subject in keys.items():
-            if is_workable(rows.get(key), now):
-                out.append(subject)
-                if len(out) >= limit:
-                    return out
+            for key, subject in keys.items():
+                if is_workable(rows.get(key), now):
+                    out.append(subject)
+                    if len(out) >= limit:
+                        return out
+            if len(page) < PAGE:
+                break
     return out
 
 
@@ -333,3 +369,53 @@ async def run_batch(
 
     await asyncio.gather(*(work(s) for s in todo))
     return stats
+
+
+# ── share card text ─────────────────────────────────────────────────────────
+
+
+def _not_found() -> NotFoundException:
+    return NotFoundException("Not found", error_code="NOT_FOUND")
+
+
+async def card_text(db: AsyncSession, kind: str, slug: str) -> tuple[str, str | None, str | None]:
+    """(title, price line, locality line) for one subject. NotFound when it is not public."""
+    if kind == "property":
+        row = None
+        if slug.isascii() and slug.isdigit() and len(slug) < 18:
+            row = (await db.execute(select(Property).where(Property.id == int(slug)))).scalar_one_or_none()
+        if row is None:
+            raise _not_found()
+        # Same rule as the property detail route: a flatmate or PG listing that is not live is hidden.
+        if row.property_type in (PropertyType.flatmate, PropertyType.pg):
+            if ((row.listing_preferences or {}).get("moderation_status") or "live") != "live":
+                raise _not_found()
+        price = None  # each purpose has its own price column. Never show another purpose's price.
+        if row.purpose == PropertyPurpose.rent and row.monthly_rent:
+            price = f"{inr(row.monthly_rent)} / month"
+        elif row.purpose == PropertyPurpose.short_stay and row.daily_rate:
+            price = f"{inr(row.daily_rate)} / night"
+        elif row.purpose == PropertyPurpose.buy and row.base_price:
+            price = inr(row.base_price)
+        where = ", ".join(p for p in (row.locality, row.city) if p)
+        return row.title, price, where or None
+    if kind == "locality":
+        loc = (await db.execute(select(Locality).where(Locality.slug == slug))).scalar_one_or_none()
+        if loc is None:
+            raise _not_found()
+        return loc.name, None, loc.city
+    if kind == "blog":
+        title = (
+            await db.execute(select(BlogPost.title).where(BlogPost.slug == slug, BlogPost.status == "published"))
+        ).scalar_one_or_none()
+        if title is None:
+            raise _not_found()
+        return title, None, "360Ghar"
+    cities: list[str | None] = [
+        *(await db.execute(select(Locality.city).distinct())).scalars().all(),
+        *(await db.execute(select(Property.city).distinct())).scalars().all(),
+    ]
+    name = next((c for c in cities if c and slugify(c) == slug), None)
+    if name is None:
+        raise _not_found()
+    return name, None, "Real estate on 360Ghar"

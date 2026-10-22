@@ -841,7 +841,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ErrorEnvelope"
+                  "$ref": "#/components/schemas/ImageryRunResult"
                 }
               }
             }
@@ -51303,6 +51303,7 @@
           },
           "explanation": {
             "type": "string",
+            "minLength": 1,
             "title": "Explanation"
           }
         },
