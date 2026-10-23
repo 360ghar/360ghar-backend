@@ -69,7 +69,7 @@ async def analyze_floor_plan(
     - `right`: North is to the right
     - `unknown`: Not sure (AI will attempt to detect)
 
-    **AI Provider:** Agnes AI (`agnes-3.0-flash`).
+    **AI Provider:** 360Ghar AI.
 
     **Rate limit:** 5 requests per minute per IP address.
     """

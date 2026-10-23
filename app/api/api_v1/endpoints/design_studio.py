@@ -1,7 +1,7 @@
 """
 AI Design Studio Image Generation Endpoint.
 
-Public endpoint for generating AI images with Agnes AI.
+Public endpoint for generating AI images with 360Ghar AI.
 Supports text-to-image and image-to-image (reimagine) modes.
 """
 
@@ -54,7 +54,7 @@ async def generate_design_image(
     _rate_limit: None = Depends(_generate_limit),
 ) -> DesignImageOut:
     """
-    Generate an AI design image. Free, no login required. Powered by Agnes AI.
+    Generate an AI design image. Free, no login required. Powered by 360Ghar AI.
 
     **Rate limit:** 10 requests per minute per IP address.
 
@@ -114,7 +114,7 @@ _stage_limit = ai_limit("design-studio:stage", per_minute=5)
     dependencies=[Depends(_stage_limit)],
 )
 async def stage_room(request: StageRequest) -> StageResponse:
-    """Add furniture to an empty-room photo. Free, no login required. Powered by Agnes AI.
+    """Add furniture to an empty-room photo. Free, no login required. Powered by 360Ghar AI.
 
     **Rate limit:** 5 requests per minute per IP address.
 
