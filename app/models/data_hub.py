@@ -206,7 +206,7 @@ class AuctionAlertDelivery(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     alert_id: Mapped[int] = mapped_column(
-        ForeignKey("auction_alerts.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("auction_alerts.id", ondelete="CASCADE"), nullable=False
     )
     # "bank" or "court": the two auction tables have separate id spaces.
     auction_type: Mapped[str] = mapped_column(String(10), nullable=False)

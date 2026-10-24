@@ -18,8 +18,6 @@ CREATE TABLE IF NOT EXISTS auction_alert_deliveries (
     delivered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_auction_alert_deliveries_key UNIQUE (alert_id, auction_type, auction_id)
 );
-
-CREATE INDEX IF NOT EXISTS ix_auction_alert_deliveries_alert_id
-    ON auction_alert_deliveries (alert_id);
+-- The unique key leads with alert_id, so it also serves lookups by alert.
 
 ALTER TABLE auction_alert_deliveries ENABLE ROW LEVEL SECURITY;

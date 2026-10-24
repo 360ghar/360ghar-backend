@@ -354,15 +354,14 @@ class DeveloperDossierScraper(BaseScraper):
         names = await self._distinct_developer_names(db)
         if not names:
             return []
-        computed_at: dict[str, datetime] = dict(
-            (
-                await db.execute(
-                    select(Developer.slug, DeveloperScore.computed_at).join(
-                        DeveloperScore, DeveloperScore.developer_id == Developer.id
-                    )
+        score_rows = (
+            await db.execute(
+                select(Developer.slug, DeveloperScore.computed_at).join(
+                    DeveloperScore, DeveloperScore.developer_id == Developer.id
                 )
-            ).all()
-        )
+            )
+        ).all()
+        computed_at: dict[str, datetime] = {slug: when for slug, when in score_rows}
         # Unscored developers first, then the stalest scores, so a bounded run
         # still reaches every developer and keeps rescoring all of them in turn.
         oldest = datetime.min.replace(tzinfo=UTC)
