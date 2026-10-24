@@ -16,7 +16,8 @@ class AlertMatcherService(BaseScraper):
     """
     Matches newly added auctions against user alert preferences.
     Runs after bank_auctions and court_auctions scrapers complete.
-    Dispatches notifications via email (FCM/push is a future extension).
+    Dispatches notifications through the shared notification dispatcher
+    (push, email, and in-app per the user's settings).
     """
 
     name = "alerts"
@@ -95,12 +96,12 @@ class AlertMatcherService(BaseScraper):
         return matches
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
-        """Send notifications for matches. Currently logs; email dispatch is a stub."""
+        """Send a notification for each match and record that the alert fired."""
         found = len(records)
         dispatched = 0
         for match in records:
             try:
-                await self._dispatch_notification(match)
+                await self._dispatch_notification(db, match)
                 # Update last_notified_at on the alert
                 alert_result = await db.execute(
                     select(AuctionAlert).where(AuctionAlert.id == match["alert_id"])
@@ -114,14 +115,31 @@ class AlertMatcherService(BaseScraper):
         await db.commit()
         return {"found": found, "upserted": dispatched, "failed": found - dispatched}
 
-    async def _dispatch_notification(self, match: dict) -> None:
-        """Stub: log the match. Email/FCM integration to be implemented."""
-        logger.info(
-            "ALERT MATCH: user=%s alert=%s auction=%s type=%s price=%s",
-            match["user_id"],
-            match["alert_id"],
-            match["auction_id"],
-            match["auction_type"],
-            match.get("reserve_price"),
+    async def _dispatch_notification(self, db: AsyncSession, match: dict) -> None:
+        """Dispatch the auction match to its user through the notification dispatcher.
+
+        ``auction_alert_match`` is a registered type, so the dispatcher resolves its
+        channels; an unregistered key would send nothing. A dispatch that reports an
+        error raises, so the caller's per-match ``try/except`` counts it as failed and
+        one user's failure never aborts the batch.
+        """
+        from app.services.notification_dispatcher import dispatch_notification_to_user
+
+        auction_type = match["auction_type"]
+        result = await dispatch_notification_to_user(
+            db,
+            user_db_id=match["user_id"],
+            type_key="auction_alert_match",
+            title="New auction matches your alert",
+            body=(
+                f"A new {auction_type} auction matches your alert: "
+                f"{match.get('auction_description') or 'property details available on the site'}."
+            ),
+            data={
+                "alert_id": str(match["alert_id"]),
+                "auction_id": str(match["auction_id"]),
+                "auction_type": str(auction_type),
+            },
         )
-        # TODO: integrate with email service when EMAIL_SMTP_HOST is configured
+        if result.get("error"):
+            raise RuntimeError(f"notification dispatch failed: {result['error']}")

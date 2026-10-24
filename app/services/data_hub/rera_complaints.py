@@ -1,4 +1,9 @@
-"""RERA complaints/orders scraper — HRERA (Playwright) with builder scoring."""
+"""RERA complaints/orders scraper — HRERA (Playwright) with builder scoring.
+
+The live portal is ``haryanarera.gov.in``. The older ``hrera.haryana.gov.in`` host no
+longer resolves, so every request to it failed before a single row was parsed. Case
+search now lives at ``assistancecontrol/searchcaseopen``.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.data_hub import ReraComplaint, ReraProject
 from app.models.enums import ComplaintNature
 from app.services.data_hub.base_scraper import BaseScraper
@@ -19,7 +25,7 @@ from app.services.data_hub.utils import generate_slug
 
 logger = logging.getLogger(__name__)
 
-_HRERA_ORDERS_URL = "https://hrera.haryana.gov.in/Public/OrderSearch"
+_HRERA_ORDERS_URL = "https://haryanarera.gov.in/assistancecontrol/searchcaseopen"
 
 _NATURE_KEYWORDS = {
     ComplaintNature.delay: ["delay", "possession", "handover", "completion"],
@@ -41,7 +47,14 @@ class ReraComplaintScraper(BaseScraper):
     name = "rera_complaints"
     requires_playwright = True
 
+    async def run(self, run_type: str = "cron", triggered_by: int | None = None) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"status": "disabled", "run_id": None, "reason": "hrera_disabled_by_configuration"}
+        return await super().run(run_type=run_type, triggered_by=triggered_by)
+
     async def _scrape(self) -> list[dict]:
+        if not settings.HRERA_DATA_ENABLED:
+            return []
         results = []
         try:
             async with self._playwright_browser() as browser:
@@ -127,6 +140,8 @@ class ReraComplaintScraper(BaseScraper):
         return records
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"found": 0, "upserted": 0, "failed": 0}
         found = len(records)
         upserted = 0
         failed = 0
@@ -162,6 +177,8 @@ class ReraComplaintScraper(BaseScraper):
 
     async def _update_builder_scores(self, db: AsyncSession) -> None:
         """Update complaint_count on ReraProject rows based on builder_slug matches."""
+        if not settings.HRERA_DATA_ENABLED:
+            return
         from sqlalchemy import func as sqlfunc
         try:
             # Get complaint counts per builder_slug

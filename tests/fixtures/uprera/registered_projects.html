@@ -1,0 +1,830 @@
+<html class="chrome" xmlns="http://www.w3.org/1999/xhtml"><head id="Head1"><meta charset="utf-8"/><meta content="IE=Edge" http-equiv="X-UA-Compatible"/><meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport"/><title>
+	UPRERA Registered Projects
+</title><meta content="This is an official website of UP RERA that provides online information about all activities, provisions by UP RERA in Uttar Pradesh." name="description"/><meta content="uprera,UP RERA,uttar pradesh rera,rera in uttar pradesh,UPRERA,Official Website of RERA Uttar Pradesh,Website of RERA Uttar Pradesh,Website of RERA,RERA UP WEBSITE,UP RERA WEBSITE, OFFICIAL WEBSITE OF RERA,RERA UP,UPRERA WEBSITE,ONLINE PROPERTY,ONLINE PROJECT REGISTRTION,Promoters Registration" name="keywords"/>
+<!-- Favicon-->
+
+<!-- Google Fonts -->
+
+<!-- Bootstrap Core Css -->
+
+<!-- Waves Effect Css -->
+
+<!-- Animation Css -->
+
+<!-- JQuery DataTable Css -->
+
+<!-- Morris Chart Css-->
+
+<!-- Custom Css -->
+
+</head>
+<body class="theme-default">
+<form action="./projects" id="form1" method="post" name="form1">
+<div>
+
+</div>
+
+<div>
+
+</div>
+
+<!-- #END# Page Loader -->
+<!-- Overlay For Sidebars -->
+<div class="overlay"></div>
+<!-- #END# Overlay For Sidebars -->
+<!-- Search Bar -->
+<!-- #END# Search Bar -->
+<!-- Top Bar -->
+<nav class="navbar">
+<div class="container-fluid">
+<div class="row">
+<div class="col-sm-3">
+<div class="navbar-header">
+<a aria-expanded="false" class="navbar-toggle collapsed" data-target="#navbar-collapse" data-toggle="collapse" href="javascript:void(0);"></a>
+<a class="bars" href="javascript:void(0);"></a>
+<img class="navbar-brand" src="images/logo/UP_RERA_Final_Logo-02.jpg"/>
+</div>
+</div>
+<div class="col-sm-8">
+<h2 class="clientname" style="color:#dc3838;font-weight:900;">Uttar Pradesh Real Estate Regulatory Authority</h2>
+</div>
+<div class="col-sm-1">
+<div class="collapse navbar-collapse" id="navbar-collapse">
+<ul class="nav navbar-nav navbar-right">
+<!-- Call Search -->
+<!-- #END# Call Search -->
+<li>
+<a class="js-sweetalert" data-type="ajax-loader" onclick="return showAlertPromoterForHomePage();" role="button" title="Go Back To Home Page">
+<i class="material-icons">home</i>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</nav>
+<!-- #Top Bar -->
+<section>
+<!-- Left Sidebar -->
+<aside class="sidebar" id="leftsidebar">
+<!-- Menu -->
+<div class="menu">
+<div class="row">
+<div class="col-xs-12 ol-sm-12 col-md-12 col-lg-12 rowchild">
+<h4 class="header"> Remove Filters <span style="float: right">
+<a class="btn-circle waves-effect waves-circle waves-float btn-sm" href="javascript:__doPostBack('lnkbtn_reset_prj','')" id="lnkbtn_reset_prj" style="background-color: #fb483a; color: white; float: right; width: 35px; height: 35px;" title="Remove Filters"><i class="material-icons">autorenew</i></a></span></h4>
+<div aria-multiselectable="false" class="panel-group" id="accordion_4" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingOne_District" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseOne_District" aria-expanded="true" data-parent="#accordion_4" data-toggle="collapse" href="#collapseOne_District" role="button"><i class="material-icons">location_city</i> District</a>
+</h4>
+</div>
+<div aria-labelledby="headingOne_District" class="panel-collapse collapse in" id="collapseOne_District" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount1"></span>
+<input class="form-control" id="txtSearchDistrict" onkeyup="SearchDistrict(this,'#chk_district');" placeholder="search district" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_5" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingPromoter" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapsePromoter" aria-expanded="true" class="collapsed" data-parent="#accordion_5" data-toggle="collapse" href="#collapsePromoter" role="button"><i class="material-icons">person</i> Promoter</a>
+</h4>
+</div>
+<div aria-labelledby="headingPromoter" class="panel-collapse collapse in" id="collapsePromoter" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount2"></span>
+<input class="form-control" id="txtprmSearch" onkeyup="SearchPromoter(this,'#chkPromoterList');" placeholder="search promoter" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_6" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingThree_Projects" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseThree_Projects" aria-expanded="true" class="collapsed" data-parent="#accordion_6" data-toggle="collapse" href="#collapseThree_Projects" role="button"><i class="material-icons">domain</i> Projects</a>
+</h4>
+</div>
+<div aria-labelledby="headingThree_Projects" class="panel-collapse collapse in" id="collapseThree_Projects" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount3"></span>
+<input id="chkfilter" onkeyup="SearchProject(this,'#chkProjectName');" placeholder="search promoter name" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_7" role="tablist" style="display:none">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingFour_CompletedProjects" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseFour_CompletedProjects" aria-expanded="true" class="collapsed" data-parent="#accordion_7" data-toggle="collapse" href="#collapseFour_CompletedProjects" role="button"><i class="material-icons">domain</i>Completed Projects</a>
+</h4>
+</div>
+<div aria-labelledby="headingThree_Projects" class="panel-collapse collapse in" id="collapseFour_CompletedProjects" role="tabpanel">
+<div class="panel-body">
+<div style="max-height: 100px; overflow-y: scroll;">
+<input id="chkCompletedProject" name="chkCompletedProject" onclick="javascript:setTimeout('__doPostBack(\'chkCompletedProject\',\'\')', 0)" type="checkbox"/><label for="chkCompletedProject">Show Completed Project</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- #Menu -->
+<!-- Footer -->
+<div class="legal">
+<div class="copyright">
+                        © 2020 - 2026 <a href="javascript:void(0);">UPRERA - Project DashBoard</a>.
+
+                    </div>
+<div class="version">
+<b>Version: </b>1.0.5
+
+                    </div>
+</div>
+<!-- #Footer -->
+</aside>
+<!-- #END# Left Sidebar -->
+</section>
+<div id="main" style="min-height: 400px;">
+<section class="content">
+<div class="container-fluid">
+<div class="block-header" style="display:none">
+<div class="row">
+<div class="col-sm-4"><h2 class="headDash">UPRERA Registered Projects</h2></div>
+<div class="col-sm-4" style="text-align:center"><img class="logoImage" src="images/logo/ReraLogo.png" style="display:none"/></div>
+<div class="col-sm-4 clockdiv" style="text-align:right;display:none;">
+<span class="time"><i aria-hidden="true" class="fa fa-calendar"></i>
+Friday, 23 Oct, 2026
+                            | <i aria-hidden="true" class="far fa-clock"></i>
+<span id="clockDisplay">11:28:15 PM</span></span>
+</div>
+</div>
+</div>
+<!-- Widgets -->
+<div class="row clearfix" style="display: none">
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-pink hover-expand-effect">
+<div class="icon">
+<i class="material-icons">playlist_add_check</i>
+</div>
+<div class="content">
+<div class="text">PROJECTS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="15" data-to="125" id="NoOfProjects">125</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-cyan hover-expand-effect">
+<div class="icon">
+<i class="material-icons">help</i>
+</div>
+<div class="content">
+<div class="text">PROMOTER</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="257" id="NoOfPromoter">257</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-light-green hover-expand-effect">
+<div class="icon">
+<i class="material-icons">forum</i>
+</div>
+<div class="content">
+<div class="text">COMPLAINTS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="243">243</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-orange hover-expand-effect" style="display: none;">
+<div class="icon">
+<i class="material-icons">person_add</i>
+</div>
+<div class="content">
+<div class="text">NEW VISITORS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="1225">1225</div>
+</div>
+</div>
+</div>
+</div>
+<!-- #END# Widgets -->
+<!-- Exportable Table -->
+<div class="row clearfix">
+<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">
+<div class="card">
+<div aria-hidden="true" id="UpdateProgress1" role="status" style="display:none;">
+<div style="position: fixed; text-align: center; height: 100%; width: 100%; top: 0; right: 0; left: 0; z-index: 9999999; background-color: #000000; opacity: 0.7;">
+<img alt="Loading ..." id="imgUpdateProgress" src="img/slider/ajax-loader.gif" style="border-width:0px;padding: 10px; position: fixed; top: 25%; left: 48%;" title="Loading ..."/>
+<center><span style="color:White;font-weight:bolder;font-size:x-large;position: fixed; top: 49%; left: 50%;"><b>Loading...</b></span></center>
+</div>
+</div>
+<div class="header" style="display:none">
+<h2>Project Detail</h2>
+<ul class="header-dropdown m-r--5" style="display:none">
+<li class="dropdown">
+<a aria-expanded="false" aria-haspopup="true" class="dropdown-toggle" data-toggle="dropdown" href="javascript:void(0);" role="button">
+<i class="material-icons">more_vert</i>
+</a>
+<ul class="dropdown-menu pull-right">
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Reload</a></li>
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Clear Data</a></li>
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Hide All</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="body">
+<div class="table-responsive narrow-block wrapper">
+<div>
+<table border="0" cellpadding="4" cellspacing="0" class="table table-striped table-hover bg_table js-basic-example dataTable tablesorter tablesorter-blue tablesorterfef7c891f864e8 hasFilters hasStickyHeaders" id="grdPojDetail" role="grid" style="color:#333333;width:100%;border-collapse:collapse;"><colgroup class="tablesorter-colgroup"><col style="width: 2.6%;"/><col style="width: 15.5%;"/><col style="width: 16.1%;"/><col style="width: 15.5%;"/><col style="width: 6.3%;"/><col style="width: 7.5%;"/><col style="width: 4.6%;"/><col style="width: 4.2%;"/><col style="width: 6%;"/><col style="width: 3.4%;"/></colgroup>
+<thead><tr class="tablesorter-headerRow" role="row"><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="S.No: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="0" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">S.No <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Promoter Name: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="1" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Promoter Name <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Project Name: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="2" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Project Name <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="RERA Reg.No.: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="3" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">RERA Reg.No. <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="ProjectType: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="4" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">ProjectType <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="District: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="5" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">District <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="StartDate: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="6" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">StartDate <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="EndDate: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="7" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">EndDate <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Registration Date: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="8" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Registration Date <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Details: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted" data-column="9" role="columnheader" scope="col" style="user-select: none;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Details <i class="tablesorter-icon"></i></div></th></tr><tr class="tablesorter-filter-row tablesorter-ignoreRow" role="search"><td data-column="0"><input aria-label='Filter "S.No" column by...' class="tablesorter-filter" data-column="0" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="1"><input aria-label='Filter "Promoter Name" column by...' class="tablesorter-filter" data-column="1" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="2"><input aria-label='Filter "Project Name" column by...' class="tablesorter-filter" data-column="2" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="3"><input aria-label='Filter "RERA Reg.No." column by...' class="tablesorter-filter" data-column="3" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="4"><input aria-label='Filter "ProjectType" column by...' class="tablesorter-filter" data-column="4" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="5"><input aria-label='Filter "District" column by...' class="tablesorter-filter" data-column="5" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="6"><input aria-label='Filter "StartDate" column by...' class="tablesorter-filter" data-column="6" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="7"><input aria-label='Filter "EndDate" column by...' class="tablesorter-filter" data-column="7" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="8"><input aria-label='Filter "Registration Date" column by...' class="tablesorter-filter" data-column="8" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td><td data-column="9"><input aria-label='Filter "Details" column by...' class="tablesorter-filter" data-column="9" data-lastsearchtime="1792778284408" placeholder="" type="search"/></td></tr></thead><tbody aria-live="polite" aria-relevant="all"><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">1</td><td>
+<span id="grdPojDetail_ctl02_lblPromoter"><ul style="padding-left:15px"><li> G R CONSTRUCTIONS</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl02_lblProjectName">PARK ROYAL APARTMENT</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl02_lblRegistrationNo">UPRERAPRJ13276</span>
+</td><td>
+<span id="grdPojDetail_ctl02_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl02_lblDistrict">Lucknow</span>
+</td><td>
+<span id="grdPojDetail_ctl02_lblStartDate">01-06-2013</span>
+</td><td>
+<span id="grdPojDetail_ctl02_lblEndDate">30-08-2016</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl02_lblRegDate">29-09-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=UFp6lobcPEg=&amp;hfFlag=GL34ZTSSjlw=&amp;NPJ6RAme=j/RAcWc6MzEwuMVF9gU5NlYQ78ISJVv1&amp;PaURJEMAN4=ZL9MNERkNda9ii+MxNTwXQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">2</td><td>
+<span id="grdPojDetail_ctl03_lblPromoter"><ul style="padding-left:15px"><li> HEBE INFRASTRUCTURE PRIVATE LIMITED (MAHAGUN GROU</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblProjectName">MAHAGUN MANTRA II</span>
+<br/><span id="grdPojDetail_ctl03_Label2" style="color:Red;font-weight:bold;">(Default on QPR)</span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblRegistrationNo">UPRERAPRJ1870</span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblStartDate">01-07-2014</span>
+</td><td>
+<span id="grdPojDetail_ctl03_lblEndDate">29-12-2021</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl03_lblRegDate">27-07-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=v4+zSIWT1sQ=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=CRbpe4eWUs71eqm5LDT8GnLZlkHMFRxS&amp;PaURJEMAN4=ZL9MNERkNdbQXT2h79pHTg==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">3</td><td>
+<span id="grdPojDetail_ctl04_lblPromoter"><ul style="padding-left:15px"><li> JADON INFRATECH</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl04_lblProjectName">VAISHNO CRYSTAL</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl04_lblRegistrationNo">UPRERAPRJ839360</span>
+</td><td>
+<span id="grdPojDetail_ctl04_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl04_lblDistrict">Aligarh</span>
+</td><td>
+<span id="grdPojDetail_ctl04_lblStartDate">11-03-2019</span>
+</td><td>
+<span id="grdPojDetail_ctl04_lblEndDate">09-09-2024</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl04_lblRegDate">11-06-2019</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=Gy8UJfJF6lE=&amp;hfFlag=LOVaGk/IYis=&amp;NPJ6RAme=c4AFTyNArXCX7fELKHgrQA==&amp;PaURJEMAN4=ZL9MNERkNdaqDdPaL8qICA==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">4</td><td>
+<span id="grdPojDetail_ctl05_lblPromoter"><ul style="padding-left:15px"><li> O P INFRAESTATE PVT LTD</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl05_lblProjectName">GRAND FORT </span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl05_lblRegistrationNo">UPRERAPRJ11302</span>
+</td><td>
+<span id="grdPojDetail_ctl05_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl05_lblDistrict">Agra</span>
+</td><td>
+<span id="grdPojDetail_ctl05_lblStartDate">20-04-2014</span>
+</td><td>
+<span id="grdPojDetail_ctl05_lblEndDate">31-12-2018</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl05_lblRegDate">14-08-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=D7esTfBrOhQ=&amp;hfFlag=xaBp3ZsW0Ws=&amp;NPJ6RAme=9y32TM23kj9Ia9jvxUamxw==&amp;PaURJEMAN4=ZL9MNERkNdaDNjkrzuZjHQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">5</td><td>
+<span id="grdPojDetail_ctl06_lblPromoter"><ul style="padding-left:15px"><li> R D INFO SOLUTIONS PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl06_lblProjectName">SQUARE ONE</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl06_lblRegistrationNo">UPRERAPRJ11550</span>
+</td><td>
+<span id="grdPojDetail_ctl06_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl06_lblDistrict">Lucknow</span>
+</td><td>
+<span id="grdPojDetail_ctl06_lblStartDate">01-11-2016</span>
+</td><td>
+<span id="grdPojDetail_ctl06_lblEndDate">30-12-2018</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl06_lblRegDate">15-08-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=k9A4I3gw1cs=&amp;hfFlag=GL34ZTSSjlw=&amp;NPJ6RAme=+FC/8wsySYD2HibubWU4HQ==&amp;PaURJEMAN4=ZL9MNERkNdYekqfjZ+h9pg==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">6</td><td>
+<span id="grdPojDetail_ctl07_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl07_lblProjectName">CITY APARTMENTS PHASE-2</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl07_lblRegistrationNo">UPRERAPRJ1498</span>
+</td><td>
+<span id="grdPojDetail_ctl07_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl07_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl07_lblStartDate">21-09-2013</span>
+</td><td>
+<span id="grdPojDetail_ctl07_lblEndDate">20-09-2018</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl07_lblRegDate">27-07-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=yyfb/zgDnpg=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=ebWNQm8Rffp2pNRnGW70FkKGD5a3uN+3&amp;PaURJEMAN4=ZL9MNERkNdbwT1h1QkwimA==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">7</td><td>
+<span id="grdPojDetail_ctl08_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl08_lblProjectName">THE RESORT</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl08_lblRegistrationNo">UPRERAPRJ706521</span>
+</td><td>
+<span id="grdPojDetail_ctl08_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl08_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl08_lblStartDate">01-10-2021</span>
+</td><td>
+<span id="grdPojDetail_ctl08_lblEndDate">06-08-2026</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl08_lblRegDate">09-08-2022</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=op/DRo9g0oE=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=crlTsTJlt+ZJ7PzsY24lUg==&amp;PaURJEMAN4=ZL9MNERkNdZ0Ip750Qy9FQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">8</td><td>
+<span id="grdPojDetail_ctl09_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl09_lblProjectName">LIG/EWS BLOCK   AT SECTOR-3, ADITYA WORLD CITY, IN</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl09_lblRegistrationNo">UPRERAPRJ15047</span>
+</td><td>
+<span id="grdPojDetail_ctl09_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl09_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl09_lblStartDate">09-01-2018</span>
+</td><td>
+<span id="grdPojDetail_ctl09_lblEndDate">25-01-2023</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl09_lblRegDate">29-01-2018</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=ZlxK4JJ0kSA=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=1CWGcq/t424g2sAFN47LDIS0nU0kKn2fl65QEUcIiUhGXdVZPrCrCYVsV2glwF5m2uoQpv4Nyks=&amp;PaURJEMAN4=ZL9MNERkNdYkLp5Meh9vxQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">9</td><td>
+<span id="grdPojDetail_ctl10_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl10_lblProjectName">CITY APARTMENTS PHASE-3</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl10_lblRegistrationNo">UPRERAPRJ2115</span>
+</td><td>
+<span id="grdPojDetail_ctl10_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl10_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl10_lblStartDate">21-09-2013</span>
+</td><td>
+<span id="grdPojDetail_ctl10_lblEndDate">19-02-2022</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl10_lblRegDate">27-07-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=06+Uh3euK3U=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=ebWNQm8Rffp2pNRnGW70FsZNQ60qRXDc&amp;PaURJEMAN4=ZL9MNERkNdY+Qqao8nU8Ng==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">10</td><td>
+<span id="grdPojDetail_ctl11_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl11_lblProjectName">LUXURIA ESTATE PHASE COMMERCIAL(BLOCK H)</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl11_lblRegistrationNo">UPRERAPRJ3242</span>
+</td><td>
+<span id="grdPojDetail_ctl11_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl11_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl11_lblStartDate">27-06-2016</span>
+</td><td>
+<span id="grdPojDetail_ctl11_lblEndDate">25-12-2021</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl11_lblRegDate">28-07-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=OzJbnCmyey4=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=eEO4E+YBla+REIbDiRlukn4RdBSZJsTGunKwglA3/3Cz9RbnLbvsUOWxYkgriVo4&amp;PaURJEMAN4=ZL9MNERkNdbhyrYqu2jWSQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">11</td><td>
+<span id="grdPojDetail_ctl12_lblPromoter"><ul style="padding-left:15px"><li>	 AGARWAL ASSOCIATES (PROMOTERS) LIMITED </li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl12_lblProjectName">CITY GRACE</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl12_lblRegistrationNo">UPRERAPRJ787285</span>
+</td><td>
+<span id="grdPojDetail_ctl12_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl12_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl12_lblStartDate">05-04-2021</span>
+</td><td>
+<span id="grdPojDetail_ctl12_lblEndDate">31-03-2029</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl12_lblRegDate">06-12-2023</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=Njn5ChtwsZY=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=yGllgIYbIVAZuYxKhI874w==&amp;PaURJEMAN4=ZL9MNERkNdbqStN9/nrnZQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">12</td><td>
+<span id="grdPojDetail_ctl13_lblPromoter"><ul style="padding-left:15px"><li>100 ACRES HOMES PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl13_lblProjectName">KAILASHAM ENCLAVE</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl13_lblRegistrationNo">UPRERAPRJ643949/09/2026</span>
+</td><td>
+<span id="grdPojDetail_ctl13_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl13_lblDistrict">Barabanki</span>
+</td><td>
+<span id="grdPojDetail_ctl13_lblStartDate">01-05-2026</span>
+</td><td>
+<span id="grdPojDetail_ctl13_lblEndDate">16-06-2029</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl13_lblRegDate">03-09-2026</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=xS+tnLos8jY=&amp;hfFlag=sHQN9DeUDkHozSnUOyKLvA==&amp;NPJ6RAme=DEpJShMOvqL2Ehw/JU147i2pNEVIFrkD&amp;PaURJEMAN4=ZL9MNERkNdZ5o33mEtH4QWTC36O+sCXk&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">13</td><td>
+<span id="grdPojDetail_ctl14_lblPromoter"><ul style="padding-left:15px"><li>A &amp; P LUCKNOW CONSTRUCTIONS</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl14_lblProjectName">MANSHA PLAZA</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl14_lblRegistrationNo">UPRERAPRJ871785</span>
+</td><td>
+<span id="grdPojDetail_ctl14_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl14_lblDistrict">Lucknow</span>
+</td><td>
+<span id="grdPojDetail_ctl14_lblStartDate">15-01-2022</span>
+</td><td>
+<span id="grdPojDetail_ctl14_lblEndDate">31-08-2025</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl14_lblRegDate">12-04-2022</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=Sx+vgMLk8CY=&amp;hfFlag=GL34ZTSSjlw=&amp;NPJ6RAme=6OEZeWBhG6cJxm/jES6p2A==&amp;PaURJEMAN4=ZL9MNERkNdZlOqDj37l43g==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">14</td><td>
+<span id="grdPojDetail_ctl15_lblPromoter"><ul style="padding-left:15px"><li>A A ENTERPRISES</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl15_lblProjectName">MALGUDI HOMES</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl15_lblRegistrationNo">UPRERAPRJ17411</span>
+</td><td>
+<span id="grdPojDetail_ctl15_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl15_lblDistrict">Lucknow</span>
+</td><td>
+<span id="grdPojDetail_ctl15_lblStartDate">23-08-2018</span>
+</td><td>
+<span id="grdPojDetail_ctl15_lblEndDate">31-12-2018</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl15_lblRegDate">29-08-2018</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=suRHmQqN2iQ=&amp;hfFlag=GL34ZTSSjlw=&amp;NPJ6RAme=smCNNqPN8mKmkbcrOO2TlA==&amp;PaURJEMAN4=ZL9MNERkNda9rtU1oU0hsQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">15</td><td>
+<span id="grdPojDetail_ctl16_lblPromoter"><ul style="padding-left:15px"><li>A AND M DEVELOPERS</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblProjectName">SHAKTI PLAZA</span>
+<br/><span id="grdPojDetail_ctl16_Label2" style="color:Red;font-weight:bold;">(Default on QPR)</span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblRegistrationNo">UPRERAPRJ16429</span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblStartDate">08-06-2018</span>
+</td><td>
+<span id="grdPojDetail_ctl16_lblEndDate">18-12-2019</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl16_lblRegDate">03-06-2018</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=929W5p/kpvU=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=6+xu0RWswL/BjIX1bAF+Cg==&amp;PaURJEMAN4=ZL9MNERkNdaa4HQ8rW/K/A==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">16</td><td>
+<span id="grdPojDetail_ctl17_lblPromoter"><ul style="padding-left:15px"><li>A C C BUILDERS</li></ul><ul><li>A.C.C. TOWNSHIP AND LAND DEVELOPMENT</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl17_lblProjectName">SAI GARDEN ENCLAVE</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl17_lblRegistrationNo">UPRERAPRJ263383/02/2026</span>
+</td><td>
+<span id="grdPojDetail_ctl17_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl17_lblDistrict">Moradabad</span>
+</td><td>
+<span id="grdPojDetail_ctl17_lblStartDate">01-12-2025</span>
+</td><td>
+<span id="grdPojDetail_ctl17_lblEndDate">13-11-2030</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl17_lblRegDate">24-02-2026</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=gkqqmmNja7Q=&amp;hfFlag=1E4qQMUGS4qnuSnOY2gD/g==&amp;NPJ6RAme=fcBtnyevI4Kx8z5QBTKKu00OPZlbx96r&amp;PaURJEMAN4=ZL9MNERkNdYyNvBUqICoOnExACBd0ylh&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">17</td><td>
+<span id="grdPojDetail_ctl18_lblPromoter"><ul style="padding-left:15px"><li>A I M INFRA  HOMES LLP</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl18_lblProjectName">ABDULLAH RESIDENCY AND SHOPING PLAZA</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl18_lblRegistrationNo">UPRERAPRJ926815</span>
+</td><td>
+<span id="grdPojDetail_ctl18_lblProjectType">Mixed</span>
+</td><td>
+<span id="grdPojDetail_ctl18_lblDistrict">Meerut</span>
+</td><td>
+<span id="grdPojDetail_ctl18_lblStartDate">01-04-2022</span>
+</td><td>
+<span id="grdPojDetail_ctl18_lblEndDate">18-01-2027</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl18_lblRegDate">20-09-2022</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=TlMmJwtilDA=&amp;hfFlag=34fLDxYRDAg=&amp;NPJ6RAme=DEAt30MbyC0mOxtDg61s2sXm+9CUejFpNTREnwSf2fACaidNKGSE/g==&amp;PaURJEMAN4=ZL9MNERkNdZAlpldilmDIA==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">18</td><td>
+<span id="grdPojDetail_ctl19_lblPromoter"><ul style="padding-left:15px"><li>A L SOFTWEB PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl19_lblProjectName">GRANDTHUM PHASE I</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl19_lblRegistrationNo">UPRERAPRJ585534</span>
+</td><td>
+<span id="grdPojDetail_ctl19_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl19_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl19_lblStartDate">01-08-2019</span>
+</td><td>
+<span id="grdPojDetail_ctl19_lblEndDate">26-09-2026</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl19_lblRegDate">02-09-2019</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=rxJ/BjZyICE=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=xKtMlErmp4Zp7xPPQYo24SsmACRQ5SXj&amp;PaURJEMAN4=ZL9MNERkNdbvy5TGo7/i2A==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">19</td><td>
+<span id="grdPojDetail_ctl20_lblPromoter"><ul style="padding-left:15px"><li>A L SOFTWEB PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl20_lblProjectName">GRANDTHUM PHASE II</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl20_lblRegistrationNo">UPRERAPRJ605316</span>
+</td><td>
+<span id="grdPojDetail_ctl20_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl20_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl20_lblStartDate">01-08-2019</span>
+</td><td>
+<span id="grdPojDetail_ctl20_lblEndDate">26-09-2026</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl20_lblRegDate">02-09-2019</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=kYdiBCU7vu8=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=xKtMlErmp4Zp7xPPQYo24a5nJISroYE5&amp;PaURJEMAN4=ZL9MNERkNdYYR828iNyIxg==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">20</td><td>
+<span id="grdPojDetail_ctl21_lblPromoter"><ul style="padding-left:15px"><li>A L SOFTWEB PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl21_lblProjectName">GRANDTHUM PHASE -III</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl21_lblRegistrationNo">UPRERAPRJ213153/02/2026</span>
+</td><td>
+<span id="grdPojDetail_ctl21_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl21_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl21_lblStartDate">02-01-2026</span>
+</td><td>
+<span id="grdPojDetail_ctl21_lblEndDate">04-12-2029</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl21_lblRegDate">20-02-2026</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=bXIKgesLd+8=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=xKtMlErmp4Zp7xPPQYo24Un1VD4fvMq8&amp;PaURJEMAN4=ZL9MNERkNdaLQDd7D9ShvDFpTIc4dc7l&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">21</td><td>
+<span id="grdPojDetail_ctl22_lblPromoter"><ul style="padding-left:15px"><li>A L SOFTWEB PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl22_lblProjectName">GRANDTHUM PHASE IV</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl22_lblRegistrationNo">UPRERAPRJ103135</span>
+</td><td>
+<span id="grdPojDetail_ctl22_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl22_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl22_lblStartDate">01-08-2019</span>
+</td><td>
+<span id="grdPojDetail_ctl22_lblEndDate">26-09-2026</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl22_lblRegDate">02-09-2019</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=qI/YVdNXBec=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=xKtMlErmp4Zp7xPPQYo24fHHwYF2Z8rh&amp;PaURJEMAN4=ZL9MNERkNdaA0+6VSkiHcw==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">22</td><td>
+<span id="grdPojDetail_ctl23_lblPromoter"><ul style="padding-left:15px"><li>A L SOFTWEB PRIVATE LIMITED</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl23_lblProjectName">GRANDTHUM PHASE V</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl23_lblRegistrationNo">UPRERAPRJ957104</span>
+</td><td>
+<span id="grdPojDetail_ctl23_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl23_lblDistrict">Gautam Buddha Nagar</span>
+</td><td>
+<span id="grdPojDetail_ctl23_lblStartDate">01-08-2019</span>
+</td><td>
+<span id="grdPojDetail_ctl23_lblEndDate">26-09-2026</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl23_lblRegDate">02-09-2019</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=Fud4nDJNAJQ=&amp;hfFlag=9emr4VdBw22M7BGjKtJWMPDI4s5cHQZP&amp;NPJ6RAme=xKtMlErmp4Zp7xPPQYo24dOc04wi1fFG&amp;PaURJEMAN4=ZL9MNERkNdbyKDJzNH6N3A==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">23</td><td>
+<span id="grdPojDetail_ctl24_lblPromoter"><ul style="padding-left:15px"><li>A R BUILDTECH PVT LTD</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl24_lblProjectName">A R REFLECTIONS</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl24_lblRegistrationNo">UPRERAPRJ11476</span>
+</td><td>
+<span id="grdPojDetail_ctl24_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl24_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl24_lblStartDate">05-10-2011</span>
+</td><td>
+<span id="grdPojDetail_ctl24_lblEndDate">05-07-2017</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl24_lblRegDate">15-08-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=i5jiyx0IbVU=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=49pgSZYbMXrzpcrn+bOYBQ==&amp;PaURJEMAN4=ZL9MNERkNdauFCtO/oUnnQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="even" role="row" style="color:#284775;background-color:White;">
+<td style="width:5%;">24</td><td>
+<span id="grdPojDetail_ctl25_lblPromoter"><ul style="padding-left:15px"><li>A R BUILDTECH PVT LTD</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl25_lblProjectName">A R DOMAIN</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl25_lblRegistrationNo">UPRERAPRJ699935/05/2025</span>
+</td><td>
+<span id="grdPojDetail_ctl25_lblProjectType">Residential</span>
+</td><td>
+<span id="grdPojDetail_ctl25_lblDistrict">Ghaziabad</span>
+</td><td>
+<span id="grdPojDetail_ctl25_lblStartDate">06-04-2025</span>
+</td><td>
+<span id="grdPojDetail_ctl25_lblEndDate">26-03-2028</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl25_lblRegDate">29-05-2025</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=KbGF3Vt8q7E=&amp;hfFlag=q5Tk0QUeJB8oatkp/Oqbxw==&amp;NPJ6RAme=Plq9gd8A5CB7HtRiW3FRaQ==&amp;PaURJEMAN4=ZL9MNERkNdYYBTeJIRUEDWRHcfom+XQz&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr><tr class="odd" role="row" style="color:#333333;background-color:#F7F6F3;">
+<td style="width:5%;">25</td><td>
+<span id="grdPojDetail_ctl26_lblPromoter"><ul style="padding-left:15px"><li>A R COLONISERS</li></ul></span>
+</td><td>
+<span id="grdPojDetail_ctl26_lblProjectName">CRYSTAL CITY CENTRE</span>
+<br/>
+</td><td>
+<span id="grdPojDetail_ctl26_lblRegistrationNo">UPRERAPRJ13447</span>
+</td><td>
+<span id="grdPojDetail_ctl26_lblProjectType">Commercial</span>
+</td><td>
+<span id="grdPojDetail_ctl26_lblDistrict">Lucknow</span>
+</td><td>
+<span id="grdPojDetail_ctl26_lblStartDate">11-10-2017</span>
+</td><td>
+<span id="grdPojDetail_ctl26_lblEndDate">31-03-2019</span>
+</td><td>
+<span class="btnViewtd" id="grdPojDetail_ctl26_lblRegDate">08-10-2017</span>
+</td><td class="viewbtndiv">
+<a class="btn bg-blue btn-circle waves-effect waves-circle waves-float" data-placement="bottom" data-toggle="tooltip" href="Projectsummary?UI0aPA1ISD=cGFgrCjc3Xk=&amp;hfFlag=GL34ZTSSjlw=&amp;NPJ6RAme=q3WRi9mWFVR4dglBcgeDFR0vEZK/adeI&amp;PaURJEMAN4=ZL9MNERkNdZsGPb+X4hzyQ==&amp;IRSAHEB=D6PY3lyims8=" id="anchorViewProject" target="_blank" title="Click To View Detail"><i class="material-icons">remove_red_eye</i></a>
+</td>
+</tr>
+</tbody></table><div class="tablesorter-sticky-wrapper tablesorter-sticky-hidden" style="position: absolute; top: 0px; left: 0px; visibility: hidden; z-index: 2; width: 1188px;"><table border="0" cellpadding="4" cellspacing="0" class="table table-striped table-hover bg_table js-basic-example dataTable tablesorter tablesorter-blue tablesorterfef7c891f864e8 hasFilters containsStickyHeaders tablesorter-stickyHeader tablesorterfef7c891f864e8_extra_table" id="grdPojDetail-sticky" role="grid" style="color: rgb(51, 51, 51); width: 1188px; border-collapse: collapse; height: 0px; margin: 0px; min-width: 1188px; max-width: 1188px;"><colgroup class="tablesorter-colgroup"><col style="width: 2.6%;"/><col style="width: 15.5%;"/><col style="width: 16.1%;"/><col style="width: 15.5%;"/><col style="width: 6.3%;"/><col style="width: 7.5%;"/><col style="width: 4.6%;"/><col style="width: 4.2%;"/><col style="width: 6%;"/><col style="width: 3.4%;"/></colgroup>
+<thead><tr class="tablesorter-headerRow" role="row"><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="S.No: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="0" role="columnheader" scope="col" style="user-select: none; width: 29.1406px; min-width: 29.1406px; max-width: 29.1406px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">S.No <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Promoter Name: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="1" role="columnheader" scope="col" style="user-select: none; width: 182.578px; min-width: 182.578px; max-width: 182.578px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Promoter Name <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Project Name: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="2" role="columnheader" scope="col" style="user-select: none; width: 189.906px; min-width: 189.906px; max-width: 189.906px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Project Name <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="RERA Reg.No.: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="3" role="columnheader" scope="col" style="user-select: none; width: 182.656px; min-width: 182.656px; max-width: 182.656px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">RERA Reg.No. <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="ProjectType: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="4" role="columnheader" scope="col" style="user-select: none; width: 73.2188px; min-width: 73.2188px; max-width: 73.2188px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">ProjectType <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="District: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="5" role="columnheader" scope="col" style="user-select: none; width: 88.25px; min-width: 88.25px; max-width: 88.25px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">District <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="StartDate: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="6" role="columnheader" scope="col" style="user-select: none; width: 53.3594px; min-width: 53.3594px; max-width: 53.3594px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">StartDate <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="EndDate: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="7" role="columnheader" scope="col" style="user-select: none; width: 48.6875px; min-width: 48.6875px; max-width: 48.6875px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">EndDate <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Registration Date: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="8" role="columnheader" scope="col" style="user-select: none; width: 70.0156px; min-width: 70.0156px; max-width: 70.0156px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Registration Date <i class="tablesorter-icon"></i></div></th><th aria-controls="grdPojDetail" aria-disabled="false" aria-label="Details: No sort applied, activate to apply an ascending sort" aria-sort="none" class="tablesorter-header tablesorter-headerUnSorted tablesorterfef7c891f864e8_extra_headers" data-column="9" role="columnheader" scope="col" style="user-select: none; width: 39.3594px; min-width: 39.3594px; max-width: 39.3594px;" tabindex="0" unselectable="on"><div class="tablesorter-header-inner">Details <i class="tablesorter-icon"></i></div></th></tr><tr class="tablesorter-filter-row tablesorter-ignoreRow" role="search"><td data-column="0" style="width: 13.1406px; min-width: 13.1406px; max-width: 13.1406px;"><input aria-label='Filter "S.No" column by...' class="tablesorter-filter" data-column="0" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="1" style="width: 166.578px; min-width: 166.578px; max-width: 166.578px;"><input aria-label='Filter "Promoter Name" column by...' class="tablesorter-filter" data-column="1" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="2" style="width: 173.906px; min-width: 173.906px; max-width: 173.906px;"><input aria-label='Filter "Project Name" column by...' class="tablesorter-filter" data-column="2" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="3" style="width: 166.656px; min-width: 166.656px; max-width: 166.656px;"><input aria-label='Filter "RERA Reg.No." column by...' class="tablesorter-filter" data-column="3" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="4" style="width: 57.2188px; min-width: 57.2188px; max-width: 57.2188px;"><input aria-label='Filter "ProjectType" column by...' class="tablesorter-filter" data-column="4" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="5" style="width: 72.25px; min-width: 72.25px; max-width: 72.25px;"><input aria-label='Filter "District" column by...' class="tablesorter-filter" data-column="5" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="6" style="width: 37.3594px; min-width: 37.3594px; max-width: 37.3594px;"><input aria-label='Filter "StartDate" column by...' class="tablesorter-filter" data-column="6" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="7" style="width: 32.6875px; min-width: 32.6875px; max-width: 32.6875px;"><input aria-label='Filter "EndDate" column by...' class="tablesorter-filter" data-column="7" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="8" style="width: 54.0156px; min-width: 54.0156px; max-width: 54.0156px;"><input aria-label='Filter "Registration Date" column by...' class="tablesorter-filter" data-column="8" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td><td data-column="9" style="width: 23.3594px; min-width: 23.3594px; max-width: 23.3594px;"><input aria-label='Filter "Details" column by...' class="tablesorter-filter" data-column="9" data-lastsearchtime="1792778284508" placeholder="" type="search"/></td></tr></thead></table></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<input disabled="disabled" id="btnPopup" name="btnPopup" style="display: none" type="submit" value=""/>
+</section>
+</div>
+
+</form>
+<!-- Bootstrap Core Js -->
+
+<!-- Select Plugin Js -->
+<!-- Slimscroll Plugin Js -->
+
+<!-- Waves Effect Plugin Js -->
+
+<!-- Jquery DataTable Plugin Js -->
+
+<!-- Jquery CountTo Plugin Js -->
+
+<!-- Morris Plugin Js -->
+<!-- ChartJs -->
+<!-- Flot Charts Plugin Js -->
+<!-- Sparkline Chart Plugin Js -->
+
+<!-- Custom Js -->
+
+<!-- Demo Js -->
+
+</body></html>

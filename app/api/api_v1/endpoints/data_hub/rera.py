@@ -7,6 +7,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import get_db
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
@@ -23,16 +24,57 @@ from app.schemas.pagination import (
     offset_payload,
     read_offset,
 )
+from app.services.data_hub.provenance import (
+    get_public_provenance_summaries,
+    serialize_with_provenance,
+)
 from app.services.data_hub.utils import calculate_builder_score
 
 from .helpers import _safe_list_query
 
 router = APIRouter()
 logger = get_logger(__name__)
+_HRERA_PROJECT_SEARCH_URL = "https://haryanarera.gov.in/view_project/search_project"
+
+
+def _require_hrera_enabled() -> None:
+    """Gate every HRERA-derived surface behind one switch (settings.HRERA_DATA_ENABLED).
+
+    Enabled by default. Operators can turn the whole surface off with
+    ``HRERA_DATA_ENABLED=false`` without a code change.
+    """
+    if not settings.HRERA_DATA_ENABLED:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "HRERA_DISABLED",
+                "message": "HRERA-derived data is turned off by configuration",
+                "official_source_url": _HRERA_PROJECT_SEARCH_URL,
+            },
+        )
+
+
+def _builder_projects_query(slug: str):
+    return (
+        select(ReraProject)
+        .where(ReraProject.developer_slug == slug)
+        .order_by(ReraProject.id)
+    )
+
+
+def _builder_complaints_query(slug: str):
+    return (
+        select(ReraComplaint)
+        .where(ReraComplaint.builder_slug == slug)
+        .order_by(ReraComplaint.order_date.desc(), ReraComplaint.id.desc())
+    )
 
 
 @router.get(
-    "/rera-projects", response_model=CursorPage[ReraProjectResponse], summary="List RERA projects"
+    "/rera-projects",
+    response_model=CursorPage[ReraProjectResponse],
+    summary="List RERA projects",
+    responses={503: {"description": "HRERA surface turned off by configuration"}},
 )
 async def list_rera_projects(
     status: str | None = Query(None),
@@ -41,6 +83,7 @@ async def list_rera_projects(
     db: AsyncSession = Depends(get_db),
 ):
     """List RERA projects with optional status filter and text search."""
+    _require_hrera_enabled()
     filters_payload = {"status": status, "q": q}
     filters = []
     if status:
@@ -63,7 +106,9 @@ async def list_rera_projects(
     )
 
     has_more = len(rows) > page.limit
-    items = rows[: page.limit]
+    items = await serialize_with_provenance(
+        db, "rera_project", rows[: page.limit], ReraProjectResponse
+    )
     next_payload = offset_payload(offset + page.limit) if has_more else None
     return build_cursor_page(
         items, limit=page.limit, next_payload=next_payload, total=total, filters=filters_payload
@@ -74,14 +119,27 @@ async def list_rera_projects(
     "/rera-projects/verify/{rera_number}",
     response_model=ReraVerifyResult,
     summary="Verify RERA number",
+    responses={503: {"description": "HRERA surface turned off by configuration"}},
 )
 async def verify_rera_project(rera_number: str, db: AsyncSession = Depends(get_db)):
-    """Verify a RERA number — returns validity, status, and project name."""
+    """Return verification only when reviewed evidence supports the exact number."""
+    _require_hrera_enabled()
     result = await db.execute(select(ReraProject).where(ReraProject.rera_number == rera_number))
     row = result.scalar_one_or_none()
     if row is None:
-        return ReraVerifyResult(valid=False)
-    return ReraVerifyResult(valid=True, status=row.status, project_name=row.project_name)
+        return ReraVerifyResult(
+            verification_status="unknown",
+            official_source_url=_HRERA_PROJECT_SEARCH_URL,
+        )
+    summaries = await get_public_provenance_summaries(db, "rera_project", [row])
+    verification_status = summaries[row.id].verification_status
+    return ReraVerifyResult(
+        valid=True if verification_status == "verified" else None,
+        verification_status=verification_status,
+        status=row.status,
+        project_name=row.project_name,
+        official_source_url=_HRERA_PROJECT_SEARCH_URL,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +148,10 @@ async def verify_rera_project(rera_number: str, db: AsyncSession = Depends(get_d
 
 
 @router.get(
-    "/builders", response_model=CursorPage[BuilderReputationResponse], summary="List builders"
+    "/builders",
+    response_model=CursorPage[BuilderReputationResponse],
+    summary="List builders",
+    responses={503: {"description": "HRERA surface turned off by configuration"}},
 )
 async def list_builders(
     q: str | None = Query(None, description="Search builder name"),
@@ -99,22 +160,40 @@ async def list_builders(
     db: AsyncSession = Depends(get_db),
 ):
     """List builders aggregated from RERA projects, with complaint counts and scores."""
+    _require_hrera_enabled()
     filters_payload = {"q": q, "order_by": order_by}
     cursor_payload = page.decoded(filters_payload)
     offset = read_offset(cursor_payload)
 
+    # One row per slug, not one row per (slug, name). The register spells a single
+    # developer's name several ways ("Delhi Development Authority" and "DELHI
+    # DEVELOPMENT AUTHORITY"), and grouping by the name as well split one developer into
+    # several rows that all shared a slug: the index listed the same builder two or three
+    # times with its projects divided between the spellings, the paging total counted
+    # spellings rather than builders, and the sitemap emitted one duplicate URL per extra
+    # spelling. The name shown is the one the detail page already shows — the lowest-id
+    # project's — so the list and the page agree.
+    named_projects = select(
+        ReraProject.developer_slug.label("slug"),
+        ReraProject.developer_name.label("builder_name"),
+        func.count(ReraProject.id)
+        .over(partition_by=ReraProject.developer_slug)
+        .label("total_projects"),
+        ReraProject.id.label("project_id"),
+    ).where(ReraProject.developer_slug.isnot(None))
+    if q:
+        named_projects = named_projects.where(ReraProject.developer_name.ilike(f"%{q}%"))
+    named_projects_sq = named_projects.subquery()
+
     slug_q = (
         select(
-            ReraProject.developer_slug.label("slug"),
-            ReraProject.developer_name.label("builder_name"),
-            func.count(ReraProject.id).label("total_projects"),
+            named_projects_sq.c.slug,
+            named_projects_sq.c.builder_name,
+            named_projects_sq.c.total_projects,
         )
-        .where(ReraProject.developer_slug.isnot(None))
-        .group_by(ReraProject.developer_slug, ReraProject.developer_name)
-        .order_by(ReraProject.developer_slug, ReraProject.developer_name)
+        .distinct(named_projects_sq.c.slug)
+        .order_by(named_projects_sq.c.slug, named_projects_sq.c.project_id)
     )
-    if q:
-        slug_q = slug_q.where(ReraProject.developer_name.ilike(f"%{q}%"))
 
     try:
         all_rows = (await db.execute(slug_q)).all()
@@ -182,6 +261,15 @@ async def list_builders(
             for c in comp_rows:
                 if c.builder_slug in complaints_by_slug:
                     complaints_by_slug[c.builder_slug].append(c)
+        project_entities = [
+            project
+            for projects in projects_by_slug.values()
+            for project in projects[:5]
+        ]
+        project_responses = await serialize_with_provenance(
+            db, "rera_project", project_entities, ReraProjectResponse
+        )
+        project_responses_by_id = {project.id: project for project in project_responses}
     except SQLAlchemyError as exc:
         logger.error("Builders query failed: %s", exc)
         raise ServiceUnavailableException(
@@ -197,7 +285,10 @@ async def list_builders(
             total_projects=s["total_projects"],
             total_complaints=s["total_complaints"],
             builder_score=s["builder_score"],
-            rera_projects=projects_by_slug[s["slug"]][:5],
+            rera_projects=[
+                project_responses_by_id[project.id]
+                for project in projects_by_slug[s["slug"]][:5]
+            ],
             recent_complaints=complaints_by_slug[s["slug"]][:5],
         )
         for s in page_summaries
@@ -215,13 +306,15 @@ async def list_builders(
 
 
 @router.get(
-    "/builders/{slug}", response_model=BuilderReputationResponse, summary="Get builder reputation"
+    "/builders/{slug}",
+    response_model=BuilderReputationResponse,
+    summary="Get builder reputation",
+    responses={503: {"description": "HRERA surface turned off by configuration"}},
 )
 async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
     """Get builder reputation details by slug."""
-    projects_result = await db.execute(
-        select(ReraProject).where(ReraProject.developer_slug == slug)
-    )
+    _require_hrera_enabled()
+    projects_result = await db.execute(_builder_projects_query(slug))
     projects = projects_result.scalars().all()
     if not projects:
         raise HTTPException(status_code=404, detail="Builder not found")
@@ -234,12 +327,7 @@ async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
     )
     total_complaints = complaint_count_result.scalar_one()
 
-    complaints_result = await db.execute(
-        select(ReraComplaint)
-        .where(ReraComplaint.builder_slug == slug)
-        .order_by(ReraComplaint.order_date.desc())
-        .limit(20)
-    )
+    complaints_result = await db.execute(_builder_complaints_query(slug).limit(20))
     complaints = complaints_result.scalars().all()
 
     score = calculate_builder_score(total_complaints, total_projects)
@@ -250,6 +338,8 @@ async def get_builder(slug: str, db: AsyncSession = Depends(get_db)):
         total_projects=total_projects,
         total_complaints=total_complaints,
         builder_score=score,
-        rera_projects=list(projects),  # type: ignore[arg-type]
-        recent_complaints=list(complaints),  # type: ignore[arg-type]
+        rera_projects=await serialize_with_provenance(
+            db, "rera_project", list(projects), ReraProjectResponse
+        ),
+        recent_complaints=list(complaints),
     )

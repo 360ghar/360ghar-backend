@@ -117,8 +117,8 @@ The agent chat stream (`POST /api/v1/agent/chat`, `/agent/chat-public`) emits ty
 ## Entry points for modification
 
 - New setting: add it to `Settings` in `app/core/config.py` and document the env var.
-- New shared HTTP client domain: add a singleton and a `close_*` hook in `app/core/http.py`, call it from `close_all_clients`, and document the client in the table above and in `CLAUDE.md`.
-- New flatmates realtime event type: add it in `app/services/flatmates/realtime.py`, queue it after the domain write, and document it in `CLAUDE.md` and `AGENTS.md`.
+- New shared HTTP client domain: add a singleton and a `close_*` hook in `app/core/http.py`, call it from `close_all_clients`, and document the client in the table above and in `AGENTS.md`.
+- New flatmates realtime event type: add it in `app/services/flatmates/realtime.py`, queue it after the domain write, and document it in `AGENTS.md`.
 - New transient DB error signature: add the message marker or code to `db_resilience.py`.
 
 ## Key source files

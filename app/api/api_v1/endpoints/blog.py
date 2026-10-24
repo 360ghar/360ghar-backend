@@ -9,6 +9,7 @@ from app.api.api_v1.dependencies.auth import (
     get_current_admin,
     get_current_user_optional,
 )
+from app.config import settings
 from app.core.cache import CacheKeyPatterns, invalidate_cache
 from app.core.database import get_db
 from app.core.db_resilience import extract_db_error_code, is_transient_db_error
@@ -47,6 +48,7 @@ from app.services.blog import (
     get_category,
     get_post_by_preview_token,
     get_tag,
+    is_hrera_derived_digest,
     list_blog_posts,
     list_categories,
     list_categories_cached,
@@ -180,6 +182,8 @@ async def list_posts(
                 limit=page.limit,
             )
 
+        if not is_admin and not settings.HRERA_DATA_ENABLED:
+            items = [post for post in items if not is_hrera_derived_digest(post)]
         return build_cursor_page(
             items, limit=page.limit, next_payload=next_payload, total=count_total, filters=filters
         )
@@ -219,7 +223,9 @@ async def get_post_by_preview(
     """
     try:
         post = await get_post_by_preview_token(db, token)
-        if not post:
+        if not post or (
+            not settings.HRERA_DATA_ENABLED and is_hrera_derived_digest(post)
+        ):
             raise HTTPException(status_code=404, detail="Blog post not found")
         return BlogPostPreviewResponse.model_validate(post, from_attributes=True)
     except HTTPException:
@@ -271,7 +277,11 @@ async def get_post(
             post = await get_blog_post(db, identifier, include_inactive=True)
         else:
             post = await get_blog_post_cached(db, identifier=identifier)
-        if not post:
+        if not post or (
+            not is_admin
+            and not settings.HRERA_DATA_ENABLED
+            and is_hrera_derived_digest(post)
+        ):
             raise HTTPException(status_code=404, detail="Blog post not found")
         return post
     except HTTPException:

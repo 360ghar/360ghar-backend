@@ -5,11 +5,14 @@ A null city or keyword matches every city or every description.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.models.data_hub import AuctionAlert, BankAuction, CourtAuction
 from app.models.enums import AuctionSource
 from app.services.data_hub.alerts import AlertMatcherService
+from app.services.notification_config import NOTIFICATION_TYPES
 
 
 @pytest.mark.asyncio
@@ -55,3 +58,70 @@ async def test_city_and_keyword_filters_select_matching_auctions(db_session, tes
         (any_city_any_keyword.id, "court", court_mumbai_plot.id),
         (pune_only.id, "bank", bank_pune_flat.id),
     }
+
+
+def test_the_auction_alert_type_is_registered():
+    # An unregistered type key makes the dispatcher send nothing, so the auction
+    # path must have its own registered type.
+    assert "auction_alert_match" in NOTIFICATION_TYPES
+
+
+@pytest.mark.asyncio
+async def test_upsert_dispatches_through_the_notification_dispatcher(
+    db_session, test_user, monkeypatch
+):
+    from app.services import notification_dispatcher
+
+    auction = BankAuction(
+        source=AuctionSource.sarfaesi,
+        bank_name="SBI",
+        property_description="Flat in a tower block",
+        city="Mumbai",
+    )
+    db_session.add(auction)
+    await db_session.flush()
+    alert = AuctionAlert(user_id=test_user.id, city="Mumbai")
+    db_session.add(alert)
+    await db_session.flush()
+
+    dispatch = AsyncMock(return_value={"type_key": "auction_alert_match", "channels": {}})
+    monkeypatch.setattr(notification_dispatcher, "dispatch_notification_to_user", dispatch)
+
+    matches = await AlertMatcherService()._find_matches(db_session)
+    stats = await AlertMatcherService()._upsert(db_session, matches)
+
+    assert stats["upserted"] >= 1
+    assert stats["failed"] == 0
+    assert dispatch.await_args.kwargs["type_key"] == "auction_alert_match"
+    assert dispatch.await_args.kwargs["user_db_id"] == test_user.id
+    await db_session.refresh(alert)
+    assert alert.last_notified_at is not None
+
+
+@pytest.mark.asyncio
+async def test_a_failed_dispatch_leaves_last_notified_at_unset(
+    db_session, test_user, monkeypatch
+):
+    from app.services import notification_dispatcher
+
+    auction = BankAuction(
+        source=AuctionSource.sarfaesi,
+        bank_name="SBI",
+        property_description="Flat in a tower block",
+        city="Mumbai",
+    )
+    db_session.add(auction)
+    await db_session.flush()
+    alert = AuctionAlert(user_id=test_user.id, city="Mumbai")
+    db_session.add(alert)
+    await db_session.flush()
+
+    dispatch = AsyncMock(return_value={"type_key": "auction_alert_match", "error": "user_not_found"})
+    monkeypatch.setattr(notification_dispatcher, "dispatch_notification_to_user", dispatch)
+
+    matches = await AlertMatcherService()._find_matches(db_session)
+    stats = await AlertMatcherService()._upsert(db_session, matches)
+
+    assert stats["failed"] >= 1
+    await db_session.refresh(alert)
+    assert alert.last_notified_at is None

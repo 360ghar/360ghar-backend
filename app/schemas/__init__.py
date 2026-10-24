@@ -26,6 +26,8 @@ from app.schemas.data_hub import (
     ColonyApprovalResponse,
     CourtAuctionResponse,
     DataHubMeta,
+    DataHubProvenanceSource,
+    DataHubProvenanceSummary,
     GazetteNotificationResponse,
     JamabandiLookupRequest,
     JamabandiLookupResponse,
@@ -123,6 +125,8 @@ __all__ = [
     "PrivacySettings",
     # Data Hub schemas
     "DataHubMeta",
+    "DataHubProvenanceSource",
+    "DataHubProvenanceSummary",
     "CircleRateResponse",
     "ReraProjectResponse",
     "BankAuctionResponse",

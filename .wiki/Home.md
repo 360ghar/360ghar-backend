@@ -52,5 +52,4 @@ A 2-3 minute silent walkthrough of the platform's six modules and architecture.
 
 - [Source code](https://github.com/360ghar/360ghar-backend)
 - [README](https://github.com/360ghar/360ghar-backend#readme)
-- [CLAUDE.md](https://github.com/360ghar/360ghar-backend/blob/main/CLAUDE.md) — coding guidelines and architecture reference.
-- [AGENTS.md](https://github.com/360ghar/360ghar-backend/blob/main/AGENTS.md) — operating contract for contributors and agents.
+- [AGENTS.md](https://github.com/360ghar/360ghar-backend/blob/main/AGENTS.md) — coding guidelines, architecture reference, and operating contract for contributors and agents.

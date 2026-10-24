@@ -202,9 +202,15 @@ class TestValidateDateRange:
             ValidationUtils.validate_date_range(start, end)
 
     def test_past_start_date_rejected(self):
-        from datetime import date, timedelta
-        start = date.today() - timedelta(days=1)
-        end = date.today() + timedelta(days=5)
+        from datetime import UTC, datetime, timedelta
+
+        # The validator compares against the UTC date, so the fixture has to as
+        # well. Using the local date made this test fail between local midnight
+        # and the UTC rollover: in IST that is 00:00-05:30 every day, when
+        # "yesterday, local" is still today in UTC and nothing is rejected.
+        today = datetime.now(UTC).date()
+        start = today - timedelta(days=1)
+        end = today + timedelta(days=5)
         with pytest.raises(ValidationException, match="past"):
             ValidationUtils.validate_date_range(start, end)
 

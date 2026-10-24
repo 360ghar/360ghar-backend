@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.utils import utc_now
 from app.models.content import Locality
 from app.models.data_hub import BankAuction, CircleRate, ReraProject
@@ -271,31 +272,72 @@ async def build_locality_sheet(db: AsyncSession, loc: Locality, today: date | No
                        f"{_range(float(lo), float(hi))} per sq yd", "Haryana circle rates", f"{newest}-04-01",
                        "circle_rate", url))
 
-    # RERA registered projects whose location names this place.
-    pattern = "|".join(r"\m" + re.escape(n) + r"\M" for n in names)
-    rera_rows = (
-        await db.execute(
-            select(ReraProject.project_name, ReraProject.developer_name, ReraProject.total_units,
-                   ReraProject.complaint_count)
-            .where(func.lower(ReraProject.district).in_(cities), ReraProject.location.op("~*")(pattern))
-            .order_by(ReraProject.total_units.desc().nulls_last(), ReraProject.project_name)
-        )
-    ).all()
-    if rera_rows:
-        top = rera_rows[:5]
-        sheet.add(Fact("rera_count", "RERA registered projects in the area", str(len(rera_rows)),
-                       "HRERA registry", now, "rera"))
-        sheet.add(Fact("rera_projects", "Larger registered projects",
-                       ", ".join(r.project_name for r in top), "HRERA registry", now, "rera"),
-                  *(r.project_name for r in top))
-        developers = sorted({r.developer_name for r in top if r.developer_name})
-        if developers:
-            sheet.add(Fact("rera_developers", "Developers of those projects", ", ".join(developers),
-                           "HRERA registry", now, "rera"), *developers)
-        units = sum(r.total_units or 0 for r in rera_rows)
-        if units:
-            sheet.add(Fact("rera_units", "Total units across registered projects", f"{units:,}",
-                           "HRERA registry", now, "rera"))
+    if settings.HRERA_DATA_ENABLED:
+        # RERA registered projects whose location names this place.
+        pattern = "|".join(r"\m" + re.escape(n) + r"\M" for n in names)
+        rera_rows = (
+            await db.execute(
+                select(
+                    ReraProject.project_name,
+                    ReraProject.developer_name,
+                    ReraProject.total_units,
+                    ReraProject.complaint_count,
+                )
+                .where(
+                    func.lower(ReraProject.district).in_(cities),
+                    ReraProject.location.op("~*")(pattern),
+                )
+                .order_by(ReraProject.total_units.desc().nulls_last(), ReraProject.project_name)
+            )
+        ).all()
+        if rera_rows:
+            top = rera_rows[:5]
+            sheet.add(
+                Fact(
+                    "rera_count",
+                    "RERA registered projects in the area",
+                    str(len(rera_rows)),
+                    "HRERA registry",
+                    now,
+                    "rera",
+                )
+            )
+            sheet.add(
+                Fact(
+                    "rera_projects",
+                    "Larger registered projects",
+                    ", ".join(r.project_name for r in top),
+                    "HRERA registry",
+                    now,
+                    "rera",
+                ),
+                *(r.project_name for r in top),
+            )
+            developers = sorted({r.developer_name for r in top if r.developer_name})
+            if developers:
+                sheet.add(
+                    Fact(
+                        "rera_developers",
+                        "Developers of those projects",
+                        ", ".join(developers),
+                        "HRERA registry",
+                        now,
+                        "rera",
+                    ),
+                    *developers,
+                )
+            units = sum(r.total_units or 0 for r in rera_rows)
+            if units:
+                sheet.add(
+                    Fact(
+                        "rera_units",
+                        "Total units across registered projects",
+                        f"{units:,}",
+                        "HRERA registry",
+                        now,
+                        "rera",
+                    )
+                )
 
     auctions = (
         await db.execute(

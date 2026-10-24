@@ -653,6 +653,59 @@ class ComplaintNature(str, Enum):
     other = "other"
 
 
+class ProjectStage(str, Enum):
+    """Lifecycle stage of a registered project.
+
+    Only the values a filing date can evidence are produced today. ``launched``
+    and ``stalled`` are deliberately absent: neither follows from a filed date,
+    so claiming one would be a guess.
+    """
+
+    pre_launch = "pre_launch"
+    under_construction = "under_construction"
+    near_possession = "near_possession"
+    completed = "completed"
+
+
+class ProjectPriceSource(str, Enum):
+    """Where a price point came from. Only ``filing`` and ``launch`` are official figures."""
+
+    launch = "launch"
+    filing = "filing"
+    derived = "derived"
+
+
+class ProjectPersonRole(str, Enum):
+    """Role of a person listed in REP-I.
+
+    Company roles come from Part A; ``licensee`` covers the co-licensees named in
+    Part B, who own the land but hold no company office.
+    """
+
+    chairman = "chairman"
+    managing_director = "managing_director"
+    director = "director"
+    authorised_representative = "authorised_representative"
+    licensee = "licensee"
+    other = "other"
+
+
+class MarketSentiment(str, Enum):
+    """Direction of a micro-market over the pulse window.
+
+    ``unknown`` is not a direction: it means no reading could be taken. The
+    register publishes no buyer-facing price, so the price move is always absent,
+    and the fallback signal (filings inside the window) needs a registration date
+    the Delhi register never states. ``neutral`` would claim a flat market on that
+    evidence; ``unknown`` says the evidence is missing.
+    """
+
+    positive = "positive"
+    neutral = "neutral"
+    negative = "negative"
+    unknown = "unknown"
+
+
 # --------------------
 # Tour AI Jobs
 # --------------------

@@ -1,139 +1,161 @@
-"""RERA project scraper — HRERA Gurugram (Playwright, JS-rendered tables)."""
+"""RERA project scraper — HRERA register rows.
+
+**This scraper cannot currently produce records, and it says so.**
+
+The HRERA project search at ``view_project/search_project`` is CAPTCHA-gated and
+the server validates the answer: posting the form with any captcha value returns
+"Please enter CAPTCHA". The form also requires authority, case number, and year
+together, so it is an exact-match lookup rather than a browsable index.
+``view_project/project_list`` serves the portal homepage, not a list, and the
+portal exposes no JSON or AJAX listing endpoint. There is therefore no headless
+path from this page to register rows.
+
+Discovery now happens in ``rera_portal_scan.ReraPortalIdScanner``, which walks
+the open filing pages at ``view_project/project_preview_open/{portal_project_id}``
+directly. This scraper is kept because it still owns the ``rera_projects`` name
+in the admin trigger map, and because a future HRERA release may reopen a
+listing route. Until then it reports the blocker instead of quietly returning
+zero rows, which is what it did when it targeted a district selector that does
+not exist on the page.
+"""
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import date
+import re
+from datetime import datetime
 from typing import Any
 
-from bs4 import BeautifulSoup
+from sqlalchemy import or_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.data_hub import ReraProject
-from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import generate_slug
+from app.services.data_hub.base_scraper import BaseScraper, ScrapeResult
 
 logger = logging.getLogger(__name__)
 
-_HRERA_URL = "https://hrera.haryana.gov.in/Public/ProjectSearch"
+_HRERA_URL = "https://haryanarera.gov.in/view_project/search_project"
+_DETAIL_LINK = re.compile(r"project_preview_open/(\d+)")
+
+# The search form's real field names, read from the served markup. The authority
+# select offers RERA-PKL, RERA-GRG, and H-REAT; the year select runs 2018 onward.
+_SEARCH_FIELDS = ("t_case_type", "t_case_no", "t_case_year", "captcha")
+_CAPTCHA_BLOCKED = "HRERA_SEARCH_REQUIRES_CAPTCHA"
+
+
+def _portal_project_id(row: Any) -> str | None:
+    """The portal's project id, read from the filing link in a result row."""
+    for anchor in row.find_all("a", href=True):
+        match = _DETAIL_LINK.search(anchor["href"])
+        if match:
+            return match.group(1)
+    return None
 
 
 class ReraProjectScraper(BaseScraper):
     name = "rera_projects"
     requires_playwright = True
 
-    async def _scrape(self) -> list[dict]:
-        results = []
-        try:
-            async with self._playwright_browser() as browser:
-                page = await browser.new_page()
-                page.set_default_timeout(60000)
-                await page.goto(_HRERA_URL, timeout=60000)
-                await asyncio.sleep(3)
-                # Search for Gurugram projects
-                try:
-                    # Try district dropdown
-                    district_sel = page.locator("select[name*='district'], select[id*='district']")
-                    if await district_sel.count() > 0:
-                        await district_sel.first.select_option(label="Gurugram")
-                        await asyncio.sleep(1)
-                    # Submit search
-                    submit = page.locator("button[type='submit'], input[type='submit']")
-                    if await submit.count() > 0:
-                        await submit.first.click()
-                        await asyncio.sleep(3)
-                    html = await page.content()
-                    results.extend(self._parse_rera_html(html))
-                    # Try to paginate (up to 5 pages)
-                    for _ in range(4):
-                        next_btn = page.locator("a:has-text('Next'), a:has-text('>'), .pagination .next")
-                        if await next_btn.count() == 0:
-                            break
-                        await next_btn.first.click()
-                        await asyncio.sleep(2)
-                        html = await page.content()
-                        results.extend(self._parse_rera_html(html))
-                except Exception as nav_e:
-                    logger.warning("HRERA navigation failed: %s", nav_e)
-                    html = await page.content()
-                    results.extend(self._parse_rera_html(html))
-                await page.close()
-        except Exception as e:
-            logger.warning("RERA projects Playwright scrape failed: %s", e)
-        return results
+    async def run(self, run_type: str = "cron", triggered_by: int | None = None) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"status": "disabled", "run_id": None, "reason": "hrera_disabled_by_configuration"}
+        return await super().run(run_type=run_type, triggered_by=triggered_by)
 
-    def _parse_rera_html(self, html: str) -> list[dict]:
-        import re
-        soup = BeautifulSoup(html, "html.parser")
-        records = []
-        for table in soup.find_all("table"):
-            headers = [th.get_text(strip=True).lower() for th in table.find_all("th")]
-            for row in table.find_all("tr")[1:]:
-                cells = [td.get_text(strip=True) for td in row.find_all("td")]
-                if len(cells) < 2:
-                    continue
-                rec: dict[str, Any] = {"district": "Gurugram", "raw_data": {"headers": headers, "cells": cells}}
-                for i, h in enumerate(headers):
-                    if i >= len(cells):
-                        break
-                    val = cells[i].strip()
-                    if not val:
-                        continue
-                    if "rera" in h and "number" in h or "registration" in h and "no" in h:
-                        rec["rera_number"] = val
-                    elif "project" in h and "name" in h:
-                        rec["project_name"] = val
-                    elif "developer" in h or "promoter" in h:
-                        rec["developer_name"] = val
-                    elif "location" in h or "address" in h:
-                        rec["location"] = val
-                    elif "unit" in h and "total" in h:
-                        try:
-                            rec["total_units"] = int(val.replace(",", ""))
-                        except ValueError:
-                            pass
-                    elif "status" in h:
-                        rec["status"] = val.lower()
-                    elif "possession" in h:
-                        m = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})", val)
-                        if m:
-                            try:
-                                d, mo, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
-                                if y < 100:
-                                    y += 2000
-                                rec["possession_date"] = date(y, mo, d)
-                            except ValueError:
-                                pass
-                if rec.get("rera_number") and rec.get("project_name"):
-                    rec["developer_slug"] = generate_slug(rec.get("developer_name", "unknown"))
-                    rec["source_url"] = _HRERA_URL
-                    records.append(rec)
-        return records
+    async def _scrape(self) -> ScrapeResult:
+        """Report the CAPTCHA blocker instead of returning an empty success.
+
+        The form's real fields are ``t_case_type``, ``t_case_no``, ``t_case_year``
+        and ``captcha``; the server rejects a submission whose captcha it did not
+        issue. No district selector exists, so the previous navigation step was
+        targeting markup that is not on the page.
+        """
+        if not settings.HRERA_DATA_ENABLED:
+            return ScrapeResult()
+        result = ScrapeResult()
+        coverage: dict[str, Any] = {
+            "source_url": _HRERA_URL,
+            "pages_attempted": 0,
+            "pages_checked": 0,
+            "pages_parsed": 0,
+            "records_parsed": 0,
+            "status": "failed",
+        }
+        result.errors.append(
+            {
+                "source_url": _HRERA_URL,
+                "stage": "navigation",
+                "error_type": _CAPTCHA_BLOCKED,
+                "message": (
+                    "HRERA project search is CAPTCHA-gated and server-validated; "
+                    "there is no headless path to register rows. Use "
+                    "rera_portal_scan to walk filing pages by portal id instead."
+                ),
+            }
+        )
+        result.source_coverage.append(coverage)
+        return result
+
+    # A listing parser used to live here. It targeted a district selector that is
+    # not on the page and could never pass the CAPTCHA, so it silently produced
+    # zero records. It is gone rather than kept: code that cannot run implies the
+    # scraper works. When HRERA exposes a listing route, write the parser against
+    # the markup that route actually serves, with a captured page as its fixture.
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"found": 0, "upserted": 0, "failed": 0}
         found = len(records)
         upserted = 0
         failed = 0
         for rec in records:
+            rec["_upsert_succeeded"] = False
             try:
-                values = {k: v for k, v in rec.items()
-                          if hasattr(ReraProject, k) and k not in ("id", "created_at", "updated_at")}
-                stmt = pg_insert(ReraProject).values(**values)
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["rera_number"],
-                    set_={
-                        "status": stmt.excluded.status,
-                        "units_booked": stmt.excluded.units_booked,
-                        "raw_data": stmt.excluded.raw_data,
-                        "source_url": stmt.excluded.source_url,
+                source_checked_at = rec.get("_source_checked_at")
+                if not isinstance(source_checked_at, datetime):
+                    failed += 1
+                    continue
+                values = {
+                    key: value
+                    for key, value in rec.items()
+                    if hasattr(ReraProject, key)
+                    and key
+                    not in (
+                        "id",
+                        "created_at",
+                        "updated_at",
+                        "last_checked_at",
+                        "last_successful_run_id",
+                    )
+                }
+                async with db.begin_nested():
+                    stmt = pg_insert(ReraProject).values(**values)
+                    update_fields = {
+                        key: getattr(stmt.excluded, key)
+                        for key in values
+                        if key
+                        not in (
+                            "rera_number",
+                            "last_checked_at",
+                            "last_successful_run_id",
+                        )
                     }
-                )
-                await db.execute(stmt)
+                    result = await db.execute(
+                        stmt.on_conflict_do_update(
+                            index_elements=["rera_number"],
+                            set_=update_fields,
+                            where=or_(
+                                ReraProject.last_checked_at.is_(None),
+                                ReraProject.last_checked_at <= source_checked_at,
+                            ),
+                        )
+                        .returning(ReraProject.id)
+                    )
+                    if result.scalar_one_or_none() is None:
+                        continue
                 upserted += 1
+                rec["_upsert_succeeded"] = True
             except Exception as e:
                 logger.warning("Failed to upsert RERA project %s: %s", rec.get("rera_number"), e)
-                await db.rollback()
                 failed += 1
-        await db.commit()
         return {"found": found, "upserted": upserted, "failed": failed}

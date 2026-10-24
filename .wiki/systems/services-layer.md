@@ -28,7 +28,16 @@ app/services/
 ├── media/                          # Media helpers
 ├── core.py
 ├── custom_domain.py                # Custom domain DNS verification
-├── data_hub/                       # 26 scraper modules
+├── data_hub/                       # Scrapers and provenance persistence
+│   ├── developer_dossier.py        # Five-pillar developer score derivation
+│   ├── market_pulse.py             # Daily per-city price and registration snapshot
+│   ├── micro_market.py             # Micro-markets derived from filed address text
+│   ├── provenance.py               # Typed evidence assertions, immutable revisions, safe summaries
+│   ├── rera_portal_scan.py         # Operator-driven walk of HRERA filing pages by portal id
+│   ├── rera_price_history.py       # Filed price points and interpolation between them
+│   ├── rera_project_detail.py      # FORM REP-I parser and filing detail scraper
+│   ├── watchlist.py                # Saved-project CRUD for a user
+│   └── watchlist_alerts.py         # Change detection and watchlist alert dispatch
 ├── data_hub_scheduler.py           # Data hub cron registration
 ├── email.py                        # Email service
 ├── flatmates/                      # conversations, helpers, interactions, matching, moderation, profiles, compatibility, visits
@@ -108,3 +117,12 @@ Services own the unit of work: they begin queries on the injected session, commi
 | `app/services/pm_authz.py` | PM authorization helpers |
 | `app/services/notification_config.py` | `NOTIFICATION_TYPES` registry |
 | `app/services/ai/` | AI provider factory, Gemini, GLM, vastu, image gen |
+| `app/services/data_hub/provenance.py` | Data Hub source metadata, assertions, revisions, public-safe summaries |
+| `app/services/data_hub/developer_dossier.py` | Five-pillar developer score (delivery, regulatory, complaints, financials, market reception) |
+| `app/services/data_hub/market_pulse.py` | Daily per-city snapshot: registrations, complaints, sentiment. The mean price and the 90-day move are carried in the row but are always null — no register publishes a rate per square foot (see [data-hub](features/data-hub.md)) |
+| `app/services/data_hub/micro_market.py` | Derives micro-markets from the sector/locality text filings name; refuses an unreadable address rather than inventing a place |
+| `app/services/data_hub/rera_portal_scan.py` | Portal-id walk that discovers HRERA filings; operator-triggered only, never scheduled |
+| `app/services/data_hub/rera_price_history.py` | Filed launch/filing price points plus clearly-marked derived interpolation; writes nothing today, because no filing states a price |
+| `app/services/data_hub/rera_project_detail.py` | FORM REP-I parser (`parse_rep_i`) and the weekly filing detail scraper |
+| `app/services/data_hub/watchlist.py` | Saved-project CRUD, idempotent add, per-user limit |
+| `app/services/data_hub/watchlist_alerts.py` | Pure change checks plus the weekly watchlist alert dispatch |

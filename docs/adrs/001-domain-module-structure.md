@@ -274,7 +274,7 @@ Migrate domains one at a time in isolation. For each domain:
 
 1. Remove all backward-compatible re-exports from legacy directories.
 2. Remove empty directories (`app/services/`, `app/models/`, `app/schemas/` once fully migrated).
-3. Update `CLAUDE.md`, `AGENTS.md`, and `docs/repo-contract.json`.
+3. Update `AGENTS.md`, and `docs/repo-contract.json`.
 4. Update CI test paths.
 
 ### Rollback Plan

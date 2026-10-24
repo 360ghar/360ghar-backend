@@ -80,6 +80,10 @@ Middleware is registered in a specific order because Starlette executes middlewa
 
 `app/infrastructure/scheduler.py` holds a single module-level `_scheduler` (an `AsyncIOScheduler` with timezone `Asia/Kolkata`). `get_scheduler()` creates it lazily, `start_scheduler()` starts it once, and `shutdown_scheduler()` stops and clears it. All background jobs (blog auto-publish, notifications, vector sync, data hub scrapers) register on this one instance via their `start_*_scheduler` functions, which are called from `_register_scheduler_jobs` in lifespan. No module creates its own scheduler.
 
+The Data Hub weekly job registers the HRERA filing refresh, complaints, price history, developer dossier, micro-markets, UP RERA and Delhi RERA only while `HRERA_DATA_ENABLED` is true; the daily job adds the market-pulse snapshot under the same flag. Manual triggers and the scraper implementations independently enforce the same gate, and turning it off keeps existing rows readable. The flag is an operator off-switch and is on by default.
+
+`ReraProjectScraper` is not scheduled anywhere: HRERA's project search is CAPTCHA-gated, so it can never succeed and a permanent weekly failure would only teach operators to ignore failures. It reports `HRERA_SEARCH_REQUIRES_CAPTCHA` when triggered by hand. Discovery runs through `rera_portal_scan`, which is deliberately not a cron job either — it walks a government portal's identifier space, so an operator states a range, each run is capped, requests are paced, and a run without an `end_id` fails rather than defaulting to an unbounded crawl.
+
 ## Integration points
 
 - **Core** supplies the cache, DB engines, HTTP clients, and logging that lifespan initializes and shuts down. See [core-cross-cutting](core-cross-cutting.md).

@@ -1,6 +1,6 @@
 # Data models
 
-The 360Ghar backend has 68 ORM tables across 18 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
+The 360Ghar backend has 71 ORM tables across 19 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
 
 Active contributors: Saksham, Ravi
 
@@ -24,7 +24,7 @@ Active contributors: Saksham, Ravi
 | `app/models/pm_documents.py` | `Document` |
 | `app/models/pm_inspections.py` | `InspectionChecklist` |
 | `app/models/ai_conversations.py` | `AIConversation`, `AIConversationMessage` |
-| `app/models/data_hub.py` | `BankAuction`, `CircleRate`, `CourtAuction`, `GazetteNotification`, `JamabandiCache`, `ReraProject`, `ReraComplaint`, `ZoningData`, `ColonyApproval`, `NeighbourhoodScore`, `BankRate`, `AuctionAlert`, `ScraperRun` |
+| `app/models/data_hub.py` | `BankAuction`, `CircleRate`, `CourtAuction`, `GazetteNotification`, `JamabandiCache`, `ReraProject`, `ReraComplaint`, `ZoningData`, `ColonyApproval`, `NeighbourhoodScore`, `BankRate`, `AuctionAlert`, `ScraperRun`, `SourceDocument`, `DataHubEvidenceAssertion`, `DataHubEntityRevision`, `ReraProjectProfile`, `ReraLandUsage`, `ReraProjectCost`, `ReraQuarterlyExpenditure`, `ReraProjectDocument`, `ReraStatutoryApproval`, `ReraProjectFacility`, `ReraProjectNoc`, `ReraProjectPerson`, `ReraProjectBankAccount`, `ReraProjectUnitConfig`, `ReraProjectSpecification`, `Developer`, `DeveloperScore`, `ProjectPriceHistory`, `MicroMarket`, `ProjectWatchlist`, `MarketPulseSnapshot` |
 
 ## Enums
 
@@ -100,3 +100,46 @@ The `is_seed_data` boolean column (default `false`, `server_default=text("false"
 ## Migrations
 
 SQL migrations live in `supabase/migrations/`. They are applied via `supabase db push` or `supabase db reset`. Lightweight DDL that cannot go through the Supabase CLI (enum value additions, column adds) is applied at startup by the lifespan - see [deployment.md](../deployment.md).
+
+## Data Hub provenance
+
+- `SourceDocument` stores authority/title, canonical source locator, jurisdiction, document type/language, license/reuse terms, dates, fetch/check times, content hash, and an optional restricted artifact reference. Source HTML/PDF/text is not stored in this table.
+- `DataHubEvidenceAssertion` stores only allowlisted normalized values and structural page/table/row/column locators. Status is constrained to `unreviewed`, `accepted`, `rejected`, or `superseded`; method is constrained to `scrape`, `manual`, `ocr`, or `derived`. Reviewer IDs are private `users.id` references.
+- `DataHubEntityRevision` stores an allowlisted normalized snapshot, SHA-256, changed fields, run/source references, and a stable per-entity revision number. A database trigger rejects updates/deletes; unchanged snapshots do not create revisions.
+- Both assertions and revisions enforce exactly one typed FK to `rera_projects`, `zoning_data`, or `colony_approvals`. Historical target rows keep `last_checked_at` and `last_successful_run_id` null until checked.
+
+## RERA project intelligence
+
+One filing page per project (`view_project/project_preview_open/{portal_project_id}`) supplies these tables. Collection tables are replaced wholesale only after a filing parses in full, so a failed parse cannot leave a half-written filing. Every table carries a nullable `source_document_id` citing the filing it came from.
+
+| Table | Holds |
+|---|---|
+| `rera_project_profiles` | 1:1 REP-I scalars: licensed land, land area, proposed/permissible FAR, towers, floors, units, units per acre, RERA received, construction start and proposed completion dates, launch and current price per sq ft, latitude/longitude, derived `stage` |
+| `rera_land_usage` | Land-usage split, one row per particular, with area in sq m and acres plus share percentage |
+| `rera_project_costs` | 1:1 cost breakdown: land, construction, infrastructure, other, total. The filing states lakhs; every stored amount is in rupees |
+| `rera_quarterly_expenditure` | Seven-year quarterly expenditure per `category` (apartment or infrastructure), year, quarter, and particular. Only rows carrying all four quarters are stored |
+| `rera_project_documents` | Uploaded documents, keyed by `ordinal` (position across both document tables), with upload date and view URL |
+| `rera_statutory_approvals` | 1:1 LOI and licence numbers/dates, electric load, water/storm-water/sewerage availability, and a `plan_approvals` JSONB map of the plan-approval booleans |
+| `rera_project_facilities` | Declared facility with its filed cost and status |
+| `rera_project_nocs` | NOC row: facility, provider agency, approval state, reference |
+| `rera_project_people` | Promoter-side people by `role` (chairman, managing director, director, authorised representative, licensee). **Only `pan_last4` is stored**; the rest of the identifier is discarded on ingest. Contact details are never serialized publicly |
+| `rera_project_bank_accounts` | Designated collection account. Stored for reconciliation; `account_number` is excluded from every public response |
+| `rera_project_unit_configs` | Apartment type with carpet/built-up/super built-up areas, carpet efficiency, unit count, towers, parkings, and filed price. Keyed by `ordinal` because one type can appear at two carpet areas |
+| `rera_project_specifications` | Specification line with `scope` (`project` or `unit`), `unit_type` (`all` for project-wide), key, and value |
+
+New first-class entities alongside them:
+
+| Table | Holds |
+|---|---|
+| `developers` | One row per promoter slug: name, legal name, logo, website, CIN, summary, dossier markdown, founded year, listed flag, headquarters, geographies, plus `last_checked_at`/`last_successful_run_id` |
+| `developer_scores` | 1:1 with a developer: the five pillar scores, weighted `total_score`, project/delivered/under-construction/complaint counts, and `computed_at` |
+| `project_price_history` | One price point per project, quarter, unit type, and `source`. `filing` and `launch` points are filed figures; `derived` points are computed and marked as such |
+| `micro_markets` | Named sub-market inside a city, unique on `(city, slug)`. `rera_projects.micro_market_id` points at it, and that link is what the read side scopes its statistics by |
+| `project_watchlist` | A user's saved project with notes and `alert_prefs`, unique on `(user_id, rera_project_id)` |
+| `market_pulse_snapshots` | One city's daily reading, unique on `(city, captured_on)`. Rows are the history; nothing is overwritten |
+
+`project_watchlist`, `rera_project_people`, and `rera_project_bank_accounts` enable row level security with no policy, so PostgREST clients read no rows directly. The backend connects as the table owner and is unaffected.
+
+`rera_projects` gained three things for this work. `slug` is the public URL key, unique via `idx_rera_projects_slug`; Postgres allows repeated NULLs in a unique index, so rows written before the column existed keep a null slug until a filing pass backfills it. `idx_rera_projects_portal_project_id` is a **partial** unique index on `raw_data ->> 'portal_project_id'`, and it is the conflict target for the portal-id scan. The key is the portal id rather than `rera_number` because a filing page states only the portal's pre-registration id and never the registration number; the index is partial so rows from other sources, which carry no portal id, stay unconstrained. Both indexes are declared on the model as well as in the migration, and `verify_schema_drift.py` checks unique indexes including partial ones — expression indexes are skipped on both sides, so the two cannot disagree about them.
+
+`micro_market_id` is a nullable FK to `micro_markets` (`ON DELETE SET NULL`, indexed). It is what a micro-market's project count and average rate are scoped by. Scoping by `district` instead gave every micro-market in one district identical numbers under a different name. The value is written by `MicroMarketScraper` from the project's own filed location, and it is `NULL` when that address names no readable locality — the invariant is that the link always equals the derivation, so a refusal clears the link rather than leaving a stale one.

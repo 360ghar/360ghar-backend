@@ -18,7 +18,7 @@ A quantitative snapshot of the 360Ghar backend. Numbers describe the repository 
 | ORM tables | 71 across 19 model files |
 | MCP tools | 40+ across user and admin servers |
 | Enums | 50+ in `app/models/enums.py` |
-| Data hub scrapers | 26 modules in `app/services/data_hub/` |
+| Data hub scrapers | 37 modules in `app/services/data_hub/` (was 26 when this snapshot was taken) |
 | Widgets | 11 React HTML bundles in `chatgpt-widgets/dist/` |
 
 ## Language breakdown

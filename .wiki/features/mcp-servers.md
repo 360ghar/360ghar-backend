@@ -128,7 +128,7 @@ Tools that change PM state call the PM services (`app/services/pm_leases.py`, `p
 
 ## Entry points for modification
 
-Add a new user tool by writing the business logic in `app/mcp/tool_ops/`, registering it in `app/mcp/user/` with `@user_mcp.tool()` annotations (include `readOnlyHint`, `openWorldHint`, `destructiveHint`, `securitySchemes`), and — if it should render a widget — adding an entry to `WIDGETS` in `app/mcp/chatgpt/__init__.py` and a widget component in `chatgpt-widgets/src/widgets/`. New admin tools go in `app/mcp/admin/agent_tools/` and require `_require_agent_or_admin`. Every auth-required tool must use `raise_auth_required()` (not raw `AuthRequiredError`) so the challenge includes `resource_metadata`. Update CLAUDE.md and AGENTS.md when adding tools, widgets, or new MCP protocol capabilities.
+Add a new user tool by writing the business logic in `app/mcp/tool_ops/`, registering it in `app/mcp/user/` with `@user_mcp.tool()` annotations (include `readOnlyHint`, `openWorldHint`, `destructiveHint`, `securitySchemes`), and — if it should render a widget — adding an entry to `WIDGETS` in `app/mcp/chatgpt/__init__.py` and a widget component in `chatgpt-widgets/src/widgets/`. New admin tools go in `app/mcp/admin/agent_tools/` and require `_require_agent_or_admin`. Every auth-required tool must use `raise_auth_required()` (not raw `AuthRequiredError`) so the challenge includes `resource_metadata`. Update AGENTS.md when adding tools, widgets, or new MCP protocol capabilities.
 
 ## Key source files
 

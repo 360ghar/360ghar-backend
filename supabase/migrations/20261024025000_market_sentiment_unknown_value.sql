@@ -1,0 +1,23 @@
+-- `market_sentiment` gains `unknown`: a reading that could not be taken.
+--
+-- This lives in its own migration, one step ahead of the migration that writes
+-- it, because PostgreSQL will not let a transaction use an enum value that the
+-- same transaction added. `ALTER TYPE ... ADD VALUE` is allowed inside a
+-- transaction block on PostgreSQL 12 and later, but the new label only becomes
+-- usable once the transaction that added it has committed.
+--
+-- `scripts/run_supabase_migrations.py` sends one whole file per transaction:
+-- `conn.autocommit = False`, one `cur.execute(sql)` for the file, then
+-- `conn.commit()`. So a file that both adds the value and writes it fails with
+--
+--     unsafe use of new value "unknown" of enum type market_sentiment
+--
+-- which is exactly what an earlier single-file version of
+-- `20261024030100_market_pulse_unknown_readings.sql` did while it added the label
+-- and then set a row to it. That failure rolled the whole file back and stopped
+-- the runner, so no later migration applied either, and the `unknown` the writer
+-- now stores could not be written at all:
+-- `invalid input value for enum market_sentiment: "unknown"`.
+--
+-- Idempotent: `IF NOT EXISTS` makes a second run a no-op.
+ALTER TYPE market_sentiment ADD VALUE IF NOT EXISTS 'unknown';

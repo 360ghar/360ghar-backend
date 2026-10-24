@@ -47,6 +47,31 @@ def generate_slug(*parts: str) -> str:
     return slug.strip("-")
 
 
+def canonical_city(value: str | None) -> str:
+    """The stored spelling of a filed district, and therefore its identity.
+
+    The district is the city on both derived surfaces (``micro_market`` and
+    ``market_pulse``), and the registers spell one district inconsistently —
+    ``Gurugram`` in one filing, ``gurugram`` in the next. Case is not identity, so
+    every write and every lookup that means "which place is this" goes through
+    here. Both unique constraints that key on the city
+    (``uq_micro_markets_city_slug``, ``uq_market_pulse_snapshots_city_day``) are
+    case-sensitive, and the read side matches a city case-insensitively, so
+    leaving the filed spelling alone let one place occupy two rows and two public
+    pages with different numbers on them.
+
+    Lowercase is the spelling the public URL already uses: the site 301s any path
+    carrying an uppercase letter to its lowercase form, and the micro-market page
+    links ``market.city.toLowerCase()``. Lowercasing cannot change what
+    ``derive_locality`` derives either — it upper-cases the district before
+    comparing it to an address component, so that parse is already case-blind.
+
+    This is the same normalisation ``normalize_address`` already applies to the
+    auction addresses in this package.
+    """
+    return str(value or "").strip().lower()
+
+
 # Columns excluded from the upsert values dict.
 _BANK_AUCTION_SKIP = {"id", "created_at", "updated_at"}
 

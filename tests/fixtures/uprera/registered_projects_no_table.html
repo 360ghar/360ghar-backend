@@ -1,0 +1,302 @@
+<html class="chrome" xmlns="http://www.w3.org/1999/xhtml"><head id="Head1"><meta charset="utf-8"/><meta content="IE=Edge" http-equiv="X-UA-Compatible"/><meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" name="viewport"/><title>
+	UPRERA Registered Projects
+</title><meta content="This is an official website of UP RERA that provides online information about all activities, provisions by UP RERA in Uttar Pradesh." name="description"/><meta content="uprera,UP RERA,uttar pradesh rera,rera in uttar pradesh,UPRERA,Official Website of RERA Uttar Pradesh,Website of RERA Uttar Pradesh,Website of RERA,RERA UP WEBSITE,UP RERA WEBSITE, OFFICIAL WEBSITE OF RERA,RERA UP,UPRERA WEBSITE,ONLINE PROPERTY,ONLINE PROJECT REGISTRTION,Promoters Registration" name="keywords"/>
+<!-- Favicon-->
+
+<!-- Google Fonts -->
+
+<!-- Bootstrap Core Css -->
+
+<!-- Waves Effect Css -->
+
+<!-- Animation Css -->
+
+<!-- JQuery DataTable Css -->
+
+<!-- Morris Chart Css-->
+
+<!-- Custom Css -->
+
+</head>
+<body class="theme-default">
+<form action="./projects" id="form1" method="post" name="form1">
+<div>
+
+</div>
+
+<div>
+
+</div>
+
+<!-- #END# Page Loader -->
+<!-- Overlay For Sidebars -->
+<div class="overlay"></div>
+<!-- #END# Overlay For Sidebars -->
+<!-- Search Bar -->
+<!-- #END# Search Bar -->
+<!-- Top Bar -->
+<nav class="navbar">
+<div class="container-fluid">
+<div class="row">
+<div class="col-sm-3">
+<div class="navbar-header">
+<a aria-expanded="false" class="navbar-toggle collapsed" data-target="#navbar-collapse" data-toggle="collapse" href="javascript:void(0);"></a>
+<a class="bars" href="javascript:void(0);"></a>
+<img class="navbar-brand" src="images/logo/UP_RERA_Final_Logo-02.jpg"/>
+</div>
+</div>
+<div class="col-sm-8">
+<h2 class="clientname" style="color:#dc3838;font-weight:900;">Uttar Pradesh Real Estate Regulatory Authority</h2>
+</div>
+<div class="col-sm-1">
+<div class="collapse navbar-collapse" id="navbar-collapse">
+<ul class="nav navbar-nav navbar-right">
+<!-- Call Search -->
+<!-- #END# Call Search -->
+<li>
+<a class="js-sweetalert" data-type="ajax-loader" onclick="return showAlertPromoterForHomePage();" role="button" title="Go Back To Home Page">
+<i class="material-icons">home</i>
+</a>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</div>
+</nav>
+<!-- #Top Bar -->
+<section>
+<!-- Left Sidebar -->
+<aside class="sidebar" id="leftsidebar">
+<!-- Menu -->
+<div class="menu">
+<div class="row">
+<div class="col-xs-12 ol-sm-12 col-md-12 col-lg-12 rowchild">
+<h4 class="header"> Remove Filters <span style="float: right">
+<a class="btn-circle waves-effect waves-circle waves-float btn-sm" href="javascript:__doPostBack('lnkbtn_reset_prj','')" id="lnkbtn_reset_prj" style="background-color: #fb483a; color: white; float: right; width: 35px; height: 35px;" title="Remove Filters"><i class="material-icons">autorenew</i></a></span></h4>
+<div aria-multiselectable="false" class="panel-group" id="accordion_4" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingOne_District" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseOne_District" aria-expanded="true" data-parent="#accordion_4" data-toggle="collapse" href="#collapseOne_District" role="button"><i class="material-icons">location_city</i> District</a>
+</h4>
+</div>
+<div aria-labelledby="headingOne_District" class="panel-collapse collapse in" id="collapseOne_District" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount1"></span>
+<input class="form-control" id="txtSearchDistrict" onkeyup="SearchDistrict(this,'#chk_district');" placeholder="search district" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_5" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingPromoter" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapsePromoter" aria-expanded="true" class="collapsed" data-parent="#accordion_5" data-toggle="collapse" href="#collapsePromoter" role="button"><i class="material-icons">person</i> Promoter</a>
+</h4>
+</div>
+<div aria-labelledby="headingPromoter" class="panel-collapse collapse in" id="collapsePromoter" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount2"></span>
+<input class="form-control" id="txtprmSearch" onkeyup="SearchPromoter(this,'#chkPromoterList');" placeholder="search promoter" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_6" role="tablist">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingThree_Projects" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseThree_Projects" aria-expanded="true" class="collapsed" data-parent="#accordion_6" data-toggle="collapse" href="#collapseThree_Projects" role="button"><i class="material-icons">domain</i> Projects</a>
+</h4>
+</div>
+<div aria-labelledby="headingThree_Projects" class="panel-collapse collapse in" id="collapseThree_Projects" role="tabpanel">
+<div class="panel-body">
+<div class="row">
+<div class="col-sm-12">
+<span id="spnCount3"></span>
+<input id="chkfilter" onkeyup="SearchProject(this,'#chkProjectName');" placeholder="search promoter name" type="text"/>
+</div>
+</div>
+<div style="max-height: 100px; overflow-y: scroll;">
+
+</div>
+</div>
+</div>
+</div>
+</div>
+<div aria-multiselectable="false" class="panel-group" id="accordion_7" role="tablist" style="display:none">
+<div class="panel panel-maroon">
+<div class="panel-heading" id="headingFour_CompletedProjects" role="tab">
+<h4 class="panel-title">
+<a aria-controls="collapseFour_CompletedProjects" aria-expanded="true" class="collapsed" data-parent="#accordion_7" data-toggle="collapse" href="#collapseFour_CompletedProjects" role="button"><i class="material-icons">domain</i>Completed Projects</a>
+</h4>
+</div>
+<div aria-labelledby="headingThree_Projects" class="panel-collapse collapse in" id="collapseFour_CompletedProjects" role="tabpanel">
+<div class="panel-body">
+<div style="max-height: 100px; overflow-y: scroll;">
+<input id="chkCompletedProject" name="chkCompletedProject" onclick="javascript:setTimeout('__doPostBack(\'chkCompletedProject\',\'\')', 0)" type="checkbox"/><label for="chkCompletedProject">Show Completed Project</label>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- #Menu -->
+<!-- Footer -->
+<div class="legal">
+<div class="copyright">
+                        © 2020 - 2026 <a href="javascript:void(0);">UPRERA - Project DashBoard</a>.
+
+                    </div>
+<div class="version">
+<b>Version: </b>1.0.5
+
+                    </div>
+</div>
+<!-- #Footer -->
+</aside>
+<!-- #END# Left Sidebar -->
+</section>
+<div id="main" style="min-height: 400px;">
+<section class="content">
+<div class="container-fluid">
+<div class="block-header" style="display:none">
+<div class="row">
+<div class="col-sm-4"><h2 class="headDash">UPRERA Registered Projects</h2></div>
+<div class="col-sm-4" style="text-align:center"><img class="logoImage" src="images/logo/ReraLogo.png" style="display:none"/></div>
+<div class="col-sm-4 clockdiv" style="text-align:right;display:none;">
+<span class="time"><i aria-hidden="true" class="fa fa-calendar"></i>
+Friday, 23 Oct, 2026
+                            | <i aria-hidden="true" class="far fa-clock"></i>
+<span id="clockDisplay">11:28:15 PM</span></span>
+</div>
+</div>
+</div>
+<!-- Widgets -->
+<div class="row clearfix" style="display: none">
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-pink hover-expand-effect">
+<div class="icon">
+<i class="material-icons">playlist_add_check</i>
+</div>
+<div class="content">
+<div class="text">PROJECTS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="15" data-to="125" id="NoOfProjects">125</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-cyan hover-expand-effect">
+<div class="icon">
+<i class="material-icons">help</i>
+</div>
+<div class="content">
+<div class="text">PROMOTER</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="257" id="NoOfPromoter">257</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-light-green hover-expand-effect">
+<div class="icon">
+<i class="material-icons">forum</i>
+</div>
+<div class="content">
+<div class="text">COMPLAINTS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="243">243</div>
+</div>
+</div>
+</div>
+<div class="col-lg-3 col-md-3 col-sm-6 col-xs-12">
+<div class="info-box bg-orange hover-expand-effect" style="display: none;">
+<div class="icon">
+<i class="material-icons">person_add</i>
+</div>
+<div class="content">
+<div class="text">NEW VISITORS</div>
+<div class="number count-to" data-fresh-interval="20" data-from="0" data-speed="1000" data-to="1225">1225</div>
+</div>
+</div>
+</div>
+</div>
+<!-- #END# Widgets -->
+<!-- Exportable Table -->
+<div class="row clearfix">
+<div class="col-lg-12 col-md-12 col-sm-12 col-xs-12">
+<div class="card">
+<div aria-hidden="true" id="UpdateProgress1" role="status" style="display:none;">
+<div style="position: fixed; text-align: center; height: 100%; width: 100%; top: 0; right: 0; left: 0; z-index: 9999999; background-color: #000000; opacity: 0.7;">
+<img alt="Loading ..." id="imgUpdateProgress" src="img/slider/ajax-loader.gif" style="border-width:0px;padding: 10px; position: fixed; top: 25%; left: 48%;" title="Loading ..."/>
+<center><span style="color:White;font-weight:bolder;font-size:x-large;position: fixed; top: 49%; left: 50%;"><b>Loading...</b></span></center>
+</div>
+</div>
+<div class="header" style="display:none">
+<h2>Project Detail</h2>
+<ul class="header-dropdown m-r--5" style="display:none">
+<li class="dropdown">
+<a aria-expanded="false" aria-haspopup="true" class="dropdown-toggle" data-toggle="dropdown" href="javascript:void(0);" role="button">
+<i class="material-icons">more_vert</i>
+</a>
+<ul class="dropdown-menu pull-right">
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Reload</a></li>
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Clear Data</a></li>
+<li><a class="waves-effect waves-block" href="javascript:void(0);">Hide All</a></li>
+</ul>
+</li>
+</ul>
+</div>
+<div class="body">
+<div class="table-responsive narrow-block wrapper">
+<div>
+<div class="tablesorter-sticky-wrapper tablesorter-sticky-hidden" style="position: absolute; top: 0px; left: 0px; visibility: hidden; z-index: 2; width: 1188px;"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<input disabled="disabled" id="btnPopup" name="btnPopup" style="display: none" type="submit" value=""/>
+</section>
+</div>
+
+</form>
+<!-- Bootstrap Core Js -->
+
+<!-- Select Plugin Js -->
+<!-- Slimscroll Plugin Js -->
+
+<!-- Waves Effect Plugin Js -->
+
+<!-- Jquery DataTable Plugin Js -->
+
+<!-- Jquery CountTo Plugin Js -->
+
+<!-- Morris Plugin Js -->
+<!-- ChartJs -->
+<!-- Flot Charts Plugin Js -->
+<!-- Sparkline Chart Plugin Js -->
+
+<!-- Custom Js -->
+
+<!-- Demo Js -->
+
+</body></html>

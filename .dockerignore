@@ -53,7 +53,6 @@ supabase-backup
 .vscode/
 .idea/
 AGENTS.md
-CLAUDE.md
 viral-blog-publisher.skill
 
 # --- Docs / license ---

@@ -88,7 +88,7 @@ The scheduler in `notification_scheduler.py` no longer registers a job. Its dail
 
 ## Entry points for modification
 
-Add a new notification type by registering it in `NOTIFICATION_TYPES` (with category, priority, allowed channels, TTL and optional frequency cap), then calling `dispatch_notification_to_user` from the service method after the DB commit. New channels require extending `NotificationChannel`, the dispatcher's send switch, and `_get_user_channels_from_settings`. Frequency cap enforcement belongs in the dispatcher before send. Update CLAUDE.md and AGENTS.md when adding types or channels.
+Add a new notification type by registering it in `NOTIFICATION_TYPES` (with category, priority, allowed channels, TTL and optional frequency cap), then calling `dispatch_notification_to_user` from the service method after the DB commit. New channels require extending `NotificationChannel`, the dispatcher's send switch, and `_get_user_channels_from_settings`. Frequency cap enforcement belongs in the dispatcher before send. Update AGENTS.md when adding types or channels.
 
 ## API
 
@@ -106,12 +106,36 @@ Add a new notification type by registering it in `NOTIFICATION_TYPES` (with cate
 
 Push data carries `route` (the in-app path, from the deep-link registry), `type_key` at the top level, and `_meta` as JSON text. A client `_meta` value is replaced by the server. An FCM 429 maps to `FCM_RATE_LIMITED` (503 with `Retry-After: 60` on direct push paths). A typed send keeps HTTP 200 and reports the code in `channels.push.error`. Other FCM 4xx, except 401 and 403, map to `FCM_REJECTED` (400). FCM 401, 403 and 5xx map to `FCM_UNAVAILABLE` (502).
 
+## Watchlist alerts
+
+`watchlist_alerts.py` raises five transactional types. They are transactional rather than marketing on purpose: a user who saves a project and asks to be told when it changes is owed that message, and a marketing category would gate it behind `promotional_emails` consent and silently drop it.
+
+| Key | Fires when | Priority | Channels |
+|---|---|---|---|
+| `watchlist_price_change` | A filed or derived price point differs from the baseline | HIGH | push, email, in-app |
+| `watchlist_possession_change` | The filed completion date moves | HIGH | push, email, in-app |
+| `watchlist_stage_change` | The derived stage changes | NORMAL | push, in-app |
+| `watchlist_new_filing` | A newer document appears on the filing | NORMAL | in-app |
+| `auction_alert_match` | A bank auction matches a saved search | HIGH | push, email, in-app |
+
+The change checks are pure functions (`price_changed`, `stage_changed`, `possession_changed`, `filing_is_new`, `detect_change_kinds`) so the rules are testable without a database. Two of them are deliberately quiet: a change with no baseline on one side reports nothing, because an absent previous value is not evidence of a move.
+
+`stage_changed` is currently inert, and this is a known limitation rather than a bug. `DataHubEntityRevision.normalized_snapshot` is restricted by a database check constraint to the `RERA_FIELDS` allowlist, which carries no `stage` and no `construction_start_date`, so a previous stage cannot be reconstructed and the scraper never passes a baseline. The helper and its tests stay in place so the check starts working the moment a stage reaches the snapshot.
+
+`watchlist_price_change` is inert for a second reason, and this one is not a missing baseline: **nothing writes a price.** No code path sets `ReraProjectProfile.launch_price_per_sqft` or `current_price_per_sqft`. The HRERA filing publishes no rate per square foot — its only use of the word "price" is a label in the quarterly-expenditure table — so `rera_price_history` derives no points, `project_price_history` stays empty, and the check always sees `None` on both sides. A registered type that can never fire is worse than an absent one, because the UI and the alert preferences both offer it. Either source a real rate per square foot or remove the type and the price fields from the public surface.
+
+`possession_changed` and `filing_is_new` have real baselines and do fire.
+
+A watch's own `updated_at` is the "last told" baseline, because the model has no per-alert notified column. After every alert for a watch dispatches, `_upsert` advances `updated_at`; if dispatch fails it is left alone so the next run retries. The side effect is that editing notes or alert preferences also advances the baseline and can skip one window.
+
+The weekly batch runs the alert scan in parallel with the filing refresh, so a change made by the same run's scrape is reported on the next one. `AlertMatcherService` already has the same one-run lag.
+
 ## Key source files
 
 | File | Purpose |
 |---|---|
-| `app/services/notification_config.py` | Type registry + config dataclasses (364 lines) |
-| `app/services/notification_dispatcher.py` | Multi-channel dispatch (284 lines) |
+| `app/services/notification_config.py` | Type registry + config dataclasses (444 lines) |
+| `app/services/notification_dispatcher.py` | Multi-channel dispatch (319 lines) |
 | `app/services/notification_scheduler.py` | Daily marketing push cron |
 | `app/services/notifications/crud.py` | In-app notification CRUD |
 | `app/services/notifications/fcm.py` | FCM token + message + send |

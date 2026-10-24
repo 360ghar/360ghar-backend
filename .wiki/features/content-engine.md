@@ -4,6 +4,8 @@ Active contributors: Saksham
 
 The content engine writes short, factual text for locality pages and property listings. A fact sheet holds the only facts the model may use. The model returns JSON. A validator checks every number and name against the fact sheet. The runner stores every result with a `review_status`, and only `auto` and `approved` blocks reach the public API.
 
+When `HRERA_DATA_ENABLED=false`, locality fact sheets do not query or include HRERA data and public locality content/manifest rows are hidden with `no-store` responses, without deleting stored blocks. Property facts and property content remain available. Previously cached edge responses may still be served during the existing stale-while-revalidate window (up to 24 hours); the backend does not purge CDN caches.
+
 ## Directory layout
 
 ```
@@ -57,7 +59,7 @@ scripts/import_localities.py  # loads the snapshot into the localities table
 
 ## Weekly market digest
 
-`POST /api/v1/admin/content/market-digest` (`X-Cron-Secret`) builds a Gurugram fact sheet from data-hub rows in the last 7 days (new RERA registrations, new bank auctions, updated circle rate rows). Fewer than 3 changes: skipped. The text goes through the validator and is saved with `create_blog_post` as the `AUTO_BLOG_PUBLISHER_USER_ID` admin: published when it validates and `MARKET_DIGEST_AUTO_PUBLISH` is on, otherwise a draft (tagged `needs-review` when validation failed). One post per ISO week. `.github/workflows/market-digest-weekly.yml` calls it on Mondays.
+`POST /api/v1/admin/content/market-digest` (`X-Cron-Secret`) builds a Gurugram fact sheet from data-hub rows in the last 7 days (new RERA registrations, new bank auctions, updated circle rate rows). It returns disabled before database queries or model calls while `HRERA_DATA_ENABLED=false`. When enabled, fewer than 3 changes means skipped. The text goes through the validator and is saved with `create_blog_post` as the `AUTO_BLOG_PUBLISHER_USER_ID` admin: published only when it validates and `MARKET_DIGEST_AUTO_PUBLISH` is explicitly enabled (default false), otherwise a draft (tagged `needs-review` when validation failed). One post per ISO week. `.github/workflows/market-digest-weekly.yml` calls it on Mondays. While HRERA is disabled, public blog query/list/detail/preview paths filter known digests by title, tag, and source markers; unmarked legacy digests may not be safely identifiable. Existing RSS/CDN XML may remain cached for up to 24 hours because the backend does not purge it.
 
 ## Entry points for modification
 

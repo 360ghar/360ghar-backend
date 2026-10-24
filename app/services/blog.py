@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re as _re
 import secrets
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, false, func, or_, select
+from sqlalchemy import and_, false, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -31,6 +32,41 @@ if TYPE_CHECKING:
     from app.schemas.blog import BlogPost as BlogPostSchema
 
 logger = get_logger(__name__)
+
+
+def is_hrera_derived_digest(post: Any) -> bool:
+    """Identify known market digests by explicit tag, generated title, or HRERA source."""
+    def get_field(key: str, default: Any = None) -> Any:
+        return post.get(key, default) if isinstance(post, Mapping) else getattr(
+            post, key, default
+        )
+
+    title = get_field("title", "")
+    if isinstance(title, str) and title.casefold().startswith(
+        "gurugram property data digest: week"
+    ):
+        return True
+
+    for tag in get_field("tags", None) or []:
+        slug = tag.get("slug") if isinstance(tag, dict) else getattr(tag, "slug", None)
+        if isinstance(slug, str) and slug.casefold() == "market-digest":
+            return True
+
+    for source in get_field("sources", None) or []:
+        name = source.get("name") if isinstance(source, dict) else getattr(source, "name", None)
+        if isinstance(name, str) and name.casefold() == "hrera registry":
+            return True
+    return False
+
+
+def _public_digest_exclusion():
+    """SQL counterpart to the cached-result detector for known digest markers."""
+    markers = or_(
+        func.lower(BlogPost.title).like("gurugram property data digest: week%"),
+        BlogPost.tags.any(BlogTag.slug == "market-digest"),
+        BlogPost.sources.contains([{"name": "HRERA registry"}]),
+    )
+    return not_(markers)
 
 
 def _slugify(value: str) -> str:
@@ -378,6 +414,8 @@ async def get_blog_post(
     if not include_inactive:
         # Public visibility: published status only.
         stmt = stmt.where(BlogPost.status == BlogPostStatus.published.value)
+        if not settings.HRERA_DATA_ENABLED:
+            stmt = stmt.where(_public_digest_exclusion())
 
     result = await db.execute(stmt)
     post = result.scalar_one_or_none()
@@ -474,6 +512,8 @@ async def list_blog_posts(
     if not include_inactive:
         # Public visibility: published status only.
         conditions.append(BlogPost.status == BlogPostStatus.published.value)
+        if not settings.HRERA_DATA_ENABLED:
+            conditions.append(_public_digest_exclusion())
 
     # Admin status filter (only meaningful when include_inactive=True).
     if status:
@@ -938,6 +978,8 @@ async def get_post_by_preview_token(db: AsyncSession, token: str) -> BlogPost | 
         .options(selectinload(BlogPost.categories), selectinload(BlogPost.tags))
         .where(BlogPost.preview_token == token)
     )
+    if not settings.HRERA_DATA_ENABLED:
+        stmt = stmt.where(_public_digest_exclusion())
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
