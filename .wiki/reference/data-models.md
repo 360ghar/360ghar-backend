@@ -1,6 +1,6 @@
 # Data models
 
-The 360Ghar backend has 91 ORM tables across 20 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
+The 360Ghar backend has 92 ORM tables across 20 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
 
 Active contributors: Saksham, Ravi
 
@@ -9,22 +9,25 @@ Active contributors: Saksham, Ravi
 | File | Tables |
 |---|---|
 | `app/models/users.py` | `User`, `UserSearchHistory`, `UserSwipe` |
-| `app/models/agents.py` | `Agent`, `AgentInteraction` |
+| `app/models/agents.py` | `AgentInteraction`, `Agent` |
 | `app/models/properties.py` | `Property`, `PropertyImage`, `Amenity`, `PropertyAmenity`, `Visit` |
 | `app/models/bookings.py` | `Booking` |
 | `app/models/core.py` | `BugReport`, `Page`, `AppVersion`, `FAQ` |
-| `app/models/blogs.py` | `BlogPost`, `BlogCategory`, `BlogTag`, `BlogPostCategory`, `BlogPostTag` |
+| `app/models/blogs.py` | `BlogCategory`, `BlogTag`, `BlogPost`, `BlogPostCategory`, `BlogPostTag` |
 | `app/models/content.py` | `ContentBlock`, `Locality`, `GeneratedImage` |
-| `app/models/social.py` | `UserMatch`, `UserConversation`, `UserMessage`, `UserBlock`, `UserReport`, `AppCatalog`, `MatchQnAAnswer`, `FlatmateProfileViewEvent`, `FlatmateSuperLikeUsage` |
+| `app/models/social.py` | `UserMatch`, `FlatmateSuperLikeUsage`, `UserBlock`, `UserReport`, `FlatmateProfileViewEvent`, `AppCatalog`, `MatchQnAAnswer` |
+| `app/models/conversations.py` | `Conversation`, `ConversationParticipant`, `Message` |
+| `app/models/leads.py` | `Lead` |
+| `app/models/capture.py` | `CaptureSession`, `CaptureFrame` |
 | `app/models/tours.py` | `Tour`, `Scene`, `Hotspot`, `TourAnalyticsEvent`, `AIJob`, `MediaFile`, `TourLocation`, `FloorPlan`, `CustomDomain`, `TourLike` |
 | `app/models/pm_leases.py` | `Lease` |
-| `app/models/pm_tenants.py` | `RentalApplication`, `RentalApplicationForm` |
+| `app/models/pm_tenants.py` | `RentalApplicationForm`, `RentalApplication` |
 | `app/models/pm_finance.py` | `RentCharge`, `RentPayment`, `Expense` |
 | `app/models/pm_maintenance.py` | `MaintenanceRequest` |
 | `app/models/pm_documents.py` | `Document` |
 | `app/models/pm_inspections.py` | `InspectionChecklist` |
 | `app/models/ai_conversations.py` | `AIConversation`, `AIConversationMessage` |
-| `app/models/data_hub.py` | `BankAuction`, `CircleRate`, `CourtAuction`, `GazetteNotification`, `JamabandiCache`, `ReraProject`, `ReraComplaint`, `ZoningData`, `ColonyApproval`, `NeighbourhoodScore`, `BankRate`, `AuctionAlert`, `ScraperRun`, `SourceDocument`, `DataHubEvidenceAssertion`, `DataHubEntityRevision`, `ReraProjectProfile`, `ReraLandUsage`, `ReraProjectCost`, `ReraQuarterlyExpenditure`, `ReraProjectDocument`, `ReraStatutoryApproval`, `ReraProjectFacility`, `ReraProjectNoc`, `ReraProjectPerson`, `ReraProjectBankAccount`, `ReraProjectUnitConfig`, `ReraProjectSpecification`, `Developer`, `DeveloperScore`, `ProjectPriceHistory`, `MicroMarket`, `ProjectWatchlist`, `MarketPulseSnapshot` |
+| `app/models/data_hub.py` | `CircleRate`, `ReraProject`, `BankAuction`, `AuctionAlert`, `AuctionAlertDelivery`, `BankRate`, `JamabandiCache`, `ZoningData`, `ColonyApproval`, `GazetteNotification`, `ReraComplaint`, `CourtAuction`, `NeighbourhoodScore`, `ScraperRun`, `SourceDocument`, `DataHubEvidenceAssertion`, `DataHubEntityRevision`, `ReraProjectProfile`, `ReraLandUsage`, `ReraProjectCost`, `ReraQuarterlyExpenditure`, `ReraProjectDocument`, `ReraStatutoryApproval`, `ReraProjectFacility`, `ReraProjectNoc`, `ReraProjectPerson`, `ReraProjectBankAccount`, `ReraProjectUnitConfig`, `ReraProjectSpecification`, `Developer`, `DeveloperScore`, `ProjectPriceHistory`, `MicroMarket`, `ProjectWatchlist`, `MarketPulseSnapshot` |
 
 ## Enums
 

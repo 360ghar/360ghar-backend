@@ -3,13 +3,23 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, exists, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.data_hub import AuctionAlert, BankAuction, CourtAuction
+from app.models.data_hub import AuctionAlert, AuctionAlertDelivery, BankAuction, CourtAuction
 from app.services.data_hub.base_scraper import BaseScraper
 
 logger = logging.getLogger(__name__)
+
+
+def _delivered(alert_id: int, auction_type: str, auction_id_column):
+    """True when this auction was already sent for this alert."""
+    return exists().where(
+        AuctionAlertDelivery.alert_id == alert_id,
+        AuctionAlertDelivery.auction_type == auction_type,
+        AuctionAlertDelivery.auction_id == auction_id_column,
+    )
 
 
 class AlertMatcherService(BaseScraper):
@@ -33,11 +43,11 @@ class AlertMatcherService(BaseScraper):
     async def _find_matches(self, db: AsyncSession) -> list[dict]:
         """Get active alerts, find matching auctions added in the last 24h and not yet sent.
 
-        ``last_notified_at`` is a watermark: the ``created_at`` of the newest auction
-        already sent for that alert. Only auctions created after it match, oldest
-        first, so a run that stops on a failure resumes from the first unsent one.
+        An auction already sent for an alert has an ``AuctionAlertDelivery`` row and
+        is skipped. A failed send writes no row, so the next run retries it. Matches
+        are read oldest first, at most 10 per auction table per alert per run.
         """
-        window_start = datetime.now(timezone.utc) - timedelta(hours=24)
+        since = datetime.now(timezone.utc) - timedelta(hours=24)
         # Get all active alerts
         result = await db.execute(
             select(AuctionAlert).where(AuctionAlert.is_active == True)  # noqa: E712
@@ -48,11 +58,12 @@ class AlertMatcherService(BaseScraper):
 
         matches = []
         for alert in alerts:
-            since = window_start
-            if alert.last_notified_at is not None and alert.last_notified_at > since:
-                since = alert.last_notified_at
             # Build filter for bank auctions
-            filters = [BankAuction.created_at > since, BankAuction.is_active == True]  # noqa: E712
+            filters = [
+                BankAuction.created_at >= since,
+                ~_delivered(alert.id, "bank", BankAuction.id),
+                BankAuction.is_active == True,  # noqa: E712
+            ]
             if alert.city:
                 filters.append(BankAuction.city.ilike(f"%{alert.city}%"))
             if alert.keyword:
@@ -75,7 +86,11 @@ class AlertMatcherService(BaseScraper):
             new_bank_auctions = bank_result.scalars().all()
 
             # Build filter for court auctions
-            court_filters = [CourtAuction.created_at > since, CourtAuction.is_active == True]  # noqa: E712
+            court_filters = [
+                CourtAuction.created_at >= since,
+                ~_delivered(alert.id, "court", CourtAuction.id),
+                CourtAuction.is_active == True,  # noqa: E712
+            ]
             if alert.city:
                 court_filters.append(CourtAuction.city.ilike(f"%{alert.city}%"))
             if alert.keyword:
@@ -105,7 +120,6 @@ class AlertMatcherService(BaseScraper):
                         "user_id": alert.user_id,
                         "auction_id": auction.id,
                         "auction_type": "bank" if isinstance(auction, BankAuction) else "court",
-                        "created_at": auction.created_at,
                         "auction_description": getattr(auction, "property_description", ""),
                         "reserve_price": float(auction.reserve_price)
                         if auction.reserve_price
@@ -115,44 +129,34 @@ class AlertMatcherService(BaseScraper):
         return matches
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
-        """Send a notification for each match and move the alert's watermark.
+        """Send a notification for each match and record the delivery.
 
-        Matches are sent oldest first per alert. After each delivery the watermark
-        moves to that auction's ``created_at`` and commits, so a crash cannot make
-        the next run re-send it. The first failure for an alert stops that alert's
-        matches; the next run resumes from the failed one. The dispatcher reads the
-        user and writes the inbox row, so it needs this session; each commit keeps
-        the open transaction to one dispatch.
+        Each delivery writes an ``AuctionAlertDelivery`` row and commits right
+        away, so a crash cannot make the next run re-send it. A failed send writes
+        nothing and is retried next run. The dispatcher reads the user and writes
+        the inbox row, so it needs this session; each commit keeps the open
+        transaction to one dispatch.
         """
         found = len(records)
         dispatched = 0
-        stopped: set[int] = set()
         for match in records:
-            alert_id = match["alert_id"]
-            if alert_id in stopped:
-                continue
             try:
                 await self._dispatch_notification(db, match)
             except Exception as e:
-                stopped.add(alert_id)
-                logger.warning("Failed to dispatch alert %s: %s", alert_id, e)
-                # Auctions written in one transaction share a created_at. If the
-                # watermark already reached the failed auction's time, step it back
-                # so the failed one matches again (a resend beats a lost alert).
-                failed_at = match.get("created_at")
-                alert = await db.get(AuctionAlert, alert_id)
-                if (
-                    alert is not None
-                    and failed_at is not None
-                    and alert.last_notified_at is not None
-                    and alert.last_notified_at >= failed_at
-                ):
-                    alert.last_notified_at = failed_at - timedelta(microseconds=1)
-                    await db.commit()
+                logger.warning("Failed to dispatch alert %s: %s", match.get("alert_id"), e)
                 continue
-            alert = await db.get(AuctionAlert, alert_id)
+            await db.execute(
+                pg_insert(AuctionAlertDelivery)
+                .values(
+                    alert_id=match["alert_id"],
+                    auction_type=match["auction_type"],
+                    auction_id=match["auction_id"],
+                )
+                .on_conflict_do_nothing(constraint="uq_auction_alert_deliveries_key")
+            )
+            alert = await db.get(AuctionAlert, match["alert_id"])
             if alert is not None:
-                alert.last_notified_at = match.get("created_at") or datetime.now(timezone.utc)
+                alert.last_notified_at = datetime.now(timezone.utc)
             await db.commit()
             dispatched += 1
         return {"found": found, "upserted": dispatched, "failed": found - dispatched}

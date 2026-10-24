@@ -13,6 +13,7 @@ from .conversations import Conversation, ConversationParticipant, Message
 from .core import FAQ, AppVersion, BugReport, Page
 from .data_hub import (
     AuctionAlert,
+    AuctionAlertDelivery,
     BankAuction,
     BankRate,
     CircleRate,
@@ -211,6 +212,7 @@ __all__ = [
     "ReraProject",
     "BankAuction",
     "AuctionAlert",
+    "AuctionAlertDelivery",
     "BankRate",
     "JamabandiCache",
     "ZoningData",

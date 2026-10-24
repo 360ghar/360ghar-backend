@@ -439,3 +439,14 @@ async def test_run_is_gated_on_hrera_data_enabled(monkeypatch):
         "status": "disabled",
         "reason": "hrera_disabled_by_configuration",
     }
+
+
+def test_a_missing_reading_keeps_the_last_known_value():
+    """A None reading is not a new value; replacing it would hide the next change."""
+    previous = _baseline(price_per_sqft="5000.00", documents=["2026-06-01|Form B"])
+    snapshot = _baseline(price_per_sqft=None, documents=[])
+
+    merged = merge_baseline(previous, snapshot, set())
+
+    assert merged["price_per_sqft"] == "5000.00"
+    assert merged["documents"] == ["2026-06-01|Form B"]

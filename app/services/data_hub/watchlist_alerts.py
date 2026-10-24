@@ -230,10 +230,20 @@ def document_key(uploaded_on: date | None, description: str) -> str:
 
 
 def merge_baseline(previous: dict | None, snapshot: dict, failed_kinds: set[str]) -> dict:
-    """The new baseline: ``snapshot``, except the fields of alerts that failed keep ``previous``."""
+    """The new baseline: ``snapshot``, with two exceptions that keep ``previous``.
+
+    * A field whose alert failed keeps its old value, so the alert is retried.
+    * A field the snapshot has no value for (``None``, or no documents) keeps its
+      old value. A missing reading is not a new value: replacing the last known
+      value with ``None`` would hide the next real change, because a comparison
+      with a missing side never fires.
+    """
     merged = dict(snapshot)
     if previous is None:
         return merged
+    for field, value in snapshot.items():
+        if (value is None or value == []) and previous.get(field) not in (None, []):
+            merged[field] = previous[field]
     for kind in failed_kinds:
         for field in _BASELINE_FIELDS[kind]:
             if field in previous:

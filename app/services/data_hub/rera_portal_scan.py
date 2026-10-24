@@ -189,8 +189,9 @@ class ReraPortalIdScanner(BaseScraper):
             # parse. It is a third outcome next to "gap" and "record", and without
             # it the three counts do not add up to pages_checked.
             "pages_unparsed": 0,
-            # Where the next run of a longer walk starts.
-            "next_start_id": (self.end_id + 1) if self.end_id is not None else None,
+            # Where the next run of a longer walk starts. Set only when the walk
+            # completes; a failed walk leaves it None so no id is skipped.
+            "next_start_id": None,
             "status": "failed",
         }
         try:
@@ -219,6 +220,7 @@ class ReraPortalIdScanner(BaseScraper):
             # coverage block said "success".
             result.successful_sources = 1
             coverage["status"] = "success"
+            coverage["next_start_id"] = self.end_id + 1 if self.end_id is not None else None
             result.source_coverage.append(coverage)
             return result
 
@@ -303,6 +305,8 @@ class ReraPortalIdScanner(BaseScraper):
         # broken run and a page that fetched fine but did not parse was reported
         # as a failed walk.
         result.successful_sources = int(not session_failed)
+        if not session_failed and self.end_id is not None:
+            coverage["next_start_id"] = self.end_id + 1
         coverage["status"] = (
             "failed"
             if session_failed

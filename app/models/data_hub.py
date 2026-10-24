@@ -194,6 +194,28 @@ class AuctionAlert(Base):
     user: Mapped[User | None] = relationship("User", foreign_keys=[user_id])
 
 
+class AuctionAlertDelivery(Base):
+    """One auction sent for one alert. The matcher skips auctions already listed here."""
+
+    __tablename__ = "auction_alert_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "alert_id", "auction_type", "auction_id", name="uq_auction_alert_deliveries_key"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    alert_id: Mapped[int] = mapped_column(
+        ForeignKey("auction_alerts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # "bank" or "court": the two auction tables have separate id spaces.
+    auction_type: Mapped[str] = mapped_column(String(10), nullable=False)
+    auction_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    delivered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class BankRate(Base):
     __tablename__ = "bank_rates"
     __table_args__ = (
@@ -1240,8 +1262,9 @@ class ProjectWatchlist(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     alert_prefs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # The values the user was last told. Only the alert service writes it; see
-    # app/services/data_hub/watchlist_alerts.py.
+    # The values the user was last told. The watchlist service seeds it when a
+    # watch is created and the alert service moves it after each run; user edits
+    # never change it. See app/services/data_hub/watchlist_alerts.py.
     alert_baseline: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

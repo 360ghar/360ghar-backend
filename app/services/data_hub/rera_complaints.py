@@ -94,6 +94,15 @@ class ReraComplaintScraper(BaseScraper):
                         await asyncio.sleep(2)
                 except Exception as nav_e:
                     logger.warning("HRERA complaints navigation failed: %s", nav_e)
+                    # Rows from earlier pages are kept, but the read is incomplete.
+                    result.errors.append(
+                        {
+                            "source_url": _HRERA_ORDERS_URL,
+                            "stage": "navigation",
+                            "error_type": type(nav_e).__name__,
+                            "message": "Case search navigation failed before the last page",
+                        }
+                    )
                     html = await page.content()
                     results.extend(self._parse_complaints_html(html))
                 await page.close()

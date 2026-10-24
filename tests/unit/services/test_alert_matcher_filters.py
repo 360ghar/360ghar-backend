@@ -187,3 +187,40 @@ async def test_a_dispatch_where_every_channel_failed_counts_as_failed(
     assert stats["failed"] == 1
     await db_session.refresh(alert)
     assert alert.last_notified_at is None
+
+
+@pytest.mark.asyncio
+async def test_more_matches_than_one_run_reads_are_all_sent_over_two_runs(
+    db_session, test_user, monkeypatch
+):
+    """Twelve auctions share one created_at; a run reads ten, the next run the rest."""
+    from app.services import notification_dispatcher
+
+    db_session.add_all(
+        [
+            BankAuction(
+                source=AuctionSource.sarfaesi,
+                bank_name="SBI",
+                property_description=f"Batch shop {index}",
+                city="Mumbai",
+            )
+            for index in range(12)
+        ]
+    )
+    alert = AuctionAlert(user_id=test_user.id, city="Mumbai", keyword="Batch shop")
+    db_session.add(alert)
+    await db_session.flush()
+    dispatch = AsyncMock(
+        return_value={"type_key": "auction_alert_match", "channels": {"in_app": {"ok": True}}}
+    )
+    monkeypatch.setattr(notification_dispatcher, "dispatch_notification_to_user", dispatch)
+
+    service = AlertMatcherService()
+    sent: set[int] = set()
+    for _run in range(3):
+        matches = [m for m in await service._find_matches(db_session) if m["alert_id"] == alert.id]
+        await service._upsert(db_session, matches)
+        sent.update(m["auction_id"] for m in matches)
+
+    assert len(sent) == 12
+    assert dispatch.await_count == 12

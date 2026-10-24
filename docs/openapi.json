@@ -26944,7 +26944,7 @@
           "data-hub"
         ],
         "summary": "List micro-markets",
-        "description": "List micro-markets, optionally filtered to one city.",
+        "description": "List micro-markets, optionally filtered to one city.\n\nAt most ``MICRO_MARKET_LIMIT`` rows. When more exist, the response carries\n``X-Result-Truncated: true`` so a client knows the list is not complete and\ncan filter by ``city``.",
         "operationId": "list_micro_markets_api_v1_data_hub_micro_markets_get",
         "parameters": [
           {
@@ -43740,6 +43740,7 @@
           "project_count": {
             "type": "integer",
             "title": "Project Count",
+            "description": "Projects counted at computed_at (snapshot).",
             "default": 0
           },
           "delivered_count": {
@@ -43755,6 +43756,7 @@
           "complaint_count": {
             "type": "integer",
             "title": "Complaint Count",
+            "description": "Complaints counted at computed_at (snapshot).",
             "default": 0
           },
           "computed_at": {
@@ -43767,7 +43769,8 @@
         "required": [
           "computed_at"
         ],
-        "title": "DeveloperScoreResponse"
+        "title": "DeveloperScoreResponse",
+        "description": "A developer's score as computed at ``computed_at``.\n\nThe counts here are the inputs the score was computed from, a snapshot at\n``computed_at``. They can differ from the live counts on the developer itself."
       },
       "DeveloperSummaryResponse": {
         "properties": {
@@ -68451,7 +68454,17 @@
           "alert_prefs": {
             "anyOf": [
               {
-                "additionalProperties": true,
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "watchlist_price_change",
+                    "watchlist_stage_change",
+                    "watchlist_possession_change",
+                    "watchlist_new_filing"
+                  ]
+                },
                 "type": "object"
               },
               {

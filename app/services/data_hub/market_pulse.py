@@ -367,8 +367,8 @@ class MarketPulseScraper(BaseScraper):
         holds no rows at all: the count is zero because nothing has ever been
         collected, not because nothing was filed. Publishing ``0`` would tell a
         reader the authority received no complaint about the city in the window,
-        which is a stronger claim than the empty table supports. ``None`` until the
-        table has a row to count, after which the count is real.
+        which is a stronger claim than the empty table supports. ``None`` until a
+        complaint is collected for that city's projects, after which the count is real.
         """
         # Coverage is per city: a city counts only when at least one complaint was
         # ever collected for its projects. The complaints scraper reads one

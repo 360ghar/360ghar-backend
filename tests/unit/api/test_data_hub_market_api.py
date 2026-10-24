@@ -430,3 +430,18 @@ async def test_map_projects_applies_the_bounding_box_and_cap(
     assert points[0].slug == "alpha-one"
     assert points[0].latitude == 28.5
     assert points[0].stage is ProjectStage.under_construction
+
+
+@pytest.mark.asyncio
+async def test_list_micro_markets_flags_a_truncated_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", True)
+    limit = market_api.MICRO_MARKET_LIMIT
+    rows = [_market(slug=f"market-{index}") for index in range(limit + 1)]
+    db = _routed_db({frozenset({"micro_markets"}): [_FakeResult(scalars=rows)]})
+
+    response = Response()
+    items = await market_api.list_micro_markets(response=response, city=None, db=db)
+
+    assert len(items) == limit
+    assert response.headers["X-Result-Truncated"] == "true"
+

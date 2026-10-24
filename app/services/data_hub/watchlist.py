@@ -21,8 +21,8 @@ from app.models.data_hub import ProjectWatchlist, ReraProject
 
 DEFAULT_WATCHLIST_LIMIT = 100
 
-# First key of the two-key advisory lock that serializes one user's watchlist adds.
-_WATCHLIST_LOCK_KEY = 4_217
+# Namespace of the advisory lock that serializes one user's watchlist adds.
+_WATCHLIST_LOCK_NAMESPACE = "project_watchlist_add"
 
 # Name of the relationship attached at import time (see ``_ensure_project_relationship``).
 _PROJECT_RELATIONSHIP = "rera_project"
@@ -71,7 +71,14 @@ async def add_to_watchlist(
     two concurrent requests cannot both pass the limit check. A concurrent insert
     of the same pair is caught in a savepoint and resolved to the stored row.
     """
-    await db.execute(select(func.pg_advisory_xact_lock(_WATCHLIST_LOCK_KEY, user_id)))
+    # One 64-bit key per user: users.id is BIGINT, and the two-key form takes int4.
+    await db.execute(
+        select(
+            func.pg_advisory_xact_lock(
+                func.hashtextextended(f"{_WATCHLIST_LOCK_NAMESPACE}:{user_id}", 0)
+            )
+        )
+    )
 
     existing = await _get_watch(db, user_id=user_id, project_id=project_id)
     if existing is not None:

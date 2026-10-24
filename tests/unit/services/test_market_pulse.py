@@ -201,6 +201,44 @@ class TestComputePulse:
 
 
 class TestAggregateReadsTheRegister:
+    async def test_the_90_day_change_ignores_a_project_priced_only_inside_the_window(
+        self, db_session
+    ):
+        """One project has a price at both dates; one launched inside the window."""
+        today = datetime.now(UTC).date()
+        old = ReraProject(
+            rera_number="TEST-PULSE-PAIR-1", project_name="Pair One", district="Panipat"
+        )
+        new = ReraProject(
+            rera_number="TEST-PULSE-PAIR-2", project_name="Pair Two", district="Panipat"
+        )
+        db_session.add_all([old, new])
+        await db_session.flush()
+
+        def point(project, days_ago, price):
+            day = today - timedelta(days=days_ago)
+            return ProjectPriceHistory(
+                rera_project_id=project.id,
+                quarter=quarter_key(day),
+                period_start=day,
+                unit_type="all",
+                price_per_sqft=Decimal(price),
+                source=ProjectPriceSource.filing,
+                recorded_at=datetime.now(UTC),
+            )
+
+        db_session.add_all(
+            [point(old, 100, "5000"), point(old, 5, "5000"), point(new, 5, "20000")]
+        )
+        await db_session.flush()
+
+        records = await MarketPulseScraper()._aggregate(db_session, today)
+        panipat = next(record for record in records if record["city"] == "panipat")
+
+        # The new project raises the average but is not a price change.
+        assert panipat["avg_price_per_sqft"] == Decimal("12500.00")
+        assert panipat["price_change_90d_pct"] == Decimal("0.00")
+
     async def test_one_reading_per_city_with_the_register_behind_it(self, db_session):
         today = datetime.now(UTC).date()
         gurugram_one = ReraProject(
