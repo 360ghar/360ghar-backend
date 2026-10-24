@@ -358,8 +358,8 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
     ),
     # Data hub watchlist alerts. The user explicitly asked to track the project, so
     # these are transactional (not marketing): they must not be gated behind the
-    # promotional-email consent, and the frequency caps only bound noise, never the
-    # signal. TTLs are long because a price or possession move stays relevant for
+    # promotional-email consent. ``frequency_cap`` is declared metadata only: the
+    # dispatcher does not enforce it today, so it bounds nothing at send time. TTLs are long because a price or possession move stays relevant for
     # weeks after the filing it came from.
     "watchlist_price_change": NotificationTypeConfig(
         key="watchlist_price_change",

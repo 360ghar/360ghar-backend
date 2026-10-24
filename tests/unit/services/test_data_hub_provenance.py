@@ -584,3 +584,13 @@ async def test_existing_source_document_refreshes_only_its_check_time() -> None:
     assert "GREATEST" in str(compiled).upper()
     assert checked_at in compiled.params.values()
     assert "reuse_terms" not in str(compiled).lower()
+
+
+@pytest.mark.parametrize(
+    "scraper_name",
+    ["rera_projects", "rera_portal_scan", "delhi_rera_projects", "uprera_projects"],
+)
+def test_every_rera_register_writer_gets_provenance(scraper_name) -> None:
+    from app.services.data_hub.provenance import _scraper_entity_type
+
+    assert _scraper_entity_type(scraper_name, {}) == "rera_project"

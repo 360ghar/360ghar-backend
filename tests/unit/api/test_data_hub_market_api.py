@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from sqlalchemy.dialects import postgresql
 
 from app.api.api_v1.endpoints.data_hub import market as market_api
@@ -120,7 +120,7 @@ _BBOX = {"min_lat": 28.0, "max_lat": 29.0, "min_lng": 76.0, "max_lng": 78.0}
 @pytest.mark.parametrize(
     ("endpoint", "kwargs"),
     [
-        (market_api.list_micro_markets, {"city": None}),
+        (market_api.list_micro_markets, {"response": Response(), "city": None}),
         (market_api.get_micro_market, {"city": "Gurugram", "slug": "golf-course-road"}),
         (market_api.list_market_pulse, {"city": None}),
         (market_api.list_map_projects, dict(_BBOX)),
@@ -147,13 +147,19 @@ async def test_list_micro_markets_is_capped_and_ordered(
     monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", True)
     db = _routed_db({frozenset({"micro_markets"}): [_FakeResult(scalars=[_market()])]})
 
-    items = await market_api.list_micro_markets(city=None, db=db)
+    response = Response()
+    items = await market_api.list_micro_markets(response=response, city=None, db=db)
 
     stmt = db.execute.await_args_list[0].args[0]
     sql = str(stmt)
     assert "ORDER BY micro_markets.city, micro_markets.slug" in sql
-    assert market_api.MICRO_MARKET_LIMIT in stmt.compile(dialect=postgresql.dialect()).params.values()
+    # One extra row is read to detect truncation.
+    assert (
+        market_api.MICRO_MARKET_LIMIT + 1
+        in stmt.compile(dialect=postgresql.dialect()).params.values()
+    )
     assert [item.slug for item in items] == ["golf-course-road"]
+    assert response.headers["X-Result-Truncated"] == "false"
     assert db.execute.await_count == 1
 
 
@@ -164,7 +170,7 @@ async def test_list_micro_markets_applies_the_city_filter(
     monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", True)
     db = _routed_db({frozenset({"micro_markets"}): [_FakeResult(scalars=[])]})
 
-    await market_api.list_micro_markets(city="Gurugram", db=db)
+    await market_api.list_micro_markets(response=Response(), city="Gurugram", db=db)
 
     # Case-insensitive on purpose: the site redirects an uppercase path to its
     # lowercase form, so the city arrives as "gurugram" while the filed district
@@ -181,7 +187,7 @@ async def test_the_city_filter_matches_a_filed_district_of_any_case(
     monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", True)
     db = _routed_db({frozenset({"micro_markets"}): [_FakeResult(scalars=[])]})
 
-    await market_api.list_micro_markets(city="  gUrUgRaM  ", db=db)
+    await market_api.list_micro_markets(response=Response(), city="  gUrUgRaM  ", db=db)
 
     assert "lower(micro_markets.city) = 'gurugram'" in _compiled(
         db.execute.await_args_list[0].args[0]

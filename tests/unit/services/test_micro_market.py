@@ -84,6 +84,8 @@ class TestSectorShapes:
 
     def test_an_ampersand_pair_reads_as_the_slash_pair(self):
         assert _parsed("SECTOR 76 & 77").slug == _parsed("SECTOR 76/77").slug
+        # A dash joins a range too; the second number must not be dropped.
+        assert _parsed("SECTOR 76-77").slug == _parsed("SECTOR 76/77").slug
 
     def test_two_different_sectors_are_refused_rather_than_reduced_to_one(self):
         assert _refused("SECTOR 45, SECTOR 46") == REASON_MULTIPLE_SECTORS

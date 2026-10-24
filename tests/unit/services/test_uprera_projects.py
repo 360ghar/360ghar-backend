@@ -166,7 +166,8 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, html: str) -> _FakePa
     async def fake_browser():
         yield _FakeBrowser(page)
 
-    monkeypatch.setattr(uprera_module, "_GRID_WAIT_ATTEMPTS", 1)
+    # Two reads: the first sets the baseline, the second confirms it.
+    monkeypatch.setattr(uprera_module, "_GRID_WAIT_ATTEMPTS", 2)
     monkeypatch.setattr(uprera_module, "_GRID_WAIT_SECONDS", 0.0)
     # One stable reading is enough when the count never changes.
     monkeypatch.setattr(uprera_module, "_GRID_STABLE_READS", 1)
@@ -312,13 +313,12 @@ class TestGridIsReadOnlyWhenItHasFinishedArriving:
         assert result.source_coverage[0]["status"] == "success"
 
     @pytest.mark.asyncio
-    async def test_a_grid_that_never_settles_reports_the_last_count(
+    async def test_a_grid_that_never_settles_fails_the_read(
         self, monkeypatch: pytest.MonkeyPatch, register_html: str
     ) -> None:
-        """Running out of attempts is not an error, but the count is recorded.
+        """A grid still growing when the budget runs out is a partial register.
 
-        ``grid_rows`` sits next to ``records_parsed`` in the run coverage, so a
-        truncated read is visible in the run history instead of passing silently.
+        It must not be parsed and reported as a complete read.
         """
         page = _install_fake_browser(monkeypatch, register_html)
         page.row_counts = [1, 2, 3, 4, 5]
@@ -327,7 +327,9 @@ class TestGridIsReadOnlyWhenItHasFinishedArriving:
 
         result = await UpreraProjectScraper()._scrape()
 
-        assert result.source_coverage[0]["grid_rows"] == 5
+        assert result.records == []
+        assert [error["error_type"] for error in result.errors] == ["GridNotStableError"]
+        assert result.source_coverage[0]["status"] == "failed"
 
 
 class TestSourceCoverage:

@@ -468,8 +468,17 @@ async def _get_or_create_source_document(
     return int(document_id)
 
 
+# Scrapers whose records are ``rera_projects`` rows. ``rera_projects`` itself now
+# reports the CAPTCHA blocker; the others are the active register writers.
+_RERA_PROJECT_SCRAPERS = frozenset(
+    {"rera_projects", "rera_portal_scan", "delhi_rera_projects", "uprera_projects"}
+)
+# The ones that read HRERA, and so fall under HRERA_DATA_ENABLED.
+_HRERA_SCRAPERS = frozenset({"rera_projects", "rera_portal_scan"})
+
+
 def _scraper_entity_type(scraper_name: str, record: dict[str, Any]) -> str | None:
-    if scraper_name == "rera_projects":
+    if scraper_name in _RERA_PROJECT_SCRAPERS:
         return "rera_project"
     if scraper_name != "zoning":
         return None
@@ -488,7 +497,7 @@ async def persist_scrape_provenance(
     run_succeeded: bool,
 ) -> list[dict[str, str]]:
     """Persist source metadata, per-field assertions, and changed entity revisions."""
-    if scraper_name == "rera_projects" and not settings.HRERA_DATA_ENABLED:
+    if scraper_name in _HRERA_SCRAPERS and not settings.HRERA_DATA_ENABLED:
         return [
             {
                 "stage": "rights_gate",
@@ -533,7 +542,14 @@ async def persist_scrape_provenance(
             )
             continue
         model, target_field, allowed_fields = ENTITY_TARGETS[entity_type]
-        if entity_type == "rera_project":
+        if entity_type == "rera_project" and scraper_name == "rera_portal_scan":
+            # A filing page states the portal id, not the registration number,
+            # and the scan keys its rows on that id.
+            conditions = [
+                model.raw_data["portal_project_id"].astext
+                == str(record.get("portal_project_id"))
+            ]
+        elif entity_type == "rera_project":
             conditions = [model.rera_number == record.get("rera_number")]
         elif entity_type == "zoning_data":
             conditions = [

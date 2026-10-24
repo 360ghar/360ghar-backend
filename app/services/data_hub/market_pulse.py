@@ -132,6 +132,7 @@ def compute_pulse(
     new_registrations: int | None,
     new_complaints: int | None,
     computed_at: datetime | None = None,
+    paired_latest_prices: Sequence[Decimal] | None = None,
 ) -> dict[str, Any]:
     """One city's reading for one day, from plain values.
 
@@ -139,7 +140,9 @@ def compute_pulse(
     the city's projects. ``price_change_90d_pct`` is the percent change from the
     mean of each project's most recent price point on or before ``captured_on``
     minus ``PRICE_LOOKBACK_DAYS``. Both are ``None`` when either side has no price
-    points.
+    points. When ``paired_latest_prices`` is given, the change compares it (the
+    latest prices of exactly the projects in ``prices_90d_ago``) instead of every
+    latest price, so both means cover one project set.
 
     ``new_registrations`` and ``new_complaints`` are ``None`` when the city has no
     source to count from — see ``_registrations`` and ``_complaints``. A ``None``
@@ -147,7 +150,10 @@ def compute_pulse(
     """
     latest_mean = mean_price(latest_prices)
     earlier_mean = mean_price(prices_90d_ago)
-    change = percent_change(latest_mean, earlier_mean)
+    compared_mean = (
+        mean_price(paired_latest_prices) if paired_latest_prices is not None else latest_mean
+    )
+    change = percent_change(compared_mean, earlier_mean)
     return {
         "city": city,
         "captured_on": captured_on,
@@ -255,22 +261,31 @@ class MarketPulseScraper(BaseScraper):
         earlier = await self._prices_as_of(db, filed_districts, cutoff)
 
         computed_at = datetime.now(UTC)
-        return [
-            compute_pulse(
-                city=city,
-                captured_on=captured_on,
-                latest_prices=latest.get(city, []),
-                prices_90d_ago=earlier.get(city, []),
+        records = []
+        for city in cities:
+            latest_by_project = latest.get(city, {})
+            earlier_by_project = earlier.get(city, {})
+            # The 90-day change compares one set of projects at both dates. A
+            # project priced only now (launched inside the window) would move the
+            # mean with no price change, so it counts in the average but not here.
+            paired = sorted(set(latest_by_project) & set(earlier_by_project))
+            records.append(
+                compute_pulse(
+                    city=city,
+                    captured_on=captured_on,
+                    latest_prices=list(latest_by_project.values()),
+                    prices_90d_ago=[earlier_by_project[pid] for pid in paired],
+                    paired_latest_prices=[latest_by_project[pid] for pid in paired],
                 # Both maps carry an explicit ``None`` for a city they cannot
                 # count, so a miss here means the map itself is short and the
                 # reading is unknown rather than zero. Defaulting to ``0`` would
                 # re-create the fabricated zero the counters exist to avoid.
-                new_registrations=registrations.get(city),
-                new_complaints=complaints.get(city),
-                computed_at=computed_at,
+                    new_registrations=registrations.get(city),
+                    new_complaints=complaints.get(city),
+                    computed_at=computed_at,
+                )
             )
-            for city in cities
-        ]
+        return records
 
     async def _cities(self, db: AsyncSession) -> list[str]:
         """The districts the register files, as the register spells them.
@@ -346,7 +361,7 @@ class MarketPulseScraper(BaseScraper):
     async def _complaints(
         self, db: AsyncSession, cities: Sequence[str], since: date, captured_on: date
     ) -> dict[str, int | None]:
-        """Complaints inside the window, per city, or ``None`` where never collected.
+        """Complaints inside the window, per city, or ``None`` where never collected for that city.
 
         The complaints scraper reads HRERA through Playwright, and ``rera_complaints``
         holds no rows at all: the count is zero because nothing has ever been
@@ -355,11 +370,23 @@ class MarketPulseScraper(BaseScraper):
         which is a stronger claim than the empty table supports. ``None`` until the
         table has a row to count, after which the count is real.
         """
+        # Coverage is per city: a city counts only when at least one complaint was
+        # ever collected for its projects. The complaints scraper reads one
+        # district at a time, so a row for Gurugram says nothing about Faridabad.
+        covered = {
+            canonical_city(row[0])
+            for row in (
+                await db.execute(
+                    select(ReraProject.district)
+                    .join(ReraComplaint, ReraComplaint.rera_number == ReraProject.rera_number)
+                    .where(ReraProject.district.in_(cities))
+                    .distinct()
+                )
+            ).all()
+            if row[0]
+        }
         counted: dict[str, int] = {}
-        has_any = (
-            await db.execute(select(func.count(ReraComplaint.id)))
-        ).scalar_one()
-        if has_any:
+        if covered:
             counted = _sum_by_city(
                 (
                     await db.execute(
@@ -379,12 +406,12 @@ class MarketPulseScraper(BaseScraper):
         for district in cities:
             city = canonical_city(district)
             if city not in result:
-                result[city] = counted.get(city, 0) if has_any else None
+                result[city] = counted.get(city, 0) if city in covered else None
         return result
 
     async def _latest_prices(
         self, db: AsyncSession, cities: Sequence[str]
-    ) -> dict[str, list[Decimal]]:
+    ) -> dict[str, dict[int, Decimal]]:
         rows = (
             await db.execute(
                 select(
@@ -412,7 +439,12 @@ class MarketPulseScraper(BaseScraper):
 
     async def _prices_as_of(
         self, db: AsyncSession, cities: Sequence[str], cutoff: date
-    ) -> dict[str, list[Decimal]]:
+    ) -> dict[str, dict[int, Decimal]]:
+        """Each project's latest price in the lookback period before ``cutoff``.
+
+        A point older than one more lookback period is not a 90-day-ago price, so
+        it is left out rather than compared as one.
+        """
         rows = (
             await db.execute(
                 select(
@@ -426,6 +458,8 @@ class MarketPulseScraper(BaseScraper):
                     ProjectPriceHistory.price_per_sqft.isnot(None),
                     ProjectPriceHistory.period_start.isnot(None),
                     ProjectPriceHistory.period_start <= cutoff,
+                    ProjectPriceHistory.period_start
+                    > cutoff - timedelta(days=PRICE_LOOKBACK_DAYS),
                 )
                 .distinct(ReraProject.district, ProjectPriceHistory.rera_project_id)
                 .order_by(
@@ -496,11 +530,11 @@ def _sum_by_city(rows: Sequence[Any]) -> dict[str, int]:
     return grouped
 
 
-def _group_prices(rows: Sequence[Any]) -> dict[str, list[Decimal]]:
-    """Group one-price-per-project rows into a price list per city."""
-    grouped: dict[str, list[Decimal]] = {}
-    for district, _project_id, price in rows:
+def _group_prices(rows: Sequence[Any]) -> dict[str, dict[int, Decimal]]:
+    """Group one-price-per-project rows into ``{city: {project_id: price}}``."""
+    grouped: dict[str, dict[int, Decimal]] = {}
+    for district, project_id, price in rows:
         if district is None or price is None:
             continue
-        grouped.setdefault(canonical_city(district), []).append(Decimal(price))
+        grouped.setdefault(canonical_city(district), {})[project_id] = Decimal(price)
     return grouped

@@ -331,3 +331,21 @@ def test_stage_follows_filed_dates_only(
 )
 def test_units_per_acre_needs_both_inputs(units, land_sqm, expected) -> None:
     assert derive_units_per_acre(units, land_sqm) == expected
+
+
+@pytest.mark.asyncio
+async def test_an_empty_work_list_is_a_successful_run(monkeypatch) -> None:
+    from app.config import settings
+    from app.services.data_hub.rera_project_detail import ReraProjectDetailScraper
+
+    monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", True)
+    scraper = ReraProjectDetailScraper()
+
+    async def no_work():
+        return []
+
+    monkeypatch.setattr(scraper, "_work_list", no_work)
+
+    result = await scraper._scrape()
+
+    assert result.status == "success"

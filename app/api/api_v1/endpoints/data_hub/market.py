@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,20 +87,28 @@ def _city_matches(city: str, column: Any = None):
     responses={503: {"description": "HRERA surface turned off by configuration"}},
 )
 async def list_micro_markets(
+    response: Response,
     city: str | None = Query(None, description="Filter to one city"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List micro-markets, optionally filtered to one city."""
+    """List micro-markets, optionally filtered to one city.
+
+    At most ``MICRO_MARKET_LIMIT`` rows. When more exist, the response carries
+    ``X-Result-Truncated: true`` so a client knows the list is not complete and
+    can filter by ``city``.
+    """
     _require_hrera_enabled()
     stmt = select(MicroMarket)
     if city:
         stmt = stmt.where(_city_matches(city))
     stmt = (
         stmt.order_by(MicroMarket.city, MicroMarket.slug, MicroMarket.id)
-        .limit(MICRO_MARKET_LIMIT)
+        .limit(MICRO_MARKET_LIMIT + 1)
     )
-    rows = await execute_safe(db, stmt, mode="scalars")
-    return [MicroMarketResponse.model_validate(market) for market in rows]
+    rows = list(await execute_safe(db, stmt, mode="scalars"))
+    truncated = len(rows) > MICRO_MARKET_LIMIT
+    response.headers["X-Result-Truncated"] = "true" if truncated else "false"
+    return [MicroMarketResponse.model_validate(market) for market in rows[:MICRO_MARKET_LIMIT]]
 
 
 @router.get(

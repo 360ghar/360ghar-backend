@@ -300,6 +300,12 @@ async def _load_project_row(db: AsyncSession, slug: str) -> Any:
 
 
 async def _nearby_rows(db: AsyncSession, project: ReraProject) -> list[Any]:
+    # The portal scan stores the state name when a filing names no district. That
+    # marker is not a place, so it has no neighbours.
+    from app.services.data_hub.rera_portal_scan import _DEFAULT_DISTRICT
+
+    if not project.district or project.district == _DEFAULT_DISTRICT:
+        return []
     rows: list[Any] = await execute_safe(
         db,
         project_summary_query()

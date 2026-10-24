@@ -689,16 +689,22 @@ class DeveloperSummaryResponse(BaseModel):
 
 
 class DeveloperScoreResponse(BaseModel):
+    """A developer's score as computed at ``computed_at``.
+
+    The counts here are the inputs the score was computed from, a snapshot at
+    ``computed_at``. They can differ from the live counts on the developer itself.
+    """
+
     delivery: float | None = None
     regulatory: float | None = None
     complaints: float | None = None
     financials: float | None = None
     market_reception: float | None = None
     total_score: float | None = None
-    project_count: int = 0
+    project_count: int = Field(0, description="Projects counted at computed_at (snapshot).")
     delivered_count: int = 0
     under_construction_count: int = 0
-    complaint_count: int = 0
+    complaint_count: int = Field(0, description="Complaints counted at computed_at (snapshot).")
     computed_at: UtcDateTime
 
     model_config = ConfigDict(from_attributes=True)

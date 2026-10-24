@@ -161,6 +161,10 @@ def _assign(record: dict[str, Any], field: str, value: str) -> None:
         record[field] = parsed
 
 
+class GridNotStableError(RuntimeError):
+    """The register grid kept growing for the whole polling budget."""
+
+
 class UpreraProjectScraper(BaseScraper):
     name = "uprera_projects"
     requires_playwright = True
@@ -333,10 +337,13 @@ class UpreraProjectScraper(BaseScraper):
         document, so its row count climbs while the browser parses the body. A
         single "are there rows yet" check is not enough: it is satisfied by a
         partial grid. The count is therefore read repeatedly and accepted only
-        once it repeats, which means the document stopped growing.
+        once it repeats, which means the document stopped growing. Raises
+        ``GridNotStableError`` when it never repeats: the caller's handler then
+        records a fetch error and the run parses nothing.
         """
         previous = -1
         stable = 0
+        grew = False
         for _ in range(_GRID_WAIT_ATTEMPTS):
             count: int = await page.locator(_GRID_ROW_SELECTOR).count()
             if count > 1 and count == previous:
@@ -345,9 +352,20 @@ class UpreraProjectScraper(BaseScraper):
                     return count
             else:
                 stable = 0
+            if previous >= 0 and count != previous:
+                grew = True
             previous = count
             await asyncio.sleep(_GRID_WAIT_SECONDS)
-        return previous if previous > 0 else 0
+        if not grew or previous <= 1:
+            # No grid ever arrived (or the page never changed): the parser reports
+            # the missing or empty table, which is the clearer error.
+            return max(previous, 0)
+        # The count was still changing, so the grid may still be arriving. A
+        # partial register must not be read as a complete one.
+        raise GridNotStableError(
+            f"UPRERA grid row count did not settle after {_GRID_WAIT_ATTEMPTS} reads "
+            f"(last count {previous})"
+        )
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
         if not settings.HRERA_DATA_ENABLED:

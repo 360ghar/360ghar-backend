@@ -29,7 +29,12 @@ async def content_manifest(
 
     Returns at most ``limit`` rows (default 5,000). ``truncated`` is true when there are more."""
     hrera_disabled = not settings.HRERA_DATA_ENABLED
-    response.headers["Cache-Control"] = "no-store" if hrera_disabled else CACHE_HEADER
+    # Only the manifests the flag changes (unfiltered and locality) skip the edge
+    # cache; a property manifest is the same with the flag on or off.
+    flag_sensitive = entity_type is None or entity_type == "locality"
+    response.headers["Cache-Control"] = (
+        "no-store" if hrera_disabled and flag_sensitive else CACHE_HEADER
+    )
     if entity_type == "locality" and hrera_disabled:
         return ContentManifest(items=[], truncated=False)
     stmt = (

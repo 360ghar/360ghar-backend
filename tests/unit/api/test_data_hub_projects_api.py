@@ -653,3 +653,19 @@ def test_faq_answers_every_filed_value_it_asks_about() -> None:
     assert answers["What is the estimated cost of Alpha One?"].startswith("INR 1,234,567")
     assert answers["How many documents are on file for Alpha One?"] == "3"
     assert all(item.answer for item in items)
+
+
+@pytest.mark.asyncio
+async def test_a_project_filed_under_the_state_marker_has_no_nearby_projects() -> None:
+    """``Haryana`` is the scanner's no-district marker, not a place."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from app.api.api_v1.endpoints.data_hub import projects as projects_api
+
+    db = AsyncMock()
+
+    rows = await projects_api._nearby_rows(db, SimpleNamespace(id=1, district="Haryana"))
+
+    assert rows == []
+    db.execute.assert_not_awaited()

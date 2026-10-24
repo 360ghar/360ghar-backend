@@ -1027,6 +1027,9 @@ class ReraProjectDetailScraper(BaseScraper):
             result.source_coverage.append(coverage)
             return result
         if not work:
+            # Nothing to refresh is a successful run, not a failed one. Without
+            # this the run row said "failed" while the coverage said "success".
+            result.successful_sources = 1
             coverage["status"] = "success"
             result.source_coverage.append(coverage)
             return result

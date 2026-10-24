@@ -185,7 +185,7 @@ _ADMINISTRATIVE_NAMES = frozenset({"GURGAON", "HARYANA", "DELHI", "INDIA"})
 _PINCODE_RE = re.compile(r"\b\d{6}\b")
 
 _SECTOR_RE = re.compile(
-    r"\b(?:SECTOR|SEC)\b\s*[-.:]?\s*(\d{1,4}[A-Z]?(?:\s*[/&]\s*\d{1,4}[A-Z]?)*)"
+    r"\b(?:SECTOR|SEC)\b\s*[-.:]?\s*(\d{1,4}[A-Z]?(?:\s*[/&-]\s*\d{1,4}[A-Z]?)*)"
 )
 _SECTOR_WORD_RE = re.compile(r"\b(?:SECTOR|SEC)\b")
 _PHASE_RE = re.compile(r"\bPHASE\b\s*[-.:]?\s*(\d{1,2}|[IVX]{1,4})\b")
@@ -277,8 +277,8 @@ def district_display(value: str) -> str:
 
 
 def _canonical_sector_numbers(raw: str) -> str:
-    """``76 / 77`` and ``76&77`` both become ``76/77``."""
-    parts = [part.strip() for part in re.split(r"[/&]", raw)]
+    """``76 / 77``, ``76&77`` and ``76-77`` all become ``76/77``."""
+    parts = [part.strip() for part in re.split(r"[/&-]", raw)]
     return "/".join(part for part in parts if part)
 
 
@@ -718,7 +718,10 @@ class MicroMarketScraper(BaseScraper):
         # it depend on a sibling method having been called would leave it silently
         # skipped.
         try:
-            link_coverage = await self._link_projects(db)
+            # A savepoint keeps a failed link from rolling back the market rows
+            # already written above, which ``upserted`` reports as written.
+            async with db.begin_nested():
+                link_coverage = await self._link_projects(db)
             if self._coverage is not None:
                 self._coverage.update(link_coverage)
         except Exception as exc:

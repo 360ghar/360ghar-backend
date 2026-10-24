@@ -275,7 +275,8 @@ class TestAggregateReadsTheRegister:
         assert by_city["gurugram"]["computed_at"] is not None
 
         assert by_city["faridabad"]["new_registrations"] == 0
-        assert by_city["faridabad"]["new_complaints"] == 0
+        # Complaints were collected only for Gurugram, so Faridabad's count is unknown.
+        assert by_city["faridabad"]["new_complaints"] is None
         assert by_city["faridabad"]["avg_price_per_sqft"] is None
         assert by_city["faridabad"]["price_change_90d_pct"] is None
         assert by_city["faridabad"]["sentiment"] is MarketSentiment.neutral
@@ -475,3 +476,20 @@ class TestRightsGate:
             "upserted": 0,
             "failed": 0,
         }
+
+
+def test_the_90_day_change_compares_only_projects_priced_at_both_dates():
+    """A project launched inside the window moves the mean but has no price change."""
+    pulse = compute_pulse(
+        city="gurugram",
+        captured_on=date(2026, 10, 24),
+        latest_prices=[Decimal("6000"), Decimal("12000")],
+        prices_90d_ago=[Decimal("6000")],
+        paired_latest_prices=[Decimal("6000")],
+        new_registrations=0,
+        new_complaints=None,
+    )
+
+    assert pulse["avg_price_per_sqft"] == Decimal("9000.00")
+    assert pulse["price_change_90d_pct"] == Decimal("0.00")
+

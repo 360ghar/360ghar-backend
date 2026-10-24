@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.data_hub import ReraComplaint, ReraProject
 from app.models.enums import ComplaintNature
-from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.base_scraper import BaseScraper, ScrapeResult
 from app.services.data_hub.utils import generate_slug
 
 logger = logging.getLogger(__name__)
@@ -52,10 +52,22 @@ class ReraComplaintScraper(BaseScraper):
             return {"status": "disabled", "run_id": None, "reason": "hrera_disabled_by_configuration"}
         return await super().run(run_type=run_type, triggered_by=triggered_by)
 
-    async def _scrape(self) -> list[dict]:
+    async def _scrape(self) -> ScrapeResult:
+        """Read the case search. A read that parses no complaint fails the run.
+
+        The case-search page replaced the old order search, and no captured
+        fixture proves this parser matches it yet. Zero parsed rows is therefore
+        reported as a failed read, not as a successful run that found nothing.
+        """
+        result = ScrapeResult()
         if not settings.HRERA_DATA_ENABLED:
-            return []
-        results = []
+            return result
+        coverage: dict[str, Any] = {
+            "source_url": _HRERA_ORDERS_URL,
+            "records_parsed": 0,
+            "status": "failed",
+        }
+        results: list[dict] = []
         try:
             async with self._playwright_browser() as browser:
                 page = await browser.new_page()
@@ -87,7 +99,30 @@ class ReraComplaintScraper(BaseScraper):
                 await page.close()
         except Exception as e:
             logger.warning("RERA complaints Playwright scrape failed: %s", e)
-        return results
+            result.errors.append(
+                {
+                    "source_url": _HRERA_ORDERS_URL,
+                    "stage": "fetch",
+                    "error_type": type(e).__name__,
+                    "message": "Source page fetch failed",
+                }
+            )
+        if not results and not result.errors:
+            result.errors.append(
+                {
+                    "source_url": _HRERA_ORDERS_URL,
+                    "stage": "parse",
+                    "error_type": "NoComplaintRecordsParsed",
+                    "message": "The case search produced no complaint records",
+                }
+            )
+        result.records = results
+        coverage["records_parsed"] = len(results)
+        if results:
+            result.successful_sources = 1
+            coverage["status"] = "partial" if result.errors else "success"
+        result.source_coverage.append(coverage)
+        return result
 
     def _parse_complaints_html(self, html: str) -> list[dict]:
         soup = BeautifulSoup(html, "html.parser")
