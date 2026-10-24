@@ -119,6 +119,9 @@ def test_documents_cover_both_upload_tables(filing) -> None:
     last = filing.documents[-1]
     assert last["description"] == "Addendum uploaded"
     assert last["uploaded_on"] == date(2026, 7, 3)
+    # Each row carries its own link, not the first link in the table.
+    urls = [row["view_url"] for row in filing.documents if row["view_url"]]
+    assert len(urls) == len(set(urls)) == len(filing.documents)
 
 
 def test_people_cover_company_roles_and_licensees(filing) -> None:

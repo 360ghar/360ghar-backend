@@ -796,12 +796,14 @@ def _parse_documents(soup: BeautifulSoup, filing: RepIFiling) -> None:
         return
     ordinal = 0
     for table in tables:
-        for row in _non_empty_rows(table)[1:]:
+        for tr in table.find_all("tr"):
+            row = _present(_cells(tr))
             if len(row) < 4 or not row[0].isdigit():
                 continue
             ordinal += 1
+            # The link is read from this row only, so each document keeps its own URL.
             link = None
-            for anchor in table.find_all("a"):
+            for anchor in tr.find_all("a"):
                 if _clean(anchor.get_text(" ", strip=True)).casefold().startswith("view document"):
                     link = anchor.get("href")
                     break
@@ -957,7 +959,7 @@ class ReraProjectDetailScraper(BaseScraper):
         Read in its own short-lived session so the network phase below holds no
         database connection.
         """
-        from sqlalchemy import select
+        from sqlalchemy import func, select
 
         from app.core.database import get_bg_session_factory
         from app.models.data_hub import ReraProject, ReraProjectProfile
@@ -978,7 +980,14 @@ class ReraProjectDetailScraper(BaseScraper):
                         ReraProjectProfile.rera_project_id == ReraProject.id,
                     )
                     .where(ReraProject.raw_data["portal_project_id"].astext.isnot(None))
-                    .order_by(ReraProjectProfile.id.isnot(None), ReraProjectProfile.updated_at)
+                    # Projects with no profile first, then the stalest profile. A filing
+                    # that never parses never gets a profile, so the no-profile tier is
+                    # shuffled: failing projects cannot hold every batch forever.
+                    .order_by(
+                        ReraProjectProfile.id.isnot(None),
+                        ReraProjectProfile.updated_at,
+                        func.random(),
+                    )
                     .limit(DEFAULT_BATCH)
                 )
             ).all()

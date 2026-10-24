@@ -130,6 +130,19 @@ class ReraPortalIdScanner(BaseScraper):
                 "run_id": None,
                 "error": "end_id is required: state the portal-id range to walk",
             }
+        span = self.end_id - self.start_id + 1
+        if span < 1 or span > DEFAULT_MAX_IDS:
+            # The cap bounds the id span, not the ids left after skipping stored
+            # ones. Truncating silently would re-walk the same prefix every run
+            # and report success while later ids were never checked.
+            return {
+                "status": "failed",
+                "run_id": None,
+                "error": (
+                    f"id range must hold 1 to {DEFAULT_MAX_IDS} ids; "
+                    f"got {self.start_id}..{self.end_id}. Split it into smaller runs."
+                ),
+            }
         return await super().run(run_type=run_type, triggered_by=triggered_by)
 
     async def _known_portal_ids(self) -> set[int]:
@@ -154,13 +167,13 @@ class ReraPortalIdScanner(BaseScraper):
         return found
 
     def _id_range(self, known: set[int]) -> list[int]:
+        """Every id in the range that is not stored yet. ``run`` bounds the span."""
         assert self.end_id is not None
-        ids = [
+        return [
             portal_id
             for portal_id in range(self.start_id, self.end_id + 1)
             if portal_id not in known
         ]
-        return ids[:DEFAULT_MAX_IDS]
 
     async def _scrape(self) -> ScrapeResult:
         result = ScrapeResult()
@@ -176,6 +189,8 @@ class ReraPortalIdScanner(BaseScraper):
             # parse. It is a third outcome next to "gap" and "record", and without
             # it the three counts do not add up to pages_checked.
             "pages_unparsed": 0,
+            # Where the next run of a longer walk starts.
+            "next_start_id": (self.end_id + 1) if self.end_id is not None else None,
             "status": "failed",
         }
         try:
@@ -218,7 +233,19 @@ class ReraPortalIdScanner(BaseScraper):
                     url = _DETAIL_URL.format(portal_project_id=portal_id)
                     coverage["pages_attempted"] += 1
                     try:
-                        await page.goto(url, timeout=60000)
+                        response = await page.goto(url, timeout=60000)
+                        if response is not None and not response.ok:
+                            # A blocked or throttled portal answers with an error
+                            # status and no filing. That is a fetch failure, not a gap.
+                            result.errors.append(
+                                {
+                                    "source_url": url,
+                                    "stage": "fetch",
+                                    "error_type": "HTTPStatus",
+                                    "message": f"Filing page returned HTTP {response.status}",
+                                }
+                            )
+                            continue
                         html = await page.content()
                     except Exception as exc:
                         result.errors.append(

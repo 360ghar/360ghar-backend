@@ -241,6 +241,25 @@ async def test_list_developers_pages_with_a_cursor(monkeypatch: pytest.MonkeyPat
     # A developer with no score row still serializes, with a null score.
     assert page["items"][0].total_score is None
 
+    # Page two: the returned cursor moves the SQL offset past page one.
+    second_db = _routed_db(
+        {
+            frozenset({"developers", "developer_scores"}): [_FakeResult(rows=rows[2:])],
+            frozenset({"rera_projects"}): [_FakeResult(rows=[])],
+            frozenset({"rera_complaints"}): [_FakeResult(rows=[])],
+        }
+    )
+    second = await developers_api.list_developers(
+        q=None,
+        order_by="name",
+        page=CursorParams(cursor=page["next_cursor"], limit=2, include_total=False),
+        db=second_db,
+    )
+
+    assert [item.slug for item in second["items"]] == ["dev-3"]
+    assert second["has_more"] is False
+    assert "OFFSET 2" in _compiled(second_db.execute.await_args_list[0].args[0])
+
 
 @pytest.mark.asyncio
 async def test_developer_detail_returns_404_for_an_unknown_slug(
@@ -303,7 +322,7 @@ async def test_developer_detail_returns_the_score_and_a_capped_portfolio(
     assert detail.score is not None and detail.score.total_score == 60.0
     assert [item.slug for item in detail.projects] == ["alpha-one"]
     portfolio_stmt = db.execute.await_args_list[4].args[0]
-    assert 50 in portfolio_stmt.compile(dialect=postgresql.dialect()).params.values()
+    assert f"LIMIT {developers_api.DEVELOPER_PROJECTS_LIMIT}" in _compiled(portfolio_stmt)
     assert db.execute.await_count == 6
 
 

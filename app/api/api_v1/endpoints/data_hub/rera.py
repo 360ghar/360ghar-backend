@@ -181,8 +181,6 @@ async def list_builders(
         .label("total_projects"),
         ReraProject.id.label("project_id"),
     ).where(ReraProject.developer_slug.isnot(None))
-    if q:
-        named_projects = named_projects.where(ReraProject.developer_name.ilike(f"%{q}%"))
     named_projects_sq = named_projects.subquery()
 
     slug_q = (
@@ -194,6 +192,19 @@ async def list_builders(
         .distinct(named_projects_sq.c.slug)
         .order_by(named_projects_sq.c.slug, named_projects_sq.c.project_id)
     )
+    if q:
+        # Match the search on any spelling, then keep the slug's full count and
+        # display name. Filtering project rows first would count only the
+        # matching spelling and could pick a different display name.
+        matching_slugs = (
+            select(ReraProject.developer_slug)
+            .where(
+                ReraProject.developer_slug.isnot(None),
+                ReraProject.developer_name.ilike(f"%{q}%"),
+            )
+            .distinct()
+        )
+        slug_q = slug_q.where(named_projects_sq.c.slug.in_(matching_slugs))
 
     try:
         all_rows = (await db.execute(slug_q)).all()

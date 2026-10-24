@@ -155,6 +155,38 @@ class TestDataHubBuilders:
         ]
 
 
+    @pytest.mark.asyncio
+    async def test_a_search_on_one_spelling_keeps_the_full_builder(self, client, db_session):
+        """Searching one spelling must not drop the other spelling's projects."""
+        db_session.add_all(
+            [
+                ReraProject(
+                    rera_number="PASSB-RERA-4",
+                    project_name="Search One",
+                    developer_name="Passb Search Ltd",
+                    developer_slug="passb-search",
+                    district="Gurugram",
+                ),
+                ReraProject(
+                    rera_number="PASSB-RERA-5",
+                    project_name="Search Two",
+                    developer_name="Passb Search Limited",
+                    developer_slug="passb-search",
+                    district="Gurugram",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/v1/data-hub/builders?q=Limited&limit=100")
+
+        assert response.status_code == 200
+        rows = [i for i in response.json()["items"] if i["slug"] == "passb-search"]
+        assert len(rows) == 1
+        assert rows[0]["builder_name"] == "Passb Search Ltd"
+        assert rows[0]["total_projects"] == 2
+
+
 class TestDataHubRoutesRemoved:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

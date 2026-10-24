@@ -9,13 +9,16 @@ The live behaviour these encode was verified against the portal by hand:
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from app.config import settings
 from app.services.data_hub.rera_portal_scan import (
     _DEFAULT_DISTRICT,
+    _FILING_MARKER,
     DEFAULT_DELAY_SECONDS,
     DEFAULT_MAX_IDS,
     ReraPortalIdScanner,
@@ -29,10 +32,6 @@ FIXTURE = (
     / "hrera"
     / "rep_i_privana_west.html"
 )
-# The marker a filing page carries and a gap page does not.
-_FILING_MARKER = "Temp Project Id"
-
-
 def test_the_captured_filing_carries_the_marker() -> None:
     html = FIXTURE.read_text(encoding="utf-8")
     assert _FILING_MARKER in html
@@ -69,10 +68,68 @@ def test_the_id_range_excludes_ids_already_stored() -> None:
     assert scanner._id_range(set()) == list(range(1, 11))
 
 
-def test_a_run_is_capped_regardless_of_the_requested_range() -> None:
-    scanner = ReraPortalIdScanner(start_id=1, end_id=DEFAULT_MAX_IDS * 3)
-    pending = scanner._id_range(set())
-    assert len(pending) == DEFAULT_MAX_IDS
+@pytest.mark.asyncio
+async def test_a_range_wider_than_the_cap_is_refused() -> None:
+    """The cap bounds the span. Truncating would re-walk the same prefix every run."""
+    result = await ReraPortalIdScanner(start_id=1, end_id=DEFAULT_MAX_IDS + 1).run()
+    assert result["status"] == "failed"
+    assert "Split it into smaller runs" in result["error"]
+
+
+def _fake_browser(pages: dict[int, tuple[int, str]]):
+    """A Playwright stand-in: each portal id answers with (HTTP status, HTML)."""
+    state: dict[str, str] = {}
+
+    class Page:
+        def set_default_timeout(self, _ms):
+            return None
+
+        async def goto(self, url, timeout=None):
+            status, html = pages[int(url.rstrip("/").rsplit("/", 1)[-1])]
+            state["html"] = html
+            return SimpleNamespace(status=status, ok=200 <= status < 300)
+
+        async def content(self):
+            return state["html"]
+
+        async def close(self):
+            return None
+
+    class Browser:
+        async def new_page(self):
+            return Page()
+
+    @asynccontextmanager
+    async def browser():
+        yield Browser()
+
+    return browser
+
+
+@pytest.mark.asyncio
+async def test_the_scan_classifies_filing_gap_and_http_error_pages(monkeypatch) -> None:
+    filing_html = FIXTURE.read_text(encoding="utf-8")
+    gap_html = "<html><body><h1>Haryana Real Estate Regulatory Authority</h1></body></html>"
+    scanner = ReraPortalIdScanner(start_id=1, end_id=3, delay_seconds=0)
+
+    async def no_known_ids():
+        return set()
+
+    monkeypatch.setattr(scanner, "_known_portal_ids", no_known_ids)
+    monkeypatch.setattr(
+        scanner,
+        "_playwright_browser",
+        _fake_browser({1: (200, filing_html), 2: (200, gap_html), 3: (500, gap_html)}),
+    )
+
+    result = await scanner._scrape()
+    coverage = result.source_coverage[0]
+
+    assert coverage["pages_parsed"] == 1
+    assert coverage["ids_skipped_gap"] == 1
+    # The HTTP 500 is a fetch error, not a gap.
+    assert [error["error_type"] for error in result.errors] == ["HTTPStatus"]
+    assert coverage["next_start_id"] == 4
 
 
 def test_the_start_id_is_honoured() -> None:

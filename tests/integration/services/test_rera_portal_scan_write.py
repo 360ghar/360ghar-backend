@@ -146,6 +146,8 @@ async def test_a_rescan_does_not_overwrite_registration_facts(db_session) -> Non
 
     await _scan(db_session, _scan_record(html))
 
+    # Read the row the scanner wrote, not the object loaded before the scan.
+    db_session.expire_all()
     after = await _one_project(db_session)
     assert after.status == "revoked"
     assert after.rera_number == RERA_NUMBER

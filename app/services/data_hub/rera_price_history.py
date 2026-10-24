@@ -240,7 +240,9 @@ class ReraPriceHistoryScraper(BaseScraper):
         )
         statement = (
             select(candidates)
-            .order_by(candidates.c.price_rows, candidates.c.rera_project_id)
+            # Projects with no points first. Within a tier the order is random, so
+            # projects that never yield a point cannot hold every batch forever.
+            .order_by(candidates.c.price_rows, func.random())
             .limit(DEFAULT_BATCH)
         )
         session_factory = get_bg_session_factory()
@@ -280,9 +282,9 @@ class ReraPriceHistoryScraper(BaseScraper):
             launch_quarter = _filed_quarter(
                 item.get("rera_received_date"), item.get("registration_date")
             )
-            filing_quarter = _filed_quarter(
-                item.get("latest_document_on"), item.get("profile_updated_at")
-            )
+            # Only a date the filing states places the filed price. The profile's
+            # updated_at is when this service read the filing, not a filed date.
+            filing_quarter = _filed_quarter(item.get("latest_document_on"), None)
             points = derive_price_points(
                 rera_project_id=item["rera_project_id"],
                 launch_price_per_sqft=item.get("launch_price_per_sqft"),

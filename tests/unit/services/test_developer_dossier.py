@@ -518,6 +518,34 @@ class TestUpsertWrites:
 
         assert record["complaint_count"] == 1
 
+    async def test_spellings_with_one_slug_are_scored_as_one_developer(self, db_session):
+        """Two spellings of one promoter give one record over both projects."""
+        db_session.add_all(
+            [
+                ReraProject(
+                    rera_number="TEST-DOSSIER-SPELL-1",
+                    project_name="Spelling One",
+                    developer_name="Spelling Test Homes",
+                    district="Gurugram",
+                    status="registered",
+                ),
+                ReraProject(
+                    rera_number="TEST-DOSSIER-SPELL-2",
+                    project_name="Spelling Two",
+                    developer_name="SPELLING TEST HOMES",
+                    district="Gurugram",
+                    status="registered",
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        records = await DeveloperDossierScraper()._collect(db_session)
+        matching = [item for item in records if item["developer_slug"] == "spelling-test-homes"]
+
+        assert len(matching) == 1
+        assert matching[0]["project_count"] == 2
+
 
 class TestComplaintAttributionCoverage:
     """The complaint match is exact, so the gap has to be reported, not hidden.

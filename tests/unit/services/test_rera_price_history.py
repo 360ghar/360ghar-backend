@@ -289,7 +289,8 @@ class TestScrapeReadsTheRegister:
         assert result.records[0]["quarter"] == "2025-Q1"
         assert result.records[0]["source"] is ProjectPriceSource.filing
 
-    async def test_the_filing_quarter_falls_back_to_the_profile_update(self, monkeypatch):
+    async def test_a_filing_without_a_document_date_writes_no_filing_point(self, monkeypatch):
+        """The profile update time is when we read the filing, not a date it states."""
         scraper = ReraPriceHistoryScraper()
         monkeypatch.setattr(
             scraper,
@@ -306,8 +307,7 @@ class TestScrapeReadsTheRegister:
 
         result = await scraper._scrape()
 
-        assert len(result.records) == 1
-        assert result.records[0]["quarter"] == "2025-Q4"
+        assert [r for r in result.records if r["source"] is ProjectPriceSource.filing] == []
 
     async def test_a_successful_read_with_no_points_is_not_a_failed_run(self, monkeypatch):
         scraper = ReraPriceHistoryScraper()

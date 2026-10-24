@@ -354,21 +354,27 @@ class DeveloperDossierScraper(BaseScraper):
         names = await self._distinct_developer_names(db)
         if not names:
             return []
-        scored_slugs = set(
+        computed_at: dict[str, datetime] = dict(
             (
                 await db.execute(
-                    select(Developer.slug).join(
+                    select(Developer.slug, DeveloperScore.computed_at).join(
                         DeveloperScore, DeveloperScore.developer_id == Developer.id
                     )
                 )
-            )
-            .scalars()
-            .all()
+            ).all()
         )
-        # Unscored developers first, so a bounded run still converges.
-        names.sort(key=lambda item: (item["slug"] in scored_slugs, item["first_project_id"]))
+        # Unscored developers first, then the stalest scores, so a bounded run
+        # still reaches every developer and keeps rescoring all of them in turn.
+        oldest = datetime.min.replace(tzinfo=UTC)
+        names.sort(
+            key=lambda item: (
+                item["slug"] in computed_at,
+                computed_at.get(item["slug"]) or oldest,
+                item["first_project_id"],
+            )
+        )
         selected = names[:DEFAULT_BATCH]
-        selected_names = [item["name"] for item in selected]
+        selected_names = [spelling for item in selected for spelling in item["spellings"]]
 
         projects = await self._project_rows(db, selected_names)
         project_ids = [row[0] for row in projects]
@@ -384,7 +390,7 @@ class DeveloperDossierScraper(BaseScraper):
 
         records: list[dict[str, Any]] = []
         for item in selected:
-            rows = by_name.get(item["name"], [])
+            rows = [row for spelling in item["spellings"] for row in by_name.get(spelling, [])]
             stage_counts: dict[str, int] = {}
             regulatory_projects: list[dict[str, Any]] = []
             financial_projects: list[dict[str, Any]] = []
@@ -444,7 +450,10 @@ class DeveloperDossierScraper(BaseScraper):
                     }
                 )
 
-            complaint_count = complaints.get(item["name"].casefold(), 0)
+            complaint_count = sum(
+                complaints.get(folded, 0)
+                for folded in {spelling.casefold() for spelling in item["spellings"]}
+            )
             project_count = item["project_count"]
             pillars = compute_pillars(
                 stage_counts=stage_counts,
@@ -482,16 +491,36 @@ class DeveloperDossierScraper(BaseScraper):
                 .group_by(ReraProject.developer_name)
             )
         ).all()
-        return [
-            {
-                "name": name,
-                "slug": developer_slug(name),
-                "project_count": int(project_count or 0),
-                "first_project_id": int(first_project_id or 0),
-            }
-            for name, project_count, first_project_id in rows
-            if name and developer_slug(name)
-        ]
+        # Spellings that normalize to one slug are one developer. Group them so a
+        # single score covers every spelling, instead of one per spelling where the
+        # last upsert wins. The display name is the spelling with the most projects.
+        by_slug: dict[str, dict[str, Any]] = {}
+        for name, project_count, first_project_id in rows:
+            slug = developer_slug(name) if name else None
+            if not slug:
+                continue
+            count = int(project_count or 0)
+            first = int(first_project_id or 0)
+            entry = by_slug.get(slug)
+            if entry is None:
+                by_slug[slug] = {
+                    "name": name,
+                    "slug": slug,
+                    "spellings": [name],
+                    "project_count": count,
+                    "first_project_id": first,
+                    "_top_count": count,
+                }
+                continue
+            entry["spellings"].append(name)
+            entry["project_count"] += count
+            entry["first_project_id"] = min(entry["first_project_id"], first)
+            if (count, name) > (entry["_top_count"], entry["name"]):
+                entry["name"], entry["_top_count"] = name, count
+        for entry in by_slug.values():
+            entry.pop("_top_count")
+            entry["spellings"].sort()
+        return list(by_slug.values())
 
     async def _project_rows(
         self, db: AsyncSession, names: Sequence[str]

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from bs4 import BeautifulSoup
+from sqlalchemy.dialects import postgresql
 
 from app.config import settings
 from app.services.data_hub import uprera_projects as uprera_module
@@ -540,9 +541,10 @@ class TestUpsert:
         await UpreraProjectScraper()._upsert(db, [record])
 
         statement = db.execute.await_args.args[0]
-        assert "_locator_row" not in statement.compile().params
-        assert "_source_key" not in statement.compile().params
-        assert set(statement.compile().params) >= {
+        params = statement.compile(dialect=postgresql.dialect()).params
+        assert "_locator_row" not in params
+        assert "_source_key" not in params
+        assert set(params) >= {
             "rera_number",
             "project_name",
             "district",

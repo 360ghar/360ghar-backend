@@ -29,7 +29,6 @@ import pytest
 from bs4 import BeautifulSoup
 
 from app.config import settings
-from app.services.data_hub import delhi_rera_projects as delhi_module
 from app.services.data_hub.delhi_rera_projects import (
     DELHI_SEARCH_REQUIRES_CAPTCHA,
     DelhiReraProjectScraper,
@@ -622,7 +621,7 @@ class TestScrape:
 
         assert calls[0] == REGISTER_URL
         assert not any("ProjectInfo" in url or "ProjectPVregd" in url for url in calls)
-        assert delhi_module.DELHI_SEARCH_REQUIRES_CAPTCHA == DELHI_SEARCH_REQUIRES_CAPTCHA
+        assert DELHI_SEARCH_REQUIRES_CAPTCHA == "DELHI_SEARCH_REQUIRES_CAPTCHA"
 
     async def test_a_filing_that_fails_to_fetch_still_writes_the_register_row(
         self, monkeypatch: pytest.MonkeyPatch, register_html: str, flag_on: None
