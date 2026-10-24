@@ -117,6 +117,75 @@ class TestDataHubBuilders:
         assert [p["rera_number"] for p in item["rera_projects"]] == ["PASSB-RERA-1"]
         assert len(item["recent_complaints"]) == 1
 
+    @pytest.mark.asyncio
+    async def test_one_developer_with_two_name_spellings_is_one_row(self, client, db_session):
+        """A slug is the builder's identity. The register spells one developer's name more
+        than one way, and the list must still show that developer once, with all of its
+        projects, under the name the detail page shows (the lowest-id project's)."""
+        db_session.add_all(
+            [
+                ReraProject(
+                    rera_number="PASSB-RERA-2",
+                    project_name="Spelling One",
+                    developer_name="Passb Spelling Ltd",
+                    developer_slug="passb-spelling",
+                    district="Gurugram",
+                ),
+                ReraProject(
+                    rera_number="PASSB-RERA-3",
+                    project_name="Spelling Two",
+                    developer_name="PASSB SPELLING LTD",
+                    developer_slug="passb-spelling",
+                    district="Gurugram",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/v1/data-hub/builders?limit=100")
+
+        assert response.status_code == 200
+        rows = [i for i in response.json()["items"] if i["slug"] == "passb-spelling"]
+        assert len(rows) == 1
+        assert rows[0]["builder_name"] == "Passb Spelling Ltd"
+        assert rows[0]["total_projects"] == 2
+        assert [p["rera_number"] for p in rows[0]["rera_projects"]] == [
+            "PASSB-RERA-2",
+            "PASSB-RERA-3",
+        ]
+
+
+    @pytest.mark.asyncio
+    async def test_a_search_on_one_spelling_keeps_the_full_builder(self, client, db_session):
+        """Searching one spelling must not drop the other spelling's projects."""
+        db_session.add_all(
+            [
+                ReraProject(
+                    rera_number="PASSB-RERA-4",
+                    project_name="Search One",
+                    developer_name="Passb Search Ltd",
+                    developer_slug="passb-search",
+                    district="Gurugram",
+                ),
+                ReraProject(
+                    rera_number="PASSB-RERA-5",
+                    project_name="Search Two",
+                    developer_name="Passb Search Limited",
+                    developer_slug="passb-search",
+                    district="Gurugram",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        response = await client.get("/api/v1/data-hub/builders?q=Limited&limit=100")
+
+        assert response.status_code == 200
+        rows = [i for i in response.json()["items"] if i["slug"] == "passb-search"]
+        assert len(rows) == 1
+        assert rows[0]["builder_name"] == "Passb Search Ltd"
+        assert rows[0]["total_projects"] == 2
+
 
 class TestDataHubRoutesRemoved:
     @pytest.mark.asyncio

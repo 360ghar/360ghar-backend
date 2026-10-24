@@ -209,6 +209,8 @@ async def test_digest_without_publisher_user_skips(db_session, hub_changes, monk
 
 async def test_valid_digest_is_published_once_per_week(db_session, hub_changes, test_admin_user, monkeypatch):
     monkeypatch.setattr(settings, "AUTO_BLOG_PUBLISHER_USER_ID", test_admin_user.id)
+    # Auto-publish is opt-in (default off), so this test turns it on explicitly.
+    monkeypatch.setattr(settings, "MARKET_DIGEST_AUTO_PUBLISH", True)
     sheet = await sheet_for_today(db_session)
     provider = FakeProvider([compose_digest(sheet)])
     res = await digest.generate_market_digest(db_session, provider)

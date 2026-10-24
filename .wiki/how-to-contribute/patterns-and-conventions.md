@@ -1,6 +1,6 @@
 # Patterns and conventions
 
-Coding patterns the 360 Ghar backend enforces and how to follow them. Most are encoded in `CLAUDE.md` and `AGENTS.md` at the repo root and enforced by `ruff` in CI.
+Coding patterns the 360 Ghar backend enforces and how to follow them. Most are encoded in `AGENTS.md` at the repo root and enforced by `ruff` in CI.
 
 ## Async-first
 
@@ -33,7 +33,7 @@ One `AsyncIOScheduler` from `app/infrastructure/scheduler.py` is registered in `
 
 ## SSE event bus
 
-Flatmates app-wide realtime uses Supabase private Broadcast. Services call `queue_flatmates_realtime_event` after domain writes; the publisher sends only after DB commit. Event types are listed in [the glossary](../overview/glossary.md); adding a new type requires updating `CLAUDE.md` and `AGENTS.md`. Private channel authorization is enforced by RLS on `realtime.messages`.
+Flatmates app-wide realtime uses Supabase private Broadcast. Services call `queue_flatmates_realtime_event` after domain writes; the publisher sends only after DB commit. Event types are listed in [the glossary](../overview/glossary.md); adding a new type requires updating `AGENTS.md`. Private channel authorization is enforced by RLS on `realtime.messages`.
 
 ## 3-tuple cursor pagination
 

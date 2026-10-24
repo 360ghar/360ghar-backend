@@ -50,7 +50,7 @@ graph TD
     EP --> List[get_user_bookings: 3-tuple keyset]
 ```
 
-The critical business rule, documented in [CLAUDE.md](../../CLAUDE.md) and [AGENTS.md](../../AGENTS.md), is that **overlapping bookings are allowed**. `check_availability` only verifies the property exists and that the guest count fits `max_occupancy`. There are no date-overlap conflict checks, no double-booking guards, and no DB exclusion constraints on bookings. The same property can be shown to and booked by multiple people for the same or overlapping dates. Do not add such guards without explicit instruction.
+The critical business rule, documented in [AGENTS.md](../../AGENTS.md), is that **overlapping bookings are allowed**. `check_availability` only verifies the property exists and that the guest count fits `max_occupancy`. There are no date-overlap conflict checks, no double-booking guards, and no DB exclusion constraints on bookings. The same property can be shown to and booked by multiple people for the same or overlapping dates. Do not add such guards without explicit instruction.
 
 `get_user_bookings`, `get_user_upcoming_bookings`, and `get_user_past_bookings` all return the 3-tuple shape `(items, next_payload, total)` using keyset pagination on `(created_at, id)` descending, consistent with the [Ghar Core](ghar-core.md) pagination refactor. Admin and agent access flows through `can_access_booking` in `pm_authz.py`.
 

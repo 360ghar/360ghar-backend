@@ -337,5 +337,5 @@ async def _get_ai_provider_safe():
     except ValueError as e:
         logger.error("Failed to get AI provider: %s", e)
         raise ServiceUnavailableException(
-            detail="AI service is not configured. Please set AGNES_AI_API_KEY."
+            detail="AI service is not configured."
         ) from e

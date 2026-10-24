@@ -44,6 +44,13 @@ async def build_digest_sheet(
     db: AsyncSession, today: date
 ) -> tuple[FactSheet, int, list[tuple[str, str]]]:
     """The digest fact sheet, the number of changes in it, and (name, url) sources for the post."""
+    if not settings.HRERA_DATA_ENABLED:
+        iso = today.isocalendar()
+        return (
+            FactSheet("digest", f"digest-{iso.year}-w{iso.week:02d}", "Gurugram market digest", "Gurugram"),
+            0,
+            [],
+        )
     since = datetime.combine(today - timedelta(days=WINDOW_DAYS), datetime.min.time(), tzinfo=utc_now().tzinfo)
     now = today.isoformat()
     sheet = FactSheet("digest", f"digest-{today.isocalendar().year}-w{today.isocalendar().week:02d}",
@@ -147,6 +154,8 @@ async def _publisher(db: AsyncSession) -> User | None:
 async def generate_market_digest(
     db: AsyncSession, provider: AIProvider, today: date | None = None, throttle: runner.Throttle | None = None
 ) -> dict[str, Any]:
+    if not settings.HRERA_DATA_ENABLED:
+        return {"status": "skipped", "reason": "hrera_disabled_by_configuration", "changes": 0}
     today = today or utc_now().date()
     sheet, changes, sources = await build_digest_sheet(db, today)
     if changes < MIN_CHANGES:

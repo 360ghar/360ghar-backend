@@ -78,7 +78,7 @@ Supabase Realtime private Broadcast is the real-time backbone. The bootstrap res
 
 ## Entry points for modification
 
-Add new realtime event types by extending `app/services/flatmates/realtime.py`, queuing from the relevant service method, and updating CLAUDE.md and AGENTS.md. New moderation rules belong in `prescreen_flatmate_listing` or `apply_listing_prescreen_metadata`. Conversation and match queries always use the canonical pair to avoid duplicate rows; never query `UserConversation` by unordered user IDs.
+Add new realtime event types by extending `app/services/flatmates/realtime.py`, queuing from the relevant service method, and updating AGENTS.md. New moderation rules belong in `prescreen_flatmate_listing` or `apply_listing_prescreen_metadata`. Conversation and match queries always use the canonical pair to avoid duplicate rows; never query `UserConversation` by unordered user IDs.
 
 ## Key source files
 

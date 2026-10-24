@@ -342,6 +342,70 @@ NOTIFICATION_TYPES: dict[str, NotificationTypeConfig] = {
         },
         default_ttl_seconds=24 * 3600,
     ),
+    # Data hub auction alerts. The user created the auction alert themselves, so
+    # this is transactional: it must not sit behind the promotional-email consent.
+    "auction_alert_match": NotificationTypeConfig(
+        key="auction_alert_match",
+        category=NotificationCategory.TRANSACTIONAL,
+        priority=NotificationPriority.HIGH,
+        allowed_channels={
+            NotificationChannel.PUSH,
+            NotificationChannel.EMAIL,
+            NotificationChannel.IN_APP,
+        },
+        default_ttl_seconds=3 * 24 * 3600,
+        frequency_cap=FrequencyCap(per_day=5, per_week=20),
+    ),
+    # Data hub watchlist alerts. The user explicitly asked to track the project, so
+    # these are transactional (not marketing): they must not be gated behind the
+    # promotional-email consent. ``frequency_cap`` is declared metadata only: the
+    # dispatcher does not enforce it today, so it bounds nothing at send time. TTLs are long because a price or possession move stays relevant for
+    # weeks after the filing it came from.
+    "watchlist_price_change": NotificationTypeConfig(
+        key="watchlist_price_change",
+        category=NotificationCategory.TRANSACTIONAL,
+        priority=NotificationPriority.HIGH,
+        allowed_channels={
+            NotificationChannel.PUSH,
+            NotificationChannel.EMAIL,
+            NotificationChannel.IN_APP,
+        },
+        default_ttl_seconds=14 * 24 * 3600,
+        frequency_cap=FrequencyCap(per_day=3, per_week=10),
+    ),
+    "watchlist_stage_change": NotificationTypeConfig(
+        key="watchlist_stage_change",
+        category=NotificationCategory.TRANSACTIONAL,
+        priority=NotificationPriority.NORMAL,
+        allowed_channels={
+            NotificationChannel.PUSH,
+            NotificationChannel.IN_APP,
+        },
+        default_ttl_seconds=14 * 24 * 3600,
+        frequency_cap=FrequencyCap(per_day=2, per_week=7),
+    ),
+    "watchlist_possession_change": NotificationTypeConfig(
+        key="watchlist_possession_change",
+        category=NotificationCategory.TRANSACTIONAL,
+        priority=NotificationPriority.HIGH,
+        allowed_channels={
+            NotificationChannel.PUSH,
+            NotificationChannel.EMAIL,
+            NotificationChannel.IN_APP,
+        },
+        default_ttl_seconds=30 * 24 * 3600,
+        frequency_cap=FrequencyCap(per_day=2, per_week=7),
+    ),
+    "watchlist_new_filing": NotificationTypeConfig(
+        key="watchlist_new_filing",
+        category=NotificationCategory.TRANSACTIONAL,
+        priority=NotificationPriority.NORMAL,
+        allowed_channels={
+            NotificationChannel.IN_APP,
+        },
+        default_ttl_seconds=30 * 24 * 3600,
+        frequency_cap=FrequencyCap(per_day=3, per_week=15),
+    ),
     # Fallback type for ad-hoc admin-triggered notifications
     "admin_broadcast": NotificationTypeConfig(
         key="admin_broadcast",

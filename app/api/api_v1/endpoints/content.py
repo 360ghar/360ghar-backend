@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import get_db
 from app.core.exceptions import NotFoundException
 from app.models.content import SERVED_STATUSES, ContentBlock
@@ -27,6 +28,15 @@ async def content_manifest(
     """Every served (entity, locale) with its indexable flag and last update. For sitemaps and builds.
 
     Returns at most ``limit`` rows (default 5,000). ``truncated`` is true when there are more."""
+    hrera_disabled = not settings.HRERA_DATA_ENABLED
+    # Only the manifests the flag changes (unfiltered and locality) skip the edge
+    # cache; a property manifest is the same with the flag on or off.
+    flag_sensitive = entity_type is None or entity_type == "locality"
+    response.headers["Cache-Control"] = (
+        "no-store" if hrera_disabled and flag_sensitive else CACHE_HEADER
+    )
+    if entity_type == "locality" and hrera_disabled:
+        return ContentManifest(items=[], truncated=False)
     stmt = (
         select(
             ContentBlock.entity_type, ContentBlock.slug, ContentBlock.locale,
@@ -38,8 +48,9 @@ async def content_manifest(
     )
     if entity_type:
         stmt = stmt.where(ContentBlock.entity_type == entity_type)
+    elif not settings.HRERA_DATA_ENABLED:
+        stmt = stmt.where(ContentBlock.entity_type != "locality")
     rows = [dict(r._mapping) for r in (await db.execute(stmt)).all()]
-    response.headers["Cache-Control"] = CACHE_HEADER
     return ContentManifest.model_validate({"items": rows[:limit], "truncated": len(rows) > limit})
 
 
@@ -51,6 +62,13 @@ async def get_content(
     locale: Locale = Query("en"),
     db: AsyncSession = Depends(get_db),
 ) -> ContentBlock:
+    if entity_type == "locality" and not settings.HRERA_DATA_ENABLED:
+        response.headers["Cache-Control"] = "no-store"
+        raise NotFoundException(
+            "No content for this entity",
+            headers={"Cache-Control": "no-store"},
+            error_code="CONTENT_NOT_FOUND",
+        )
     row = (
         await db.execute(
             select(ContentBlock).where(

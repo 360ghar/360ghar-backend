@@ -104,7 +104,7 @@ Maintenance requests support the full workflow `open → in_review → work_orde
 
 ## Entry points for modification
 
-New PM operations must go through `pm_authz` — never query `Lease` or `MaintenanceRequest` directly without an `assert_can_access_*` call. A write that stores a referenced id (document, lease, request, agent) must call `assert_owned_reference` (404 unknown, 403 foreign) or `assert_assignable_agent`. New rent charge fields belong in `generate_rent_charges` and the `RentCharge` model; the payment application logic in `record_rent_payment` must be updated to recompute `RentCharge.status`. Status enums live in `app/models/enums.py` and any new value requires a migration plus an enum update in CLAUDE.md.
+New PM operations must go through `pm_authz` — never query `Lease` or `MaintenanceRequest` directly without an `assert_can_access_*` call. A write that stores a referenced id (document, lease, request, agent) must call `assert_owned_reference` (404 unknown, 403 foreign) or `assert_assignable_agent`. New rent charge fields belong in `generate_rent_charges` and the `RentCharge` model; the payment application logic in `record_rent_payment` must be updated to recompute `RentCharge.status`. Status enums live in `app/models/enums.py` and any new value requires a migration plus an enum update in AGENTS.md.
 
 ## Key source files
 

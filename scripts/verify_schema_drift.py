@@ -240,7 +240,12 @@ def _collect_db(cur: Any, table_names: list[str]) -> dict[str, Any]:
         "      WHERE a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey::int2[])) "
         "FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid "
         "JOIN pg_namespace n ON n.oid = t.relnamespace "
-        "WHERE n.nspname = 'public' AND i.indisunique AND NOT i.indisprimary"
+        "WHERE n.nspname = 'public' AND i.indisunique AND NOT i.indisprimary "
+        # Expression indexes are out of scope on the model side (see
+        # ``_model_unique_keys``), so they are skipped here too. Without this the
+        # two sides disagree: an expression index has no column name to report,
+        # and the database side would raise it as drift the model can never match.
+        "AND NOT (0 = ANY(i.indkey::int2[]))"
     )
     unique: dict[str, set[tuple[tuple[str, ...], bool]]] = {}
     for table, partial, cols in cur.fetchall():

@@ -41,7 +41,8 @@ Active contributors: Saksham, Ravi
 | `CRON_SECRET` | Shared secret for scheduled callers. They send it in `X-Cron-Secret`. Unset means the cron endpoints return 503. |
 | `CONTENT_MIN_CALL_INTERVAL_S` | Minimum seconds between content-engine model calls. Default 12, range 0 to 300. Keeps runs inside the Agnes limits (about 1,500 requests per 5 hours, 15,000 per week). |
 | `CONTENT_ON_WRITE_ENABLED` | Default false. When true, creating or updating a listing schedules a background content run for that property. |
-| `MARKET_DIGEST_AUTO_PUBLISH` | Default true. A weekly digest that validates is published. Set false to keep every digest a draft. The publisher is `AUTO_BLOG_PUBLISHER_USER_ID`. |
+| `HRERA_DATA_ENABLED` | Default true. Enables HRERA scraping, public RERA/builder data, locality facts, and market-digest generation. Set to false to withhold every HRERA surface at once as an operator off-switch. |
+| `MARKET_DIGEST_AUTO_PUBLISH` | Default false. Set true only after explicit review/opt-in; validated weekly digests otherwise remain drafts. The publisher is `AUTO_BLOG_PUBLISHER_USER_ID`. |
 | `GEMINI_EMBED_MODEL` | Gemini embedding model for pgvector sync (key: `GOOGLE_API_KEY`). |
 
 ## Daytona sandbox (virtual tour generation)

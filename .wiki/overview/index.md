@@ -43,4 +43,4 @@ Other areas worth bookmarking once written: API authentication, MCP servers, inf
 - `app/core/config.py` — settings.
 - `app/models/enums.py` — 50+ enums that shape every domain object.
 
-The codebase has only two `TODO`/`FIXME` markers, so what you read is what ships. For the full operating contract, see `CLAUDE.md` and `AGENTS.md` at the repo root.
+The codebase has only two `TODO`/`FIXME` markers, so what you read is what ships. For the full operating contract, see `AGENTS.md` at the repo root.

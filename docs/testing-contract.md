@@ -25,6 +25,9 @@ The test suite is organized by intent. Add tests in the narrowest layer that pro
 ## Coverage Expectations
 - New endpoint modules require API or e2e coverage.
 - New service logic requires unit coverage and integration coverage when database semantics are important.
+- Data Hub provenance unit tests cover allowlists, safe summaries, no-op/changed revisions, and complete/partial/failed outcomes. PostgreSQL FK/check constraints and revision immutability require an isolated local database; never substitute hosted Supabase.
+- HRERA-rights gate and public-isolation tests in `tests/unit/services/test_hrera_rights.py` and `tests/unit/api/test_hrera_rights.py` must be mock-only, run with `--noconftest` and dotenv disabled, and assert no DB/network call on disabled paths. Never use live HRERA, a database, or an external portal for these tests. Cover scheduler/manual gates, RERA route query prevention, locality/property isolation, digest filters across query and cached routes, reviewer-backed verification, source-to-checked-time mapping, and deterministic builder ordering.
+- RSS/CDN cache state is external to the backend test contract; tests must not purge it. Backend-only suppression cannot invalidate existing RSS XML, which may remain cached for up to 24 hours.
 - New MCP tools require `tests/mcp/` coverage and should verify tool metadata or response structure.
 - New AI-agent behavior requires unit coverage for helper behavior and API coverage where SSE persistence or widget emission changes.
 - Public route stability is characterized by `tests/fixtures/openapi_path_baseline.json`; behavior-preserving architecture refactors must not change that path list without explicit API approval.

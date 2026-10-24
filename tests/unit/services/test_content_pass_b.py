@@ -130,9 +130,20 @@ class TestDataHubSchemaFields:
         fields = CourtAuctionResponse.model_fields
         assert not {"lat", "lng", "slug", "last_scraped_at"} & set(fields)
 
-    def test_rera_project_has_no_dead_sector_or_slug(self):
+    def test_rera_project_has_no_dead_sector_field(self):
+        """`sector` stays absent; `slug` is no longer dead and is asserted present below."""
         fields = ReraProjectResponse.model_fields
-        assert "sector" not in fields and "slug" not in fields
+        assert "sector" not in fields
+
+    def test_rera_project_carries_the_slug_its_list_links_with(self):
+        """The list renders `/project/{slug}`, so the field is populated and read.
+
+        It was a dead field when the list could not link anywhere. It is now the
+        public URL key: `rera_projects.slug` holds it, the route 404s without it,
+        and the web-ui renders the row title as a link only when it is present.
+        """
+        fields = ReraProjectResponse.model_fields
+        assert "slug" in fields
 
     def test_jamabandi_request_names_the_typed_captcha(self):
         fields = JamabandiLookupRequest.model_fields

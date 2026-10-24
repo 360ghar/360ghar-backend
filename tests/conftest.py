@@ -60,6 +60,27 @@ _DROP_NON_EXTENSION_TABLES = text(
     "END LOOP; END $$;"
 )
 
+# PL/pgSQL block that drops all non-extension-owned enum types in the public
+# schema. Without it, create_all keeps an enum type from an earlier model
+# version (checkfirst sees the name), so a label added to a Python enum never
+# reaches the test database.
+_DROP_NON_EXTENSION_ENUMS = text(
+    "DO $$ DECLARE r RECORD; "
+    "BEGIN "
+    "FOR r IN ("
+    "  SELECT t.typname FROM pg_type t "
+    "  JOIN pg_namespace n ON n.oid = t.typnamespace "
+    "  WHERE n.nspname = 'public' AND t.typtype = 'e' "
+    "  AND t.oid NOT IN ("
+    "    SELECT d.objid FROM pg_depend d "
+    "    JOIN pg_extension e ON d.refobjid = e.oid "
+    "    WHERE d.deptype = 'e'"
+    "  )"
+    ") LOOP "
+    "EXECUTE 'DROP TYPE IF EXISTS public.' || quote_ident(r.typname) || ' CASCADE'; "
+    "END LOOP; END $$;"
+)
+
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -107,6 +128,7 @@ async def test_engine():
     # because they cannot be dropped while the extension is installed.
     async with engine.begin() as conn:
         await conn.execute(_DROP_NON_EXTENSION_TABLES)
+        await conn.execute(_DROP_NON_EXTENSION_ENUMS)
         await conn.run_sync(Base.metadata.create_all)
 
     yield engine

@@ -105,4 +105,4 @@ The widget bridge (`chatgpt-widgets/src/utils/bridge.ts`) is framework-agnostic 
 
 ## Version policy
 
-Per `CLAUDE.md` and `AGENTS.md`, the project always uses the latest stable versions of dependencies. `pyproject.toml` uses `>=` lower bounds (not pinned) and `uv.lock` records the resolved versions. When upgrading, review changelogs for breaking changes and verify compatibility with Python 3.10+, FastAPI, SQLAlchemy 2.x async, and Pydantic v2.
+Per `AGENTS.md`, the project always uses the latest stable versions of dependencies. `pyproject.toml` uses `>=` lower bounds (not pinned) and `uv.lock` records the resolved versions. When upgrading, review changelogs for breaking changes and verify compatibility with Python 3.10+, FastAPI, SQLAlchemy 2.x async, and Pydantic v2.

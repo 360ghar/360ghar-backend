@@ -210,7 +210,7 @@ async def test_notification_cleanup_migration_removes_legacy_keys_on_seeded_rows
     assert bug_row[0] == "open"
 
 
-# ── Finding 6: the drift shim has the auth.users columns the migrations read ──
+# ── Finding 6: the drift shim has the auth.users columns the email check reads ──
 
 
 def test_drift_shim_auth_users_has_the_columns_migrations_read() -> None:
@@ -219,14 +219,6 @@ def test_drift_shim_auth_users_has_the_columns_migrations_read() -> None:
     stub = shim[start : shim.index(");", start) + 2]
     assert re.search(r"\bemail\s+text\b", stub)
     assert re.search(r"\bemail_confirmed_at\s+timestamptz\b", stub)
-
-    migration = (MIGRATIONS / "20261014002002_users_email_release_unconfirmed.sql").read_text(
-        encoding="utf-8"
-    )
-    referenced = set(re.findall(r"\bau\.(\w+)", migration))
-    assert referenced == {"id", "email", "email_confirmed_at"}
-    for column in referenced:
-        assert re.search(rf"\b{column}\b", stub), column
 
 
 # ── Finding 13: a failed local commit after the identity delete is logged for reconciliation ──

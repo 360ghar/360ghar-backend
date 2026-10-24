@@ -58,4 +58,4 @@ The `sentry-sdk[fastapi]` package is integrated with `send_default_pii=False`. T
 
 ## Data safety
 
-See the "Data Safety" section of `CLAUDE.md` for the full destructive-operations policy. The short version: never delete real user data. The `seed_data/02_clear_data.py` script filters by `is_seed_data = true` on `users`, `agents`, and `properties`, and deletes child records via subquery joins to seed parents - never via bare `DELETE FROM`.
+See the "Data Safety" section of `AGENTS.md` for the full destructive-operations policy. The short version: never delete real user data. The `seed_data/02_clear_data.py` script filters by `is_seed_data = true` on `users`, `agents`, and `properties`, and deletes child records via subquery joins to seed parents - never via bare `DELETE FROM`.

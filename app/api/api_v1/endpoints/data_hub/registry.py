@@ -30,6 +30,7 @@ from app.schemas.pagination import (
     read_offset,
 )
 from app.schemas.user import User as UserSchema
+from app.services.data_hub.provenance import serialize_with_provenance
 
 from .helpers import _safe_list_query
 
@@ -111,7 +112,9 @@ async def get_zoning(slug: str, db: AsyncSession = Depends(get_db)):
     row = result.scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Zoning data not found")
-    return row
+    return (
+        await serialize_with_provenance(db, "zoning_data", [row], ZoningDataResponse)
+    )[0]
 
 
 @router.get("/zoning", response_model=CursorPage[ZoningDataResponse], summary="List zoning data")
@@ -138,7 +141,9 @@ async def list_zoning(
         db, ZoningData, count_q, data_q, offset, page.limit, with_total=page.include_total
     )
     has_more = len(rows) > page.limit
-    items = rows[: page.limit]
+    items = await serialize_with_provenance(
+        db, "zoning_data", rows[: page.limit], ZoningDataResponse
+    )
     next_payload = offset_payload(offset + page.limit) if has_more else None
     return build_cursor_page(
         items, limit=page.limit, next_payload=next_payload, total=total, filters=filters_payload
@@ -168,7 +173,9 @@ async def list_colony_approvals(
         db, ColonyApproval, count_q, data_q, offset, page.limit, with_total=page.include_total
     )
     has_more = len(rows) > page.limit
-    items = rows[: page.limit]
+    items = await serialize_with_provenance(
+        db, "colony_approval", rows[: page.limit], ColonyApprovalResponse
+    )
     next_payload = offset_payload(offset + page.limit) if has_more else None
     return build_cursor_page(items, limit=page.limit, next_payload=next_payload, total=total)
 

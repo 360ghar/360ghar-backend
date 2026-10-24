@@ -1,4 +1,9 @@
-"""RERA complaints/orders scraper — HRERA (Playwright) with builder scoring."""
+"""RERA complaints/orders scraper — HRERA (Playwright) with builder scoring.
+
+The live portal is ``haryanarera.gov.in``. The older ``hrera.haryana.gov.in`` host no
+longer resolves, so every request to it failed before a single row was parsed. Case
+search now lives at ``assistancecontrol/searchcaseopen``.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -12,14 +17,15 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.data_hub import ReraComplaint, ReraProject
 from app.models.enums import ComplaintNature
-from app.services.data_hub.base_scraper import BaseScraper
+from app.services.data_hub.base_scraper import BaseScraper, ScrapeResult
 from app.services.data_hub.utils import generate_slug
 
 logger = logging.getLogger(__name__)
 
-_HRERA_ORDERS_URL = "https://hrera.haryana.gov.in/Public/OrderSearch"
+_HRERA_ORDERS_URL = "https://haryanarera.gov.in/assistancecontrol/searchcaseopen"
 
 _NATURE_KEYWORDS = {
     ComplaintNature.delay: ["delay", "possession", "handover", "completion"],
@@ -41,8 +47,27 @@ class ReraComplaintScraper(BaseScraper):
     name = "rera_complaints"
     requires_playwright = True
 
-    async def _scrape(self) -> list[dict]:
-        results = []
+    async def run(self, run_type: str = "cron", triggered_by: int | None = None) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"status": "disabled", "run_id": None, "reason": "hrera_disabled_by_configuration"}
+        return await super().run(run_type=run_type, triggered_by=triggered_by)
+
+    async def _scrape(self) -> ScrapeResult:
+        """Read the case search. A read that parses no complaint fails the run.
+
+        The case-search page replaced the old order search, and no captured
+        fixture proves this parser matches it yet. Zero parsed rows is therefore
+        reported as a failed read, not as a successful run that found nothing.
+        """
+        result = ScrapeResult()
+        if not settings.HRERA_DATA_ENABLED:
+            return result
+        coverage: dict[str, Any] = {
+            "source_url": _HRERA_ORDERS_URL,
+            "records_parsed": 0,
+            "status": "failed",
+        }
+        results: list[dict] = []
         try:
             async with self._playwright_browser() as browser:
                 page = await browser.new_page()
@@ -69,12 +94,44 @@ class ReraComplaintScraper(BaseScraper):
                         await asyncio.sleep(2)
                 except Exception as nav_e:
                     logger.warning("HRERA complaints navigation failed: %s", nav_e)
+                    # Rows from earlier pages are kept, but the read is incomplete.
+                    result.errors.append(
+                        {
+                            "source_url": _HRERA_ORDERS_URL,
+                            "stage": "navigation",
+                            "error_type": type(nav_e).__name__,
+                            "message": "Case search navigation failed before the last page",
+                        }
+                    )
                     html = await page.content()
                     results.extend(self._parse_complaints_html(html))
                 await page.close()
         except Exception as e:
             logger.warning("RERA complaints Playwright scrape failed: %s", e)
-        return results
+            result.errors.append(
+                {
+                    "source_url": _HRERA_ORDERS_URL,
+                    "stage": "fetch",
+                    "error_type": type(e).__name__,
+                    "message": "Source page fetch failed",
+                }
+            )
+        if not results and not result.errors:
+            result.errors.append(
+                {
+                    "source_url": _HRERA_ORDERS_URL,
+                    "stage": "parse",
+                    "error_type": "NoComplaintRecordsParsed",
+                    "message": "The case search produced no complaint records",
+                }
+            )
+        result.records = results
+        coverage["records_parsed"] = len(results)
+        if results:
+            result.successful_sources = 1
+            coverage["status"] = "partial" if result.errors else "success"
+        result.source_coverage.append(coverage)
+        return result
 
     def _parse_complaints_html(self, html: str) -> list[dict]:
         soup = BeautifulSoup(html, "html.parser")
@@ -127,6 +184,8 @@ class ReraComplaintScraper(BaseScraper):
         return records
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
+        if not settings.HRERA_DATA_ENABLED:
+            return {"found": 0, "upserted": 0, "failed": 0}
         found = len(records)
         upserted = 0
         failed = 0
@@ -162,6 +221,8 @@ class ReraComplaintScraper(BaseScraper):
 
     async def _update_builder_scores(self, db: AsyncSession) -> None:
         """Update complaint_count on ReraProject rows based on builder_slug matches."""
+        if not settings.HRERA_DATA_ENABLED:
+            return
         from sqlalchemy import func as sqlfunc
         try:
             # Get complaint counts per builder_slug

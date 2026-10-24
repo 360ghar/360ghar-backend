@@ -284,8 +284,12 @@ class Settings(BaseSettings):
     CONTENT_ON_WRITE_ENABLED: bool = False
     # Neutral brand card that /og/{kind}/{slug} redirects to while a subject has no art yet.
     OG_FALLBACK_IMAGE_URL: str = "https://360ghar.com/og-image-home.jpg"
-    # Publish the weekly market digest when it validates. False keeps every digest a draft.
-    MARKET_DIGEST_AUTO_PUBLISH: bool = True
+    # HRERA-derived project, complaint, and builder data. Enabled by product decision;
+    # set to False to withhold every HRERA surface at once (endpoints return 503 and the
+    # scrapers skip their runs). See app/api/api_v1/endpoints/data_hub/rera.py.
+    HRERA_DATA_ENABLED: bool = True
+    # Publish a market digest only after validation and explicit opt-in.
+    MARKET_DIGEST_AUTO_PUBLISH: bool = False
     # Gemini — embeddings only (Agnes has no embedding model)
     GOOGLE_API_KEY: str | None = None
     GEMINI_EMBED_MODEL: str = "gemini-embedding-2"
