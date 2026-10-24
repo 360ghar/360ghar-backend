@@ -60,7 +60,7 @@ PYTHON_DOTENV_DISABLED=1 DATABASE_URL='postgresql://test:test@127.0.0.1:1/test' 
   uv run pytest --noconftest -q tests/unit/services/test_hrera_rights.py tests/unit/api/test_hrera_rights.py
 ```
 
-Do not enable `HRERA_DATA_ENABLED` outside a mocked test unless written source permission has been confirmed. Do not access the source portal or connect these tests to any database.
+Written source permission for HRERA data is confirmed, so `HRERA_DATA_ENABLED` defaults to `true`. Set it to `false` to withhold every HRERA surface at once. The HRERA-rights tests above stay mock-only: they must not access the source portal or connect to a database.
 
 ### Testing without Docker (default approach)
 
@@ -174,7 +174,7 @@ Always use this script when running migrations on the hosted Supabase database. 
 - Persistence models live in `app/models/`; request and response shapes live in `app/schemas/`.
 - Social and flatmates models (matches, conversations, blocks, reports) live in `app/models/social.py`; flatmates service logic lives in `app/services/flatmates/` package (conversations, helpers, interactions, matching, moderation, profiles, visits) with REST endpoints in `app/api/api_v1/endpoints/flatmates.py` and admin moderation endpoints in `app/api/api_v1/endpoints/flatmates_admin.py`.
 - MCP servers and ChatGPT-specific tool wrappers live in `app/mcp/`. They may format tool responses, but authorization and state changes should still flow through shared services where possible.
-- Shared MCP tool business logic lives in `app/mcp/tool_ops/`. These functions are called by both MCP servers (`user_server.py`, `app/mcp/admin/`) and the AI agent tool bridge (`tool_bridge.py`) — do not duplicate this logic.
+- Shared MCP tool business logic lives in `app/mcp/tool_ops/`. These functions are called by both MCP servers (`user_server.py`, `app/mcp/admin/`) and the AI agent tools (`app/services/ai_agent/tools/`) — do not duplicate this logic.
 - AI-agent orchestration lives in `app/services/ai_agent/`. Tool registration and model streaming belong there, but tool behavior should still call shared service-layer code.
 - Notification dispatch flows through `app/services/notification_config.py` (type registry with channel, priority, frequency caps) → `app/services/notification_dispatcher.py` (multi-channel send) → `app/services/notifications/` (CRUD + Supabase push, sub-modules: crud, fcm, helpers, push) → `app/services/push_notification.py` (FCM). New notification types must be registered in the `NOTIFICATION_TYPES` dict.
 - Flatmates app-wide real-time events flow through Supabase Realtime private Broadcast channels via `app/services/flatmates/realtime.py`. Service methods queue events on the SQLAlchemy session and publish only after commit. Clients subscribe to `flatmates:user:{local_user_id}` with Realtime Authorization policies on `realtime.messages`. Event types: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`. New flatmates realtime event types or subscriptions must update AGENTS.md.
@@ -202,7 +202,7 @@ app/
 │   ├── ai/                 # AI provider factory (Agnes AI) + vastu analyzer
 │   │   ├── providers/      # AgnesProvider (httpx + tenacity retries)
 │   │   └── vastu/          # Vastu analyzer, prompts, schemas
-│   ├── ai_agent/           # Pydantic AI agent (agent_service, tool_bridge, conversation_store, system_prompt)
+│   ├── ai_agent/           # Pydantic AI agent (agent_service, tools/, conversation_store, system_prompt)
 │   ├── blog_service/       # Blog content generation (generator.py)
 │   ├── data_hub/           # 15 scraper modules (bank_auctions, circle_rates, rera_projects, etc.)
 │   ├── flatmates/          # Flatmates service package (conversations, helpers, interactions, matching, moderation, profiles, visits)
@@ -298,7 +298,7 @@ async def get_properties(
 | Custom exceptions | `app/core/exceptions.py` |
 | Settings | `app/core/config.py` |
 | Config re-exports | `app/config/settings.py`, `app/config/constants.py` |
-| App constants | `app/core/constants.py` |
+| App constants | `app/core/constants/` |
 | Core utilities | `app/core/utils.py` |
 | SSE event bus | `app/core/sse.py` |
 | Logging + request ID | `app/core/logging.py` |
@@ -311,7 +311,7 @@ async def get_properties(
 | Data hub scrapers | `app/services/data_hub/` |
 | Data hub scheduler | `app/services/data_hub_scheduler.py` |
 | AI agent service | `app/services/ai_agent/agent_service.py` |
-| AI agent tool bridge | `app/services/ai_agent/tool_bridge.py` |
+| AI agent tools | `app/services/ai_agent/tools/` |
 | AI agent conversation store | `app/services/ai_agent/conversation_store.py` |
 | AI agent system prompt | `app/services/ai_agent/system_prompt.py` |
 | Blog auto-publish | `app/services/blog_auto_publish.py`, `app/services/blog_auto_publish_scheduler.py` |
@@ -325,18 +325,18 @@ async def get_properties(
 | Vector sync scheduler | `app/services/vector_sync_scheduler.py` |
 | Vastu AI analyzer | `app/services/ai/vastu/analyzer.py` |
 | AI agent chat endpoint | `app/api/api_v1/endpoints/agent_chat.py` |
-| Tour AI processing | `app/services/tour_ai.py` |
-| Tour service | `app/services/tour.py` |
+| Tour AI processing | `app/services/tour_ai/` |
+| Tour service | `app/services/tour/` |
 | Email service | `app/services/email.py` |
 | SMS service | `app/services/sms.py` |
-| Storage service | `app/services/storage.py` |
+| Storage service | `app/services/storage/` |
 | Storage path generation | `app/services/storage_paths.py` |
 | Image processing | `app/services/image_processing.py` |
 | Custom domain service | `app/services/custom_domain.py` |
 | Flatmates service | `app/services/flatmates/` (conversations, helpers, interactions, matching, moderation, profiles, visits) |
 | Flatmates admin endpoint | `app/api/api_v1/endpoints/flatmates_admin.py` |
 | Flatmates admin schemas | `app/schemas/flatmates_admin.py` |
-| Agent service | `app/services/agent.py` |
+| Agent service | `app/services/agent/` |
 | Data seeding system | `seed_data/01_load_all.py`, `seed_data/generators/`, `seed_data/loaders/` |
 | OAuth token store | `app/services/oauth_token_store.py` |
 | PM authorization | `app/services/pm_authz.py` |
@@ -388,7 +388,7 @@ async def get_properties(
 - **snake_case** for modules/functions/variables; **PascalCase** for classes
 - Full type hints everywhere
 - Custom exceptions from `app/core/exceptions.py` (e.g., `UserNotFoundException`)
-- Pydantic schemas with `Config.from_attributes = True` for ORM mode
+- Pydantic v2 schemas with `model_config = ConfigDict(from_attributes=True)` for ORM mode
 - Use `X | None` for nullable fields (not `Optional[X]`); `list[X]` and `dict[K, V]` (not `List`, `Dict`); `from __future__ import annotations` at module top
 - Validation with `@field_validator` decorators
 
@@ -397,7 +397,7 @@ async def get_properties(
 All code must pass `uv run ruff check app/` before commit. The CI pipeline (`lint` job) runs ruff and will fail on any violation. Key rules to follow:
 
 **Import style (I001, UP035, F401, E402):**
-- Always add `from __future__ import annotations` as the first import in every `.py` file (after any module docstring). This makes forward references work and is required by ruff.
+- Always add `from __future__ import annotations` as the first import in every `.py` file (after any module docstring). This makes forward references work. It is a project convention; ruff does not enforce it.
 - Use `list`, `dict`, `set`, `tuple`, `type` instead of `typing.List`, `typing.Dict`, `typing.Set`, `typing.Tuple`, `typing.Type` (ruff UP035/UP006).
 - Import `Callable`, `Awaitable`, `AsyncIterator`, `Sequence` from `collections.abc`, not `typing` (ruff UP035).
 - Remove unused imports immediately — ruff F401 is enforced. Never leave "just in case" imports.
@@ -555,7 +555,7 @@ Run with coverage: `pytest tests/ --cov=app --cov-report=html`
 - Phone as primary identifier
 - Role-based access: user, agent, admin
 - Backend does not provide `/api/v1/auth/*` user-session endpoints; clients own login/refresh/logout via Supabase SDK
-- Account deletion: `delete_user_account` in `app/services/user.py` hard-deletes the Supabase Auth user, anonymizes all PII, and soft-deletes the local row. Two routes expose it: **`DELETE /api/v1/users/me`** (canonical, returns `MessageResponse`) and **`POST /api/v1/auth/delete-account`** (alternate for mobile clients, returns 204). There is no `/users/me/delete` route.
+- Account deletion: `delete_user_account` in `app/services/user.py` hard-deletes the Supabase Auth user, anonymizes all PII, and soft-deletes the local row. Two routes expose it: **`DELETE /api/v1/users/me`** (canonical, returns 204 No Content) and **`POST /api/v1/auth/delete-account`** (alternate for mobile clients, returns 204). There is no `/users/me/delete` route.
 - Rate limiting: 500 req/min global per IP (sliding window via `app/middleware/rate_limit.py`). Tighter per-route limits applied via `EndpointRateLimiter` on sensitive endpoints (e.g. 60 req/min for the public identifier-status probe). SSE streaming endpoints are exempt (held-open connections would otherwise consume a client's per-IP budget).
 - Input validation via Pydantic schemas
 - API key validation via `VALID_API_KEYS` setting
@@ -579,6 +579,8 @@ The `is_seed_data` boolean column (default `false`) exists on:
 - `properties` — marks seed/demo property listings
 
 Child entities (PropertyImage, Visit, Booking, Tour, BlogPost, PM entities, social records, data hub records) do **not** have their own `is_seed_data` column — they are identified as "seed" via FK joins to their parent. When adding a new seeded model, either add `is_seed_data` or ensure FK cascade to an existing seeded parent.
+
+Exception: the standalone tables in `seed_data/02_clear_data.py` (`STANDALONE_TABLES`, which includes data-hub tables such as `rera_projects`, `bank_auctions` and `circle_rates`) have no seed marker and are cleared wholesale. Do not run the clear script against a database whose data-hub rows are real.
 
 ### Seed Data Lifecycle
 
@@ -882,7 +884,7 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 | Shared utilities | `app/mcp/utils.py` |
 | MCP error helpers | `app/mcp/errors.py` |
 | Auth provider | `app/mcp/auth_provider.py` |
-| OAuth endpoints | `app/api/api_v1/endpoints/oauth.py` |
+| OAuth endpoints | `app/api/api_v1/endpoints/oauth/` |
 | Authorization | `app/services/pm_authz.py` |
 
 > **Note on `tool_ops/`**: These modules contain the shared business logic (service calls, DB queries, authorization, serialization) used by both MCP servers and the AI agent tool bridge. When adding new MCP tools, implement the logic in `app/mcp/tool_ops/` first, then wire it through both `user/server.py`/`admin/` and `services/ai_agent/tools/`.
@@ -898,7 +900,7 @@ The MCP servers are compatible with the OpenAI Apps SDK and the MCP Apps standar
 - Any new top-level runtime directory under `app/`, `tests/`, or `docs/`
 - Any new flatmates or social feature (models, schemas, endpoints, services)
 - Any new notification type registered in `NOTIFICATION_TYPES`
-- Any new AI provider or vision model constant added to `app/core/constants.py`
+- Any new AI provider or vision model constant added to `app/core/constants/`
 - Any new SSE event type or subscription (emit/subscribe change)
 - Any new infrastructure module or lifespan change (startup/shutdown wiring)
 - Any new or modified seed data (generators, loaders, clear script)

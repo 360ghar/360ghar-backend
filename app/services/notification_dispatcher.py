@@ -158,7 +158,7 @@ async def dispatch_notification_to_user(
 
     # In-app inbox: one row per dispatch. It needs no device, so the inbox does not depend on push.
     if NotificationChannel.IN_APP in allowed_channels and user.supabase_user_id:
-        await record_in_app_notification(
+        inbox_id = await record_in_app_notification(
             user_id=user.supabase_user_id,
             type_key=cfg.key,
             title=title,
@@ -167,6 +167,9 @@ async def dispatch_notification_to_user(
             deep_link=deep_link,
             notification_id=notification_id,
         )
+        # The inbox row is a delivery: the user sees it in the app with no device.
+        # record_in_app_notification never raises; None means the row was not written.
+        result["channels"]["in_app"] = {"ok": inbox_id is not None}
 
     # Email
     if NotificationChannel.EMAIL in allowed_channels and user.email:
@@ -211,6 +214,22 @@ async def dispatch_notification_to_user(
             result["channels"]["sms"] = {"ok": False, "error": str(e)}
 
     return result
+
+
+def dispatch_failure(result: dict[str, Any]) -> str | None:
+    """Why a ``dispatch_notification_to_user`` result was not delivered, or ``None``.
+
+    The dispatcher reports channel failures only under ``channels.<name>.ok``. A
+    result is a failure when it carries an ``error``, or when it tried at least one
+    channel and every channel it tried failed. A result that tried no channel (the
+    user turned every channel off) is not a failure: there is nothing to retry.
+    """
+    if result.get("error"):
+        return str(result["error"])
+    channels = result.get("channels") or {}
+    if channels and not any(entry.get("ok") for entry in channels.values()):
+        return "all_channels_failed"
+    return None
 
 
 async def dispatch_notification_to_users(

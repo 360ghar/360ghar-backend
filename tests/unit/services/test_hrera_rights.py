@@ -182,7 +182,11 @@ async def test_market_digest_is_disabled_before_queries_or_model_calls(monkeypat
         db, provider, today=date(2026, 10, 23)
     )
 
-    assert result["status"] == "disabled"
+    # The cron endpoint validates this against MarketDigestResult.
+    from app.schemas.content import MarketDigestResult
+
+    assert MarketDigestResult.model_validate(result).status == "skipped"
+    assert result["reason"] == "hrera_disabled_by_configuration"
     db.execute.assert_not_awaited()
     assert provider.calls == []
 

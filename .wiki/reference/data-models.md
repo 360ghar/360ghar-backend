@@ -1,6 +1,6 @@
 # Data models
 
-The 360Ghar backend has 71 ORM tables across 19 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
+The 360Ghar backend has 91 ORM tables across 20 model files, plus 50+ enums in `app/models/enums.py`. This page maps the model inventory, the relationships between key entities, and the conventions that hold it all together.
 
 Active contributors: Saksham, Ravi
 

@@ -435,7 +435,7 @@ class TestDetailParser:
         detail = parse_project_detail_html(INDIVIDUAL_DETAIL_FIXTURE.read_text(encoding="utf-8"))
 
         assert detail.errors == ()
-        assert detail.promoter_name == "ADITYA VIKRAM BANSAL"
+        assert detail.promoter_name == "SAMPLE TEST PROMOTER"
         assert detail.promoter_registered_address is None
         assert detail.land_area_sqm == Decimal("11747.49")
         assert detail.towers == 1

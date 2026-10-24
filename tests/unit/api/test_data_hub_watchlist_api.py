@@ -53,7 +53,7 @@ def _watchlist_row(**overrides: Any) -> SimpleNamespace:
         "id": 11,
         "rera_project_id": 5,
         "notes": "Watching this",
-        "alert_prefs": {"price": True},
+        "alert_prefs": {"watchlist_price_change": True},
         "created_at": datetime(2026, 1, 3, tzinfo=UTC),
     }
     return SimpleNamespace(**{**fields, **overrides})
@@ -233,7 +233,7 @@ async def test_add_to_watchlist_delegates_to_the_service_and_returns_the_project
     )
 
     response = await watchlist_api.add_watchlist_item(
-        WatchlistItemCreate(project_id=5, notes="Watching this", alert_prefs={"price": True}),
+        WatchlistItemCreate(project_id=5, notes="Watching this", alert_prefs={"watchlist_price_change": True}),
         db=db,
         current_user=_USER,
     )
@@ -242,13 +242,13 @@ async def test_add_to_watchlist_delegates_to_the_service_and_returns_the_project
         "user_id": 7,
         "project_id": 5,
         "notes": "Watching this",
-        "alert_prefs": {"price": True},
+        "alert_prefs": {"watchlist_price_change": True},
     }
     assert response.id == 11
     # The public name is project_id; the column is rera_project_id.
     assert response.project_id == 5
     assert response.notes == "Watching this"
-    assert response.alert_prefs == {"price": True}
+    assert response.alert_prefs == {"watchlist_price_change": True}
     assert response.project is not None and response.project.slug == "alpha-one"
     # The service only flushes, so the row is reloaded before it is serialized.
     db.refresh.assert_awaited_once_with(row)
@@ -375,3 +375,15 @@ async def test_remove_from_watchlist_returns_204_when_removed(
 
     assert result is None
     assert db.execute.await_count == 0
+
+
+@pytest.mark.parametrize(
+    "prefs",
+    [{"watchlist_price_change": "false"}, {"watchlist_price_change": 0}, {"price": False}],
+)
+def test_alert_prefs_reject_unknown_keys_and_non_bool_values(prefs) -> None:
+    """A string or number switch would be read as "on"; an unknown key does nothing."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        WatchlistItemCreate(project_id=5, alert_prefs=prefs)

@@ -155,7 +155,7 @@ async def generate_market_digest(
     db: AsyncSession, provider: AIProvider, today: date | None = None, throttle: runner.Throttle | None = None
 ) -> dict[str, Any]:
     if not settings.HRERA_DATA_ENABLED:
-        return {"status": "disabled", "reason": "hrera_disabled_by_configuration"}
+        return {"status": "skipped", "reason": "hrera_disabled_by_configuration", "changes": 0}
     today = today or utc_now().date()
     sheet, changes, sources = await build_digest_sheet(db, today)
     if changes < MIN_CHANGES:

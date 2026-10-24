@@ -8,26 +8,24 @@ actually differs.
 
 What "since the user was last told" means here
 ----------------------------------------------
-``ProjectWatchlist`` has no per-alert "last notified" column, so the baseline is
-the watch's own ``updated_at``:
+Each watch stores ``alert_baseline``: the values the user was last told (or saw
+when they started watching). Only this service writes it, so editing a watch's
+notes or switches never moves it. A run compares the current values with it:
 
 * price — the newest ``ProjectPriceHistory`` point (source ``filing`` or
-  ``launch``) recorded at or before ``updated_at`` is the value the user was last
-  told; the newest point overall is the current value.
-* possession — the newest ``DataHubEntityRevision`` created at or before
-  ``updated_at`` carries the ``possession_date`` the register showed then; the
-  current ``ReraProject.possession_date`` (or, failing that,
-  ``ReraProjectProfile.proposed_completion_date``) is compared against it.
-* new filing — the newest ``ReraProjectDocument.uploaded_on`` compared with the
-  ``updated_at`` date.
-* stage — **not implemented**. Revision snapshots store only the RERA fields
-  (``RERA_FIELDS``), which have no stage and no construction-start date, so the
-  revision history cannot reconstruct a previous stage. The pure helper
-  ``stage_changed`` exists and is tested, but the scraper never supplies a stage
-  baseline, so this check can never fire. See the module report.
+  ``launch``). A same-quarter overwrite is still a change, because the stored
+  value is compared, not a recorded-at cutoff.
+* stage — ``ReraProjectProfile.stage``.
+* possession — ``ReraProject.possession_date``, or failing that
+  ``ReraProjectProfile.proposed_completion_date``.
+* new filing — a document key (upload date plus description) that the baseline
+  has not seen. Same-day filings are separate keys, so none is hidden.
 
-After every alert for a watch dispatches, the watch's ``updated_at`` is advanced
-so the same change is not re-sent on the next run.
+A watch with no baseline gets one from the current values and sends nothing.
+After a run, each field moves to the value that was read, except a field whose
+alert failed to dispatch: it keeps the old value so the alert is retried. The
+values stored are the values read, not the values at commit time, so a write that
+lands between the read and the commit is reported on the next run.
 
 Alert switches
 --------------
@@ -40,17 +38,16 @@ the notification type keys (``watchlist_price_change``, ``watchlist_stage_change
 from __future__ import annotations
 
 import logging
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.data_hub import (
-    DataHubEntityRevision,
     ProjectPriceHistory,
     ProjectWatchlist,
     ReraProject,
@@ -59,7 +56,7 @@ from app.models.data_hub import (
 )
 from app.models.enums import ProjectPriceSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.notification_dispatcher import dispatch_notification_to_user
+from app.services.notification_dispatcher import dispatch_failure, dispatch_notification_to_user
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +178,7 @@ def detect_change_kinds(
     current_possession_date: Any = None,
     previous_filing_uploaded_on: Any = None,
     latest_filing_uploaded_on: Any = None,
+    new_filing: bool = False,
     alert_prefs: dict | None = None,
 ) -> list[str]:
     """Return the change kinds to notify, in a stable order, honouring opt-outs.
@@ -196,9 +194,89 @@ def detect_change_kinds(
         kinds.append("stage")
     if possession_changed(previous_possession_date, current_possession_date):
         kinds.append("possession")
-    if filing_is_new(previous_filing_uploaded_on, latest_filing_uploaded_on):
+    if new_filing or filing_is_new(previous_filing_uploaded_on, latest_filing_uploaded_on):
         kinds.append("filing")
     return [kind for kind in kinds if alert_pref_enabled(alert_prefs, CHANGE_TYPE_KEYS[kind])]
+
+
+# Record kind that carries a watch's freshly read values, not an alert.
+BASELINE_KIND = "baseline"
+
+# Baseline field each change kind owns.
+_BASELINE_FIELDS: dict[str, tuple[str, ...]] = {
+    "price": ("price_per_sqft",),
+    "stage": ("stage",),
+    "possession": ("possession_date",),
+    "filing": ("documents",),
+}
+
+
+def _json_value(value: Any) -> Any:
+    """A JSON-safe form of a snapshot value (dates and decimals as strings)."""
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    return value
+
+
+def document_key(uploaded_on: date | None, description: str) -> str:
+    """A stable key for one filed document. Rows are replaced on refresh, so ids are not stable."""
+    return f"{uploaded_on.isoformat() if uploaded_on else ''}|{description.strip()}"
+
+
+def merge_baseline(previous: dict | None, snapshot: dict, failed_kinds: set[str]) -> dict:
+    """The new baseline: ``snapshot``, except the fields of alerts that failed keep ``previous``."""
+    merged = dict(snapshot)
+    if previous is None:
+        return merged
+    for kind in failed_kinds:
+        for field in _BASELINE_FIELDS[kind]:
+            if field in previous:
+                merged[field] = previous[field]
+            else:
+                merged.pop(field, None)
+    return merged
+
+
+async def current_alert_snapshot(db: AsyncSession, project: ReraProject) -> dict:
+    """The values a watch alert compares, as stored in ``ProjectWatchlist.alert_baseline``."""
+    price = (
+        await db.execute(
+            select(ProjectPriceHistory.price_per_sqft)
+            .where(
+                ProjectPriceHistory.rera_project_id == project.id,
+                ProjectPriceHistory.source.in_(_PRICE_SOURCES),
+            )
+            .order_by(ProjectPriceHistory.recorded_at.desc(), ProjectPriceHistory.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    profile = (
+        await db.execute(
+            select(ReraProjectProfile).where(ReraProjectProfile.rera_project_id == project.id)
+        )
+    ).scalar_one_or_none()
+    possession = project.possession_date
+    if possession is None and profile is not None:
+        possession = profile.proposed_completion_date
+    documents = (
+        await db.execute(
+            select(ReraProjectDocument.uploaded_on, ReraProjectDocument.description).where(
+                ReraProjectDocument.rera_project_id == project.id
+            )
+        )
+    ).all()
+    return {
+        "price_per_sqft": _json_value(price),
+        "stage": _json_value(profile.stage if profile is not None else None),
+        "possession_date": _json_value(possession),
+        "documents": sorted({document_key(on, desc) for on, desc in documents}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +314,11 @@ class WatchlistAlertScraper(BaseScraper):
             return await self._collect_changes(db)
 
     async def _collect_changes(self, db: AsyncSession) -> list[dict]:
+        """One record per change to dispatch, plus one ``baseline`` record per watch.
+
+        The ``baseline`` record carries the values read on this run. ``_upsert``
+        writes it back after the watch's alerts dispatch.
+        """
         result = await db.execute(select(ProjectWatchlist))
         records: list[dict] = []
         for watch in result.scalars().all():
@@ -243,89 +326,29 @@ class WatchlistAlertScraper(BaseScraper):
         return records
 
     async def _changes_for_watch(self, db: AsyncSession, watch: ProjectWatchlist) -> list[dict]:
-        baseline = watch.updated_at
-        if baseline is None:
-            return []
         project = await db.get(ReraProject, watch.rera_project_id)
         if project is None:
             return []
+        current = await current_alert_snapshot(db, project)
+        baseline_record = {"watch_id": watch.id, "kind": BASELINE_KIND, "snapshot": current}
+        previous = watch.alert_baseline
+        if previous is None:
+            # First sight of this watch: record what the user sees now, send nothing.
+            return [baseline_record]
 
-        previous_price = await self._price_point(db, project.id, recorded_at_or_before=baseline)
-        current_price = await self._price_point(db, project.id)
-        previous_possession = await self._possession_baseline(db, project.id, baseline)
-        current_possession = await self._current_possession(db, project)
-        latest_filing = await self._latest_filing_uploaded_on(db, project.id)
-
+        seen = set(previous.get("documents") or [])
         kinds = detect_change_kinds(
-            previous_price_per_sqft=previous_price.price_per_sqft if previous_price else None,
-            current_price_per_sqft=current_price.price_per_sqft if current_price else None,
-            # No stage baseline exists in the revision history (see module docstring),
-            # so stage is never supplied a before value and can never fire.
-            previous_stage=None,
-            current_stage=None,
-            previous_possession_date=previous_possession,
-            current_possession_date=current_possession,
-            previous_filing_uploaded_on=baseline.date(),
-            latest_filing_uploaded_on=latest_filing,
+            previous_price_per_sqft=previous.get("price_per_sqft"),
+            current_price_per_sqft=current["price_per_sqft"],
+            previous_stage=previous.get("stage"),
+            current_stage=current["stage"],
+            previous_possession_date=previous.get("possession_date"),
+            current_possession_date=current["possession_date"],
+            # An empty baseline list is a real baseline ("no documents yet").
+            new_filing="documents" in previous and bool(set(current["documents"]) - seen),
             alert_prefs=watch.alert_prefs,
         )
-        return [self._build_record(watch, project, kind) for kind in kinds]
-
-    async def _price_point(
-        self,
-        db: AsyncSession,
-        project_id: int,
-        *,
-        recorded_at_or_before: datetime | None = None,
-    ) -> ProjectPriceHistory | None:
-        stmt = select(ProjectPriceHistory).where(
-            ProjectPriceHistory.rera_project_id == project_id,
-            ProjectPriceHistory.source.in_(_PRICE_SOURCES),
-        )
-        if recorded_at_or_before is not None:
-            stmt = stmt.where(ProjectPriceHistory.recorded_at <= recorded_at_or_before)
-        stmt = stmt.order_by(ProjectPriceHistory.recorded_at.desc()).limit(1)
-        return (await db.execute(stmt)).scalar_one_or_none()
-
-    async def _possession_baseline(
-        self, db: AsyncSession, project_id: int, baseline: datetime
-    ) -> Any:
-        """The possession date the revision history showed at the baseline."""
-        revision = (
-            await db.execute(
-                select(DataHubEntityRevision)
-                .where(
-                    DataHubEntityRevision.rera_project_id == project_id,
-                    DataHubEntityRevision.created_at <= baseline,
-                )
-                .order_by(DataHubEntityRevision.revision_number.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        if revision is None:
-            return None
-        return (revision.normalized_snapshot or {}).get("possession_date")
-
-    async def _current_possession(self, db: AsyncSession, project: ReraProject) -> Any:
-        if project.possession_date is not None:
-            return project.possession_date
-        profile = (
-            await db.execute(
-                select(ReraProjectProfile).where(ReraProjectProfile.rera_project_id == project.id)
-            )
-        ).scalar_one_or_none()
-        if profile is None:
-            return None
-        return profile.proposed_completion_date
-
-    async def _latest_filing_uploaded_on(self, db: AsyncSession, project_id: int) -> date | None:
-        return (
-            await db.execute(
-                select(func.max(ReraProjectDocument.uploaded_on)).where(
-                    ReraProjectDocument.rera_project_id == project_id
-                )
-            )
-        ).scalar_one_or_none()
+        return [self._build_record(watch, project, kind) for kind in kinds] + [baseline_record]
 
     def _build_record(self, watch: ProjectWatchlist, project: ReraProject, kind: str) -> dict:
         return {
@@ -345,30 +368,35 @@ class WatchlistAlertScraper(BaseScraper):
         }
 
     async def _upsert(self, db: AsyncSession, records: list[dict]) -> dict:
-        """Dispatch one notification per record and advance the watch baseline.
+        """Dispatch one notification per change and move each watch's baseline.
 
-        A watch's ``updated_at`` moves only when every alert for that watch sent,
-        so a failed dispatch is retried on the next run. One user's failure never
-        aborts the batch.
+        Each baseline field moves to the value read on this run, except the field
+        of an alert that failed: it keeps the old value so that alert is retried
+        and the alerts that did send are not sent again. Each watch commits on its
+        own, so a later failure cannot undo an earlier watch's progress. One
+        user's failure never aborts the batch.
         """
         if not settings.HRERA_DATA_ENABLED:
             return {"found": 0, "upserted": 0, "failed": 0}
 
-        found = len(records)
-        dispatched = 0
-        failed = 0
         by_watch: dict[int, list[dict]] = {}
         for record in records:
             by_watch.setdefault(record["watch_id"], []).append(record)
 
+        found = dispatched = failed = 0
         for watch_id, watch_records in by_watch.items():
-            watch_ok = True
+            snapshot: dict | None = None
+            failed_kinds: set[str] = set()
             for record in watch_records:
+                if record["kind"] == BASELINE_KIND:
+                    snapshot = record["snapshot"]
+                    continue
+                found += 1
                 try:
                     await self._dispatch_notification(db, record)
                     dispatched += 1
                 except Exception as e:
-                    watch_ok = False
+                    failed_kinds.add(record["kind"])
                     failed += 1
                     logger.warning(
                         "Failed to dispatch watchlist alert watch=%s kind=%s: %s",
@@ -376,12 +404,13 @@ class WatchlistAlertScraper(BaseScraper):
                         record.get("kind"),
                         e,
                     )
-            if watch_ok:
-                watch = await db.get(ProjectWatchlist, watch_id)
-                if watch is not None:
-                    watch.updated_at = datetime.now(UTC)
-
-        await db.commit()
+            if snapshot is None:
+                continue
+            watch = await db.get(ProjectWatchlist, watch_id)
+            if watch is None:
+                continue
+            watch.alert_baseline = merge_baseline(watch.alert_baseline, snapshot, failed_kinds)
+            await db.commit()
         return {"found": found, "upserted": dispatched, "failed": failed}
 
     async def _dispatch_notification(self, db: AsyncSession, record: dict) -> None:
@@ -395,5 +424,6 @@ class WatchlistAlertScraper(BaseScraper):
             data=record["data"],
             deep_link=record["deep_link"],
         )
-        if result.get("error"):
-            raise RuntimeError(f"notification dispatch failed: {result['error']}")
+        failure = dispatch_failure(result)
+        if failure:
+            raise RuntimeError(f"notification dispatch failed: {failure}")

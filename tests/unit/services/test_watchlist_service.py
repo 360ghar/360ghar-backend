@@ -122,3 +122,38 @@ async def test_watched_ids_and_watchers_round_trip(db_session, test_user, test_u
 @pytest.mark.asyncio
 async def test_the_relationship_used_for_eager_loading_is_attached(db_session):
     assert hasattr(ProjectWatchlist, "rera_project")
+
+
+@pytest.mark.asyncio
+async def test_a_partial_alert_prefs_update_keeps_the_other_stored_switches(
+    db_session, test_user
+):
+    project = await _project(db_session, rera_number="RERA-A-9", name="Gamma Towers")
+    await add_to_watchlist(
+        db_session,
+        user_id=test_user.id,
+        project_id=project.id,
+        alert_prefs={"watchlist_price_change": False, "watchlist_new_filing": False},
+    )
+
+    updated = await add_to_watchlist(
+        db_session,
+        user_id=test_user.id,
+        project_id=project.id,
+        alert_prefs={"watchlist_price_change": True},
+    )
+
+    assert updated.alert_prefs == {
+        "watchlist_price_change": True,
+        "watchlist_new_filing": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_new_watch_starts_with_an_alert_baseline(db_session, test_user):
+    project = await _project(db_session, rera_number="RERA-A-10", name="Delta Towers")
+
+    watch = await add_to_watchlist(db_session, user_id=test_user.id, project_id=project.id)
+
+    assert watch.alert_baseline is not None
+    assert watch.alert_baseline["documents"] == []

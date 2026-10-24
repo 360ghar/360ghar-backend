@@ -13,12 +13,16 @@ set to ``False`` turns it off. See ``watchlist_alerts`` for the keys.
 from __future__ import annotations
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import relationship, selectinload
 
 from app.models.data_hub import ProjectWatchlist, ReraProject
 
 DEFAULT_WATCHLIST_LIMIT = 100
+
+# First key of the two-key advisory lock that serializes one user's watchlist adds.
+_WATCHLIST_LOCK_KEY = 4_217
 
 # Name of the relationship attached at import time (see ``_ensure_project_relationship``).
 _PROJECT_RELATIONSHIP = "rera_project"
@@ -58,24 +62,20 @@ async def add_to_watchlist(
 
     Idempotent on the ``(user_id, project_id)`` pair: when the pair is already
     watched the existing row is returned with only the non-``None`` arguments
-    applied. The per-user limit raises ``WatchlistLimitExceeded`` only for a new
-    pair, so re-adding an entry the user already has always succeeds.
+    applied. ``alert_prefs`` is merged into the stored switches, so a key the
+    caller leaves out keeps its stored value. The per-user limit raises
+    ``WatchlistLimitExceeded`` only for a new pair, so re-adding an entry the
+    user already has always succeeds.
+
+    Adds for one user are serialized with a transaction-scoped advisory lock, so
+    two concurrent requests cannot both pass the limit check. A concurrent insert
+    of the same pair is caught in a savepoint and resolved to the stored row.
     """
-    existing = (
-        await db.execute(
-            select(ProjectWatchlist).where(
-                ProjectWatchlist.user_id == user_id,
-                ProjectWatchlist.rera_project_id == project_id,
-            )
-        )
-    ).scalar_one_or_none()
+    await db.execute(select(func.pg_advisory_xact_lock(_WATCHLIST_LOCK_KEY, user_id)))
+
+    existing = await _get_watch(db, user_id=user_id, project_id=project_id)
     if existing is not None:
-        if notes is not None:
-            existing.notes = notes
-        if alert_prefs is not None:
-            existing.alert_prefs = alert_prefs
-        await db.flush()
-        return existing
+        return await _apply_update(db, existing, notes=notes, alert_prefs=alert_prefs)
 
     count = (
         await db.execute(
@@ -89,13 +89,56 @@ async def add_to_watchlist(
             f"Watchlist limit of {DEFAULT_WATCHLIST_LIMIT} projects reached"
         )
 
+    project = await db.get(ReraProject, project_id)
+    # Start the alert baseline at what the user sees now, so the first alert run
+    # reports only changes made after the user started watching.
+    from app.services.data_hub.watchlist_alerts import current_alert_snapshot
+
+    baseline = await current_alert_snapshot(db, project) if project is not None else None
     watch = ProjectWatchlist(
         user_id=user_id,
         rera_project_id=project_id,
         notes=notes,
         alert_prefs=alert_prefs,
+        alert_baseline=baseline,
     )
-    db.add(watch)
+    try:
+        async with db.begin_nested():
+            db.add(watch)
+            await db.flush()
+    except IntegrityError:
+        # Another session inserted the same pair first. Use its row.
+        existing = await _get_watch(db, user_id=user_id, project_id=project_id)
+        if existing is None:
+            raise
+        return await _apply_update(db, existing, notes=notes, alert_prefs=alert_prefs)
+    return watch
+
+
+async def _get_watch(
+    db: AsyncSession, *, user_id: int, project_id: int
+) -> ProjectWatchlist | None:
+    return (
+        await db.execute(
+            select(ProjectWatchlist).where(
+                ProjectWatchlist.user_id == user_id,
+                ProjectWatchlist.rera_project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def _apply_update(
+    db: AsyncSession,
+    watch: ProjectWatchlist,
+    *,
+    notes: str | None,
+    alert_prefs: dict | None,
+) -> ProjectWatchlist:
+    if notes is not None:
+        watch.notes = notes
+    if alert_prefs is not None:
+        watch.alert_prefs = {**(watch.alert_prefs or {}), **alert_prefs}
     await db.flush()
     return watch
 

@@ -1240,6 +1240,9 @@ class ProjectWatchlist(Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     alert_prefs: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The values the user was last told. Only the alert service writes it; see
+    # app/services/data_hub/watchlist_alerts.py.
+    alert_baseline: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

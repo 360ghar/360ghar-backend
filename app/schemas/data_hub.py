@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, computed_field
 
 from app.models.enums import (
     AuctionKind,
@@ -753,7 +753,20 @@ class WatchlistItemCreate(WriteModel):
 
     project_id: int
     notes: str | None = None
-    alert_prefs: dict[str, Any] | None = None
+    # Keys are the watchlist alert type keys; values must be real booleans, so a
+    # client cannot send "false" or 0 and still receive the alert.
+    alert_prefs: (
+        dict[
+            Literal[
+                "watchlist_price_change",
+                "watchlist_stage_change",
+                "watchlist_possession_change",
+                "watchlist_new_filing",
+            ],
+            StrictBool,
+        ]
+        | None
+    ) = None
 
 
 class WatchlistItemResponse(BaseModel):

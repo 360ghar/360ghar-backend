@@ -125,3 +125,65 @@ async def test_a_failed_dispatch_leaves_last_notified_at_unset(
     assert stats["failed"] >= 1
     await db_session.refresh(alert)
     assert alert.last_notified_at is None
+
+
+@pytest.mark.asyncio
+async def test_a_sent_auction_is_not_sent_again_on_the_next_run(
+    db_session, test_user, monkeypatch
+):
+    from app.services import notification_dispatcher
+
+    db_session.add(
+        BankAuction(
+            source=AuctionSource.sarfaesi,
+            bank_name="SBI",
+            property_description="Flat in a tower block",
+            city="Mumbai",
+        )
+    )
+    alert = AuctionAlert(user_id=test_user.id, city="Mumbai", keyword="tower block")
+    db_session.add(alert)
+    await db_session.flush()
+    dispatch = AsyncMock(
+        return_value={"type_key": "auction_alert_match", "channels": {"in_app": {"ok": True}}}
+    )
+    monkeypatch.setattr(notification_dispatcher, "dispatch_notification_to_user", dispatch)
+
+    service = AlertMatcherService()
+    first = [m for m in await service._find_matches(db_session) if m["alert_id"] == alert.id]
+    await service._upsert(db_session, first)
+    second = [m for m in await service._find_matches(db_session) if m["alert_id"] == alert.id]
+
+    assert len(first) == 1
+    assert second == []
+
+
+@pytest.mark.asyncio
+async def test_a_dispatch_where_every_channel_failed_counts_as_failed(
+    db_session, test_user, monkeypatch
+):
+    from app.services import notification_dispatcher
+
+    db_session.add(
+        BankAuction(
+            source=AuctionSource.sarfaesi,
+            bank_name="SBI",
+            property_description="Shop on the main road",
+            city="Mumbai",
+        )
+    )
+    alert = AuctionAlert(user_id=test_user.id, city="Mumbai", keyword="main road")
+    db_session.add(alert)
+    await db_session.flush()
+    dispatch = AsyncMock(
+        return_value={"type_key": "auction_alert_match", "channels": {"push": {"ok": False}}}
+    )
+    monkeypatch.setattr(notification_dispatcher, "dispatch_notification_to_user", dispatch)
+
+    service = AlertMatcherService()
+    matches = [m for m in await service._find_matches(db_session) if m["alert_id"] == alert.id]
+    stats = await service._upsert(db_session, matches)
+
+    assert stats["failed"] == 1
+    await db_session.refresh(alert)
+    assert alert.last_notified_at is None
