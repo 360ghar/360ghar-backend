@@ -361,7 +361,7 @@ class DeveloperDossierScraper(BaseScraper):
                 )
             )
         ).all()
-        computed_at: dict[str, datetime] = {slug: when for slug, when in score_rows}
+        computed_at: dict[str, datetime] = {row[0]: row[1] for row in score_rows}
         # Unscored developers first, then the stalest scores, so a bounded run
         # still reaches every developer and keeps rescoring all of them in turn.
         oldest = datetime.min.replace(tzinfo=UTC)
