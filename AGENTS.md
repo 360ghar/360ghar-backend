@@ -123,7 +123,7 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 - **Notifications**: `EMAIL_*`, `SMS_*`, `ENABLE_NOTIF_SCHEDULER`
 - **Vector Search**: `VECTOR_SYNC_ENABLED`, `GEMINI_EMBED_MODEL`
 - **Blog Auto-Publish**: `AUTO_BLOG_ENABLED`, `AUTO_BLOG_CRON`
-- **Serverless/Scale-to-Zero**: `SERVERLESS_ENABLED`
+- **Serverless/Scale-to-Zero**: `SERVERLESS_ENABLED` (skips schedulers, in-memory cache fallback); DB pooling is separate (`DB_USE_NULL_POOL`, `DB_POOLER_CLIENT_BUDGET`)
 - **CORS Override**: `CORS_ORIGINS_STR` (comma-separated, overrides default `CORS_ORIGINS` list)
 
 ### CI/CD Pipeline
@@ -252,7 +252,7 @@ app/
 
 **Semantic Search**: Hybrid vector + text scoring via `property_embeddings` table (pgvector).
 
-**Serverless/Scale-to-Zero**: When `SERVERLESS_ENABLED=True`, the app uses `NullPool` for both main and background DB engines (no persistent connections), skips in-process schedulers, and uses in-memory cache fallback. PgBouncer handles server-side pooling. Trade-off: ~10-50ms added latency per request.
+**Serverless/Scale-to-Zero**: When `SERVERLESS_ENABLED=True`, the app skips in-process schedulers and uses the in-memory cache fallback so it can scale to zero. It no longer selects the DB pool: connection pooling is controlled separately by `DB_USE_NULL_POOL` (default `false`). Production keeps the bounded `AsyncAdaptedQueuePool` and refuses to start when `DB_REPLICA_COUNT × (DB_POOL_SIZE + DB_MAX_OVERFLOW + DB_BG_POOL_SIZE + DB_BG_MAX_OVERFLOW)` exceeds `DB_POOLER_CLIENT_BUDGET` (default `120`, below Supavisor's 200-slot limit). `NullPool` removes the client-side cap, so every concurrent request becomes a pooler client and the pooler surfaces `EMAXCONN`; only enable it on a platform that truly cannot hold connections open.
 
 **Flatmates Realtime Events**: Flatmates app-wide realtime uses Supabase Realtime private Broadcast channels through `app/services/flatmates/realtime.py`. Service methods queue events on the SQLAlchemy session and publish only after DB commit to `flatmates:user:{local_user_id}`. Supabase Realtime Authorization on `realtime.messages` restricts each authenticated user to their own channel. Event types: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`.
 

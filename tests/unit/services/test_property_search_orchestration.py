@@ -49,24 +49,14 @@ def test_build_property_search_filters_maps_shared_inputs():
 
 
 @pytest.mark.asyncio
-async def test_run_property_search_applies_timeout_cleanup_and_delegates(mock_db_session):
+async def test_run_property_search_delegates_without_write_side_effects(mock_db_session):
     filters = UnifiedPropertyFilter(search_query="apartment")
     cursor_payload = {"o": 20}
 
-    with (
-        patch(
-            "app.services.property.search_orchestration.apply_statement_timeout",
-            new_callable=AsyncMock,
-        ) as mock_timeout,
-        patch(
-            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
-            new_callable=AsyncMock,
-        ) as mock_pause,
-        patch(
-            "app.services.property.search_orchestration.get_unified_properties_optimized",
-            new_callable=AsyncMock,
-        ) as mock_search,
-    ):
+    with patch(
+        "app.services.property.search_orchestration.get_unified_properties_optimized",
+        new_callable=AsyncMock,
+    ) as mock_search:
         mock_search.return_value = (["row"], {"o": 30}, 41)
 
         result = await run_property_search(
@@ -79,55 +69,21 @@ async def test_run_property_search_applies_timeout_cleanup_and_delegates(mock_db
         )
 
     assert result == (["row"], {"o": 30}, 41)
-    mock_timeout.assert_awaited_once()
-    mock_pause.assert_awaited_once_with(mock_db_session)
     mock_search.assert_awaited_once()
     assert mock_search.await_args.args == (mock_db_session, filters, 7, cursor_payload, 10)
     assert mock_search.await_args.kwargs == {"with_total": True}
-
-
-@pytest.mark.asyncio
-async def test_run_property_search_rolls_back_failed_stale_pause(mock_db_session):
-    filters = UnifiedPropertyFilter()
-
-    with (
-        patch(
-            "app.services.property.search_orchestration.apply_statement_timeout",
-            new_callable=AsyncMock,
-        ) as mock_timeout,
-        patch(
-            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("cleanup failed"),
-        ),
-        patch(
-            "app.services.property.search_orchestration.get_unified_properties_optimized",
-            new_callable=AsyncMock,
-        ) as mock_search,
-    ):
-        mock_search.return_value = ([], None, None)
-
-        await run_property_search(mock_db_session, filters, None, {}, 20)
-
-    mock_db_session.rollback.assert_awaited_once()
-    assert mock_timeout.await_count == 2
-    mock_search.assert_awaited_once()
+    # The search path must not run the stale-listing cleanup (or any write).
+    mock_db_session.execute.assert_not_awaited()
+    mock_db_session.commit.assert_not_awaited()
+    mock_db_session.rollback.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_run_property_search_requires_query_for_semantic_search(mock_db_session):
     filters = UnifiedPropertyFilter(semantic_search=True)
 
-    with (
-        patch(
-            "app.services.property.search_orchestration.apply_statement_timeout",
-            new_callable=AsyncMock,
-        ) as mock_timeout,
-        pytest.raises(BadRequestException, match="semantic_search requires a search query"),
-    ):
+    with pytest.raises(BadRequestException, match="semantic_search requires a search query"):
         await run_property_search(mock_db_session, filters, None, {}, 20)
-
-    mock_timeout.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -137,14 +93,6 @@ async def test_run_property_search_forces_semantic_relevance_without_mutating_in
     filters = UnifiedPropertyFilter(search_query="sunny balcony", sort_by=SortBy.newest)
 
     with (
-        patch(
-            "app.services.property.search_orchestration.apply_statement_timeout",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
-            new_callable=AsyncMock,
-        ),
         patch(
             "app.services.property.search_orchestration.get_unified_properties_optimized",
             new_callable=AsyncMock,
@@ -175,14 +123,6 @@ async def test_run_property_search_maps_transient_db_errors_to_503(mock_db_sessi
     filters = UnifiedPropertyFilter()
 
     with (
-        patch(
-            "app.services.property.search_orchestration.apply_statement_timeout",
-            new_callable=AsyncMock,
-        ),
-        patch(
-            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
-            new_callable=AsyncMock,
-        ),
         patch(
             "app.services.property.search_orchestration.get_unified_properties_optimized",
             new_callable=AsyncMock,

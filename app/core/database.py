@@ -95,25 +95,35 @@ def _database_pool_budget(
 def _validate_database_pooler_config(
     *,
     database_url: str,
-    serverless_enabled: bool,
+    use_null_pool: bool,
     environment: str,
+    replica_count: int,
+    client_budget: int,
     db_pool_size: int,
     db_max_overflow: int,
     db_bg_pool_size: int,
     db_bg_max_overflow: int,
 ) -> None:
-    """Guard against Supabase pooler modes that can exhaust client slots."""
+    """Guard against Supabase pooler modes that can exhaust client slots.
+
+    ``use_null_pool`` is the actual pool choice (``DB_USE_NULL_POOL``), not the
+    scheduler flag: under NullPool every concurrent request opens a physical
+    Supavisor client, so the per-replica budget is meaningless and only the
+    replica count bounds concurrency.
+    """
     host, port = _database_url_host_port(database_url)
     is_supabase_pooler = bool(host and host.endswith(_SUPABASE_POOLER_HOST_SUFFIX))
     is_session_pooler = is_supabase_pooler and port == _SUPABASE_SESSION_POOLER_PORT
     is_transaction_pooler = is_supabase_pooler and port == _SUPABASE_TRANSACTION_POOLER_PORT
     is_production = environment.lower() == "production"
-    budget = _database_pool_budget(
+    replicas = max(1, replica_count)
+    budget_per_replica = _database_pool_budget(
         db_pool_size,
         db_max_overflow,
         db_bg_pool_size,
         db_bg_max_overflow,
     )
+    total_budget = 0 if use_null_pool else budget_per_replica * replicas
 
     if is_production and is_supabase_pooler and not is_transaction_pooler:
         raise RuntimeError(
@@ -121,19 +131,31 @@ def _validate_database_pooler_config(
             f"on port 6543; got port {port or 'unknown'}"
         )
 
-    if serverless_enabled and is_session_pooler:
+    if use_null_pool and is_supabase_pooler:
+        logger.warning(
+            "DB_USE_NULL_POOL=true against Supabase: every concurrent request opens a "
+            "pooler client, so %d replicas can reach Supavisor's connection limit. "
+            "Prefer the bounded QueuePool unless scale-to-zero requires NullPool.",
+            replicas,
+        )
+
+    if not use_null_pool and is_session_pooler and budget_per_replica > _SESSION_POOLER_SAFE_CLIENT_BUDGET:
         message = (
-            "SERVERLESS_ENABLED=true must use the Supabase transaction pooler "
-            "on port 6543, not the session pooler on port 5432"
+            "Supabase session-pooler client budget is too high: "
+            f"{budget_per_replica} > {_SESSION_POOLER_SAFE_CLIENT_BUDGET}. Reduce DB_POOL_SIZE/"
+            "DB_MAX_OVERFLOW/DB_BG_POOL_SIZE/DB_BG_MAX_OVERFLOW or use port 6543."
         )
         logger.warning(message)
 
-    if not serverless_enabled and is_session_pooler and budget > _SESSION_POOLER_SAFE_CLIENT_BUDGET:
+    if not use_null_pool and total_budget > client_budget:
         message = (
-            "Supabase session-pooler client budget is too high: "
-            f"{budget} > {_SESSION_POOLER_SAFE_CLIENT_BUDGET}. Reduce DB_POOL_SIZE/"
-            "DB_MAX_OVERFLOW/DB_BG_POOL_SIZE/DB_BG_MAX_OVERFLOW or use port 6543."
+            "Database client budget exceeds DB_POOLER_CLIENT_BUDGET: "
+            f"{replicas} replica(s) × {budget_per_replica} = {total_budget} > {client_budget}. "
+            "Supavisor rejects new clients with EMAXCONN once its limit is reached. "
+            "Reduce the pool sizes or DB_REPLICA_COUNT."
         )
+        if is_production:
+            raise RuntimeError(message)
         logger.warning(message)
 
     pooler_mode = "none"
@@ -151,16 +173,21 @@ def _validate_database_pooler_config(
             "host": host,
             "port": port,
             "pooler_mode": pooler_mode,
-            "serverless": serverless_enabled,
-            "client_budget": 0 if serverless_enabled else budget,
+            "use_null_pool": use_null_pool,
+            "replicas": replicas,
+            "budget_per_replica": 0 if use_null_pool else budget_per_replica,
+            "client_budget": total_budget,
+            "pooler_client_budget": client_budget,
         },
     )
 
 
 _validate_database_pooler_config(
     database_url=settings.DATABASE_URL,
-    serverless_enabled=settings.SERVERLESS_ENABLED,
+    use_null_pool=settings.DB_USE_NULL_POOL,
     environment=settings.ENVIRONMENT,
+    replica_count=settings.DB_REPLICA_COUNT,
+    client_budget=settings.DB_POOLER_CLIENT_BUDGET,
     db_pool_size=settings.DB_POOL_SIZE,
     db_max_overflow=settings.DB_MAX_OVERFLOW,
     db_bg_pool_size=settings.DB_BG_POOL_SIZE,
@@ -175,14 +202,16 @@ logger.info("Connecting to database with psycopg for PgBouncer compatibility")
 _connect_args = _psycopg_connect_args(application_name="360ghar_backend")
 _bg_connect_args = _psycopg_connect_args(application_name="360ghar_bg")
 
-# ── Serverless: NullPool prevents persistent connections that generate ────────
-# outbound packets, which would keep Railway from scaling to zero.
-# PgBouncer handles server-side pooling, so client-side pooling is not needed.
-# Trade-off: each request creates a fresh connection (adds ~10-50ms latency).
-_use_null_pool = settings.SERVERLESS_ENABLED
+# ── NullPool: opt-in only, never implied by SERVERLESS_ENABLED ───────────────
+# SERVERLESS_ENABLED only controls whether in-process schedulers run. Pooling
+# is a separate decision: under NullPool every concurrent request becomes a
+# Supavisor client sleeping in `idle` between statements, which is exactly how
+# the pooler hit its 200-client limit (EMAXCONN). Keep the bounded QueuePool
+# so excess requests wait briefly and then 503 instead of exhausting the pooler.
+_use_null_pool = settings.DB_USE_NULL_POOL
 
 if _use_null_pool:
-    logger.info("Serverless mode — using NullPool (no persistent DB connections)")
+    logger.warning("DB_USE_NULL_POOL=true — using NullPool (no client-side connection cap)")
 
 # ── Main engine: HTTP/MCP request traffic ─────────────────────────────────────
 # PgBouncer (Supabase) handles server-side pooling — keep the app-side
@@ -217,8 +246,8 @@ logger.info(
 
 # ── Background engine: schedulers, scrapers, long-running tasks ───────────────
 # Isolated from the main pool so background work can't starve API traffic.
-# In serverless mode, this engine is unused (schedulers are skipped) but
-# still created to avoid import errors; NullPool means zero overhead.
+# In serverless mode this engine is mostly idle (schedulers are skipped) but is
+# still created to avoid import errors.
 _bg_engine_kwargs: dict = {
     "echo": settings.DEBUG,
     "future": True,

@@ -6,12 +6,12 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.db_resilience import (
-    apply_statement_timeout,
     extract_db_error_code,
+    is_pool_exhaustion_error,
     is_statement_timeout,
     is_transient_db_error,
+    read_db_retry_after,
 )
 from app.core.exceptions import BadRequestException, ServiceUnavailableException
 from app.core.logging import get_logger
@@ -28,7 +28,6 @@ from app.models.enums import (
 )
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
-from app.services.flatmates import pause_stale_flatmate_listings
 from app.services.property.search import get_unified_properties_optimized
 
 logger = get_logger(__name__)
@@ -139,14 +138,18 @@ async def run_property_search(
     semantic_required: bool = False,
     force_semantic_relevance: bool = False,
     endpoint_name: str = "property_search",
-    stale_listing_context: str = "property browse",
     unavailable_detail: str = "Property search is temporarily unavailable. Please retry shortly.",
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
     """Run shared property search request orchestration.
 
     Query construction and SQL execution stay in ``property.search``. This
-    wrapper owns cross-surface concerns: semantic guards, request statement
-    timeout, best-effort stale listing cleanup, and retryable DB error mapping.
+    wrapper owns cross-surface concerns: semantic guards and retryable DB
+    error mapping.
+
+    Deliberately does **not** write to the database. The stale-listing pause
+    used to run here on every browse/search/recommendation request, opening a
+    transaction (and a Supavisor client) before the cache check; it now runs
+    from the nightly cron endpoint ``POST /flatmates/maintenance/pause-stale-listings``.
     """
     if semantic_required and not filters.search_query:
         raise BadRequestException(detail="A search query (q) is required for semantic search")
@@ -162,25 +165,6 @@ async def run_property_search(
         )
 
     try:
-        # Bound every statement in this read request so a stalled DB backend
-        # fails fast instead of holding a pooler connection for the server
-        # default timeout.
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-
-        # Stale-listing pause is a best-effort cleanup write; it must never
-        # break browsing. If it stalls/fails, roll back the aborted transaction
-        # and continue to the read-only search.
-        try:
-            await pause_stale_flatmate_listings(db)
-        except Exception as cleanup_exc:
-            logger.warning(
-                "Skipping stale-listing pause during %s: %s",
-                stale_listing_context,
-                cleanup_exc,
-            )
-            await db.rollback()
-            await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-
         rows, next_payload, total = await get_unified_properties_optimized(
             db,
             filters,
@@ -201,11 +185,13 @@ async def run_property_search(
                     "endpoint": endpoint_name,
                     "user": user_id or "anonymous",
                     "error_code": error_code,
+                    "event": "db_pool_exhausted" if is_pool_exhaustion_error(exc) else "db_transient_error",
                 },
                 exc_info=True,
             )
             raise ServiceUnavailableException(
                 detail=unavailable_detail,
+                headers={"Retry-After": str(read_db_retry_after(exc))},
                 details={"error_code": error_code, "endpoint": endpoint_name},
             ) from exc
         raise

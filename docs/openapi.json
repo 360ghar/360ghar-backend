@@ -15285,6 +15285,66 @@
         ]
       }
     },
+    "/api/v1/flatmates/maintenance/pause-stale-listings": {
+      "post": {
+        "tags": [
+          "flatmates-admin"
+        ],
+        "summary": "Pause stale flatmate listings (cron)",
+        "description": "Auto-pause flatmate/PG listings that have not been updated recently.\n\nCron-only (``X-Cron-Secret``). Runs nightly from\n``.github/workflows/flatmates-maintenance-nightly.yml``; it used to run\ninline on every property browse/search/recommendation request and on the\nadmin moderation queue, which opened a write transaction (and a Supavisor\nclient) before the search cache was even checked.",
+        "operationId": "pause_stale_listings_api_v1_flatmates_maintenance_pause_stale_listings_post",
+        "parameters": [
+          {
+            "name": "x-cron-secret",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Cron-Secret"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaleListingPauseResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error. Every non-2xx response has this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/notifications/devices/register": {
       "post": {
         "tags": [
@@ -64549,6 +64609,20 @@
         ],
         "title": "StaircaseInfo",
         "description": "Information about staircase."
+      },
+      "StaleListingPauseResult": {
+        "properties": {
+          "paused": {
+            "type": "integer",
+            "title": "Paused"
+          }
+        },
+        "type": "object",
+        "required": [
+          "paused"
+        ],
+        "title": "StaleListingPauseResult",
+        "description": "How many flatmate/PG listings the maintenance job auto-paused."
       },
       "StampDutyCalculationRequest": {
         "properties": {

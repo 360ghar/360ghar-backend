@@ -14,9 +14,11 @@ The same property can be booked by multiple people for the same or overlapping d
 
 ## Serverless mode trade-offs
 
-When `SERVERLESS_ENABLED=true` (production on Railway), the app uses `NullPool` for both main and background DB engines. Every request opens a fresh Postgres connection, hands it to the Supabase transaction pooler on port `6543`, and closes it. The trade-off is 10-50ms of added latency per request - acceptable for an API that scales to zero, unacceptable for a high-throughput always-on service. Do not use the shared session pooler on port `5432` for serverless production.
+When `SERVERLESS_ENABLED=true` (production on Railway), the app skips all in-process schedulers and falls back to the in-memory cache so it can scale to zero. It does **not** select the DB pool: `DB_USE_NULL_POOL` (default `false`) does that. Production keeps the bounded `AsyncAdaptedQueuePool` pointed at the Supabase transaction pooler on port `6543`.
 
-In serverless mode, all in-process schedulers (blog, notifications, vector sync, data hub) are skipped. Cron work must move to Railway cron jobs or an external scheduler. The PM daily lifecycle (overdue charges, late fees, lease expiry) runs as `python -m scripts.run_pm_lifecycle`, daily at 19:00 UTC. The cache falls back to in-memory if Redis is unavailable - this means cache entries are not shared across instances, so rate limiting and notification frequency caps become per-instance rather than global.
+`NullPool` removes the client-side cap. That was the original production incident: every concurrent request became a Supavisor client sitting `idle` between statements, and the pooler hit its 200-slot limit with `FATAL: (EMAXCONN) max client connections reached`. Only enable `DB_USE_NULL_POOL` on a platform that genuinely cannot hold connections open. When the bounded pool is in use, startup refuses to run in production if `DB_REPLICA_COUNT × (DB_POOL_SIZE + DB_MAX_OVERFLOW + DB_BG_POOL_SIZE + DB_BG_MAX_OVERFLOW)` exceeds `DB_POOLER_CLIENT_BUDGET` (default `120`).
+
+When schedulers are skipped, cron work must move to an external scheduler. GitHub Actions calls the cron endpoints (`content-nightly`, `flatmates-maintenance-nightly`) with `X-Cron-Secret`; the PM daily lifecycle (overdue charges, late fees, lease expiry) runs as `python -m scripts.run_pm_lifecycle`, daily at 19:00 UTC. The cache falls back to in-memory if Redis is unavailable - this means cache entries are not shared across instances, so rate limiting and notification frequency caps become per-instance rather than global.
 
 **Do not** re-enable schedulers in serverless mode without addressing multi-instance coordination. Two scheduler instances will double-fire blog posts, notifications, and scrapers.
 

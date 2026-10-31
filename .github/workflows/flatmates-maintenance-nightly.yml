@@ -1,0 +1,50 @@
+name: Flatmates maintenance nightly
+
+# Auto-pauses flatmate/PG listings that have not been updated in
+# STALE_LISTING_PAUSE_DAYS (default 60). This used to run inline on every
+# property browse/search/recommendation request, opening a write transaction
+# (and a Supavisor client) before the search cache was checked.
+#
+# Needs two repository secrets: BACKEND_BASE_URL (for example
+# https://api.360ghar.com, no trailing slash) and CRON_SECRET (same value as
+# the backend CRON_SECRET setting). Without them the run skips with a notice.
+
+on:
+  schedule:
+    - cron: "45 19 * * *" # 01:15 IST
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: flatmates-maintenance-nightly
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BACKEND_BASE_URL: ${{ secrets.BACKEND_BASE_URL }}
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+    steps:
+      - name: Check secrets
+        id: gate
+        run: |
+          if [ -z "$BACKEND_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::notice::BACKEND_BASE_URL or CRON_SECRET is not set. Skipping the flatmates maintenance run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pause stale flatmate listings
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o resp.json -w '%{http_code}' --max-time 600 -X POST \
+            -H "X-Cron-Secret: $CRON_SECRET" \
+            "$BACKEND_BASE_URL/api/v1/flatmates/maintenance/pause-stale-listings")
+          if [ "$status" != "200" ]; then
+            echo "::error::stale-listing pause failed with HTTP $status: $(jq -c '.error // .' resp.json)"
+            exit 1
+          fi
+          echo "paused $(jq -r .paused resp.json) stale flatmate listing(s)"

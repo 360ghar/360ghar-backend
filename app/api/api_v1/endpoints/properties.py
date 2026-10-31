@@ -13,13 +13,13 @@ from app.api.api_v1.dependencies.auth import (
     get_current_cached_active_user,
     get_current_user_optional,
 )
-from app.config import settings
 from app.core.database import get_db
 from app.core.db_resilience import (
-    apply_statement_timeout,
     extract_db_error_code,
+    is_pool_exhaustion_error,
     is_statement_timeout,
     is_transient_db_error,
+    read_db_retry_after,
 )
 from app.core.exceptions import ServiceUnavailableException
 from app.core.logging import get_logger
@@ -49,7 +49,6 @@ from app.schemas.property import (
 from app.schemas.user import User as UserSchema
 from app.services.auth_user_cache import AuthUserSnapshot
 from app.services.content.property_summary import generate_property_content
-from app.services.flatmates import pause_stale_flatmate_listings
 from app.services.flatmates.compatibility import calculate_property_compatibility_score
 from app.services.property import (
     attach_owner_agents,
@@ -394,7 +393,6 @@ async def get_properties_list(
         page.limit,
         with_total=page.include_total,
         endpoint_name="get_properties_list",
-        stale_listing_context="property browse",
         unavailable_detail="Property search is temporarily unavailable. Please retry shortly.",
     )
 
@@ -444,7 +442,6 @@ async def semantic_property_search(
         semantic_required=True,
         force_semantic_relevance=True,
         endpoint_name="semantic_property_search",
-        stale_listing_context="semantic search",
         unavailable_detail="Semantic search is temporarily unavailable. Please retry shortly.",
     )
     return build_cursor_page(
@@ -480,15 +477,7 @@ async def get_recommendations(
         {"scope": "user", "viewer": user_id} if user_id else {"scope": "anonymous"}
     )
     try:
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
         cursor_payload = page.decoded(binding)
-        try:
-            await pause_stale_flatmate_listings(db)
-        except Exception as cleanup_exc:
-            logger.warning("Skipping stale-listing pause during recommendations: %s", cleanup_exc)
-            await db.rollback()
-            await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-
         rows, next_payload, total = await get_property_recommendations(
             db,
             user_id,
@@ -514,11 +503,13 @@ async def get_recommendations(
                     "endpoint": "get_recommendations",
                     "user": user_id or "anonymous",
                     "error_code": error_code,
+                    "event": "db_pool_exhausted" if is_pool_exhaustion_error(e) else "db_transient_error",
                 },
                 exc_info=True,
             )
             raise ServiceUnavailableException(
                 detail="Recommendations are temporarily unavailable. Please retry shortly.",
+                headers={"Retry-After": str(read_db_retry_after(e))},
                 details={"error_code": error_code, "endpoint": "get_recommendations"},
             ) from e
         raise

@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_supabase_token
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.core.websocket import job_frame, manager
 from app.schemas.realtime import (
@@ -87,9 +87,15 @@ async def _authenticate(websocket: WebSocket) -> int | None:
     token = await _read_auth_token(websocket)
     if token is None:
         return None
-    async for db in get_db():
-        return await resolve_websocket_user_id(token, db)
-    return None
+    # A WebSocket lives for minutes and is not a request dependency, so the
+    # session is opened and closed here. ``async for db in get_db(): return``
+    # abandoned the generator and left the session (and its pooler slot) to GC.
+    async with AsyncSessionLocal() as db:
+        user_id = await resolve_websocket_user_id(token, db)
+        if user_id is not None:
+            # ``get_or_create_user_from_supabase`` flushes, it does not commit.
+            await db.commit()
+        return user_id
 
 
 async def _close(websocket: WebSocket, code: int, reason: str) -> None:
@@ -131,12 +137,11 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
         return
 
     job = None
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         try:
             job = await tour_ai.get_ai_job(db, job_id, user_id)
         except HTTPException:
             job = None
-        break
     if job is None:
         await _close(websocket, WS_CLOSE_NOT_FOUND, "Job not found or not authorized")
         return

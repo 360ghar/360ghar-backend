@@ -8,11 +8,14 @@ Active contributors: Saksham, Ravi
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Postgres connection string. SQLAlchemy converts `postgresql://`/`postgres://` to `postgresql+psycopg://`. Railway/serverless Supabase deploys must use the transaction pooler on port `6543`; the shared pooler session-mode URL on port `5432` is rejected in production when `SERVERLESS_ENABLED=true`. |
-| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Main pool tuning (HTTP/MCP traffic). Ignored when `SERVERLESS_ENABLED=true`. Defaults are `4`, `0`, `15`, `180`. |
-| `DB_BG_POOL_SIZE`, `DB_BG_MAX_OVERFLOW` | Background pool tuning (schedulers, scrapers, long-running tasks). Defaults are `1`, `0`. |
-| `DB_READ_STATEMENT_TIMEOUT_MS` | Per-request statement timeout (ms, default `8000`) for interactive read endpoints like property search. Applied via `SET LOCAL` so a stalled query fails fast and frees its pooler connection instead of holding it until the 2-minute server default. `0` disables the guardrail. |
-| `SERVERLESS_ENABLED` | When `true`, switches to `NullPool` for both engines, skips schedulers, falls back to in-memory cache. Use this with Supabase transaction pooling (`:6543`) in Railway production. |
+| `DATABASE_URL` | Postgres connection string. SQLAlchemy converts `postgresql://`/`postgres://` to `postgresql+psycopg://`. Railway/serverless Supabase deploys must use the transaction pooler on port `6543`; a Supabase pooler URL on any other port is rejected in production. |
+| `DB_USE_NULL_POOL` | Use SQLAlchemy `NullPool` (one physical connection per request) instead of the bounded `AsyncAdaptedQueuePool`. Default `false`. Only enable on a platform that cannot hold connections open for scale-to-zero; under `NullPool` every concurrent request becomes a Supavisor client, so the pooler's 200-slot limit surfaces as `EMAXCONN`. Independent of `SERVERLESS_ENABLED`. |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Main pool tuning (HTTP/MCP traffic). Defaults are `8`, `2`, `10`, `180`; production (`railway.toml`) sets `DB_POOL_TIMEOUT=5`. Inert when `DB_USE_NULL_POOL=true`. |
+| `DB_BG_POOL_SIZE`, `DB_BG_MAX_OVERFLOW` | Background pool tuning (schedulers, scrapers, long-running tasks). Defaults are `2`, `0`. |
+| `DB_POOLER_CLIENT_BUDGET` | Supavisor client slots shared by every replica. Startup refuses to run in production when `DB_REPLICA_COUNT × (DB_POOL_SIZE + DB_MAX_OVERFLOW + DB_BG_POOL_SIZE + DB_BG_MAX_OVERFLOW)` exceeds it; other environments log a warning. Default `120`, leaving headroom below Supavisor's hard limit of 200 for migrations and scripts. |
+| `DB_REPLICA_COUNT` | Expected number of application replicas. Set explicitly because the process cannot discover Railway's replica count. Default `1`. |
+| `DB_READ_STATEMENT_TIMEOUT_MS` | Per-request statement timeout (ms, default `8000`) for interactive read endpoints like property search. Applied at connection open via libpq `options`, so a stalled query fails fast and frees its pooler connection instead of holding it until the 2-minute server default. `0` disables the guardrail. |
+| `SERVERLESS_ENABLED` | When `true`, skips in-process schedulers and falls back to the in-memory cache backend so the service can scale to zero. It no longer selects the DB pool — use `DB_USE_NULL_POOL` for that. Use Supabase transaction pooling (`:6543`) in Railway. |
 | `SUPABASE_URL` | Supabase project URL. Used for JWKS fetch, auth introspection, push notifications. |
 | `SUPABASE_PUBLISHABLE_KEY` | Supabase anon/publishable key. |
 | `SUPABASE_SECRET_KEY` | Supabase service-role key (admin operations like user deletion). |

@@ -72,10 +72,6 @@ class _SearchHarness:
             "app.services.property.search.execute_with_transient_retry",
             side_effect=fake_retry,
         )
-        self.timeout_patch = patch(
-            "app.services.property.search.apply_statement_timeout",
-            new_callable=AsyncMock,
-        )
         self.cache_get_patch = patch(
             "app.services.property.search.PropertyCacheManager.get_cached_properties",
             new_callable=AsyncMock,
@@ -88,7 +84,6 @@ class _SearchHarness:
 
     def __enter__(self):
         self.retry_patch.start()
-        self.timeout_patch.start()
         self.cache_get_patch.start()
         self.cache_set_patch.start()
         return self
@@ -96,7 +91,6 @@ class _SearchHarness:
     def __exit__(self, *exc):  # noqa: ANN002
         self.cache_set_patch.stop()
         self.cache_get_patch.stop()
-        self.timeout_patch.stop()
         self.retry_patch.stop()
 
     @property
@@ -211,3 +205,30 @@ async def test_no_flatmates_filters_applied_when_unset(mock_db_session):
     assert "ventilation_type" not in harness.where
     assert "windows_count" not in harness.where
     assert "lower(amenities.title) = 'lift'" not in harness.where
+
+
+@pytest.mark.asyncio
+async def test_anonymous_first_page_cache_hit_skips_the_database(mock_db_session):
+    """A warm browse cache must not open a transaction (or a Supavisor client)."""
+    filters = UnifiedPropertyFilter(city="Pune")
+    cached = {"items": [], "has_more": False, "next": None, "total": None}
+
+    with (
+        patch(
+            "app.services.property.search.PropertyCacheManager.get_cached_properties",
+            new_callable=AsyncMock,
+            return_value=cached,
+        ),
+        patch(
+            "app.services.property.search.PropertyCacheManager.cache_properties",
+            new_callable=AsyncMock,
+        ),
+    ):
+        rows, next_payload, total = await get_unified_properties_optimized(
+            mock_db_session, filters, None, {}, 10
+        )
+
+    assert rows == []
+    assert next_payload is None
+    assert total is None
+    mock_db_session.execute.assert_not_awaited()
