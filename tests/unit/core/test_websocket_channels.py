@@ -27,8 +27,20 @@ from app.schemas.realtime import (
 MODULE = "app.api.api_v1.endpoints.websocket"
 
 
-async def _fake_get_db():
-    yield object()
+class _FakeSession:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):  # noqa: ANN002
+        return False
+
+    async def commit(self) -> None:
+        return None
+
+
+def _fake_session_factory() -> _FakeSession:
+    """The WebSocket handler opens ``AsyncSessionLocal()`` directly, not via Depends."""
+    return _FakeSession()
 
 
 @pytest.fixture
@@ -44,7 +56,7 @@ def _job(status: str = "processing") -> SimpleNamespace:
 
 def test_job_channel_authenticates_with_first_frame(client):
     with (
-        patch(f"{MODULE}.get_db", _fake_get_db),
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
         patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
         patch(f"{MODULE}.tour_ai.get_ai_job", AsyncMock(return_value=_job())),
         client.websocket_connect("/ws/jobs/job-1") as ws,
@@ -67,7 +79,7 @@ def test_job_channel_authenticates_with_first_frame(client):
 def test_token_in_query_string_is_not_accepted(client):
     """A token in the URL is ignored. Without an auth frame the socket closes with 4001."""
     with (
-        patch(f"{MODULE}.get_db", _fake_get_db),
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
         patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
         client.websocket_connect("/ws/user?token=good-token") as ws,
     ):
@@ -79,7 +91,7 @@ def test_token_in_query_string_is_not_accepted(client):
 
 def test_invalid_token_closes_with_4001(client):
     with (
-        patch(f"{MODULE}.get_db", _fake_get_db),
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
         patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=None)),
         client.websocket_connect("/ws/user") as ws,
     ):
@@ -91,7 +103,7 @@ def test_invalid_token_closes_with_4001(client):
 
 def test_unknown_job_closes_with_4004(client):
     with (
-        patch(f"{MODULE}.get_db", _fake_get_db),
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
         patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
         patch(
             f"{MODULE}.tour_ai.get_ai_job", AsyncMock(side_effect=HTTPException(status_code=404))
@@ -113,7 +125,7 @@ def test_tour_channel_is_not_mounted():
 
 def test_user_channel_sends_connected_frame(client):
     with (
-        patch(f"{MODULE}.get_db", _fake_get_db),
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
         patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
         client.websocket_connect("/ws/user") as ws,
     ):

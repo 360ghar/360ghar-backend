@@ -171,13 +171,31 @@ class TestSettings:
             assert settings.CACHE_TTL_VERSIONS == 3600
 
     def test_default_database_pool_settings_are_session_pooler_safe(self):
-        """Default non-serverless pool capacity must stay below Supabase's small session cap."""
+        """Default pool capacity stays inside the Supavisor client budget."""
         from app.core.config import Settings
 
-        assert Settings.model_fields["DB_POOL_SIZE"].default == 4
-        assert Settings.model_fields["DB_MAX_OVERFLOW"].default == 0
-        assert Settings.model_fields["DB_BG_POOL_SIZE"].default == 1
+        assert Settings.model_fields["DB_POOL_SIZE"].default == 8
+        assert Settings.model_fields["DB_MAX_OVERFLOW"].default == 2
+        assert Settings.model_fields["DB_BG_POOL_SIZE"].default == 2
         assert Settings.model_fields["DB_BG_MAX_OVERFLOW"].default == 0
+        assert Settings.model_fields["DB_USE_NULL_POOL"].default is False
+        assert Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default == 120
+        assert Settings.model_fields["DB_REPLICA_COUNT"].default == 1
+
+    def test_default_pool_budget_fits_the_supavisor_client_limit(self):
+        """Replicas x per-replica pool must leave headroom below the 200-client cap."""
+        from app.core.config import Settings
+
+        per_replica = (
+            Settings.model_fields["DB_POOL_SIZE"].default
+            + Settings.model_fields["DB_MAX_OVERFLOW"].default
+            + Settings.model_fields["DB_BG_POOL_SIZE"].default
+            + Settings.model_fields["DB_BG_MAX_OVERFLOW"].default
+        )
+        total = per_replica * Settings.model_fields["DB_REPLICA_COUNT"].default
+
+        assert total <= Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default
+        assert Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default < 200
 
     def test_secret_fields_remain_plain_string_attributes(self):
         """Secret config values stay usable as raw strings on Settings attributes."""

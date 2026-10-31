@@ -137,6 +137,7 @@
   "/api/v1/flatmates/conversations/{conversation_id}/qna",
   "/api/v1/flatmates/likes",
   "/api/v1/flatmates/listings/{listing_id}/society-tags/votes",
+  "/api/v1/flatmates/maintenance/pause-stale-listings",
   "/api/v1/flatmates/matches",
   "/api/v1/flatmates/matches/{match_id}/contact",
   "/api/v1/flatmates/matches/{match_id}/unmatch",
