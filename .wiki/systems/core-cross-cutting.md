@@ -105,7 +105,7 @@ The agent chat stream (`POST /api/v1/agent/chat`, `/agent/chat-public`) emits ty
 
 ### WebSockets
 
-`ConnectionManager` in `app/core/websocket.py` tracks two registries: `job_connections` (job_id to a set of websockets, for AI job progress) and `user_connections` (user_id to a set of websockets, for notifications). It exposes `connect_job`/`connect_user`, `disconnect_*`, `send_job_update`, `send_user_notification`, and `broadcast_job_completion`/`broadcast_job_error`. Dead connections are cleaned up on send failure. A global `manager` instance is shared across the app.
+`ConnectionManager` in `app/core/websocket.py` tracks two registries: `job_connections` (job_id to a set of websockets, for AI job progress) and `user_connections` (user_id to a set of websockets, for notifications). It exposes `connect_job`/`connect_user`, `disconnect_*`, `send_job_update`, `send_user_notification`, `broadcast_job_completion`/`broadcast_job_error`, and `job_snapshot_section` — the send-lock section the job endpoint holds while it re-reads the job and sends the initial snapshot, so a broadcast is either included in the re-read or delivered after the snapshot frame (never dropped on an unregistered socket or overtaken by a stale snapshot). Dead connections are cleaned up on send failure. A global `manager` instance is shared across the app.
 
 ## Integration points
 
