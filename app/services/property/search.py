@@ -170,9 +170,12 @@ async def get_unified_properties_optimized(
                 except Exception as cache_exc:  # noqa: BLE001
                     logger.warning("Ignoring invalid property search cache: %s", cache_exc)
 
-        # Bound this read so a stalled DB backend fails fast instead of holding
-        # a pooler connection until the 2-minute server default and cascading
-        # into pool exhaustion. Scoped to the current transaction (SET LOCAL).
+        # Bound this read so a stalled DB backend fails fast instead of holding a
+        # pooler connection until the 2-minute server default and cascading into
+        # pool exhaustion. Scoped to the current transaction (SET LOCAL); the
+        # connection-level libpq ``options`` timeout is not reliably honoured
+        # through the Supavisor transaction pooler. Cached hits returned above
+        # never open a transaction.
         await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
 
         # Base query with eager loading. Owner lifestyle columns are loaded only

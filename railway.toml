@@ -14,5 +14,18 @@ restartPolicyMaxRetries = 3
 [deploy.env]
 ENVIRONMENT = "production"
 DEBUG = "false"
+# Serverless controls in-process schedulers only. DB pooling is separate:
+# NullPool removed the client-side cap, so every concurrent request became a
+# Supavisor client and the pooler hit its 200-connection limit (EMAXCONN).
 SERVERLESS_ENABLED = "true"
+DB_USE_NULL_POOL = "false"
+DB_POOL_SIZE = "8"
+DB_MAX_OVERFLOW = "2"
+DB_BG_POOL_SIZE = "2"
+DB_BG_MAX_OVERFLOW = "0"
+DB_POOL_TIMEOUT = "5"
+# Budget allows up to 10 replicas at 12 clients each; DB_REPLICA_COUNT must
+# match the actual Railway replica count so startup can enforce it.
+DB_POOLER_CLIENT_BUDGET = "120"
+DB_REPLICA_COUNT = "1"
 PUBLIC_BASE_URL = "https://api.360ghar.com"

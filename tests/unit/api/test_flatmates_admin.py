@@ -27,6 +27,7 @@ from app.api.api_v1.endpoints.flatmates_admin import (
     get_pending_reports,
     moderate_listing,
     moderate_report,
+    pause_stale_listings,
     prescreen_listing,
 )
 from app.schemas.flatmates import ListingModerationAction, ReportModerationAction
@@ -947,3 +948,26 @@ class TestPrescreenListing:
             )
 
         assert exc_info.value.status_code == 403
+
+
+# ===========================================================================
+# Cron: stale-listing pause moved off the read paths
+# ===========================================================================
+
+
+class TestPauseStaleListingsCron:
+    """The cleanup is a cron endpoint, not a side effect of browsing."""
+
+    @pytest.mark.asyncio
+    async def test_pauses_and_returns_the_count(self):
+        db = _mock_db()
+
+        with patch(
+            "app.api.api_v1.endpoints.flatmates_admin.pause_stale_flatmate_listings",
+            new_callable=AsyncMock,
+            return_value=3,
+        ) as mock_pause:
+            result = await pause_stale_listings(db=db)
+
+        assert result.paused == 3
+        mock_pause.assert_awaited_once_with(db)

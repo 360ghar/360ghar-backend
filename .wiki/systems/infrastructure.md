@@ -70,7 +70,7 @@ Middleware is registered in a specific order because Starlette executes middlewa
 
 ### Exception handlers
 
-`register_exception_handlers` installs handlers for 401 and 403 that add `WWW-Authenticate: Bearer resource_metadata=...` headers on MCP routes (so MCP hosts trigger OAuth), a `BaseAPIException` handler that emits the standardized `{error: {code, message, details}}` shape, an `HTTPException` handler that preserves OAuth error payloads, a `ValueError` handler (422), and a catch-all `Exception` handler that logs to Sentry and returns a generic 500 (leaking the exception string only when `DEBUG` is on).
+`register_exception_handlers` installs handlers for 401 and 403 that add `WWW-Authenticate: Bearer resource_metadata=...` headers on MCP routes (so MCP hosts trigger OAuth), a `BaseAPIException` handler that emits the standardized `{error: {code, message, details}}` shape, an `HTTPException` handler that preserves OAuth error payloads, a `ValueError` handler (422), and a catch-all `Exception` handler that logs to Sentry and returns a generic 500 (leaking the exception string only when `DEBUG` is on). The catch-all maps transient DB/pooler failures (`ECHECKOUTTIMEOUT`, `EDBHANDLEREXITED`, `EMAXCONN`, statement timeouts) to a 503 with `Retry-After`, so clients retry instead of recording an application bug; `EMAXCONN`/`max client connections reached` get 30 seconds rather than 5 because retrying a full pooler only deepens the storm.
 
 ### MCP HTTP apps
 
@@ -81,6 +81,17 @@ Middleware is registered in a specific order because Starlette executes middlewa
 `app/infrastructure/scheduler.py` holds a single module-level `_scheduler` (an `AsyncIOScheduler` with timezone `Asia/Kolkata`). `get_scheduler()` creates it lazily, `start_scheduler()` starts it once, and `shutdown_scheduler()` stops and clears it. All background jobs (blog auto-publish, notifications, vector sync, data hub scrapers) register on this one instance via their `start_*_scheduler` functions, which are called from `_register_scheduler_jobs` in lifespan. No module creates its own scheduler.
 
 The Data Hub weekly job registers the HRERA filing refresh, complaints, price history, developer dossier, micro-markets, UP RERA and Delhi RERA only while `HRERA_DATA_ENABLED` is true; the daily job adds the market-pulse snapshot under the same flag. Manual triggers and the scraper implementations independently enforce the same gate, and turning it off keeps existing rows readable. The flag is an operator off-switch and is on by default.
+
+### GitHub Actions crons
+
+Two jobs run outside the process, because Railway production runs `SERVERLESS_ENABLED=true` and therefore registers no in-process schedulers:
+
+| Workflow | Schedule | Calls |
+|---|---|---|
+| `.github/workflows/content-nightly.yml` | 02:00 IST | `POST /api/v1/admin/content/run` |
+| `.github/workflows/flatmates-maintenance-nightly.yml` | 01:15 IST | `POST /api/v1/flatmates/maintenance/pause-stale-listings` |
+
+Both authenticate with the `X-Cron-Secret` header (`CRON_SECRET`) and skip with a notice when `BACKEND_BASE_URL` or `CRON_SECRET` is unset. The flatmates pause used to run inline on every property browse, search and recommendation, and on the admin moderation queue; it now runs once a night so read requests never open a cleanup write transaction (and its Supavisor client) before the search cache is checked.
 
 `ReraProjectScraper` is not scheduled anywhere: HRERA's project search is CAPTCHA-gated, so it can never succeed and a permanent weekly failure would only teach operators to ignore failures. It reports `HRERA_SEARCH_REQUIRES_CAPTCHA` when triggered by hand. Discovery runs through `rera_portal_scan`, which is deliberately not a cron job either — it walks a government portal's identifier space, so an operator states a range, each run is capped, requests are paced, and a run without an `end_id` fails rather than defaulting to an unbounded crawl.
 

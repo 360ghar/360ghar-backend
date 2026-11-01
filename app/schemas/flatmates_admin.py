@@ -121,6 +121,12 @@ class ListingPrescreenResult(BaseModel):
     prescreened_at: UtcDateTime
 
 
+class StaleListingPauseResult(BaseModel):
+    """How many flatmate/PG listings the maintenance job auto-paused."""
+
+    paused: int
+
+
 def serialize_user_summary(user: User | None) -> dict[str, Any] | None:
     if user is None:
         return None

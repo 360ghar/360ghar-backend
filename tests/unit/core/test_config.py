@@ -5,6 +5,11 @@ Tests for app.core.config module.
 import os
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
+from app.core import config as config_module
+
 
 class TestSettings:
     """Tests for the Settings class."""
@@ -171,13 +176,31 @@ class TestSettings:
             assert settings.CACHE_TTL_VERSIONS == 3600
 
     def test_default_database_pool_settings_are_session_pooler_safe(self):
-        """Default non-serverless pool capacity must stay below Supabase's small session cap."""
+        """Default pool capacity stays inside the Supavisor client budget."""
         from app.core.config import Settings
 
-        assert Settings.model_fields["DB_POOL_SIZE"].default == 4
-        assert Settings.model_fields["DB_MAX_OVERFLOW"].default == 0
-        assert Settings.model_fields["DB_BG_POOL_SIZE"].default == 1
+        assert Settings.model_fields["DB_POOL_SIZE"].default == 8
+        assert Settings.model_fields["DB_MAX_OVERFLOW"].default == 2
+        assert Settings.model_fields["DB_BG_POOL_SIZE"].default == 2
         assert Settings.model_fields["DB_BG_MAX_OVERFLOW"].default == 0
+        assert Settings.model_fields["DB_USE_NULL_POOL"].default is False
+        assert Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default == 120
+        assert Settings.model_fields["DB_REPLICA_COUNT"].default == 1
+
+    def test_default_pool_budget_fits_the_supavisor_client_limit(self):
+        """Replicas x per-replica pool must leave headroom below the 200-client cap."""
+        from app.core.config import Settings
+
+        per_replica = (
+            Settings.model_fields["DB_POOL_SIZE"].default
+            + Settings.model_fields["DB_MAX_OVERFLOW"].default
+            + Settings.model_fields["DB_BG_POOL_SIZE"].default
+            + Settings.model_fields["DB_BG_MAX_OVERFLOW"].default
+        )
+        total = per_replica * Settings.model_fields["DB_REPLICA_COUNT"].default
+
+        assert total <= Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default
+        assert Settings.model_fields["DB_POOLER_CLIENT_BUDGET"].default < 200
 
     def test_secret_fields_remain_plain_string_attributes(self):
         """Secret config values stay usable as raw strings on Settings attributes."""
@@ -453,3 +476,35 @@ class TestSettings:
                 SECRET_KEY="not-the-default",
             )
             assert settings.sentry_test_endpoint_enabled is False
+
+
+class TestPoolSettingBounds:
+    """Pool settings that would disable the QueuePool client cap are rejected.
+
+    Init kwargs have the highest priority in pydantic-settings, so each case
+    overrides just the one field on top of the env-file/environment values the
+    module import already validated.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value", "match"),
+        [
+            ("DB_POOL_SIZE", 0, "DB_POOL_SIZE must be >= 1"),
+            ("DB_BG_POOL_SIZE", 0, "DB_BG_POOL_SIZE must be >= 1"),
+            ("DB_MAX_OVERFLOW", -1, "DB_MAX_OVERFLOW must be >= 0"),
+            ("DB_BG_MAX_OVERFLOW", -1, "DB_BG_MAX_OVERFLOW must be >= 0"),
+        ],
+    )
+    def test_cap_disabling_pool_settings_are_rejected(self, field, value, match):
+        with pytest.raises(ValidationError, match=match):
+            config_module.Settings(**{field: value})
+
+    def test_pool_settings_within_bounds_are_accepted(self):
+        settings = config_module.Settings(
+            DB_POOL_SIZE=8,
+            DB_BG_POOL_SIZE=2,
+            DB_MAX_OVERFLOW=2,
+            DB_BG_MAX_OVERFLOW=0,
+        )
+        assert settings.DB_POOL_SIZE == 8
+        assert settings.DB_BG_MAX_OVERFLOW == 0

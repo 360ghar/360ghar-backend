@@ -323,7 +323,6 @@ async def discovery_search(
                 limit=limit,
                 with_total=include_total,
                 endpoint_name="discovery_search",
-                stale_listing_context="ChatGPT discovery search",
                 unavailable_detail="Property search is temporarily unavailable. Please retry shortly.",
             )
 
@@ -529,7 +528,6 @@ async def discovery_feed(
                 cursor_payload={},
                 limit=limit,
                 endpoint_name="discovery_feed",
-                stale_listing_context="ChatGPT discovery feed",
                 unavailable_detail="Discovery feed is temporarily unavailable. Please retry shortly.",
             )
 

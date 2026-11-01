@@ -25,16 +25,6 @@ from app.mcp.tool_ops import bookings as bookings_tool_ops
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(autouse=True)
-def _patch_stale_listing_pause() -> None:
-    """Best-effort stale-listing cleanup uses a real DB session; skip it in unit tests."""
-    with patch(
-        "app.services.property.search_orchestration.pause_stale_flatmate_listings",
-        new=AsyncMock(return_value=0),
-    ):
-        yield
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

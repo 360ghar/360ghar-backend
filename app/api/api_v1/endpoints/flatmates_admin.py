@@ -11,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.api_v1.dependencies.auth import get_current_active_user
-from app.core.database import get_db
+from app.api.api_v1.dependencies.cron import require_cron_secret
+from app.core.database import get_bg_db, get_db
 from app.core.logging import get_logger
 from app.models.enums import (
     ListingModerationStatus,
@@ -31,6 +32,7 @@ from app.schemas.flatmates_admin import (
     ListingModerationResult,
     ListingPrescreenResult,
     ReportModerationResult,
+    StaleListingPauseResult,
 )
 from app.schemas.flatmates_admin import (
     serialize_flatmate_listing as _serialize_flatmate_listing,
@@ -113,11 +115,6 @@ async def get_pending_listings(
     """Get listings pending moderation review. Requires admin role."""
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
-
-    # ponytail: this read writes. The stale-listing pause also runs inline on property browse,
-    # search and recommendations, and no scheduler calls it. Move it to a scheduled job if the
-    # admin queue must never write on read.
-    await pause_stale_flatmate_listings(db)
 
     filters = {"status": ListingModerationStatus(status).value}
     cursor_payload: dict[str, Any] = page.decoded(filters)
@@ -428,3 +425,26 @@ async def prescreen_listing(
         listing_id,
         admin_user_id=current_user.id,
     )
+
+
+@router.post(
+    "/maintenance/pause-stale-listings",
+    response_model=StaleListingPauseResult,
+    summary="Pause stale flatmate listings (cron)",
+    dependencies=[Depends(require_cron_secret)],
+)
+async def pause_stale_listings(db: AsyncSession = Depends(get_bg_db)) -> StaleListingPauseResult:
+    """Auto-pause flatmate/PG listings that have not been updated recently.
+
+    Cron-only (``X-Cron-Secret``). Runs nightly from
+    ``.github/workflows/flatmates-maintenance-nightly.yml``; it used to run
+    inline on every property browse/search/recommendation request and on the
+    admin moderation queue, which opened a write transaction (and a Supavisor
+    client) before the search cache was even checked.
+    """
+    paused = await pause_stale_flatmate_listings(db)
+    logger.info(
+        "Stale flatmate listings paused",
+        extra={"event": "stale_listing_pause", "paused": paused},
+    )
+    return StaleListingPauseResult(paused=paused)

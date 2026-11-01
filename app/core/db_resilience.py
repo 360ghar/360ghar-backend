@@ -55,10 +55,14 @@ def is_statement_timeout(exc: Exception) -> bool:
 TRANSIENT_DB_ERROR_CODES = {
     "ECHECKOUTTIMEOUT",
     "EDBHANDLEREXITED",
+    # Supavisor's client-slot limit. Transient for the client (the pooler is
+    # healthy, it is simply full), but never retried — see below.
+    "EMAXCONN",
     "EMAXCONNSESSION",
 }
 _TRANSIENT_DB_MESSAGE_MARKERS = (
     "connection to database closed",
+    "max client connections reached",
     "max clients reached",
     "unable to check out connection from the pool",
     "ssl error",
@@ -67,15 +71,22 @@ _TRANSIENT_DB_MESSAGE_MARKERS = (
     "server closed the connection",
     "consuming input failed",
 )
+# Retry-After for capacity failures. Longer than the generic 5 s so clients
+# back off instead of re-opening the connection storm that caused EMAXCONN.
+POOL_EXHAUSTION_RETRY_AFTER_S = 30
 
 
 def extract_db_error_code(exc: Exception) -> str | None:
     text = str(exc)
-    for code in TRANSIENT_DB_ERROR_CODES:
+    # Prefer the code actually named in the server error. Longest-first as a
+    # fallback because EMAXCONN is a prefix of EMAXCONNSESSION.
+    match = re.search(r"\((E[A-Z0-9_]{3,})\)", text)
+    if match:
+        return match.group(1)
+    for code in sorted(TRANSIENT_DB_ERROR_CODES, key=len, reverse=True):
         if code in text:
             return code
-    match = re.search(r"\((E[A-Z0-9_]{3,})\)", text)
-    return match.group(1) if match else None
+    return None
 
 
 def _is_pool_exhaustion_error(exc: Exception) -> bool:
@@ -85,11 +96,24 @@ def _is_pool_exhaustion_error(exc: Exception) -> bool:
     return (
         "QueuePool limit" in message
         or "3o7r" in message
-        or "EMAXCONNSESSION" in message
+        # Both EMAXCONN (Supavisor client limit) and EMAXCONNSESSION (session
+        # mode) are capacity errors: retrying opens yet another connection.
+        or "EMAXCONN" in message
+        or "max client connections reached" in message_lower
         or "max clients reached" in message_lower
         or "remaining connection slots are reserved" in message_lower
         or "too many connections" in message_lower
     )
+
+
+def is_pool_exhaustion_error(exc: Exception) -> bool:
+    """Public form of :func:`_is_pool_exhaustion_error` for endpoint mappers."""
+    return _is_pool_exhaustion_error(exc)
+
+
+def read_db_retry_after(exc: Exception) -> int:
+    """Seconds a client should wait before retrying a read-side DB failure."""
+    return POOL_EXHAUSTION_RETRY_AFTER_S if _is_pool_exhaustion_error(exc) else 5
 
 
 def is_transient_db_error(exc: Exception) -> bool:
@@ -130,12 +154,16 @@ def raise_read_service_unavailable(
         return
 
     error_code = read_db_error_code(exc)
+    retry_after = read_db_retry_after(exc)
     log_extra: dict[str, object] = {
         "endpoint": endpoint,
         "error_code": error_code,
+        "retry_after_s": retry_after,
     }
     if extra:
         log_extra.update(extra)
+    if _is_pool_exhaustion_error(exc):
+        log_extra["event"] = "db_pool_exhausted"
 
     logger.error(
         "Read endpoint transient DB failure",
@@ -144,6 +172,7 @@ def raise_read_service_unavailable(
     )
     raise ServiceUnavailableException(
         detail=detail,
+        headers={"Retry-After": str(retry_after)},
         details={"error_code": error_code, "endpoint": endpoint},
     ) from exc
 

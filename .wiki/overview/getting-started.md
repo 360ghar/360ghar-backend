@@ -56,7 +56,7 @@ Key groups to fill in:
 
 - **Database/Supabase**: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `SUPABASE_WEBHOOK_SECRET`.
 - **Redis/Cache**: `REDIS_URL`.
-- **Serverless**: `SERVERLESS_ENABLED` (skips schedulers, uses `NullPool`, in-memory cache fallback).
+- **Serverless**: `SERVERLESS_ENABLED` (skips schedulers, in-memory cache fallback). DB pooling is separate: `DB_USE_NULL_POOL` (default `false`), `DB_POOLER_CLIENT_BUDGET`, `DB_REPLICA_COUNT`.
 - **Pool tuning**: `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_BG_POOL_SIZE` (background pool for schedulers and scrapers).
 - **AI providers**: `PERPLEXITY_API_KEY`, `GLM_API_KEY`, `GOOGLE_API_KEY`, `GROQ_API_KEY`, plus the `AI_AGENT_*` fallback chain.
 - **Notifications**: `EMAIL_*`, `SMS_*`, `FIREBASE_PROJECT_ID`, `GOOGLE_APPLICATION_CREDENTIALS`, `ENABLE_NOTIF_SCHEDULER`.

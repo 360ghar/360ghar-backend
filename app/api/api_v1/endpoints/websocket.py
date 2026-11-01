@@ -18,7 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_supabase_token
-from app.core.database import get_db
+from app.core.database import AsyncSessionLocal
 from app.core.logging import get_logger
 from app.core.websocket import job_frame, manager
 from app.schemas.realtime import (
@@ -87,9 +87,15 @@ async def _authenticate(websocket: WebSocket) -> int | None:
     token = await _read_auth_token(websocket)
     if token is None:
         return None
-    async for db in get_db():
-        return await resolve_websocket_user_id(token, db)
-    return None
+    # A WebSocket lives for minutes and is not a request dependency, so the
+    # session is opened and closed here. ``async for db in get_db(): return``
+    # abandoned the generator and left the session (and its pooler slot) to GC.
+    async with AsyncSessionLocal() as db:
+        user_id = await resolve_websocket_user_id(token, db)
+        if user_id is not None:
+            # ``get_or_create_user_from_supabase`` flushes, it does not commit.
+            await db.commit()
+        return user_id
 
 
 async def _close(websocket: WebSocket, code: int, reason: str) -> None:
@@ -131,29 +137,43 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
         return
 
     job = None
-    async for db in get_db():
+    async with AsyncSessionLocal() as db:
         try:
             job = await tour_ai.get_ai_job(db, job_id, user_id)
         except HTTPException:
             job = None
-        break
     if job is None:
         await _close(websocket, WS_CLOSE_NOT_FOUND, "Job not found or not authorized")
         return
 
     await manager.connect_job(websocket, job_id)
     try:
-        await websocket.send_text(
-            job_frame(
-                job_id,
-                {
-                    "status": job.status,
-                    "progress": job.progress,
-                    "error_message": job.error_message,
-                    "result": getattr(job, "result", None),
-                },
-            ).model_dump_json()
-        )
+        # Re-read inside the manager send-lock: a job update broadcast between
+        # the pre-check above and registration either lands in this fresh read,
+        # or its frame is delivered after the snapshot below. It can no longer
+        # be dropped on an unregistered socket or overwritten by a stale
+        # snapshot. The session still closes before ``_serve``.
+        async with manager.job_snapshot_section():
+            async with AsyncSessionLocal() as db:
+                try:
+                    job = await tour_ai.get_ai_job(db, job_id, user_id)
+                except HTTPException:
+                    job = None
+            if job is not None:
+                await websocket.send_text(
+                    job_frame(
+                        job_id,
+                        {
+                            "status": job.status,
+                            "progress": job.progress,
+                            "error_message": job.error_message,
+                            "result": getattr(job, "result", None),
+                        },
+                    ).model_dump_json()
+                )
+        if job is None:
+            await _close(websocket, WS_CLOSE_NOT_FOUND, "Job not found or not authorized")
+            return
         await _serve(websocket, f"job {job_id}")
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for job %s", job_id)

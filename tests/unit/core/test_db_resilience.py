@@ -4,12 +4,20 @@ import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.core.db_resilience import (
+    POOL_EXHAUSTION_RETRY_AFTER_S,
     apply_statement_timeout,
     execute_with_transient_retry,
     extract_db_error_code,
+    is_pool_exhaustion_error,
     is_statement_timeout,
     is_transient_db_error,
+    read_db_retry_after,
 )
+
+EMAXCONN_MESSAGE = """(psycopg.OperationalError) connection failed: connection to server at "57.182.231.186", port 6543 failed: FATAL:  (EMAXCONN) max client connections reached, limit: 200
+Multiple connection attempts failed. All failures were:
+- host: 'aws-1-ap-northeast-1.pooler.supabase.com', port: 6543, hostaddr: '18.176.230.146': connection failed: connection to server at "18.176.230.146", port 6543 failed: FATAL:  (EMAXCONN) max client connections reached, limit: 200"""
+
 
 
 @pytest.mark.asyncio
@@ -73,6 +81,39 @@ def test_supabase_max_clients_error_is_transient_capacity() -> None:
     )
     assert is_transient_db_error(exc) is True
     assert extract_db_error_code(exc) == "EMAXCONNSESSION"
+
+
+def test_emaxconn_client_limit_is_transient_capacity() -> None:
+    """The exact multi-host Supavisor message from the production incident."""
+    exc = Exception(EMAXCONN_MESSAGE)
+
+    assert is_transient_db_error(exc) is True
+    assert extract_db_error_code(exc) == "EMAXCONN"
+    assert is_pool_exhaustion_error(exc) is True
+    assert read_db_retry_after(exc) == POOL_EXHAUSTION_RETRY_AFTER_S
+
+
+def test_ordinary_read_error_keeps_the_short_retry_after() -> None:
+    assert is_pool_exhaustion_error(Exception("(ECHECKOUTTIMEOUT) unable to check out")) is False
+    assert read_db_retry_after(Exception("(ECHECKOUTTIMEOUT) unable to check out")) == 5
+
+
+@pytest.mark.asyncio
+async def test_execute_with_transient_retry_does_not_retry_emaxconn() -> None:
+    """EMAXCONN is transient for the client but retrying would worsen the storm."""
+    session = AsyncMock()
+    operation = AsyncMock(side_effect=Exception(EMAXCONN_MESSAGE))
+
+    with pytest.raises(Exception, match="EMAXCONN"):
+        await execute_with_transient_retry(
+            session,
+            operation,
+            operation_name="unit_test_emaxconn_no_retry",
+        )
+
+    assert operation.await_count == 1
+    session.rollback.assert_not_awaited()
+    session.invalidate.assert_not_awaited()
 
 
 @pytest.mark.asyncio

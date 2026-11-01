@@ -13,7 +13,7 @@ The backend follows a layered architecture that runs from `app/infrastructure/` 
 - [repositories](repositories.md) — `BaseRepository`, `PropertyRepository`, `PropertyQueryBuilder` (geospatial, full-text, filters).
 - [models](models.md) — 68 ORM tables across 18 model files, 50+ enums, relationships, the `EnumStringType` adapter.
 - [infrastructure](infrastructure.md) — Lifespan startup (cache, migrations, DNS prewarm, scheduler), graceful shutdown, middleware, exception handlers, MCP HTTP app construction.
-- [core-cross-cutting](core-cross-cutting.md) — Config (Pydantic settings), auth (Supabase JWT, 503 on provider outage), database (async engine, NullPool serverless, background pool), shared httpx clients, flatmates realtime, structured logging, DB resilience.
+- [core-cross-cutting](core-cross-cutting.md) — Config (Pydantic settings), auth (Supabase JWT, 503 on provider outage), database (async engine, bounded pool + `DB_POOLER_CLIENT_BUDGET`, optional `DB_USE_NULL_POOL`, background pool), shared httpx clients, flatmates realtime, structured logging, DB resilience.
 - [vector-search](vector-search.md) — pgvector embeddings, hybrid vector+text scoring, the Gemini embedding client, sync scheduler, backfill.
 - [cache-subsystem](cache-subsystem.md) — Memory, Redis, and disk backends, `CacheManager` facade, decorators, key generation, `PropertyCacheManager`.
 

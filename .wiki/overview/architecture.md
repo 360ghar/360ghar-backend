@@ -86,7 +86,7 @@ Streaming endpoints release the main-pool DB session before streaming and use th
 
 ## Background work
 
-A single `AsyncIOScheduler` from `app/infrastructure/scheduler.py` is registered in lifespan. Four job families attach to it: blog auto-publish, notifications, vector sync, and data hub scraping. No module creates its own scheduler instance. When `SERVERLESS_ENABLED=True`, schedulers are skipped entirely, both DB engines switch to `NullPool`, and the cache falls back to in-memory so the app can scale to zero behind Supabase transaction pooling.
+A single `AsyncIOScheduler` from `app/infrastructure/scheduler.py` is registered in lifespan. Four job families attach to it: blog auto-publish, notifications, vector sync, and data hub scraping. No module creates its own scheduler instance. When `SERVERLESS_ENABLED=True`, schedulers are skipped entirely and the cache falls back to in-memory so the app can scale to zero; the DB pool is controlled separately by `DB_USE_NULL_POOL` (default `false`), and production keeps the bounded pool sized under `DB_POOLER_CLIENT_BUDGET`.
 
 ## Database and storage
 

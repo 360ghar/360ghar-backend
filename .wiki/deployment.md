@@ -11,10 +11,12 @@ File: `railway.toml`
 Railway builds from the `Dockerfile` and runs `python run.py`. The healthcheck hits `/health` and the restart policy is `ON_FAILURE` with a 3-retry max. Production env vars are set in the Railway dashboard and mirrored in `[deploy.env]`:
 
 - `ENVIRONMENT = production`, `DEBUG = false`
-- `SERVERLESS_ENABLED = true` - enables NullPool, skips in-process schedulers, falls back to in-memory cache
+- `SERVERLESS_ENABLED = true` - skips in-process schedulers, falls back to in-memory cache
+- `DB_USE_NULL_POOL = false`, `DB_POOL_SIZE = 8`, `DB_MAX_OVERFLOW = 2`, `DB_BG_POOL_SIZE = 2`, `DB_BG_MAX_OVERFLOW = 0`, `DB_POOL_TIMEOUT = 5` - bounded client-side pool
+- `DB_POOLER_CLIENT_BUDGET = 120`, `DB_REPLICA_COUNT = 1` - startup refuses to run when replicas × pool budget exceeds the budget
 - `PUBLIC_BASE_URL = https://api.360ghar.com` - used for OAuth metadata, MCP resource URIs, share previews
 
-Railway's PgBouncer handles server-side connection pooling, which is why the app can use `NullPool` in serverless mode without exhausting Postgres connections.
+Supavisor (Railway's PgBouncer equivalent) does the server-side multiplexing, but it only has 200 client slots. That is why production keeps `NullPool` off: `NullPool` removes the client-side cap, so every concurrent request becomes a Supavisor client and bursts fail with `FATAL: (EMAXCONN) max client connections reached`. The bounded pool makes excess requests wait briefly and then return 503 with `Retry-After` instead of exhausting the pooler.
 
 For Supabase-backed Railway deployments, `DATABASE_URL` must use the transaction-pooler connection string on port `6543`. The shared pooler session-mode URL on port `5432` can exhaust the small Supavisor session client cap under bursty mobile traffic; production startup rejects Supabase pooler URLs that are not transaction-pooler URLs. Prepared statements remain disabled via psycopg `prepare_threshold=None`, which is required for transaction pooling.
 
@@ -32,7 +34,7 @@ Three services: `db` (`postgis/postgis:15-3.3` with a persistent volume, PostGIS
 
 ## Serverless mode
 
-When `SERVERLESS_ENABLED=true`, the app adapts for scale-to-zero hosting: `NullPool` for both DB engines (every request opens a fresh connection, Supabase transaction pooling handles server-side reuse), all in-process schedulers skipped (cron work must move to Railway cron jobs), and cache falling back to in-memory if Redis is unavailable. Trade-off: 10-50ms added latency per request. See [background/pitfalls.md](background/pitfalls.md).
+When `SERVERLESS_ENABLED=true`, the app adapts for scale-to-zero hosting: all in-process schedulers are skipped (cron work moves to the GitHub Actions cron endpoints) and the cache falls back to in-memory if Redis is unavailable. The DB pool is a separate decision: `DB_USE_NULL_POOL` defaults to `false` and production keeps the bounded pool under `DB_POOLER_CLIENT_BUDGET`. See [background/pitfalls.md](background/pitfalls.md).
 
 ## Health check
 

@@ -23,7 +23,12 @@ from pydantic import BaseModel, Field, ValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.core.db_resilience import is_retryable_read_db_error, read_db_error_code
+from app.core.db_resilience import (
+    is_pool_exhaustion_error,
+    is_retryable_read_db_error,
+    read_db_error_code,
+    read_db_retry_after,
+)
 from app.core.exceptions import ExternalServiceError, ServiceUnavailableException
 from app.core.logging import get_logger
 
@@ -218,6 +223,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         """
         if is_retryable_read_db_error(exc):
             error_code = read_db_error_code(exc)
+            retry_after = read_db_retry_after(exc)
             logger.error(
                 "Transient DB failure: %s - %s %s",
                 exc,
@@ -227,6 +233,8 @@ def register_exception_handlers(app: FastAPI) -> None:
                 extra={
                     "endpoint": str(request.url.path),
                     "error_code": error_code,
+                    "event": "db_pool_exhausted" if is_pool_exhaustion_error(exc) else "db_transient_error",
+                    "retry_after_s": retry_after,
                 },
             )
             # Capture for capacity visibility. Test runs have SENTRY_DSN blanked
@@ -237,7 +245,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "SERVICE_UNAVAILABLE",
                 "Service temporarily unavailable. Please retry.",
                 details={"error_code": error_code, "endpoint": str(request.url.path)},
-                headers={"Retry-After": "5"},
+                headers={"Retry-After": str(retry_after)},
             )
 
         code = "INTERNAL_ERROR"

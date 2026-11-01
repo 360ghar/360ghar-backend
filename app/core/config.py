@@ -168,16 +168,59 @@ class Settings(BaseSettings):
     SUPABASE_WEBHOOK_SIGNATURE_ENCODING: str = "hex"
     REDIS_URL: str = "redis://localhost:6379"
 
+    # Use SQLAlchemy NullPool (one physical connection per request) instead of
+    # the bounded QueuePool. Only enable on a platform that truly cannot hold
+    # connections open (scale-to-zero idle detection). NullPool removes the
+    # client-side cap, so every concurrent request becomes a Supavisor client
+    # slot; the 200-slot Supavisor limit then surfaces as EMAXCONN.
+    # Deliberately independent of SERVERLESS_ENABLED (which only skips
+    # in-process schedulers).
+    DB_USE_NULL_POOL: bool = False
     # Main pool (HTTP/MCP request traffic)
-    DB_POOL_SIZE: int = 4
-    DB_MAX_OVERFLOW: int = 0
+    DB_POOL_SIZE: int = 8
+    DB_MAX_OVERFLOW: int = 2
     # Seconds to wait for a free pooled connection before failing the request.
     # Keep this short so pooler pressure returns 503 instead of open hangs.
     DB_POOL_TIMEOUT: int = 10
     DB_POOL_RECYCLE: int = 180
     # Background pool (schedulers, scrapers, long-running tasks)
-    DB_BG_POOL_SIZE: int = 1
+    DB_BG_POOL_SIZE: int = 2
     DB_BG_MAX_OVERFLOW: int = 0
+
+    @field_validator(
+        "DB_POOL_SIZE",
+        "DB_BG_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_BG_MAX_OVERFLOW",
+        mode="after",
+    )
+    @classmethod
+    def _pool_settings_keep_client_cap(cls, value: int, info: ValidationInfo) -> int:
+        """Refuse values that silently disable the QueuePool client cap.
+
+        SQLAlchemy treats ``pool_size=0`` as "no size limit" and
+        ``max_overflow=-1`` as "unlimited overflow", which re-opens the exact
+        Supavisor EMAXCONN exhaustion this deployment guards against. The
+        startup budget in ``app.core.database`` assumes the real cap equals
+        pool sizes + overflow, so these bounds must hold before it runs.
+        """
+        field = info.field_name or ""
+        if field.endswith("POOL_SIZE") and value < 1:
+            raise ValueError(f"{field} must be >= 1 (0 would disable the pool size cap)")
+        if field.endswith("MAX_OVERFLOW") and value < 0:
+            raise ValueError(f"{field} must be >= 0 (-1 would disable the overflow cap)")
+        return value
+
+    # Supavisor client slots shared by every replica of this service. Startup
+    # refuses to run in production when
+    # DB_REPLICA_COUNT × (DB_POOL_SIZE + DB_MAX_OVERFLOW +
+    #                     DB_BG_POOL_SIZE + DB_BG_MAX_OVERFLOW)
+    # exceeds this budget. Leave headroom below Supavisor's hard limit (200)
+    # for migrations, scripts, and other clients.
+    DB_POOLER_CLIENT_BUDGET: int = 120
+    # Expected number of application replicas. Set explicitly because the
+    # process cannot discover Railway's replica count.
+    DB_REPLICA_COUNT: int = 1
     # Hard bound (seconds) for opening a request session. Covers NullPool
     # connect + Supavisor checkout wait. Must stay below typical mobile
     # receive timeouts so clients get a 503 instead of hanging.
