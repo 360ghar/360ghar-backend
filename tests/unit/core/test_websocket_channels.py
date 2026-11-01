@@ -50,8 +50,8 @@ def client():
     return TestClient(app)
 
 
-def _job(status: str = "processing") -> SimpleNamespace:
-    return SimpleNamespace(status=status, progress=40, error_message=None, result=None)
+def _job(status: str = "processing", progress: int = 40) -> SimpleNamespace:
+    return SimpleNamespace(status=status, progress=progress, error_message=None, result=None)
 
 
 def test_job_channel_authenticates_with_first_frame(client):
@@ -109,6 +109,45 @@ def test_unknown_job_closes_with_4004(client):
             f"{MODULE}.tour_ai.get_ai_job", AsyncMock(side_effect=HTTPException(status_code=404))
         ),
         client.websocket_connect("/ws/jobs/missing") as ws,
+    ):
+        ws.send_text(json.dumps({"type": "auth", "token": "good-token"}))
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            ws.receive_text()
+    assert exc_info.value.code == 4004
+
+
+def test_snapshot_reflects_update_landed_during_connect_gap(client):
+    """An update landing between the pre-check and registration is not lost.
+
+    The endpoint re-reads the job inside the manager send-lock, so the first
+    frame carries the fresh state instead of the stale pre-check snapshot.
+    """
+    with (
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
+        patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
+        patch(
+            f"{MODULE}.tour_ai.get_ai_job",
+            AsyncMock(side_effect=[_job("processing"), _job("completed", progress=100)]),
+        ),
+        client.websocket_connect("/ws/jobs/job-1") as ws,
+    ):
+        ws.send_text(json.dumps({"type": "auth", "token": "good-token"}))
+        frame = json.loads(ws.receive_text())
+
+    assert frame["data"]["status"] == "completed"
+    assert frame["data"]["progress"] == 100
+
+
+def test_job_removed_between_reads_closes_with_4004(client):
+    """The job disappearing after the pre-check still closes with 4004."""
+    with (
+        patch(f"{MODULE}.AsyncSessionLocal", _fake_session_factory),
+        patch(f"{MODULE}.resolve_websocket_user_id", AsyncMock(return_value=7)),
+        patch(
+            f"{MODULE}.tour_ai.get_ai_job",
+            AsyncMock(side_effect=[_job(), HTTPException(status_code=404)]),
+        ),
+        client.websocket_connect("/ws/jobs/job-1") as ws,
     ):
         ws.send_text(json.dumps({"type": "auth", "token": "good-token"}))
         with pytest.raises(WebSocketDisconnect) as exc_info:

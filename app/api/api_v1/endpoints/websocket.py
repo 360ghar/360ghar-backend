@@ -148,17 +148,32 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
 
     await manager.connect_job(websocket, job_id)
     try:
-        await websocket.send_text(
-            job_frame(
-                job_id,
-                {
-                    "status": job.status,
-                    "progress": job.progress,
-                    "error_message": job.error_message,
-                    "result": getattr(job, "result", None),
-                },
-            ).model_dump_json()
-        )
+        # Re-read inside the manager send-lock: a job update broadcast between
+        # the pre-check above and registration either lands in this fresh read,
+        # or its frame is delivered after the snapshot below. It can no longer
+        # be dropped on an unregistered socket or overwritten by a stale
+        # snapshot. The session still closes before ``_serve``.
+        async with manager.job_snapshot_section():
+            async with AsyncSessionLocal() as db:
+                try:
+                    job = await tour_ai.get_ai_job(db, job_id, user_id)
+                except HTTPException:
+                    job = None
+            if job is not None:
+                await websocket.send_text(
+                    job_frame(
+                        job_id,
+                        {
+                            "status": job.status,
+                            "progress": job.progress,
+                            "error_message": job.error_message,
+                            "result": getattr(job, "result", None),
+                        },
+                    ).model_dump_json()
+                )
+        if job is None:
+            await _close(websocket, WS_CLOSE_NOT_FOUND, "Job not found or not authorized")
+            return
         await _serve(websocket, f"job {job_id}")
     except WebSocketDisconnect:
         logger.debug("WebSocket disconnected for job %s", job_id)

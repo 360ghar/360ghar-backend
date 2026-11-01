@@ -81,14 +81,22 @@ class _SearchHarness:
             "app.services.property.search.PropertyCacheManager.cache_properties",
             new_callable=AsyncMock,
         )
+        # The timeout helper awaits session.execute, which this harness records
+        # synchronously; replace it so the recorded statements stay query-only.
+        self.timeout_patch = patch(
+            "app.services.property.search.apply_statement_timeout",
+            new=AsyncMock(),
+        )
 
     def __enter__(self):
         self.retry_patch.start()
         self.cache_get_patch.start()
         self.cache_set_patch.start()
+        self.timeout_patch.start()
         return self
 
     def __exit__(self, *exc):  # noqa: ANN002
+        self.timeout_patch.stop()
         self.cache_set_patch.stop()
         self.cache_get_patch.stop()
         self.retry_patch.stop()

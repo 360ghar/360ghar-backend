@@ -186,6 +186,31 @@ class Settings(BaseSettings):
     # Background pool (schedulers, scrapers, long-running tasks)
     DB_BG_POOL_SIZE: int = 2
     DB_BG_MAX_OVERFLOW: int = 0
+
+    @field_validator(
+        "DB_POOL_SIZE",
+        "DB_BG_POOL_SIZE",
+        "DB_MAX_OVERFLOW",
+        "DB_BG_MAX_OVERFLOW",
+        mode="after",
+    )
+    @classmethod
+    def _pool_settings_keep_client_cap(cls, value: int, info: ValidationInfo) -> int:
+        """Refuse values that silently disable the QueuePool client cap.
+
+        SQLAlchemy treats ``pool_size=0`` as "no size limit" and
+        ``max_overflow=-1`` as "unlimited overflow", which re-opens the exact
+        Supavisor EMAXCONN exhaustion this deployment guards against. The
+        startup budget in ``app.core.database`` assumes the real cap equals
+        pool sizes + overflow, so these bounds must hold before it runs.
+        """
+        field = info.field_name or ""
+        if field.endswith("POOL_SIZE") and value < 1:
+            raise ValueError(f"{field} must be >= 1 (0 would disable the pool size cap)")
+        if field.endswith("MAX_OVERFLOW") and value < 0:
+            raise ValueError(f"{field} must be >= 0 (-1 would disable the overflow cap)")
+        return value
+
     # Supavisor client slots shared by every replica of this service. Startup
     # refuses to run in production when
     # DB_REPLICA_COUNT × (DB_POOL_SIZE + DB_MAX_OVERFLOW +

@@ -7,6 +7,7 @@ socket and authenticates it. The manager only tracks connections and sends frame
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import WebSocket
@@ -102,12 +103,32 @@ class ConnectionManager:
                 dead.append(websocket)
         return dead
 
+    @asynccontextmanager
+    async def job_snapshot_section(self):
+        """Serialize the initial job snapshot against live ``job_update`` sends.
+
+        The endpoint holds this section while it re-reads the job and sends the
+        snapshot: a broadcast is then either fully delivered before the section
+        (so the re-read includes it) or delayed until the snapshot frame is out.
+        Updates can no longer be dropped on an unregistered socket nor arrive
+        before a stale snapshot.
+        """
+        async with self._lock:
+            yield
+
     async def send_job_update(self, job_id: str, data: dict[str, Any]) -> None:
-        """Send one ``job_update`` frame to every socket connected to ``job_id``."""
-        if job_id not in self.job_connections:
-            return
+        """Send one ``job_update`` frame to every socket connected to ``job_id``.
+
+        Holds the manager lock while sending so the frame is ordered against a
+        snapshot being sent in ``job_snapshot_section``.
+        """
         message = job_frame(job_id, data).model_dump_json()
-        dead = await self._send_text(list(self.job_connections.get(job_id, set())), message)
+        async with self._lock:
+            sockets = list(self.job_connections.get(job_id, set()))
+            if not sockets:
+                return
+            dead = await self._send_text(sockets, message)
+        # Outside the lock: disconnect_job acquires it again (not reentrant).
         for ws in dead:
             await self.disconnect_job(ws, job_id)
 

@@ -5,6 +5,11 @@ Tests for app.core.config module.
 import os
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
+from app.core import config as config_module
+
 
 class TestSettings:
     """Tests for the Settings class."""
@@ -471,3 +476,35 @@ class TestSettings:
                 SECRET_KEY="not-the-default",
             )
             assert settings.sentry_test_endpoint_enabled is False
+
+
+class TestPoolSettingBounds:
+    """Pool settings that would disable the QueuePool client cap are rejected.
+
+    Init kwargs have the highest priority in pydantic-settings, so each case
+    overrides just the one field on top of the env-file/environment values the
+    module import already validated.
+    """
+
+    @pytest.mark.parametrize(
+        ("field", "value", "match"),
+        [
+            ("DB_POOL_SIZE", 0, "DB_POOL_SIZE must be >= 1"),
+            ("DB_BG_POOL_SIZE", 0, "DB_BG_POOL_SIZE must be >= 1"),
+            ("DB_MAX_OVERFLOW", -1, "DB_MAX_OVERFLOW must be >= 0"),
+            ("DB_BG_MAX_OVERFLOW", -1, "DB_BG_MAX_OVERFLOW must be >= 0"),
+        ],
+    )
+    def test_cap_disabling_pool_settings_are_rejected(self, field, value, match):
+        with pytest.raises(ValidationError, match=match):
+            config_module.Settings(**{field: value})
+
+    def test_pool_settings_within_bounds_are_accepted(self):
+        settings = config_module.Settings(
+            DB_POOL_SIZE=8,
+            DB_BG_POOL_SIZE=2,
+            DB_MAX_OVERFLOW=2,
+            DB_BG_MAX_OVERFLOW=0,
+        )
+        assert settings.DB_POOL_SIZE == 8
+        assert settings.DB_BG_MAX_OVERFLOW == 0
