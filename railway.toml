@@ -15,4 +15,8 @@ restartPolicyMaxRetries = 3
 ENVIRONMENT = "production"
 DEBUG = "false"
 SERVERLESS_ENABLED = "true"
+# Burst headroom for the app-side pool (DB_NULL_POOL is false). Overflow
+# connections open per use and close on return. The SSE chat uses the BG pool.
+DB_MAX_OVERFLOW = "10"
+DB_BG_MAX_OVERFLOW = "8"
 PUBLIC_BASE_URL = "https://api.360ghar.com"

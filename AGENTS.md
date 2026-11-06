@@ -123,7 +123,7 @@ Copy `.env.example` to `.env` and configure. Key variable groups:
 - **Notifications**: `EMAIL_*`, `SMS_*`, `ENABLE_NOTIF_SCHEDULER`
 - **Vector Search**: `VECTOR_SYNC_ENABLED`, `GEMINI_EMBED_MODEL`
 - **Blog Auto-Publish**: `AUTO_BLOG_ENABLED`, `AUTO_BLOG_CRON`
-- **Serverless/Scale-to-Zero**: `SERVERLESS_ENABLED`
+- **Serverless/Scale-to-Zero**: `SERVERLESS_ENABLED` (schedulers, cache), `DB_NULL_POOL` (NullPool)
 - **CORS Override**: `CORS_ORIGINS_STR` (comma-separated, overrides default `CORS_ORIGINS` list)
 
 ### CI/CD Pipeline
@@ -252,7 +252,7 @@ app/
 
 **Semantic Search**: Hybrid vector + text scoring via `property_embeddings` table (pgvector).
 
-**Serverless/Scale-to-Zero**: When `SERVERLESS_ENABLED=True`, the app uses `NullPool` for both main and background DB engines (no persistent connections), skips in-process schedulers, and uses in-memory cache fallback. PgBouncer handles server-side pooling. Trade-off: ~10-50ms added latency per request.
+**Serverless/Scale-to-Zero**: When `SERVERLESS_ENABLED=True`, the app skips in-process schedulers and uses the in-memory cache fallback. `DB_NULL_POOL=True` separately switches both DB engines to `NullPool` (no persistent connections; ~10-50ms added latency per request). A scale-to-zero host sets both. Railway production sets only `SERVERLESS_ENABLED` and keeps the small app-side pool (`DB_MAX_OVERFLOW=10`, `DB_BG_MAX_OVERFLOW=8`).
 
 **Flatmates Realtime Events**: Flatmates app-wide realtime uses Supabase Realtime private Broadcast channels through `app/services/flatmates/realtime.py`. Service methods queue events on the SQLAlchemy session and publish only after DB commit to `flatmates:user:{local_user_id}`. Supabase Realtime Authorization on `realtime.messages` restricts each authenticated user to their own channel. Event types: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`.
 
