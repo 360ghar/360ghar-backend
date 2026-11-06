@@ -502,6 +502,11 @@ STALE_SWEEP_INTERVAL_SECONDS = 15 * 60
 _last_stale_sweep: float | None = None
 
 
+def stale_sweep_due() -> bool:
+    """True when the throttled sweep would run now. Uses no DB."""
+    return _last_stale_sweep is None or time.monotonic() - _last_stale_sweep >= STALE_SWEEP_INTERVAL_SECONDS
+
+
 async def pause_stale_flatmate_listings(
     db: AsyncSession,
     *,

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.config import settings
 from app.models.content import ContentBlock
-from app.services.content import runner
+from app.services.content import runner, served
 from tests.fixtures.content import FakeProvider, compose
 
 pytestmark = pytest.mark.asyncio
@@ -24,6 +24,14 @@ def block(slug: str, status: str = "auto", locale: str = "en", **kw) -> ContentB
         key_fact=kw.pop("key_fact", True), indexable=kw.pop("indexable", True),
         dup_score=kw.pop("dup_score", 0.1), **kw,
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_served_keys():
+    """Each test writes its own blocks: start and end with an empty served-key cache."""
+    served.invalidate_served_keys()
+    yield
+    served.invalidate_served_keys()
 
 
 @pytest.fixture
@@ -46,6 +54,74 @@ async def test_public_get_serves_auto_and_approved_with_cache_headers(client: As
     assert (await client.get("/api/v1/content/locality/b")).status_code == 200
     for hidden in ("c", "d", "missing"):
         assert (await client.get(f"/api/v1/content/locality/{hidden}")).status_code == 404
+
+
+async def test_unknown_key_is_404_without_a_block_query(client: AsyncClient, db_session):
+    db_session.add(block("a"))
+    await db_session.flush()
+    assert (await client.get("/api/v1/content/locality/a")).status_code == 200  # loads the key set
+    statements: list[str] = []
+    engine = db_session.bind.sync_engine
+    listener = lambda *args: statements.append(args[2])  # noqa: E731 (conn, cursor, statement, ...)
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        missing = await client.get("/api/v1/content/locality/nope")
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    assert missing.status_code == 404
+    assert missing.headers["cache-control"] == "public, max-age=300"
+    assert not [q for q in statements if "content_blocks" in q]  # answered from the cached key set
+    # A new served block shows up after a write invalidates the set. The listener sees the
+    # refresh and block queries here, so the empty capture above is not vacuous.
+    db_session.add(block("b"))
+    await db_session.flush()
+    assert (await client.get("/api/v1/content/locality/b")).status_code == 404
+    served.invalidate_served_keys()
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        assert (await client.get("/api/v1/content/locality/b")).status_code == 200
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    assert len([q for q in statements if "content_blocks" in q]) == 2
+
+
+async def test_served_keys_does_not_cache_a_snapshot_older_than_an_invalidation(monkeypatch):
+    calls = []
+
+    async def load(_db):
+        calls.append(1)
+        if len(calls) == 1:
+            served.invalidate_served_keys()  # a write commits while the first query runs
+            return frozenset()
+        return frozenset({("locality", "new", "en")})
+
+    monkeypatch.setattr(served, "_load", load)
+    assert await served.served_keys(None) == frozenset({("locality", "new", "en")})
+    assert len(calls) == 2
+    assert await served.served_keys(None) == frozenset({("locality", "new", "en")})  # cached
+    assert len(calls) == 2
+
+
+async def test_served_keys_failed_refresh_fails_fast_for_waiters(monkeypatch):
+    from app.core.exceptions import ServiceUnavailableException
+
+    calls = []
+
+    async def load(_db):
+        calls.append(1)
+        raise TimeoutError("pool full")
+
+    monkeypatch.setattr(served, "_load", load)
+    monkeypatch.setattr(served, "_failed_at", None)
+    with pytest.raises(TimeoutError):
+        await served.served_keys(None)
+    with pytest.raises(ServiceUnavailableException):
+        await served.served_keys(None)  # within the hold: no second query
+    assert len(calls) == 1
+    monkeypatch.setattr(served, "_failed_at", 0.0)  # hold expired: query again
+    with pytest.raises(TimeoutError):
+        await served.served_keys(None)
+    assert len(calls) == 2
 
 
 async def test_public_get_locale_and_validation(client: AsyncClient, db_session):

@@ -108,6 +108,9 @@ async def test_locality_content_is_hidden_without_query_while_property_content_r
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(settings, "HRERA_DATA_ENABLED", False, raising=False)
+    monkeypatch.setattr(
+        content_api, "served_keys", AsyncMock(return_value=frozenset({("property", "123", "en")}))
+    )
     db = MagicMock()
     db.execute = AsyncMock()
 

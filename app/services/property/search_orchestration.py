@@ -28,8 +28,8 @@ from app.models.enums import (
 )
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
-from app.services.flatmates import pause_stale_flatmate_listings
-from app.services.property.search import get_unified_properties_optimized
+from app.services.flatmates import pause_stale_flatmate_listings, stale_sweep_due
+from app.services.property.search import cached_first_page, get_unified_properties_optimized
 
 logger = get_logger(__name__)
 
@@ -162,24 +162,30 @@ async def run_property_search(
         )
 
     try:
-        # Bound every statement in this read request so a stalled DB backend
-        # fails fast instead of holding a pooler connection for the server
-        # default timeout.
-        await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
-
-        # Stale-listing pause is a best-effort cleanup write; it must never
-        # break browsing. If it stalls/fails, roll back the aborted transaction
-        # and continue to the read-only search.
-        try:
-            await pause_stale_flatmate_listings(db)
-        except Exception as cleanup_exc:
-            logger.warning(
-                "Skipping stale-listing pause during %s: %s",
-                stale_listing_context,
-                cleanup_exc,
-            )
-            await db.rollback()
+        # A cached anonymous first page needs no DB: a burst of cache hits must not hold
+        # pool connections. The throttled stale-listing sweep still runs when it is due.
+        hit = await cached_first_page(filters, user_id, cursor_payload, limit, with_total=with_total)
+        if hit is None or stale_sweep_due():
+            # Bound every statement in this read request so a stalled DB backend
+            # fails fast instead of holding a pooler connection for the server
+            # default timeout.
             await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+
+            # Stale-listing pause is a best-effort cleanup write; it must never
+            # break browsing. If it stalls/fails, roll back the aborted transaction
+            # and continue to the read-only search.
+            try:
+                await pause_stale_flatmate_listings(db)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "Skipping stale-listing pause during %s: %s",
+                    stale_listing_context,
+                    cleanup_exc,
+                )
+                await db.rollback()
+                await apply_statement_timeout(db, settings.DB_READ_STATEMENT_TIMEOUT_MS)
+        if hit is not None:
+            return hit
 
         rows, next_payload, total = await get_unified_properties_optimized(
             db,
@@ -188,6 +194,7 @@ async def run_property_search(
             cursor_payload,
             limit,
             with_total=with_total,
+            cache_checked=True,
         )
         return rows, next_payload, total
     except Exception as exc:

@@ -181,6 +181,8 @@ class Settings(BaseSettings):
     # Background pool (schedulers, scrapers, long-running tasks)
     DB_BG_POOL_SIZE: int = 1
     DB_BG_MAX_OVERFLOW: int = 0
+    # Background work and SSE chat streams have no client deadline: wait longer than the main pool.
+    DB_BG_POOL_TIMEOUT: int = 15
     # Hard bound (seconds) for opening a request session. Covers NullPool
     # connect + Supavisor checkout wait. Must stay below typical mobile
     # receive timeouts so clients get a 503 instead of hanging.

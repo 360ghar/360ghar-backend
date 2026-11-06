@@ -39,6 +39,7 @@ from app.services.content import (  # noqa: F401 (registers the property enriche
 )
 from app.services.content.facts import MIN_FACTS_FOR_INDEX
 from app.services.content.runner import make_provider
+from app.services.content.served import invalidate_served_keys
 
 router = APIRouter()
 
@@ -77,6 +78,7 @@ async def run_content(body: ContentRunRequest, db: AsyncSession = Depends(get_db
         )
     finally:
         await provider.close()
+        invalidate_served_keys()
     return stats.as_dict()
 
 
@@ -169,5 +171,6 @@ async def update_status(
     block.review_status = body.review_status
     block.indexable = body.review_status == "approved" and block.fact_count >= MIN_FACTS_FOR_INDEX and block.key_fact
     await db.commit()
+    invalidate_served_keys()
     await db.refresh(block)
     return block

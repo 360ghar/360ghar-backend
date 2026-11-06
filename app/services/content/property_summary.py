@@ -24,6 +24,7 @@ from app.services.ai.base import AIMessage, AIProvider, AIProviderError, AIRole,
 from app.services.content import runner
 from app.services.content.facts import FactSheet
 from app.services.content.numbers import normalize_digits
+from app.services.content.served import invalidate_served_keys
 from app.services.content.validator import BANNED
 
 logger = get_logger(__name__)
@@ -148,6 +149,7 @@ async def generate_property_content(property_id: int) -> None:
                 db, provider, entity_type="property", locales=["en", "hi"], slugs=[str(property_id)],
                 max_entities=1, max_calls=12, max_seconds=120.0, throttle=_WRITE_THROTTLE,
             )
+        invalidate_served_keys()
     except Exception:  # noqa: BLE001 - a background summary must never affect the listing request
         logger.warning("property content generation failed for %s", property_id, exc_info=True)
     finally:
