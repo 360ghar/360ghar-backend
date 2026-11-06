@@ -376,7 +376,7 @@ async def get_properties_list(
 
     binding = _filter_binding(filters)
     cursor_payload = page.decoded(binding)
-    logger.info(
+    logger.debug(
         "Property search request",
         extra={
             "user": user_id or "anonymous",
@@ -398,7 +398,7 @@ async def get_properties_list(
         unavailable_detail="Property search is temporarily unavailable. Please retry shortly.",
     )
 
-    logger.info(
+    logger.debug(
         "Property search completed — found %s properties",
         len(rows),
     )

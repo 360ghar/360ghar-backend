@@ -175,11 +175,12 @@ logger.info("Connecting to database with psycopg for PgBouncer compatibility")
 _connect_args = _psycopg_connect_args(application_name="360ghar_backend")
 _bg_connect_args = _psycopg_connect_args(application_name="360ghar_bg")
 
-# ── Serverless: NullPool prevents persistent connections that generate ────────
-# outbound packets, which would keep Railway from scaling to zero.
-# PgBouncer handles server-side pooling, so client-side pooling is not needed.
-# Trade-off: each request creates a fresh connection (adds ~10-50ms latency).
-_use_null_pool = settings.SERVERLESS_ENABLED
+# ── NullPool (DB_NULL_POOL) prevents persistent connections, for hosts that ──
+# scale to zero. Trade-off: each session opens a fresh TLS connection to
+# Supavisor (~10-50ms, plus connect/auth log lines on Supabase). The default
+# pool keeps a few warm connections; DB_MAX_OVERFLOW connections beyond the
+# pool are opened per use and closed on return.
+_use_null_pool = settings.DB_NULL_POOL
 
 if _use_null_pool:
     logger.info("Serverless mode — using NullPool (no persistent DB connections)")
@@ -217,8 +218,8 @@ logger.info(
 
 # ── Background engine: schedulers, scrapers, long-running tasks ───────────────
 # Isolated from the main pool so background work can't starve API traffic.
-# In serverless mode, this engine is unused (schedulers are skipped) but
-# still created to avoid import errors; NullPool means zero overhead.
+# It also serves the assistant SSE streams (AsyncSessionLocalBG), so keep
+# DB_BG_MAX_OVERFLOW high enough for concurrent chats.
 _bg_engine_kwargs: dict = {
     "echo": settings.DEBUG,
     "future": True,

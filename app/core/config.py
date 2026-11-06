@@ -168,6 +168,9 @@ class Settings(BaseSettings):
     SUPABASE_WEBHOOK_SIGNATURE_ENCODING: str = "hex"
     REDIS_URL: str = "redis://localhost:6379"
 
+    # NullPool opens a new Supavisor connection per session. Only for a host that
+    # really scales to zero; a long-running container (Railway) keeps a pool.
+    DB_NULL_POOL: bool = False
     # Main pool (HTTP/MCP request traffic)
     DB_POOL_SIZE: int = 4
     DB_MAX_OVERFLOW: int = 0
