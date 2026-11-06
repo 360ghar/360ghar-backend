@@ -114,10 +114,10 @@ async def get_pending_listings(
     if not _is_admin_user(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # ponytail: this read writes. The stale-listing pause also runs inline on property browse,
-    # search and recommendations, and no scheduler calls it. Move it to a scheduled job if the
-    # admin queue must never write on read.
-    await pause_stale_flatmate_listings(db)
+    # ponytail: this read writes. The stale-listing pause also runs inline (throttled) on property
+    # browse, search and recommendations, and no scheduler calls it. Move it to a scheduled job if
+    # the admin queue must never write on read.
+    await pause_stale_flatmate_listings(db, throttle=False)
 
     filters = {"status": ListingModerationStatus(status).value}
     cursor_payload: dict[str, Any] = page.decoded(filters)

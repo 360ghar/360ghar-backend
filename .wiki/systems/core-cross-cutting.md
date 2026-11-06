@@ -30,7 +30,7 @@ app/core/
 | `Settings` | `app/core/config.py` | Pydantic settings loaded from env files per environment |
 | `verify_supabase_token` | `app/core/auth.py` | Resolve a bearer token to Supabase user data, with 503 on provider outage |
 | `verify_jwt_locally` | `app/core/jwt_verification.py` | Verify JWT signature/claims via cached JWKS, avoiding per-request HTTP |
-| `engine` / `bg_engine` | `app/core/database.py` | Main and background async engines, NullPool in serverless mode |
+| `engine` / `bg_engine` | `app/core/database.py` | Main and background async engines, NullPool when `DB_NULL_POOL=true` |
 | `AsyncSessionLocal` / `AsyncSessionLocalBG` | `app/core/database.py` | Session factories for request and background work |
 | Shared httpx clients | `app/core/http.py` | `get_scraper_client`, `get_blog_client`, `get_general_client`, `get_supabase_auth_http_client` |
 | `Flatmates realtime publisher` | `app/services/flatmates/realtime.py` | Supabase private Broadcast publisher with after-commit queue |
@@ -64,7 +64,7 @@ graph TD
 
 ### Database
 
-`app/core/database.py` creates two async engines. The main engine (`engine`) serves HTTP/MCP traffic; the background engine (`bg_engine`, application name `360ghar_bg`) serves schedulers and SSE streams. Both use `prepare_threshold=None` for Supabase/PgBouncer compatibility. When `SERVERLESS_ENABLED=True`, both engines use `NullPool` so no persistent connections generate outbound packets that would prevent Railway scale-to-zero (trade-off: 10-50ms added latency per request). Production Supabase pooler URLs must use transaction pooling on port `6543`; startup rejects session-pooler URLs on port `5432` and unknown Supabase pooler ports in production. In non-serverless development mode, app-side pool defaults are intentionally small (`4 + 0` main, `1 + 0` background) to stay below small Supabase session-pool caps. `Base` is the `DeclarativeBase` all models inherit from. Session factories `AsyncSessionLocal` and `AsyncSessionLocalBG` produce `AsyncSession` objects.
+`app/core/database.py` creates two async engines. The main engine (`engine`) serves HTTP/MCP traffic; the background engine (`bg_engine`, application name `360ghar_bg`) serves schedulers and SSE streams. Both use `prepare_threshold=None` for Supabase/PgBouncer compatibility. When `DB_NULL_POOL=True`, both engines use `NullPool` so no persistent connections keep a scale-to-zero host awake (trade-off: 10-50ms added latency per request). Railway production keeps it `False`. Production Supabase pooler URLs must use transaction pooling on port `6543`; startup rejects session-pooler URLs on port `5432` and unknown Supabase pooler ports in production. When `DB_NULL_POOL=False` (any environment), app-side pool defaults are intentionally small (`4 + 0` main, `1 + 0` background) to stay below small Supabase session-pool caps. `Base` is the `DeclarativeBase` all models inherit from. Session factories `AsyncSessionLocal` and `AsyncSessionLocalBG` produce `AsyncSession` objects.
 
 ### Shared HTTP clients
 
@@ -128,7 +128,7 @@ The agent chat stream (`POST /api/v1/agent/chat`, `/agent/chat-public`) emits ty
 | `app/core/config.py` | Pydantic settings, env file selection |
 | `app/core/auth.py` | Supabase token verification, `AuthFailureReason`, admin user ops |
 | `app/core/jwt_verification.py` | Local JWKS verification, token cache |
-| `app/core/database.py` | Engines, session factories, `Base`, NullPool serverless |
+| `app/core/database.py` | Engines, session factories, `Base`, `DB_NULL_POOL` |
 | `app/core/http.py` | Four shared httpx clients |
 | `app/core/sse.py` | `SSEEventBus` per-user pub/sub |
 | `app/core/logging.py` | Request ID context, filters, formatters |

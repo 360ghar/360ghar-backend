@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -495,12 +496,30 @@ def apply_stale_listing_pause(
     return True
 
 
+# ponytail: per-process throttle for the inline sweep on browse reads; move the sweep to a
+# scheduled job if it must run on an exact cadence.
+STALE_SWEEP_INTERVAL_SECONDS = 15 * 60
+_last_stale_sweep: float | None = None
+
+
 async def pause_stale_flatmate_listings(
     db: AsyncSession,
     *,
     now: datetime | None = None,
+    throttle: bool = True,
 ) -> int:
-    """Batch-pause flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS."""
+    """Batch-pause flatmate/PG listings not updated in STALE_LISTING_PAUSE_DAYS.
+
+    Browse, search and recommendations call this on every request. With ``throttle``
+    it runs at most once per STALE_SWEEP_INTERVAL_SECONDS per process, so cached reads
+    do not query the database. A day-scale cutoff does not need a per-request check.
+    """
+    global _last_stale_sweep
+    if throttle:
+        tick = time.monotonic()
+        if _last_stale_sweep is not None and tick - _last_stale_sweep < STALE_SWEEP_INTERVAL_SECONDS:
+            return 0
+        _last_stale_sweep = tick
     effective_now = now or datetime.now(timezone.utc)
     if effective_now.tzinfo is None:
         effective_now = effective_now.replace(tzinfo=timezone.utc)

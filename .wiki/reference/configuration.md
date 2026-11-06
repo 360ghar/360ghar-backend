@@ -8,11 +8,12 @@ Active contributors: Saksham, Ravi
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Postgres connection string. SQLAlchemy converts `postgresql://`/`postgres://` to `postgresql+psycopg://`. Railway/serverless Supabase deploys must use the transaction pooler on port `6543`; the shared pooler session-mode URL on port `5432` is rejected in production when `SERVERLESS_ENABLED=true`. |
-| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Main pool tuning (HTTP/MCP traffic). Ignored when `SERVERLESS_ENABLED=true`. Defaults are `4`, `0`, `15`, `180`. |
-| `DB_BG_POOL_SIZE`, `DB_BG_MAX_OVERFLOW` | Background pool tuning (schedulers, scrapers, long-running tasks). Defaults are `1`, `0`. |
+| `DATABASE_URL` | Postgres connection string. SQLAlchemy converts `postgresql://`/`postgres://` to `postgresql+psycopg://`. Railway/serverless Supabase deploys must use the transaction pooler on port `6543`; the shared pooler session-mode URL on port `5432` is rejected in production. |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT`, `DB_POOL_RECYCLE` | Main pool tuning (HTTP/MCP traffic). Ignored when `DB_NULL_POOL=true`. Defaults are `4`, `0`, `10`, `180`. Railway production sets `DB_MAX_OVERFLOW=10`; connections past the pool size open per use and close on return. |
+| `DB_NULL_POOL` | When `true`, both engines use `NullPool`: a new pooler connection per session, for hosts that scale to zero. Default `false`. A scale-to-zero host sets both `DB_NULL_POOL=true` and `SERVERLESS_ENABLED=true`; `DB_NULL_POOL` alone leaves the in-process schedulers running. A long-running container keeps it `false`: per-session connects add 10-50 ms and Supavisor connect/auth log lines on every request. |
+| `DB_BG_POOL_SIZE`, `DB_BG_MAX_OVERFLOW` | Background pool tuning (schedulers, scrapers, assistant SSE streams). Defaults are `1`, `0`. Railway production sets `DB_BG_MAX_OVERFLOW=8` so concurrent chats do not queue. |
 | `DB_READ_STATEMENT_TIMEOUT_MS` | Per-request statement timeout (ms, default `8000`) for interactive read endpoints like property search. Applied via `SET LOCAL` so a stalled query fails fast and frees its pooler connection instead of holding it until the 2-minute server default. `0` disables the guardrail. |
-| `SERVERLESS_ENABLED` | When `true`, switches to `NullPool` for both engines, skips schedulers, falls back to in-memory cache. Use this with Supabase transaction pooling (`:6543`) in Railway production. |
+| `SERVERLESS_ENABLED` | When `true`, skips schedulers and falls back to in-memory cache. It does not choose the pool; see `DB_NULL_POOL`. Use this with Supabase transaction pooling (`:6543`) in Railway production. |
 | `SUPABASE_URL` | Supabase project URL. Used for JWKS fetch, auth introspection, push notifications. |
 | `SUPABASE_PUBLISHABLE_KEY` | Supabase anon/publishable key. |
 | `SUPABASE_SECRET_KEY` | Supabase service-role key (admin operations like user deletion). |

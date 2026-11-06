@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 from app.config import settings
 from app.middleware.body_limit import BodyLimitMiddleware
@@ -96,3 +97,6 @@ def register_middleware(app: FastAPI, *, testing: bool) -> None:
     app.add_middleware(StripTrailingSlashMiddleware)
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(RequestLoggingMiddleware, prefix="")
+    # Outermost of the app stack: compress JSON for every client (a 100-row property page is
+    # 556 KB raw, ~42 KB gzipped). Starlette never compresses text/event-stream, so SSE is safe.
+    app.add_middleware(GZipMiddleware, minimum_size=1024)

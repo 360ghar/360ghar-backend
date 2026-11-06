@@ -135,3 +135,22 @@ def test_owner_moderation_status_toggle_rejects_content_update_payloads():
         )
         is None
     )
+
+
+async def test_stale_sweep_is_throttled_unless_forced(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services.flatmates import moderation
+
+    monkeypatch.setattr(moderation, "_last_stale_sweep", None)
+    empty = MagicMock()
+    empty.scalars.return_value.all.return_value = []
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=empty)
+
+    await moderation.pause_stale_flatmate_listings(db)
+    await moderation.pause_stale_flatmate_listings(db)
+    assert db.execute.await_count == 1
+
+    await moderation.pause_stale_flatmate_listings(db, throttle=False)
+    assert db.execute.await_count == 2

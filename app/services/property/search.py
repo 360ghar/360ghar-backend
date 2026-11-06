@@ -114,7 +114,7 @@ async def get_unified_properties_optimized(
     two requests (for example by a swipe) do not shift the next page.
     """
     first_page = not cursor_payload
-    logger.info(
+    logger.debug(
         "Searching properties for user %s, limit %s, filters: %s",
         user_id,
         limit,
@@ -396,7 +396,7 @@ async def get_unified_properties_optimized(
         # The owner-contact fallback needs the agent on every row, cache entries included.
         await attach_owner_agents(db, property_list)
 
-        logger.info(
+        logger.debug(
             "Found %s properties out of %s total",
             len(property_list),
             count_total,

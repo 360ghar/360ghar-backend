@@ -29,7 +29,7 @@ Never create an ephemeral `async with httpx.AsyncClient()` per request. Use the 
 
 ## Single scheduler and serverless mode
 
-One `AsyncIOScheduler` from `app/infrastructure/scheduler.py` is registered in `app/infrastructure/lifespan.py`. Four job families attach to it: blog auto-publish, notifications, vector sync, and data hub scraping. Do not create per-module scheduler instances; add jobs via `get_scheduler()`. When `SERVERLESS_ENABLED=True`, both DB engines switch to `NullPool` (no persistent connections), schedulers are skipped, and the cache falls back to in-memory so the app can scale to zero behind PgBouncer. The trade-off is roughly 10-50ms added latency per request; move cron work to Railway cron jobs in that mode.
+One `AsyncIOScheduler` from `app/infrastructure/scheduler.py` is registered in `app/infrastructure/lifespan.py`. Four job families attach to it: blog auto-publish, notifications, vector sync, and data hub scraping. Do not create per-module scheduler instances; add jobs via `get_scheduler()`. When `SERVERLESS_ENABLED=True`, schedulers are skipped and the cache falls back to in-memory; move cron work to Railway cron jobs in that mode. `DB_NULL_POOL=True` separately switches both DB engines to `NullPool` (roughly 10-50ms added latency per request).
 
 ## SSE event bus
 

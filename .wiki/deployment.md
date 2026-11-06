@@ -11,10 +11,11 @@ File: `railway.toml`
 Railway builds from the `Dockerfile` and runs `python run.py`. The healthcheck hits `/health` and the restart policy is `ON_FAILURE` with a 3-retry max. Production env vars are set in the Railway dashboard and mirrored in `[deploy.env]`:
 
 - `ENVIRONMENT = production`, `DEBUG = false`
-- `SERVERLESS_ENABLED = true` - enables NullPool, skips in-process schedulers, falls back to in-memory cache
+- `SERVERLESS_ENABLED = true` - skips in-process schedulers, falls back to in-memory cache
+- `DB_NULL_POOL` unset (`false`) - keeps a small app-side pool; `DB_MAX_OVERFLOW=10`, `DB_BG_MAX_OVERFLOW=8` absorb bursts
 - `PUBLIC_BASE_URL = https://api.360ghar.com` - used for OAuth metadata, MCP resource URIs, share previews
 
-Railway's PgBouncer handles server-side connection pooling, which is why the app can use `NullPool` in serverless mode without exhausting Postgres connections.
+Supabase's transaction pooler (Supavisor) handles server-side connection pooling, so the app-side pool stays small. `NullPool` (`DB_NULL_POOL=true`) is only for a host that really scales to zero: it opens a new connection per session.
 
 For Supabase-backed Railway deployments, `DATABASE_URL` must use the transaction-pooler connection string on port `6543`. The shared pooler session-mode URL on port `5432` can exhaust the small Supavisor session client cap under bursty mobile traffic; production startup rejects Supabase pooler URLs that are not transaction-pooler URLs. Prepared statements remain disabled via psycopg `prepare_threshold=None`, which is required for transaction pooling.
 
@@ -32,7 +33,7 @@ Three services: `db` (`postgis/postgis:15-3.3` with a persistent volume, PostGIS
 
 ## Serverless mode
 
-When `SERVERLESS_ENABLED=true`, the app adapts for scale-to-zero hosting: `NullPool` for both DB engines (every request opens a fresh connection, Supabase transaction pooling handles server-side reuse), all in-process schedulers skipped (cron work must move to Railway cron jobs), and cache falling back to in-memory if Redis is unavailable. Trade-off: 10-50ms added latency per request. See [background/pitfalls.md](background/pitfalls.md).
+When `SERVERLESS_ENABLED=true`, the app adapts for scale-to-zero hosting: all in-process schedulers skipped (cron work must move to Railway cron jobs), and cache falling back to in-memory if Redis is unavailable. The pool is chosen separately by `DB_NULL_POOL`. See [background/pitfalls.md](background/pitfalls.md).
 
 ## Health check
 
