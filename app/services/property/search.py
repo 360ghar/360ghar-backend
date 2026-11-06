@@ -99,6 +99,38 @@ def _property_ts_vector_column() -> ColumnElement[Any]:
     return Property.__table__.c["__ts_vector__"]
 
 
+async def cached_first_page(
+    filters: UnifiedPropertyFilter,
+    user_id: int | None,
+    cursor_payload: dict,
+    limit: int,
+    *,
+    with_total: bool = False,
+) -> tuple[list[PropertySchema], dict | None, int | None] | None:
+    """The cached anonymous first page, or None. Uses no DB connection, so callers check it
+    before any statement (a cache hit must not hold a pool connection)."""
+    if user_id is not None or cursor_payload:
+        return None
+    # include_total is part of the key: a page with a total and a page without one
+    # are different responses.
+    cache_filters = {**filters.model_dump(exclude_none=True, mode="json"), "include_total": with_total}
+    cached = await PropertyCacheManager.get_cached_properties(cache_filters, 0, 1, limit)
+    if not cached:
+        return None
+    try:
+        cached_items = [PropertySchema.model_validate(item) for item in cached.get("items", [])]
+        # Entries written before the keyset cursor have no "next". Skip them
+        # when another page exists, so the cursor is never lost.
+        cached_next = cached.get("next")
+        if bool(cached.get("has_more", False)) and cached_next is None:
+            return None
+        # total is set only when the caller asked for it.
+        return cached_items[:limit], cached_next, cached.get("total") if with_total else None
+    except Exception as cache_exc:  # noqa: BLE001
+        logger.warning("Ignoring invalid property search cache: %s", cache_exc)
+        return None
+
+
 async def get_unified_properties_optimized(
     db: AsyncSession,
     filters: UnifiedPropertyFilter,
@@ -150,25 +182,9 @@ async def get_unified_properties_optimized(
         # Only cache unauthenticated first-page results
         should_cache = user_id is None and first_page
         if should_cache:
-            cached = await PropertyCacheManager.get_cached_properties(
-                cache_filters, cache_user_id, 1, limit
-            )
-            if cached:
-                try:
-                    cached_items = [
-                        PropertySchema.model_validate(item) for item in cached.get("items", [])
-                    ]
-                    # Entries written before the keyset cursor have no "next". Skip them
-                    # when another page exists, so the cursor is never lost.
-                    cached_has_more = bool(cached.get("has_more", False))
-                    cached_next = cached.get("next")
-                    if not cached_has_more or cached_next is not None:
-                        # Return as 3-tuple: (items, next_payload, total). total is set only
-                        # when the caller asked for it.
-                        cached_total = cached.get("total") if with_total else None
-                        return cached_items[:limit], cached_next, cached_total
-                except Exception as cache_exc:  # noqa: BLE001
-                    logger.warning("Ignoring invalid property search cache: %s", cache_exc)
+            hit = await cached_first_page(filters, user_id, cursor_payload, limit, with_total=with_total)
+            if hit is not None:
+                return hit
 
         # Bound this read so a stalled DB backend fails fast instead of holding
         # a pooler connection until the 2-minute server default and cascading

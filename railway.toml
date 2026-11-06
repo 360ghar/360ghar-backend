@@ -18,5 +18,8 @@ SERVERLESS_ENABLED = "true"
 # Burst headroom for the app-side pool (DB_NULL_POOL is false). Overflow
 # connections open per use and close on return. The SSE chat uses the BG pool.
 DB_MAX_OVERFLOW = "10"
+# Wait at most 5 s for a pool connection: the web Worker gives up after 6 s, so a longer
+# wait only queues work nobody reads and keeps the pool full after a burst.
+DB_POOL_TIMEOUT = "5"
 DB_BG_MAX_OVERFLOW = "8"
 PUBLIC_BASE_URL = "https://api.360ghar.com"

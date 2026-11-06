@@ -29,7 +29,7 @@ from app.models.enums import (
 from app.schemas.property import Property as PropertySchema
 from app.schemas.property import SortBy, UnifiedPropertyFilter
 from app.services.flatmates import pause_stale_flatmate_listings
-from app.services.property.search import get_unified_properties_optimized
+from app.services.property.search import cached_first_page, get_unified_properties_optimized
 
 logger = get_logger(__name__)
 
@@ -162,6 +162,12 @@ async def run_property_search(
         )
 
     try:
+        # A cached anonymous first page needs no DB: return it before any statement,
+        # so a burst of cache hits never holds a pool connection.
+        hit = await cached_first_page(filters, user_id, cursor_payload, limit, with_total=with_total)
+        if hit is not None:
+            return hit
+
         # Bound every statement in this read request so a stalled DB backend
         # fails fast instead of holding a pooler connection for the server
         # default timeout.

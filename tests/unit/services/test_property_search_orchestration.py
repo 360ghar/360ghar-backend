@@ -209,3 +209,51 @@ async def test_run_property_search_maps_transient_db_errors_to_503(mock_db_sessi
         "error_code": "ECHECKOUTTIMEOUT",
         "endpoint": "get_properties_list",
     }
+
+
+@pytest.mark.asyncio
+async def test_run_property_search_cache_hit_uses_no_db(mock_db_session):
+    """A cached anonymous first page returns before any statement, so it holds no pool connection."""
+    cached = (["row"], None, 3)
+    with (
+        patch(
+            "app.services.property.search_orchestration.cached_first_page",
+            new_callable=AsyncMock,
+            return_value=cached,
+        ) as mock_cached,
+        patch(
+            "app.services.property.search_orchestration.apply_statement_timeout",
+            new_callable=AsyncMock,
+        ) as mock_timeout,
+        patch(
+            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
+            new_callable=AsyncMock,
+        ) as mock_pause,
+        patch(
+            "app.services.property.search_orchestration.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_search,
+    ):
+        result = await run_property_search(mock_db_session, UnifiedPropertyFilter(), None, {}, 100, with_total=True)
+
+    assert result == cached
+    mock_cached.assert_awaited_once_with(UnifiedPropertyFilter(), None, {}, 100, with_total=True)
+    mock_timeout.assert_not_awaited()
+    mock_pause.assert_not_awaited()
+    mock_search.assert_not_awaited()
+    mock_db_session.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cached_first_page_skips_signed_in_and_later_pages():
+    from app.services.property.search import cached_first_page
+
+    with patch(
+        "app.services.property.search.PropertyCacheManager.get_cached_properties",
+        new_callable=AsyncMock,
+        return_value={"items": [], "has_more": False, "next": None, "total": 0},
+    ) as mock_get:
+        assert await cached_first_page(UnifiedPropertyFilter(), 7, {}, 10) is None
+        assert await cached_first_page(UnifiedPropertyFilter(), None, {"o": 10}, 10) is None
+        mock_get.assert_not_awaited()
+        assert await cached_first_page(UnifiedPropertyFilter(), None, {}, 10, with_total=True) == ([], None, 0)

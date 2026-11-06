@@ -11,11 +11,14 @@ from app.core.database import get_db
 from app.core.exceptions import NotFoundException
 from app.models.content import SERVED_STATUSES, ContentBlock
 from app.schemas.content import ContentBlockOut, ContentManifest, EntityType, Locale
+from app.services.content.served import served_keys
 
 router = APIRouter()
 
 # Edge caches may hold a block for an hour and serve it stale for a day while revalidating.
 CACHE_HEADER = "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400"
+# A missing block may be generated later: edges keep that 404 for 5 minutes only.
+MISSING_CACHE_HEADER = "public, max-age=300"
 
 
 @router.get("/manifest", response_model=ContentManifest, summary="List served content")
@@ -67,6 +70,13 @@ async def get_content(
         raise NotFoundException(
             "No content for this entity",
             headers={"Cache-Control": "no-store"},
+            error_code="CONTENT_NOT_FOUND",
+        )
+    # Most entities have no block: answer those 404s from the in-process key set, not the DB.
+    if (entity_type, slug, locale) not in await served_keys(db):
+        raise NotFoundException(
+            "No content for this entity",
+            headers={"Cache-Control": MISSING_CACHE_HEADER},
             error_code="CONTENT_NOT_FOUND",
         )
     row = (

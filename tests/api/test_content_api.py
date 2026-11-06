@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.config import settings
 from app.models.content import ContentBlock
-from app.services.content import runner
+from app.services.content import runner, served
 from tests.fixtures.content import FakeProvider, compose
 
 pytestmark = pytest.mark.asyncio
@@ -24,6 +24,14 @@ def block(slug: str, status: str = "auto", locale: str = "en", **kw) -> ContentB
         key_fact=kw.pop("key_fact", True), indexable=kw.pop("indexable", True),
         dup_score=kw.pop("dup_score", 0.1), **kw,
     )
+
+
+@pytest.fixture(autouse=True)
+def _fresh_served_keys():
+    """Each test writes its own blocks: start and end with an empty served-key cache."""
+    served.invalidate_served_keys()
+    yield
+    served.invalidate_served_keys()
 
 
 @pytest.fixture
@@ -46,6 +54,29 @@ async def test_public_get_serves_auto_and_approved_with_cache_headers(client: As
     assert (await client.get("/api/v1/content/locality/b")).status_code == 200
     for hidden in ("c", "d", "missing"):
         assert (await client.get(f"/api/v1/content/locality/{hidden}")).status_code == 404
+
+
+async def test_unknown_key_is_404_without_a_block_query(client: AsyncClient, db_session):
+    db_session.add(block("a"))
+    await db_session.flush()
+    assert (await client.get("/api/v1/content/locality/a")).status_code == 200  # loads the key set
+    statements: list[str] = []
+    engine = db_session.bind.sync_engine
+    listener = lambda *args: statements.append(args[2])  # noqa: E731 (conn, cursor, statement, ...)
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        missing = await client.get("/api/v1/content/locality/nope")
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+    assert missing.status_code == 404
+    assert missing.headers["cache-control"] == "public, max-age=300"
+    assert not [q for q in statements if "content_blocks" in q]  # answered from the cached key set
+    # A new served block shows up after a write invalidates the set.
+    db_session.add(block("b"))
+    await db_session.flush()
+    assert (await client.get("/api/v1/content/locality/b")).status_code == 404
+    served.invalidate_served_keys()
+    assert (await client.get("/api/v1/content/locality/b")).status_code == 200
 
 
 async def test_public_get_locale_and_validation(client: AsyncClient, db_session):
