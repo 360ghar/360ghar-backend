@@ -204,6 +204,7 @@
     "content/prompts.py",
     "content/property_summary.py",
     "content/runner.py",
+    "content/served.py",
     "content/validator.py",
     "core.py",
     "custom_domain.py",

@@ -45,6 +45,7 @@ from app.services.flatmates.moderation import (
     list_blocks,
     pause_stale_flatmate_listings,
     prescreen_flatmate_listing,
+    stale_sweep_due,
 )
 from app.services.flatmates.profiles import (
     count_unread_flatmates_notifications,
@@ -115,6 +116,7 @@ __all__ = [
     "apply_listing_prescreen_metadata",
     "apply_report_auto_pause",
     "pause_stale_flatmate_listings",
+    "stale_sweep_due",
     "prescreen_flatmate_listing",
     # visits
     "update_visit_status",

@@ -83,7 +83,7 @@ async def test_run_property_search_applies_timeout_cleanup_and_delegates(mock_db
     mock_pause.assert_awaited_once_with(mock_db_session)
     mock_search.assert_awaited_once()
     assert mock_search.await_args.args == (mock_db_session, filters, 7, cursor_payload, 10)
-    assert mock_search.await_args.kwargs == {"with_total": True}
+    assert mock_search.await_args.kwargs == {"with_total": True, "cache_checked": True}
 
 
 @pytest.mark.asyncio
@@ -221,6 +221,7 @@ async def test_run_property_search_cache_hit_uses_no_db(mock_db_session):
             new_callable=AsyncMock,
             return_value=cached,
         ) as mock_cached,
+        patch("app.services.property.search_orchestration.stale_sweep_due", return_value=False),
         patch(
             "app.services.property.search_orchestration.apply_statement_timeout",
             new_callable=AsyncMock,
@@ -257,3 +258,35 @@ async def test_cached_first_page_skips_signed_in_and_later_pages():
         assert await cached_first_page(UnifiedPropertyFilter(), None, {"o": 10}, 10) is None
         mock_get.assert_not_awaited()
         assert await cached_first_page(UnifiedPropertyFilter(), None, {}, 10, with_total=True) == ([], None, 0)
+
+
+@pytest.mark.asyncio
+async def test_run_property_search_cache_hit_still_runs_a_due_stale_sweep(mock_db_session):
+    """The throttled sweep must not depend on cache misses: when it is due, a hit runs it too."""
+    cached = (["row"], None, None)
+    with (
+        patch(
+            "app.services.property.search_orchestration.cached_first_page",
+            new_callable=AsyncMock,
+            return_value=cached,
+        ),
+        patch("app.services.property.search_orchestration.stale_sweep_due", return_value=True),
+        patch(
+            "app.services.property.search_orchestration.apply_statement_timeout",
+            new_callable=AsyncMock,
+        ) as mock_timeout,
+        patch(
+            "app.services.property.search_orchestration.pause_stale_flatmate_listings",
+            new_callable=AsyncMock,
+        ) as mock_pause,
+        patch(
+            "app.services.property.search_orchestration.get_unified_properties_optimized",
+            new_callable=AsyncMock,
+        ) as mock_search,
+    ):
+        result = await run_property_search(mock_db_session, UnifiedPropertyFilter(), None, {}, 12)
+
+    assert result == cached
+    mock_timeout.assert_awaited_once()
+    mock_pause.assert_awaited_once_with(mock_db_session)
+    mock_search.assert_not_awaited()

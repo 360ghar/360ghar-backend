@@ -139,8 +139,11 @@ async def get_unified_properties_optimized(
     limit: int,
     *,
     with_total: bool = False,
+    cache_checked: bool = False,
 ) -> tuple[list[PropertySchema], dict | None, int | None]:
     """Unified property search with comprehensive filtering and geospatial optimization.
+
+    ``cache_checked``: the caller already missed ``cached_first_page``; skip a second read.
 
     Pages use a keyset cursor on (sort key(s), id). Rows that are removed between
     two requests (for example by a swipe) do not shift the next page.
@@ -181,7 +184,7 @@ async def get_unified_properties_optimized(
         cache_user_id = user_id or 0
         # Only cache unauthenticated first-page results
         should_cache = user_id is None and first_page
-        if should_cache:
+        if should_cache and not cache_checked:
             hit = await cached_first_page(filters, user_id, cursor_payload, limit, with_total=with_total)
             if hit is not None:
                 return hit
