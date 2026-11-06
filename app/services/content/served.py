@@ -66,15 +66,16 @@ async def served_keys(db: AsyncSession) -> frozenset[tuple[str, str, str]]:
             )
         # A write that commits during the query invalidates its snapshot: query once more,
         # and never cache a snapshot older than the latest invalidation.
+        loaded: frozenset[tuple[str, str, str]] = frozenset()
         for _ in range(2):
             generation = _generation
             try:
-                keys = await _load(db)
+                loaded = await _load(db)
             except Exception:
                 _failed_at = time.monotonic()
                 raise
             _failed_at = None
             if generation == _generation:
-                _cache = (time.monotonic(), keys)
+                _cache = (time.monotonic(), loaded)
                 break
-        return keys
+        return loaded
