@@ -31,7 +31,7 @@ The async engine is configured in [`app/core/database.py`](../../app/core/databa
 
 - **`OperationalError: connection refused`** — Postgres is not running. Start it with `docker-compose up -d db`.
 - **`Extension "vector" or "postgis" does not exist`** — The database was created without the extensions. CI creates them with `CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS postgis;`. Locally, run the same against your dev database.
-- **`Too many connections` / `EMAXCONNSESSION`** — Connection pool exhaustion. In serverless mode the app uses `NullPool` and must use the Supabase transaction pooler (`:6543`), not shared session mode (`:5432`). In normal mode it uses a small sized pool. Check `DATABASE_URL` and pool settings in `app/core/config.py`.
+- **`Too many connections` / `EMAXCONNSESSION`** — Connection pool exhaustion. With `DB_NULL_POOL=true` the app uses `NullPool`. Production must use the Supabase transaction pooler (`:6543`), not shared session mode (`:5432`). In normal mode it uses a small sized pool. Check `DATABASE_URL` and pool settings in `app/core/config.py`.
 - **Transient errors** — [`app/core/db_resilience.py`](../../app/core/db_resilience.py) detects transient DB errors and retries with rollback. If a retry storm appears in logs, look at the underlying error class.
 
 SSE and streaming endpoints release the main-pool session before streaming and use a background-pool session via `get_bg_db`. If a streaming endpoint holds a session too long, the main pool can starve; check that the endpoint calls `get_bg_db` for any DB work inside the stream.
@@ -48,14 +48,13 @@ The cache subsystem in [`app/core/cache/`](../../app/core/cache/) has two backen
 
 When `SERVERLESS_ENABLED=True`, the app:
 
-- Uses `NullPool` for both main and background DB engines (no persistent connections).
 - Skips all in-process schedulers (blog, notifications, vector sync, data hub). Cron work must move to Railway cron jobs.
 - Uses the in-memory cache fallback.
 
 Debugging serverless issues:
 
 - A scheduled job that stopped running likely never started. Move it to an external cron.
-- Higher per-request latency (10 to 50 ms added) is the NullPool trade-off and is expected.
+- `DB_NULL_POOL=true` adds 10 to 50 ms per request (a new connection per session). Railway production leaves it `false`.
 - Supabase transaction pooling handles server-side reuse. Connection errors in serverless mode usually point at `DATABASE_URL`/pooler config, not the app pool.
 
 ## MCP OAuth debugging

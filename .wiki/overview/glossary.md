@@ -28,7 +28,7 @@ Domain and technical vocabulary used across the 360 Ghar codebase, docs, and wik
 - **AppsSDKFastMCP** — The backend's `FastMCP` subclass (`app/mcp/apps_sdk.py`) adding OAuth 2.1 + PKCE, dual widget metadata (standard MCP + OpenAI aliases), and Apps SDK compliance.
 - **Flatmates Realtime** — Supabase Realtime private Broadcast channels used for app-wide flatmates events. Clients subscribe to `flatmates:user:{local_user_id}` after bootstrap. Events: `new_match`, `new_message`, `conversation_updated`, `visit_updated`, `listing_status_changed`, `new_notification`.
 - **pgvector** — PostgreSQL extension for vector embeddings. Powers semantic property search via the `property_embeddings` table.
-- **NullPool** — SQLAlchemy pool that opens a fresh connection per request. Enabled in serverless mode (`SERVERLESS_ENABLED=True`) so the app scales to zero behind Supabase transaction pooling.
+- **NullPool** — SQLAlchemy pool that opens a fresh connection per request. Enabled by `DB_NULL_POOL=True` for hosts that scale to zero; off in Railway production.
 - **3-tuple return** — Paginated list endpoints return `(items, next_cursor, has_more)` instead of a bare list. Applied across properties, users, agents, bookings, visits, blog.
 - **tool_ops** — Shared MCP tool business logic in `app/mcp/tool_ops/`. Called by both MCP servers and the AI agent tool bridge.
 - **is_seed_data** — Flag on `users`, `agents`, `properties` marking seed/demo records. The clear script deletes child records via FK joins to seed parents only.
