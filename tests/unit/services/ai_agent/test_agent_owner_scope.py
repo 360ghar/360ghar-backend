@@ -431,7 +431,7 @@ def company_number(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_owner_phone_reaches_only_the_owner_and_admin(world):
+async def test_owner_phone_reaches_only_the_owner_and_admin(world, company_number):
     from app.mcp.tool_ops import get_property_detail
 
     world.prop_a.owner_contact = "9000000111"
@@ -446,11 +446,11 @@ async def test_owner_phone_reaches_only_the_owner_and_admin(world):
     )
     agent_view = await get_property_detail(world.db, actor=world.rm_a, property_id=world.prop_a.id)
 
-    # The property carries the owner's assigned agent (agent_a, 9000000001), so non-owner
-    # viewers get that number, never the owner's.
+    # An agent sees the owner's agent (agent_a, 9000000001). The tenant has no relationship
+    # manager, so they see the company number. Nobody else sees the owner's number.
     assert owner_view["property"]["owner_phone"] == "9000000111"
     assert admin_view["property"]["owner_phone"] == "9000000111"
-    assert tenant_view["property"]["owner_phone"] == "9000000001"
+    assert tenant_view["property"]["owner_phone"] == company_number
     assert agent_view["property"]["owner_phone"] == "9000000001"
 
 

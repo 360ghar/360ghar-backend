@@ -13,6 +13,7 @@ from app.api.api_v1.dependencies.auth import (
     get_current_active_user,
     get_current_cached_active_user,
 )
+from app.config import settings
 from app.core.database import get_db
 from app.factory import create_app
 from app.schemas.visit import Visit
@@ -52,6 +53,13 @@ def _visit_row():
 
 
 PUBLIC_REF = {"id", "display_name", "avatar_url"}
+
+
+@pytest.fixture(autouse=True)
+def _no_company_number(monkeypatch):
+    # These tests check that the owner number is hidden. The replacement is tested in
+    # tests/contract/test_visibility.py and tests/api/test_owner_agent_contact.py.
+    monkeypatch.setattr(settings, "COMPANY_CONTACT_NUMBER", None)
 
 
 # --- the helper ---------------------------------------------------------------------------

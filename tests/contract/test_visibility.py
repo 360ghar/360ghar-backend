@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +26,8 @@ OWNER_ID = 1
 AGENT_NUMBER = "+919000000002"
 OWNER_NUMBER = "+919000000001"
 COMPANY = "+918000000000"
+MANAGER_NUMBER = "+919000000003"
+MANAGER = PropertyAgent(id=4, name="Ravi", contact_number=MANAGER_NUMBER)
 
 
 def _user(user_id: int, role: str = "user"):
@@ -41,6 +44,11 @@ def _stranger():
 
 def _admin():
     return Viewer.from_user(_user(98, UserRole.admin.value))
+
+
+def _managed():
+    """A signed-in viewer whose relationship manager load_viewer has set."""
+    return dataclasses.replace(_stranger(), manager=MANAGER)
 
 
 @pytest.fixture(autouse=True)
@@ -81,25 +89,60 @@ def test_is_matched_takes_a_flag_or_a_callable():
 # --- mask_owner_contact --------------------------------------------------------------
 
 
-def test_dict_row_gets_the_agent_number_for_non_owners_and_is_not_changed():
-    row = {
+def _row():
+    return {
         "owner_id": OWNER_ID,
         "owner_contact": OWNER_NUMBER,
         "agent": {"contact_number": AGENT_NUMBER},
     }
-    out = mask_owner_contact(row, _stranger())
-    assert out["owner_contact"] == AGENT_NUMBER
+
+
+def test_dict_row_gets_the_viewers_manager_and_is_not_changed():
+    row = _row()
+    out = mask_owner_contact(row, _managed())
+    assert out["owner_contact"] == MANAGER_NUMBER
+    assert out["agent"] == MANAGER.model_dump(mode="json")
     assert row["owner_contact"] == OWNER_NUMBER
 
 
-def test_pydantic_model_gets_the_agent_number_for_non_owners():
+@pytest.mark.parametrize("viewer", [None, _stranger()], ids=["guest", "no-manager"])
+def test_guest_and_viewer_without_manager_get_the_company_number_and_no_agent(viewer):
+    out = mask_owner_contact(_row(), viewer)
+    assert out["owner_contact"] == COMPANY
+    assert out["agent"] is None
+
+
+def test_a_manager_without_a_number_falls_back_to_the_company_number():
+    viewer = dataclasses.replace(
+        _stranger(), manager=MANAGER.model_copy(update={"contact_number": None})
+    )
+    out = mask_owner_contact(_row(), viewer)
+    assert out["owner_contact"] == COMPANY
+    assert out["agent"] is None
+
+
+def test_agent_viewer_keeps_the_owners_agent():
+    viewer = Viewer.from_user(_user(97, UserRole.agent.value))
+    out = mask_owner_contact(_row(), viewer)
+    assert out["owner_contact"] == AGENT_NUMBER
+    assert out["agent"] == {"contact_number": AGENT_NUMBER}
+
+
+def test_pydantic_model_gets_the_viewers_manager():
     prop = Property.model_construct(
         owner_id=OWNER_ID,
         owner_contact=OWNER_NUMBER,
         agent=PropertyAgent(id=3, name="Asha", contact_number=AGENT_NUMBER),
     )
-    assert mask_owner_contact(prop, _stranger()).owner_contact == AGENT_NUMBER
+    out = mask_owner_contact(prop, _managed())
+    assert out.owner_contact == MANAGER_NUMBER
+    assert out.agent == MANAGER
     assert prop.owner_contact == OWNER_NUMBER
+
+
+def test_masking_twice_with_the_same_viewer_keeps_the_manager():
+    once = mask_owner_contact(_row(), _managed())
+    assert mask_owner_contact(once, _managed()) == once
 
 
 def test_orm_like_object_gets_an_overlay_with_the_masked_contact():
@@ -194,7 +237,7 @@ def _is_masked(cp) -> bool:
 def test_dict_visit_masks_for_stranger_and_keeps_input():
     visit = _visit_dict()
     out = mask_visit_contacts(visit, _stranger())
-    assert out["property"]["owner_contact"] == AGENT_NUMBER
+    assert out["property"]["owner_contact"] == COMPANY
     assert _is_masked(out["counterparty_user"])
     assert out["counterparty_user"]["full_name"] == "Asha"
     assert visit["property"]["owner_contact"] == OWNER_NUMBER
@@ -204,7 +247,7 @@ def test_dict_visit_masks_for_stranger_and_keeps_input():
 def test_dict_visit_keeps_contacts_for_counterparty_and_owner():
     out = mask_visit_contacts(_visit_dict(), Viewer.from_user(_user(COUNTERPARTY_ID)))
     assert out["counterparty_user"]["phone"] == COUNTERPARTY_PHONE
-    assert out["property"]["owner_contact"] == AGENT_NUMBER
+    assert out["property"]["owner_contact"] == COMPANY
 
     out = mask_visit_contacts(_visit_dict(), _owner_viewer())
     assert out["counterparty_user"]["phone"] == COUNTERPARTY_PHONE

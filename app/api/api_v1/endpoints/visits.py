@@ -23,7 +23,7 @@ from app.schemas.visit import (
 )
 from app.services.auth_user_cache import AuthUserSnapshot
 from app.services.pm_authz import can_access_visit
-from app.services.property import attach_owner_agents
+from app.services.property import attach_owner_agents, load_viewer
 from app.services.visibility import Viewer, mask_visit_contacts, mask_visits_contacts
 from app.services.visit import (
     cancel_visit,
@@ -42,17 +42,17 @@ router = APIRouter()
 
 
 async def _visit_out(db: AsyncSession, visit, viewer) -> Visit:
-    """Serialize a visit with the owner's agent, hiding contact details the viewer may not see."""
+    """Serialize a visit, hiding contact details the viewer may not see (see visibility.py)."""
     out = Visit.model_validate(visit, from_attributes=True)
     await attach_owner_agents(db, [out.property])
-    return mask_visit_contacts(out, viewer)
+    return mask_visit_contacts(out, await load_viewer(db, viewer))
 
 
 async def _visits_out(db: AsyncSession, rows, viewer) -> list[Visit]:
     """Serialize a page of visits. One query resolves the owners' agents."""
     visits = [Visit.model_validate(r, from_attributes=True) for r in rows]
     await attach_owner_agents(db, [v.property for v in visits])
-    return mask_visits_contacts(visits, viewer)
+    return mask_visits_contacts(visits, await load_viewer(db, viewer))
 
 
 async def _resolve_owner_id(db: AsyncSession, actor: User, requested_user_id: int | None) -> int:

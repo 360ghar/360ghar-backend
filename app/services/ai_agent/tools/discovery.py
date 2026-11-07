@@ -18,6 +18,7 @@ from app.mcp.utils import serialize_property_basic, serialize_property_full
 from app.models.enums import PropertyPurpose, PropertyType
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.services.ai_agent.tools.helpers import AgentDeps
+from app.services.property import load_viewer
 from app.services.visibility import Viewer, mask_owner_contact
 
 logger = get_logger(__name__)
@@ -26,8 +27,8 @@ SEARCH_MAX_LIMIT = 50
 RECOMMENDATION_MAX_LIMIT = 20
 
 
-def _viewer(ctx: RunContext[AgentDeps]) -> Viewer:
-    return Viewer.from_user(ctx.deps.user)
+async def _viewer(ctx: RunContext[AgentDeps]) -> Viewer:
+    return await load_viewer(ctx.deps.db, ctx.deps.user)
 
 
 async def guest_property_search(
@@ -100,7 +101,7 @@ async def guest_property_search(
         limit=limit,
         with_total=include_total,
     )
-    viewer = _viewer(ctx)
+    viewer = await _viewer(ctx)
     items = [serialize_property_basic(mask_owner_contact(p, viewer)) for p in rows]
     return {
         "items": items,
@@ -122,8 +123,9 @@ async def guest_property_details(
     assert db is not None
 
     property_obj = await get_property(db, property_id)
-    masked = mask_owner_contact(property_obj, _viewer(ctx))
-    return {"property": dict(serialize_property_full(masked, viewer=_viewer(ctx)))}
+    viewer = await _viewer(ctx)
+    masked = mask_owner_contact(property_obj, viewer)
+    return {"property": dict(serialize_property_full(masked, viewer=viewer))}
 
 
 async def guest_property_recommendations(
@@ -144,6 +146,6 @@ async def guest_property_recommendations(
         user_id=getattr(ctx.deps.user, "id", None),
         limit=limit,
     )
-    viewer = _viewer(ctx)
+    viewer = await _viewer(ctx)
     items = [serialize_property_basic(mask_owner_contact(p, viewer)) for p in rows]
     return {"items": items, "limit": limit}

@@ -1,5 +1,6 @@
 """Create, read, update, delete operations for properties."""
 
+import dataclasses
 from collections.abc import Iterable
 from datetime import date, datetime, timezone
 from typing import Any
@@ -56,7 +57,12 @@ from app.services.property.helpers import (
     validate_listing_contract,
 )
 from app.services.property.keyset import KeySpec, keyset_after
-from app.services.visibility import PUBLIC_LISTING_PREFERENCE_KEYS, public_listing_preferences
+from app.services.visibility import (
+    PUBLIC_LISTING_PREFERENCE_KEYS,
+    Viewer,
+    as_viewer,
+    public_listing_preferences,
+)
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
@@ -387,6 +393,24 @@ async def create_property(
     except Exception as e:
         logger.error("Failed to create property: %s", e, exc_info=True)
         raise
+
+
+async def load_viewer(db: AsyncSession, user: Viewer | Any | None) -> Viewer:
+    """The viewer with their active relationship manager (users.agent_id) set as ``manager``.
+
+    mask_owner_contact shows that manager's number to a signed-in viewer. A viewer built
+    without this call gets the company number, so the owner's number never leaks.
+    """
+    viewer = as_viewer(user)
+    agent_id = getattr(viewer.user, "agent_id", None)
+    if agent_id is None or viewer.is_admin or viewer.is_agent:
+        return viewer
+    agent = (
+        await db.execute(select(Agent).where(Agent.id == agent_id, Agent.is_active.is_(True)))
+    ).scalar_one_or_none()
+    if agent is None:
+        return viewer
+    return dataclasses.replace(viewer, manager=PropertyAgent.model_validate(agent))
 
 
 async def attach_owner_agents(

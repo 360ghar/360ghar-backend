@@ -13,6 +13,7 @@ from app.services.property.crud import (
     get_property,
     increment_property_view_count,
     list_user_properties,
+    load_viewer,
     update_property,
 )
 from app.services.property.helpers import (
@@ -46,6 +47,7 @@ __all__ = [
     "get_property",
     "increment_property_view_count",
     "list_user_properties",
+    "load_viewer",
     "update_property",
     # Search
     "get_unified_properties_optimized",

@@ -59,6 +59,7 @@ from app.services.property import (
     get_property_recommendations,
     increment_property_view_count,
     list_user_properties,
+    load_viewer,
     update_property,
 )
 from app.services.property.search_orchestration import (
@@ -404,7 +405,7 @@ async def get_properties_list(
     )
 
     return build_cursor_page(
-        mask_owner_contacts(rows, current_user),
+        mask_owner_contacts(rows, await load_viewer(db, current_user)),
         limit=page.limit,
         next_payload=next_payload,
         total=total,
@@ -448,7 +449,7 @@ async def semantic_property_search(
         unavailable_detail="Semantic search is temporarily unavailable. Please retry shortly.",
     )
     return build_cursor_page(
-        mask_owner_contacts(rows, current_user),
+        mask_owner_contacts(rows, await load_viewer(db, current_user)),
         limit=page.limit,
         next_payload=next_payload,
         total=total,
@@ -497,7 +498,7 @@ async def get_recommendations(
             with_total=page.include_total,
         )
         return build_cursor_page(
-            mask_owner_contacts(rows, current_user),
+            mask_owner_contacts(rows, await load_viewer(db, current_user)),
             limit=page.limit,
             next_payload=next_payload,
             total=total,
@@ -587,7 +588,7 @@ async def get_property_details(
             # Log and continue without blocking property details
             logger.error("Failed to enrich property %s with user context: %s", property_id, e)
 
-    return mask_owner_contact(detail, current_user)
+    return mask_owner_contact(detail, await load_viewer(db, current_user))
 
 
 @router.put(

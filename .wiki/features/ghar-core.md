@@ -71,7 +71,7 @@ Service functions fetch `limit + 1` rows to detect `has_more`, slice back to `li
 
 ### Viewer-dependent fields
 
-`owner_contact` shows the owner's number only to the owner and to admins. Other viewers get the assigned agent's `contact_number`, else the company number, else null. `listing_preferences` shows only the public keys to non-admin viewers. `agent` (PropertyAgent) is returned on the detail response only, because the detail screen reads it. List, search, recommendation and write responses do not carry it.
+`owner_contact` shows the owner's number only to the owner and to admins. A signed-in viewer gets their own relationship manager's `contact_number` (`users.agent_id`, active agents only). Agents get the owner's agent. Guests and viewers with no manager get the company number (`COMPANY_CONTACT_NUMBER`, default `+919999900876`). `agent` on the detail response follows the same rule: the viewer's manager, or null. `listing_preferences` shows only the public keys to non-admin viewers. `agent` (PropertyAgent) is returned on the detail response only, because the detail screen reads it. List, search, recommendation and write responses do not carry it.
 
 Anonymous first-page search results are cached per filter set. The cache key includes `include_total`. A cached entry keeps the raw `owner_contact` and the agent, and the response is masked for the current viewer at read time.
 

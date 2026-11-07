@@ -26,6 +26,7 @@ from app.services.pm_properties import (
     list_managed_properties,
     update_managed_property,
 )
+from app.services.property import load_viewer
 from app.services.visibility import Viewer, mask_owner_contact, mask_owner_contacts
 
 router = APIRouter()
@@ -123,7 +124,7 @@ async def list_pm_properties(
         limit=page.limit,
         with_total=page.include_total,
     )
-    viewer = Viewer.from_user(current_user)
+    viewer = await load_viewer(db, current_user)
     return build_cursor_page(
         [PropertySchema.model_validate(p) for p in mask_owner_contacts(rows, viewer)],
         limit=page.limit,
@@ -141,7 +142,8 @@ async def get_pm_property(
 ):
     """Get managed property."""
     res = await get_managed_property_detail(db, actor=current_user, property_id=property_id)
-    viewer = Viewer.from_user(current_user)
+    # A tenant may read this; they see their own relationship manager.
+    viewer = await load_viewer(db, current_user)
     return ManagedPropertyDetail(
         property=PropertySchema.model_validate(mask_owner_contact(res["property"], viewer)),
         active_lease=LeaseSchema.model_validate(res["active_lease"])

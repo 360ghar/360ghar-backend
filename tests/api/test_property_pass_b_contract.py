@@ -201,7 +201,8 @@ async def test_detail_carries_agent_and_visit_fields_and_list_does_not(client: A
         ),
     ):
         body = (await client.get("/api/v1/properties/1")).json()
-    assert body["agent"]["name"] == "Asha"
+    # The detail carries the agent key. A guest gets null (the company number is the contact).
+    assert "agent" in body and body["agent"] is None
     assert body["user_scheduled_visit_count"] == 2
     assert "vector_distance" not in body
 
