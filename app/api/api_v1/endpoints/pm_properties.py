@@ -26,7 +26,7 @@ from app.services.pm_properties import (
     list_managed_properties,
     update_managed_property,
 )
-from app.services.property import load_viewer
+from app.services.property import attach_owner_agents, load_viewer
 from app.services.visibility import Viewer, mask_owner_contact, mask_owner_contacts
 
 router = APIRouter()
@@ -124,9 +124,11 @@ async def list_pm_properties(
         limit=page.limit,
         with_total=page.include_total,
     )
+    props = [PropertySchema.model_validate(p) for p in rows]
+    await attach_owner_agents(db, props)  # agents see the owner's agent
     viewer = await load_viewer(db, current_user)
     return build_cursor_page(
-        [PropertySchema.model_validate(p) for p in mask_owner_contacts(rows, viewer)],
+        mask_owner_contacts(props, viewer),
         limit=page.limit,
         next_payload=next_payload,
         total=total,
@@ -142,10 +144,12 @@ async def get_pm_property(
 ):
     """Get managed property."""
     res = await get_managed_property_detail(db, actor=current_user, property_id=property_id)
+    prop = PropertySchema.model_validate(res["property"])
+    await attach_owner_agents(db, [prop])  # agents see the owner's agent
     # A tenant may read this; they see their own relationship manager.
     viewer = await load_viewer(db, current_user)
     return ManagedPropertyDetail(
-        property=PropertySchema.model_validate(mask_owner_contact(res["property"], viewer)),
+        property=mask_owner_contact(prop, viewer),
         active_lease=LeaseSchema.model_validate(res["active_lease"])
         if res["active_lease"]
         else None,

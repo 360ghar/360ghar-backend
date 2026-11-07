@@ -178,7 +178,10 @@ def mask_listing_preferences(prop: T, viewer: Viewer | Any | None) -> T:
 def _listing_contact(prop: Any, v: Viewer) -> tuple[Any, str | None]:
     """The (agent, number) a viewer who is not the owner or an admin gets for a listing."""
     if v.is_agent:
-        return _get(prop, "agent"), _agent_contact(prop) or settings.COMPANY_CONTACT_NUMBER
+        number = _agent_contact(prop)
+        if number:
+            return _get(prop, "agent"), number
+        return None, settings.COMPANY_CONTACT_NUMBER
     number = _get(v.manager, "contact_number") if v.user is not None else None
     if number:
         return v.manager, number

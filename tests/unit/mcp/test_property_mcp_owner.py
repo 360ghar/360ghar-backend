@@ -34,6 +34,7 @@ pytestmark = pytest.mark.asyncio
 OWNER_NUMBER = "9000000111"
 AGENT_NUMBER = "9000000001"
 COMPANY_NUMBER = "9000000999"
+TENANT_MANAGER_NUMBER = "9000000222"
 
 
 async def _gen(db):
@@ -128,14 +129,25 @@ async def test_owner_sees_the_owner_number(db_session, listing, company_number):
 async def test_tenant_sees_their_own_manager_not_the_owner_number(
     db_session, listing, company_number
 ):
-    listing["tenant"].agent_id = listing["owner"].agent_id
+    manager = Agent(
+        name="Tenant RM",
+        contact_number=TENANT_MANAGER_NUMBER,
+        agent_type=AgentType.general,
+        experience_level=ExperienceLevel.beginner,
+        is_active=True,
+        is_available=True,
+    )
+    db_session.add(manager)
+    await db_session.flush()
+    listing["tenant"].agent_id = manager.id
     await db_session.flush()
 
     result = await _owner_properties_get(db_session, listing["tenant"], listing["property"].id)
 
     assert result["ok"] is True
-    assert result["data"]["property"]["owner_phone"] == AGENT_NUMBER
+    assert result["data"]["property"]["owner_phone"] == TENANT_MANAGER_NUMBER
     assert OWNER_NUMBER not in str(result)
+    assert AGENT_NUMBER not in str(result)
 
 
 async def test_tenant_without_a_manager_sees_the_company_number(

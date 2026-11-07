@@ -11,12 +11,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 from app.api.api_v1.dependencies.auth import (
+    get_current_active_user,
     get_current_cached_active_user,
     get_current_user_optional,
 )
 from app.config import settings
+from app.models.enums import UserRole
+from app.services.property import load_viewer
 from tests.fixtures.factories import AgentFactory, PropertyFactory, UserFactory, VisitFactory
 
 pytestmark = pytest.mark.asyncio
@@ -119,3 +124,59 @@ async def test_visit_list_and_detail_show_the_visitors_manager(
     row = next(item for item in listed.json()["items"] if item["id"] == visit.id)
     assert row["property"]["owner_contact"] == VIEWER_MANAGER_CONTACT
     assert detail.json()["property"]["owner_contact"] == VIEWER_MANAGER_CONTACT
+
+
+async def test_manager_comes_from_the_current_assignment_not_the_auth_snapshot(
+    test_app, client: AsyncClient, db_session
+):
+    prop = await _listing(db_session)
+    old = await AgentFactory.create(db_session, contact_number="+919333333333")
+    new = await AgentFactory.create(db_session, contact_number=VIEWER_MANAGER_CONTACT)
+    visitor = await UserFactory.create(db_session, agent_id=new.id)
+    visit = await VisitFactory.create(db_session, user=visitor, property_obj=prop)
+
+    # The cached snapshot still names the old manager.
+    snapshot = SimpleNamespace(id=visitor.id, role="user", agent_id=old.id, is_active=True)
+    test_app.dependency_overrides[get_current_cached_active_user] = lambda: snapshot
+
+    detail = await client.get(f"/api/v1/visits/{visit.id}")
+
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["property"]["owner_contact"] == VIEWER_MANAGER_CONTACT
+
+
+async def test_a_failed_manager_lookup_falls_back_and_keeps_the_session(db_session, monkeypatch):
+    manager = await AgentFactory.create(db_session, contact_number=VIEWER_MANAGER_CONTACT)
+    user = await UserFactory.create(db_session, agent_id=manager.id)
+    real_execute = db_session.execute
+
+    async def failing_execute(*args, **kwargs):
+        raise OperationalError("SELECT", {}, Exception("connection reset"))
+
+    monkeypatch.setattr(db_session, "execute", failing_execute)
+    viewer = await load_viewer(db_session, user)
+    monkeypatch.setattr(db_session, "execute", real_execute)
+
+    assert viewer.manager is None
+    assert viewer.id == user.id
+    # The savepoint rolled back; the request's transaction still works.
+    assert (await db_session.execute(text("SELECT 1"))).scalar() == 1
+
+
+async def test_agent_sees_the_owners_agent_on_the_pm_detail(
+    test_app, client: AsyncClient, db_session
+):
+    owner_agent = await AgentFactory.create(db_session, contact_number=OWNER_AGENT_CONTACT)
+    owner = await UserFactory.create(db_session, agent_id=owner_agent.id)
+    prop = await PropertyFactory.create(
+        db_session, owner=owner, owner_contact=OWNER_CONTACT, is_managed=True
+    )
+    agent_user = await UserFactory.create(
+        db_session, role=UserRole.agent.value, agent_id=owner_agent.id
+    )
+    test_app.dependency_overrides[get_current_active_user] = lambda: agent_user
+
+    detail = await client.get(f"/api/v1/pm/properties/{prop.id}")
+
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["property"]["owner_contact"] == OWNER_AGENT_CONTACT

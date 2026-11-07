@@ -128,6 +128,14 @@ def test_agent_viewer_keeps_the_owners_agent():
     assert out["agent"] == {"contact_number": AGENT_NUMBER}
 
 
+def test_agent_viewer_gets_the_company_number_when_the_owners_agent_has_no_number():
+    viewer = Viewer.from_user(_user(97, UserRole.agent.value))
+    row = {**_row(), "agent": {"id": 3, "contact_number": None}}
+    out = mask_owner_contact(row, viewer)
+    assert out["owner_contact"] == COMPANY
+    assert out["agent"] is None
+
+
 def test_pydantic_model_gets_the_viewers_manager():
     prop = Property.model_construct(
         owner_id=OWNER_ID,

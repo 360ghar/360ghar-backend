@@ -17,7 +17,7 @@ import pytest
 from app.config import settings
 from app.mcp.chatgpt import discovery_tools
 from app.mcp.utils import serialize_property_full
-from app.schemas.property import PropertyDetail
+from app.schemas.property import PropertyAgent, PropertyDetail
 from app.services.ai_agent.tools import discovery as agent_discovery
 from app.services.visibility import Viewer
 
@@ -130,7 +130,7 @@ def test_detail_has_the_same_keys_as_the_orm_path():
         (
             dataclasses.replace(
                 Viewer.from_user(_viewer(10)),
-                manager={"id": 4, "name": "Ravi", "contact_number": MANAGER_NUMBER},
+                manager=PropertyAgent(id=4, name="Ravi", contact_number=MANAGER_NUMBER),
             ),
             MANAGER_NUMBER,
         ),

@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import DateTime, func, select, update
 from sqlalchemy import delete as sa_delete
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -402,12 +403,21 @@ async def load_viewer(db: AsyncSession, user: Viewer | Any | None) -> Viewer:
     without this call gets the company number, so the owner's number never leaks.
     """
     viewer = as_viewer(user)
-    agent_id = getattr(viewer.user, "agent_id", None)
-    if agent_id is None or viewer.is_admin or viewer.is_agent:
+    if getattr(viewer.user, "agent_id", None) is None or viewer.is_admin or viewer.is_agent:
         return viewer
-    agent = (
-        await db.execute(select(Agent).where(Agent.id == agent_id, Agent.is_active.is_(True)))
-    ).scalar_one_or_none()
+    # Read the current assignment: a cached auth snapshot's agent_id can be stale.
+    stmt = (
+        select(Agent)
+        .join(UserModel, UserModel.agent_id == Agent.id)
+        .where(UserModel.id == viewer.id, Agent.is_active.is_(True))
+    )
+    try:
+        # A savepoint, so a failed lookup does not abort the request's transaction.
+        async with db.begin_nested():
+            agent = (await db.execute(stmt)).scalar_one_or_none()
+    except SQLAlchemyError:
+        logger.warning("Relationship manager lookup failed for user %s", viewer.id, exc_info=True)
+        return viewer
     if agent is None:
         return viewer
     return dataclasses.replace(viewer, manager=PropertyAgent.model_validate(agent))

@@ -28,7 +28,9 @@ RECOMMENDATION_MAX_LIMIT = 20
 
 
 async def _viewer(ctx: RunContext[AgentDeps]) -> Viewer:
-    return await load_viewer(ctx.deps.db, ctx.deps.user)
+    db = ctx.deps.db
+    assert db is not None  # run_with_short_db_session binds it for every tool call
+    return await load_viewer(db, ctx.deps.user)
 
 
 async def guest_property_search(
