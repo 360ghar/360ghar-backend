@@ -263,11 +263,20 @@ def calculate_builder_score(total_complaints: int, total_projects: int) -> float
 # =============================================================================
 
 
+# A price written as "12 Lakh" or "1.25 Crore". Anchored to the start, so a plain
+# number followed by words ("500000 (Five Lakh)") is read as the number.
+_LAKH_CRORE_PRICE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(lakhs?|lacs?|crores?|cr)\b", re.IGNORECASE)
+
+
 def _parse_currency(val: str) -> float | None:
-    """Extract a numeric price from a string like '₹ 1,25,00,000' or '12500000'."""
+    """Extract a numeric price from a string like '₹ 1,25,00,000', '1.25 Crore' or '12500000'."""
     if not val:
         return None
     cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
+    unit = _LAKH_CRORE_PRICE.match(cleaned)
+    if unit:
+        multiplier = 10_000_000 if unit.group(2).lower().startswith("cr") else 100_000
+        return float(unit.group(1)) * multiplier
     # Remove any remaining non-numeric chars except dot
     cleaned = re.sub(r"[^\d.]", "", cleaned)
     try:
