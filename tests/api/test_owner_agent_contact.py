@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
-from sqlalchemy.exc import OperationalError
 
 from app.api.api_v1.dependencies.auth import (
     get_current_active_user,
@@ -151,7 +150,9 @@ async def test_a_failed_manager_lookup_falls_back_and_keeps_the_session(db_sessi
     real_execute = db_session.execute
 
     async def failing_execute(*args, **kwargs):
-        raise OperationalError("SELECT", {}, Exception("connection reset"))
+        # A real error from Postgres, inside load_viewer's savepoint. Without the
+        # savepoint, the transaction would be aborted and the SELECT 1 below would fail.
+        return await real_execute(text("SELECT 1/0"))
 
     monkeypatch.setattr(db_session, "execute", failing_execute)
     viewer = await load_viewer(db_session, user)
