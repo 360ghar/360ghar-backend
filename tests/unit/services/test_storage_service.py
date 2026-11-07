@@ -28,7 +28,7 @@ class TestStorageServiceErrors:
     """Regression tests for storage exception handling."""
 
     @pytest.mark.asyncio
-    async def test_upload_agent_avatar_preserves_invalid_file_error(self):
+    async def test_upload_user_avatar_preserves_invalid_file_error(self):
         service = StorageService()
         service.supabase = MagicMock()
 
@@ -39,7 +39,7 @@ class TestStorageServiceErrors:
         )
 
         with pytest.raises(InvalidFileException):
-            await service.upload_agent_avatar(file, agent_id=1)
+            await service.upload_user_avatar(file, user_id=1)
 
     @pytest.mark.asyncio
     async def test_create_presigned_upload_oversize_returns_413_exception(self):
@@ -85,23 +85,6 @@ class TestStorageServiceErrors:
                 user_id=1,
                 folder=StorageFolder.AVATAR,
             )
-
-        service.cloudinary.upload_file.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_upload_agent_avatar_rejects_oversize_file_before_storage_upload(self):
-        service = StorageService()
-        service._max_upload_bytes = 4
-        service._cloudinary = MagicMock()
-
-        file = UploadFile(
-            filename="avatar.jpg",
-            file=BytesIO(b"\xff\xd8\xffabcdef"),
-            headers=Headers({"content-type": "image/jpeg"}),
-        )
-
-        with pytest.raises(FileTooLargeException):
-            await service.upload_agent_avatar(file, agent_id=1)
 
         service.cloudinary.upload_file.assert_not_called()
 

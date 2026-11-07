@@ -160,16 +160,6 @@ class TestServiceRejectsSpoofedUploads:
         assert exc_info.value.error_code == "INVALID_FILE_TYPE"
 
     @pytest.mark.asyncio
-    async def test_upload_agent_avatar_rejects_spoofed_mp4(self):
-        service = StorageService()
-        service._cloudinary = object()
-
-        file = _make_upload(SPOOFED_MP4, "video/mp4", "avatar.mp4")
-        with pytest.raises(StorageException) as exc_info:
-            await service.upload_agent_avatar(file, agent_id=1)
-        assert exc_info.value.error_code == "INVALID_FILE_TYPE"
-
-    @pytest.mark.asyncio
     async def test_upload_file_rejects_spoofed_webm(self):
         service = StorageService()
         service._cloudinary = object()
