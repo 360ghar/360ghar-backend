@@ -8,7 +8,7 @@ and role-based authorization used across both User and Admin MCP servers.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from mcp.server.auth.middleware.auth_context import get_access_token as get_auth_access_token
 from pydantic import TypeAdapter
@@ -17,6 +17,7 @@ from sqlalchemy.exc import NoInspectionAvailable
 
 from app.core.database import AsyncSessionLocalBG
 from app.core.logging import get_logger
+from app.mcp.apps_sdk import raise_auth_required
 from app.models.enums import UserRole
 from app.schemas.base import UtcDateTime
 from app.services.user import get_user_by_id
@@ -105,6 +106,19 @@ def can_manage_property(user: User, property_owner_id: int) -> bool:
     if property_owner_id == user.id:
         return True
     return False
+
+
+def require_mcp_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> NoReturn:
+    """Raise the MCP auth challenge. Shared by the user and admin servers."""
+    raise_auth_required(
+        message=message,
+        error_description=message,
+        scope=scope,
+        structured_content={
+            "requires_auth": True,
+            "action": action,
+        },
+    )
 
 
 async def get_user_from_mcp_context(db) -> User | None:

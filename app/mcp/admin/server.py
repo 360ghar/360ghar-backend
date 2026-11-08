@@ -9,40 +9,19 @@ This module also defines the shared auth helpers used by every tool.
 """
 from __future__ import annotations
 
-from typing import NoReturn
-
 from app.core.logging import get_logger
-from app.mcp.apps_sdk import (
-    AppsSDKFastMCP,
-    raise_auth_required,
-)
-from app.mcp.utils import (
-    get_user_from_mcp_context,
-    get_user_role,
-)
+from app.mcp.apps_sdk import AppsSDKFastMCP
+
+# Re-exported: tool modules import these two names from this module.
+from app.mcp.utils import get_user_from_mcp_context as _get_user  # noqa: F401
+from app.mcp.utils import get_user_role
+from app.mcp.utils import require_mcp_auth as _require_auth  # noqa: F401
 from app.models.enums import UserRole
 
 logger = get_logger(__name__)
 
 # Create the Admin MCP server instance
 admin_mcp = AppsSDKFastMCP("ghar360-admin")
-
-
-async def _get_user(db):
-    """Get user from MCP OAuth context."""
-    return await get_user_from_mcp_context(db)
-
-
-def _require_auth(*, action: str, message: str, scope: str = "mcp:read mcp:write") -> NoReturn:
-    raise_auth_required(
-        message=message,
-        error_description=message,
-        scope=scope,
-        structured_content={
-            "requires_auth": True,
-            "action": action,
-        },
-    )
 
 
 def _require_agent_or_admin(user) -> bool:

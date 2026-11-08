@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash, upsert_bank_auction
+from app.services.data_hub.utils import _parse_currency, address_hash, upsert_bank_auction
 
 logger = logging.getLogger(__name__)
 
@@ -50,29 +50,6 @@ def _detect_city(text: str) -> str:
         if re.search(pattern, text_lower):
             return city
     return "Gurugram"
-
-
-def _parse_price(val: str) -> float | None:
-    """Extract a numeric price from a string like '₹12,50,000' or '1250000'."""
-    if not val:
-        return None
-    cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
-    # Handle Lakh / Crore notation
-    cleaned_lower = cleaned.lower()
-    try:
-        if "lakh" in cleaned_lower or "lac" in cleaned_lower:
-            num = float(re.sub(r"[^\d.]", "", cleaned.split()[0]))
-            return num * 100000
-        if "crore" in cleaned_lower or "cr" in cleaned_lower:
-            num = float(re.sub(r"[^\d.]", "", cleaned.split()[0]))
-            return num * 10000000
-    except (ValueError, IndexError):
-        pass
-    cleaned = re.sub(r"[^\d.]", "", cleaned)
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
 
 
 def _parse_date(val: str) -> date | None:
@@ -133,12 +110,13 @@ class AggregatorEauctionsScraper(BaseScraper):
             }
             # Try price extraction from card text
             price_match = re.search(
-                r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*([\d,]+(?:\.\d+)?)",
+                r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*"
+                r"([\d,]+(?:\.\d+)?(?:\s*(?:lakhs?|lacs?|crores?|cr)\b)?)",
                 text,
                 re.I,
             )
             if price_match:
-                price = _parse_price(price_match.group(1))
+                price = _parse_currency(price_match.group(1))
                 if price is not None:
                     record["reserve_price"] = price
             # Try date extraction
@@ -174,11 +152,11 @@ class AggregatorEauctionsScraper(BaseScraper):
             val = cells[i]
 
             if "reserve" in h or "base" in h or "price" in h or "amount" in h:
-                price = _parse_price(val)
+                price = _parse_currency(val)
                 if price is not None:
                     record["reserve_price"] = price
             elif "emd" in h or "earnest" in h:
-                price = _parse_price(val)
+                price = _parse_currency(val)
                 if price is not None:
                     record["emd_amount"] = price
             elif "date" in h and ("auction" in h or "bid" in h or "sale" in h):

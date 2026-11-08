@@ -205,28 +205,6 @@ class StorageService:
                 detail="File upload failed", error_code="UPLOAD_FAILED"
             ) from None
 
-    # ============================================================
-    # Legacy Upload Methods
-    # ============================================================
-
-    async def upload_property_image(
-        self,
-        file: UploadFile,
-        property_id: int,
-        user_id: int | None = None,
-        db: AsyncSession | None = None,
-    ) -> dict[str, Any]:
-        if user_id:
-            return await self.upload_with_path(
-                file,
-                user_id=user_id,
-                folder=StorageFolder.PROPERTY_IMAGE,
-                db=db,
-                property_id=property_id,
-                visibility="public",
-            )
-        return await self._upload_file(file, f"properties/{property_id}", "property_image")
-
     async def upload_user_avatar(
         self,
         file: UploadFile,
@@ -240,77 +218,6 @@ class StorageService:
             db=db,
             visibility="public",
         )
-
-    async def upload_agent_avatar(
-        self,
-        file: UploadFile,
-        agent_id: int,
-        user_id: int | None = None,
-    ) -> dict[str, Any]:
-        try:
-            if not is_valid_upload(file):
-                raise InvalidFileException(detail="Invalid file type")
-
-            file_content = await self._read_upload_content(file)
-            content_type = file.content_type or "application/octet-stream"
-
-            # Magic-byte validation: reject spoofed content_type headers for
-            # non-image types (PIL already validates images downstream).
-            expected_type = expected_type_from_content_type(content_type)
-            if expected_type and not validate_magic_bytes(file_content, expected_type):
-                raise StorageException(
-                    detail="Invalid file type",
-                    error_code="INVALID_FILE_TYPE",
-                )
-
-            is_image = content_type.startswith("image/")
-
-            # Optimize images to WebP before uploading
-            if is_image:
-                try:
-                    max_dim, quality = OPTIMIZE_SETTINGS.get(StorageFolder.AGENT_AVATAR, (512, 85))
-                    optimized_bytes, new_content_type = image_processing.optimize_for_web(
-                        file_content,
-                        max_dimension=max_dim,
-                        quality=quality,
-                    )
-                    file_content = optimized_bytes
-                    content_type = new_content_type
-                except Exception as exc:
-                    logger.warning(
-                        "Image optimization failed for agent avatar, uploading original: %s", exc
-                    )
-
-            file_extension = get_file_extension(
-                file.filename or "",
-                content_type=content_type,
-            )
-            unique_name = f"{uuid.uuid4()}{file_extension}"
-
-            result = self.cloudinary.upload_file(
-                file_bytes=file_content,
-                public_id=unique_name,
-                folder=f"agents/{agent_id}/avatars",
-                content_type=content_type,
-                is_image=is_image,
-            )
-
-            return {
-                "file_path": result["public_id"],
-                "public_url": result["secure_url"],
-                "file_type": "avatar",
-                "file_size": result["bytes"],
-                "content_type": content_type,
-                "original_filename": file.filename,
-            }
-
-        except BaseAPIException:
-            raise
-        except Exception:
-            logger.exception("Agent avatar upload error")
-            raise StorageException(
-                detail="File upload failed", error_code="UPLOAD_FAILED"
-            ) from None
 
     async def upload_generic(
         self,

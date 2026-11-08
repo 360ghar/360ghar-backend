@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import AuctionSource
 from app.services.data_hub.base_scraper import BaseScraper
-from app.services.data_hub.utils import address_hash, upsert_bank_auction
+from app.services.data_hub.utils import _parse_currency, address_hash, upsert_bank_auction
 
 logger = logging.getLogger(__name__)
 
@@ -48,19 +48,6 @@ def _infer_property_type(text: str) -> str | None:
         if keyword in text_lower:
             return ptype
     return None
-
-
-def _parse_price(val: str) -> float | None:
-    """Extract a numeric price from a string like '₹12,50,000' or '1250000'."""
-    if not val:
-        return None
-    cleaned = val.replace(",", "").replace("₹", "").replace("Rs.", "").replace("Rs", "").strip()
-    # Remove any remaining non-numeric chars except dots
-    cleaned = re.sub(r"[^\d.]", "", cleaned)
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
 
 
 def _parse_date(val: str) -> date | None:
@@ -115,14 +102,14 @@ class MdaAuctionScraper(BaseScraper):
                         break
                     val = cells[i]
 
-                    if "reserve" in h or "base" in h or "price" in h or "amount" in h:
-                        price = _parse_price(val)
-                        if price is not None:
-                            record["reserve_price"] = price
-                    elif "emd" in h or "earnest" in h:
-                        price = _parse_price(val)
+                    if "emd" in h or "earnest" in h:
+                        price = _parse_currency(val)
                         if price is not None:
                             record["emd_amount"] = price
+                    elif "reserve" in h or "base" in h or "price" in h or "amount" in h:
+                        price = _parse_currency(val)
+                        if price is not None:
+                            record["reserve_price"] = price
                     elif "date" in h and ("auction" in h or "bid" in h or "sale" in h):
                         parsed = _parse_date(val)
                         if parsed:
