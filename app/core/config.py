@@ -90,8 +90,8 @@ class Settings(BaseSettings):
     # ── Public URLs ─────────────────────────────────────────────────────────────
     PUBLIC_BASE_URL: str | None = None  # e.g., https://xyz.ngrok-free.app (OAuth/MCP)
     PUBLIC_APP_URL: str | None = None  # e.g., https://360viewer.360ghar.com (share previews)
-    # Shown as the contact for a listing when its owner's number is hidden and no agent is assigned.
-    COMPANY_CONTACT_NUMBER: str | None = None
+    # The listing contact for guests, and for signed-in users with no relationship manager.
+    COMPANY_CONTACT_NUMBER: str | None = "+919999900876"
 
     # ── CORS ─────────────────────────────────────────────────────────────────────
     # Set CORS_ORIGINS_STR via env to override the default list (comma-separated).

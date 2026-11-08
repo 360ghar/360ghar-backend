@@ -160,7 +160,7 @@ async def test_anonymous_list_cache_hit_masks_owner_contact(
 
     first = await client.get("/api/v1/properties", params=params)
     row = next(item for item in first.json()["items"] if item["id"] == prop.id)
-    assert row["owner_contact"] == AGENT_NUMBER
+    assert row["owner_contact"] == COMPANY  # a guest gets the company number
 
     # The row changes in the database. The second request must still see the cached
     # title, which proves it is a cache hit.
@@ -172,7 +172,7 @@ async def test_anonymous_list_cache_hit_masks_owner_contact(
     assert second.status_code == 200, second.text
     hit = next(item for item in second.json()["items"] if item["id"] == prop.id)
     assert hit["title"] == "Before"
-    assert hit["owner_contact"] == AGENT_NUMBER
+    assert hit["owner_contact"] == COMPANY  # a guest gets the company number
     assert OWNER_PHONE not in second.text
     assert set(MODERATOR_KEYS).isdisjoint(hit["listing_preferences"] or {})
     assert "agent" not in hit

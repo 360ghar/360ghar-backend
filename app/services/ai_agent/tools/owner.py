@@ -42,7 +42,7 @@ from app.models.enums import (
 )
 from app.schemas.pagination import decode_cursor, encode_cursor
 from app.services.ai_agent.tools.helpers import AgentDeps, _user_schema, owner_scope
-from app.services.property import attach_owner_agents
+from app.services.property import attach_owner_agents, load_viewer
 from app.utils.validators import ValidationUtils
 
 logger = get_logger(__name__)
@@ -184,7 +184,7 @@ async def owner_properties_get(
     active_lease = result.get("active_lease")
     await attach_owner_agents(db, [prop])
     return {
-        "property": serialize_property_full(prop, viewer=user),
+        "property": serialize_property_full(prop, viewer=await load_viewer(db, user)),
         "active_lease": serialize_lease(active_lease, user) if active_lease else None,
     }
 
@@ -301,7 +301,7 @@ async def agent_properties_get(
     lease = result.get("active_lease")
     await attach_owner_agents(db, [prop])
     return {
-        "property": serialize_property_full(prop, viewer=user),
+        "property": serialize_property_full(prop, viewer=await load_viewer(db, user)),
         "active_lease": serialize_lease(lease, user) if lease else None,
     }
 

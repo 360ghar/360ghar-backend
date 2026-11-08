@@ -1,7 +1,17 @@
 from types import SimpleNamespace
 
+import pytest
+
+from app.config import settings
 from app.schemas.property import Property
 from app.services.visibility import mask_owner_contact, mask_owner_contacts
+
+
+@pytest.fixture(autouse=True)
+def _no_company_number(monkeypatch):
+    # These tests check that the owner number is hidden. The replacement is tested in
+    # tests/contract/test_visibility.py.
+    monkeypatch.setattr(settings, "COMPANY_CONTACT_NUMBER", None)
 
 
 def _prop(owner_id=1, contact="9876543210"):

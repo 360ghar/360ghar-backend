@@ -542,8 +542,10 @@ class PropertyAgent(BaseModel):
 
 
 class Property(PropertyInDB):
-    # attach_owner_agents sets this, and masking reads it to show the agent's number to
-    # non-owners. exclude=True keeps it off list, search, recommendation and write responses.
+    # attach_owner_agents sets this to the owner's agent. Masking keeps it for the owner,
+    # admins and agents, and replaces it with the viewer's own relationship manager (or
+    # None) for everyone else. exclude=True keeps it off list, search, recommendation and
+    # write responses.
     # PropertyDetail shows it, because only the detail screen reads it.
     agent: PropertyAgent | None = Field(default=None, exclude=True)
     # images holds the photos. floor_plans holds the floor_plan category rows. The
@@ -572,8 +574,8 @@ class Property(PropertyInDB):
         return self
 
     def cache_payload(self) -> dict[str, Any]:
-        """The cached form of this listing. It keeps the agent, which read-time masking
-        needs to show the agent's number on a cache hit. The wire dump drops it."""
+        """The cached form of this listing. It keeps the owner's agent, which read-time
+        masking shows to agent viewers on a cache hit. The wire dump drops it."""
         data = self.model_dump(mode="json")
         data["agent"] = self.agent.model_dump(mode="json") if self.agent else None
         return data

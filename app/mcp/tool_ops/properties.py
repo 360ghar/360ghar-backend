@@ -36,7 +36,7 @@ from app.services.pm_properties import (
     get_managed_property_detail,
     list_managed_properties,
 )
-from app.services.property import attach_owner_agents, update_property
+from app.services.property import attach_owner_agents, load_viewer, update_property
 from app.services.user import get_user_by_id
 from app.services.visibility import mask_user_ref
 from app.utils.validators import ValidationUtils
@@ -297,11 +297,11 @@ async def get_property_detail(
 
     prop = result["property"]
     active_lease = result.get("active_lease")
-    # Non-owners see the assigned agent's number, so the agent must be loaded before masking.
+    # Agents see the owner's agent; a signed-in viewer sees their own manager (load_viewer).
     await attach_owner_agents(db, [prop])
 
     response = {
-        "property": serialize_property_full(prop, viewer=actor),
+        "property": serialize_property_full(prop, viewer=await load_viewer(db, actor)),
         "active_lease": serialize_lease(active_lease, actor) if active_lease else None,
     }
 

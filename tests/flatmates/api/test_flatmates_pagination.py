@@ -604,6 +604,7 @@ COMPANY_CONTACT = "+91 8000000000"
 
 
 async def _seed_liked_listing_for_masking(db_session, viewer: User, *, with_agent: bool) -> None:
+    """with_agent assigns a relationship manager to the viewer, the contact they should see."""
     agent_id = None
     if with_agent:
         agent = Agent(
@@ -617,8 +618,8 @@ async def _seed_liked_listing_for_masking(db_session, viewer: User, *, with_agen
         await db_session.flush()
         agent_id = agent.id
 
+    viewer.agent_id = agent_id
     owner = _make_user("liked_listing_owner")
-    owner.agent_id = agent_id
     db_session.add(owner)
     await db_session.flush()
 
@@ -651,7 +652,7 @@ async def _seed_liked_listing_for_masking(db_session, viewer: User, *, with_agen
     await db_session.flush()
 
 
-async def test_outgoing_like_shows_agent_number_not_owner_contact(
+async def test_outgoing_like_shows_the_viewers_manager_not_owner_contact(
     db_session, viewer_user, flatmates_client: AsyncClient
 ) -> None:
     await _seed_liked_listing_for_masking(db_session, viewer_user, with_agent=True)

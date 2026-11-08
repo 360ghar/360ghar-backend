@@ -26,7 +26,7 @@ from app.schemas.swipe import (
 )
 from app.schemas.user import User as UserSchema
 from app.services.auth_user_cache import AuthUserSnapshot
-from app.services.property import attach_owner_agents
+from app.services.property import attach_owner_agents, load_viewer
 from app.services.swipe import (
     batch_unswipe,
     get_swipe_history,
@@ -142,7 +142,7 @@ async def get_user_swipe_history(
 
         await attach_owner_agents(db, props)
         return build_cursor_page(
-            mask_owner_contacts(props, current_user),
+            mask_owner_contacts(props, await load_viewer(db, current_user)),
             limit=page.limit,
             next_payload=next_payload,
             total=total,

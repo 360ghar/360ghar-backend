@@ -55,7 +55,7 @@ from app.services.property.search_orchestration import (
     build_property_search_filters,
     run_property_search,
 )
-from app.services.visibility import Viewer, mask_owner_contact
+from app.services.visibility import mask_owner_contact
 
 logger = get_logger(__name__)
 
@@ -414,7 +414,7 @@ async def discovery_property_get(
         Full property details.
     """
     try:
-        from app.services.property import get_property
+        from app.services.property import get_property, load_viewer
 
         async with AsyncSessionLocal() as db:
             # Get optional user to check if property is liked
@@ -422,10 +422,11 @@ async def discovery_property_get(
 
             # Get property details; owner contact is masked for every non-owner viewer.
             property_obj = await get_property(db, property_id)
-            property_obj = mask_owner_contact(property_obj, Viewer.from_user(user))
+            viewer = await load_viewer(db, user)
+            property_obj = mask_owner_contact(property_obj, viewer)
 
-            # Serialize with full details
-            property_data = serialize_property_full(property_obj, viewer=Viewer.from_user(user))
+            # Serialize with full details (the same viewer, so the second mask keeps the manager)
+            property_data = serialize_property_full(property_obj, viewer=viewer)
 
             # Check if user has liked this property
             if user:

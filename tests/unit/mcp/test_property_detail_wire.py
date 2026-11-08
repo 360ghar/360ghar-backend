@@ -6,6 +6,7 @@ read the real Pydantic model, so they guard the path the ORM-shaped tests missed
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -13,13 +14,24 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.config import settings
 from app.mcp.chatgpt import discovery_tools
 from app.mcp.utils import serialize_property_full
-from app.schemas.property import PropertyDetail
+from app.schemas.property import PropertyAgent, PropertyDetail
 from app.services.ai_agent.tools import discovery as agent_discovery
+from app.services.visibility import Viewer
 
 OWNER_NUMBER = "+91-9000000000"
 AGENT_NUMBER = "9876543210"
+COMPANY_NUMBER = "+918000000000"
+MANAGER_NUMBER = "+919000000003"
+
+
+@pytest.fixture(autouse=True)
+def _company_number(monkeypatch):
+    monkeypatch.setattr(settings, "COMPANY_CONTACT_NUMBER", COMPANY_NUMBER)
+
+
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 BASE = {
@@ -113,12 +125,19 @@ def test_detail_has_the_same_keys_as_the_orm_path():
 @pytest.mark.parametrize(
     ("viewer", "expected"),
     [
-        (None, AGENT_NUMBER),
-        (_viewer(10), AGENT_NUMBER),
+        (None, COMPANY_NUMBER),
+        (_viewer(10), COMPANY_NUMBER),
+        (
+            dataclasses.replace(
+                Viewer.from_user(_viewer(10)),
+                manager=PropertyAgent(id=4, name="Ravi", contact_number=MANAGER_NUMBER),
+            ),
+            MANAGER_NUMBER,
+        ),
         (_viewer(2), OWNER_NUMBER),
         (_viewer(99, role="admin"), OWNER_NUMBER),
     ],
-    ids=["anonymous", "stranger", "owner", "admin"],
+    ids=["anonymous", "stranger-without-manager", "stranger-with-manager", "owner", "admin"],
 )
 def test_owner_phone_follows_the_viewer(viewer, expected):
     out = serialize_property_full(_detail(agent=_agent()), viewer=viewer)
@@ -168,7 +187,7 @@ async def test_discovery_property_get_hides_the_owner_number(user):
 
     payload = json.dumps(result.structured_content)
     assert OWNER_NUMBER not in payload
-    assert result.structured_content["property"]["owner_phone"] == AGENT_NUMBER
+    assert result.structured_content["property"]["owner_phone"] == COMPANY_NUMBER
     assert result.structured_content["property"]["amenities"][0]["name"] == "Gym"
 
 
@@ -189,6 +208,6 @@ async def test_guest_property_details_hides_the_owner_number(user):
         out = await agent_discovery.guest_property_details(_agent_ctx(user), property_id=42)
 
     assert OWNER_NUMBER not in json.dumps(out)
-    assert out["property"]["owner_phone"] == AGENT_NUMBER
+    assert out["property"]["owner_phone"] == COMPANY_NUMBER
     assert out["property"]["furnished_status"] == "semi_furnished"
     assert out["property"]["amenities"][0]["name"] == "Gym"

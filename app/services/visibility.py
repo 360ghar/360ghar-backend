@@ -1,7 +1,8 @@
 """Who sees which user and contact data.
 
-- Owner contact goes to the listing owner and admins. Other viewers see the
-  assigned agent's number, or the company number when no agent is assigned.
+- Owner contact goes to the listing owner and admins. A signed-in viewer sees their own
+  relationship manager (``Viewer.manager``, set by ``load_viewer``). Agents see the
+  owner's agent. Everyone else, and a viewer with no manager, sees the company number.
 - A visit counterparty's contact details (email, phone, location) go to the
   counterparty, the listing owner and admins. Everyone else sees name and avatar.
 - A user embedded in another record (the tenant or owner of a lease, an applicant) is a
@@ -81,6 +82,8 @@ class Viewer:
     user: Any | None = None
     is_admin: bool = False
     is_agent: bool = False
+    # The viewer's own relationship manager (a PropertyAgent). Only load_viewer sets it.
+    manager: Any | None = None
 
     @classmethod
     def from_user(cls, user: Any | None) -> Viewer:
@@ -172,17 +175,35 @@ def mask_listing_preferences(prop: T, viewer: Viewer | Any | None) -> T:
     return _replace(prop, {"listing_preferences": value})
 
 
-def mask_owner_contact(prop: T, viewer: Viewer | Any | None) -> T:
-    """Show the owner's contact only to the owner and admins. Others get the agent's or company number.
+def _listing_contact(prop: Any, v: Viewer) -> tuple[Any, str | None]:
+    """The (agent, number) a viewer who is not the owner or an admin gets for a listing."""
+    if v.is_agent:
+        number = _agent_contact(prop)
+        if number:
+            return _get(prop, "agent"), number
+        return None, settings.COMPANY_CONTACT_NUMBER
+    number = _get(v.manager, "contact_number") if v.user is not None else None
+    if number:
+        return v.manager, number
+    return None, settings.COMPANY_CONTACT_NUMBER
 
-    Also applies ``mask_listing_preferences``, so one call masks a listing for a viewer.
+
+def mask_owner_contact(prop: T, viewer: Viewer | Any | None) -> T:
+    """Show the owner's contact only to the owner and admins. See the module docstring for others.
+
+    ``owner_contact`` and ``agent`` both change, so a client that reads either one shows the
+    same person. Also applies ``mask_listing_preferences``, so one call masks a listing.
     """
     v = as_viewer(viewer)
     updates: dict[str, Any] = {}
-    if name_in(prop, "owner_contact") and not (is_owner(v, prop) or v.is_admin):
-        replacement = _agent_contact(prop) or settings.COMPANY_CONTACT_NUMBER
-        if replacement != _get(prop, "owner_contact"):
-            updates["owner_contact"] = replacement
+    if not (is_owner(v, prop) or v.is_admin):
+        agent, number = _listing_contact(prop, v)
+        if name_in(prop, "owner_contact") and number != _get(prop, "owner_contact"):
+            updates["owner_contact"] = number
+        if name_in(prop, "agent") and agent is not _get(prop, "agent"):
+            if isinstance(prop, Mapping) and isinstance(agent, BaseModel):
+                agent = agent.model_dump(mode="json")
+            updates["agent"] = agent
     masked = mask_listing_preferences(prop, v)
     if masked is not prop:
         updates["listing_preferences"] = _get(masked, "listing_preferences")

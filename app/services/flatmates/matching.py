@@ -35,7 +35,7 @@ from app.services.flatmates.helpers import (
 from app.services.flatmates.profiles import load_visible_peer, profile_is_visible
 from app.services.flatmates.realtime import EVENT_NEW_MATCH, queue_flatmates_realtime_event
 from app.services.swipe import _upsert_user_swipe
-from app.services.visibility import Viewer, mask_owner_contact
+from app.services.visibility import mask_owner_contact
 
 logger = get_logger(__name__)
 
@@ -400,9 +400,9 @@ async def list_outgoing_likes(
     # Mask every liked listing for the caller: owner contact goes to the owner and admins,
     # and moderator keys of listing_preferences are removed for everyone else.
     # Local import: app.services.property imports this package, so a top-level import cycles.
-    from app.services.property import attach_owner_agents
+    from app.services.property import attach_owner_agents, load_viewer
 
-    viewer = Viewer.from_user(current_user)
+    viewer = await load_viewer(db, current_user)
     property_schemas: dict[int, PropertySchema] = {
         swipe.id: PropertySchema.model_validate(swipe.property, from_attributes=True)
         for swipe in outgoing_swipes

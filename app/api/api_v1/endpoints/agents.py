@@ -40,7 +40,7 @@ from app.services.agent import (
     update_agent,
     update_agent_availability,
 )
-from app.services.property import attach_owner_agents
+from app.services.property import attach_owner_agents, load_viewer
 from app.services.visibility import Viewer, mask_visits_contacts
 from app.services.visit import get_agent_visits
 
@@ -311,7 +311,7 @@ async def get_agent_visit_history(
     visits = [VisitSchema.model_validate(r, from_attributes=True) for r in rows]
     await attach_owner_agents(db, [v.property for v in visits])
     return build_cursor_page(
-        mask_visits_contacts(visits, current_user),
+        mask_visits_contacts(visits, await load_viewer(db, current_user)),
         limit=page.limit,
         next_payload=next_payload,
         total=total,
