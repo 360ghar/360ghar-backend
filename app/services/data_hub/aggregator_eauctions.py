@@ -110,7 +110,8 @@ class AggregatorEauctionsScraper(BaseScraper):
             }
             # Try price extraction from card text
             price_match = re.search(
-                r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*([\d,]+(?:\.\d+)?)",
+                r"(?:Reserve\s*Price|Base\s*Price|EMD)[:\s]*[₹Rs.]?\s*"
+                r"([\d,]+(?:\.\d+)?(?:\s*(?:lakhs?|lacs?|crores?|cr)\b)?)",
                 text,
                 re.I,
             )

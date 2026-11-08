@@ -102,14 +102,14 @@ class MdaAuctionScraper(BaseScraper):
                         break
                     val = cells[i]
 
-                    if "reserve" in h or "base" in h or "price" in h or "amount" in h:
-                        price = _parse_currency(val)
-                        if price is not None:
-                            record["reserve_price"] = price
-                    elif "emd" in h or "earnest" in h:
+                    if "emd" in h or "earnest" in h:
                         price = _parse_currency(val)
                         if price is not None:
                             record["emd_amount"] = price
+                    elif "reserve" in h or "base" in h or "price" in h or "amount" in h:
+                        price = _parse_currency(val)
+                        if price is not None:
+                            record["reserve_price"] = price
                     elif "date" in h and ("auction" in h or "bid" in h or "sale" in h):
                         parsed = _parse_date(val)
                         if parsed:
